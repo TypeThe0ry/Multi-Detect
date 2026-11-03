@@ -30,6 +30,7 @@ def _package() -> dict:
     return value, plan
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_signed_task_only_udp_loopback_plan_approval_and_status(tmp_path: Path) -> None:
     pytest.importorskip("pymavlink")
     raw, compiled = _package()

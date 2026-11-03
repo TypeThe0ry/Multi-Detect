@@ -381,6 +381,7 @@ def test_heartbeat_details_releases_the_gcs_port(monkeypatch) -> None:
     assert closed == [True]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_heartbeat_details_actually_frees_the_udp_port() -> None:
     import socket
 

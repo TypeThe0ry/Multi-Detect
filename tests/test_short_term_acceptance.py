@@ -8,6 +8,7 @@ from multidetect.short_term_acceptance import (
 )
 
 
+@pytest.mark.timing(reason="real CPU latency/rate budget requires a quiet performance runner")
 def test_short_term_image_acceptance_recovers_same_id_with_bounded_cache() -> None:
     report = run_short_term_tracking_acceptance(
         ShortTermTrackingAcceptanceConfig(benchmark_frames=60)
@@ -30,6 +31,7 @@ def test_short_term_image_acceptance_recovers_same_id_with_bounded_cache() -> No
     assert report["physical_release_enabled"] is False
 
 
+@pytest.mark.timing(reason="real CPU latency/rate budget requires a quiet performance runner")
 def test_recovery_latency_does_not_include_hidden_time_at_25_hz() -> None:
     report = run_short_term_tracking_acceptance(
         ShortTermTrackingAcceptanceConfig(benchmark_frames=60, frame_rate_hz=25.0)

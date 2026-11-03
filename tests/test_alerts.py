@@ -195,6 +195,7 @@ def test_outbox_automatically_bounds_delivered_rows_without_pruning_pending(tmp_
     outbox.close()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_authenticated_udp_alert_round_trip_returns_correlated_ack() -> None:
     key = b"test-only-alert-key-material-32-bytes-minimum"
     received = []
@@ -278,6 +279,7 @@ def test_authenticated_udp_header_rejects_boolean_and_float_version_fields(
         )
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_authenticated_udp_receiver_deduplicates_retransmitted_alert_id() -> None:
     key = b"test-only-alert-key-material-32-bytes-minimum"
     received = []
@@ -310,6 +312,7 @@ def test_authenticated_udp_receiver_deduplicates_retransmitted_alert_id() -> Non
     assert [item.duplicate for item in received] == [False, True]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_authenticated_udp_receiver_rejects_wrong_shared_key() -> None:
     receiver_key = b"receiver-test-key-material-of-at-least-32-bytes"
     sender_key = b"different-sender-key-material-at-least-32-bytes"

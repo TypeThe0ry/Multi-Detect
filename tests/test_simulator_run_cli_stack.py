@@ -488,6 +488,7 @@ def test_run_cli_forwards_no_px4_launch(monkeypatch, capsys) -> None:
     assert captured["px4_launch_strict"] is None
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_run_cli_px4_launch_dry_run_persists_wrapper_evidence(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

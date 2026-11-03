@@ -343,6 +343,7 @@ def test_wait_prearm_health_times_out_with_named_failures(monkeypatch) -> None:
         collector._wait_prearm_health(reader, timeout_s=0.02)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_mavlink_reader_drains_real_udp_mavlink2_burst() -> None:
     import socket
     import threading

@@ -54,6 +54,14 @@ def test_count_coverage_completion_hands_off_to_home() -> None:
         "state": "succeeded",
         "reason": "coverage_complete",
         "count_is_lower_bound": False,
+        "revisit_candidate_snapshots": [
+            {
+                "kind": kind, "remaining_primitives": 60,
+                "energy_margin_s": None, "candidates": [],
+                "remaining_primitives_after": 60,
+            }
+            for kind in ("revisit", "rejection")
+        ],
     }
     assert executor.history[1]["step"] == "home"
     assert executor.done

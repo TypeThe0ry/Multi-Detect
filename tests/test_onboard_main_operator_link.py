@@ -58,6 +58,7 @@ def test_operator_link_refuses_to_start_without_a_package_key() -> None:
         onboard_main._start_operator_link(_link_args(), policy, SimpleNamespace())
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_start_up_mission_is_bound_and_held_for_operator_approval(tmp_path) -> None:
     pytest.importorskip("pymavlink")
     current = _supervisor(tmp_path)

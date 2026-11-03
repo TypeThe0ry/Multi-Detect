@@ -439,8 +439,9 @@ def test_inventory_is_small_and_contains_only_explicit_entrypoints():
 
 
 def test_fresh_import_is_no_optional_model_camera_or_mavlink_runtime():
+    root = Path(__file__).resolve().parents[1]
     code = (
-        "import sys;sys.path[:0]=[r'D:/Projects/Multi-Detect',r'D:/Projects/Multi-Detect/src'];"
+        f"import sys;sys.path[:0]={[str(root), str(root / 'src')]!r};"
         "from scripts import probe_onboard_teacher_gazebo_navref;"
         "assert not any(k.split('.')[0] in {'torch','PIL','numpy','pymavlink','cv2'} "
         "for k in sys.modules)"

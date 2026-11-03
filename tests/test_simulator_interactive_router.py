@@ -246,6 +246,7 @@ def test_config_is_literal_loopback_and_ports_are_distinct() -> None:
     assert DEFAULT_PX4_INPUT_PORT != DEFAULT_PX4_OUTPUT_PORT
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_qgc_manual_and_read_only_frames_use_separate_paths() -> None:
     adapter = FakeAdapter()
     to_px4: list[tuple[bytes, tuple[str, int]]] = []
@@ -276,6 +277,7 @@ def test_qgc_manual_and_read_only_frames_use_separate_paths() -> None:
     assert evidence["qgc_manual_control_via_shared_adapter"] is True
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_qgc_source_and_message_policy_fail_closed() -> None:
     adapter = FakeAdapter()
     router = SimulatorInteractiveRouter(adapter, config=_config(_ports(), qgc_source_port=45678))
@@ -295,6 +297,7 @@ def test_qgc_source_and_message_policy_fail_closed() -> None:
     assert evidence["qgc_rejected_reasons"]["qgc_message_not_allowed"] == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_malformed_source_port_is_rejected_without_raising() -> None:
     adapter = FakeAdapter()
     router = SimulatorInteractiveRouter(
@@ -312,6 +315,7 @@ def test_malformed_source_port_is_rejected_without_raising() -> None:
     assert router.evidence()["qgc_rejected_reasons"]["unexpected_source_port"] == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_px4_telemetry_is_forwarded_byte_for_byte_and_identity_checked() -> None:
     adapter = FakeAdapter()
     to_qgc: list[tuple[bytes, tuple[str, int]]] = []
@@ -339,6 +343,7 @@ def test_px4_telemetry_is_forwarded_byte_for_byte_and_identity_checked() -> None
     assert evidence["telemetry_frames_rewritten"] is False
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_px4_telemetry_sink_observes_after_forward_without_rewriting() -> None:
     adapter = FakeAdapter()
     forwarded: list[tuple[bytes, tuple[str, int]]] = []
@@ -367,6 +372,7 @@ def test_px4_telemetry_sink_observes_after_forward_without_rewriting() -> None:
     assert evidence["px4_telemetry_sink_message_ids"] == {"0": 1}
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_px4_telemetry_sink_failure_is_recorded_without_blocking_qgc() -> None:
     adapter = FakeAdapter()
     forwarded: list[tuple[bytes, tuple[str, int]]] = []
@@ -389,6 +395,7 @@ def test_px4_telemetry_sink_failure_is_recorded_without_blocking_qgc() -> None:
     assert "bridge parser exploded" in evidence["px4_telemetry_sink_last_error"]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_watchdog_without_sink_uses_adapter_fallback() -> None:
     adapter = FakeAdapter()
     router = SimulatorInteractiveRouter(adapter, config=_config(_ports()))
@@ -402,6 +409,7 @@ def test_watchdog_without_sink_uses_adapter_fallback() -> None:
     assert evidence["watchdog_sink_errors"] == 0
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_watchdog_sink_owns_tick_without_duplicate_adapter_poll() -> None:
     adapter = FakeAdapter()
     observed: list[float] = []
@@ -426,6 +434,7 @@ def test_watchdog_sink_owns_tick_without_duplicate_adapter_poll() -> None:
     assert evidence["watchdog_sink_errors"] == 0
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_watchdog_sink_failure_records_error_and_falls_back_to_adapter() -> None:
     adapter = FakeAdapter()
 
@@ -448,6 +457,7 @@ def test_watchdog_sink_failure_records_error_and_falls_back_to_adapter() -> None
     assert "live watchdog exploded" in evidence["watchdog_sink_last_error"]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_split_frames_and_signed_throttle_modes() -> None:
     adapter = FakeAdapter()
     router = SimulatorInteractiveRouter(adapter, config=_config(_ports()))
@@ -494,6 +504,7 @@ def test_cli_fixture_builder_honors_signed_wire_mode() -> None:
     assert struct.unpack_from("<h", payload, 4)[0] == -500
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_qgc_partial_frame_cannot_be_completed_by_another_source() -> None:
     adapter = FakeAdapter()
     router = SimulatorInteractiveRouter(adapter, config=_config(_ports()))
@@ -510,6 +521,7 @@ def test_qgc_partial_frame_cannot_be_completed_by_another_source() -> None:
     assert len(router.process_qgc_datagram(frame, source=("127.0.0.1", 41002))) == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_px4_partial_frame_cannot_be_completed_by_another_source() -> None:
     adapter = FakeAdapter()
     forwarded: list[tuple[bytes, tuple[str, int]]] = []
@@ -528,6 +540,7 @@ def test_px4_partial_frame_cannot_be_completed_by_another_source() -> None:
     assert router.process_px4_datagram(telemetry, source=("127.0.0.1", 42002)) == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_qgc_control_mode_defaults_read_only_and_blocks_flight_commands() -> None:
     adapter = FakeAdapter()
     forwarded: list[tuple[bytes, tuple[str, int]]] = []
@@ -544,6 +557,7 @@ def test_qgc_control_mode_defaults_read_only_and_blocks_flight_commands() -> Non
     assert evidence["qgc_rejected_reasons"]["qgc_message_not_allowed"] == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_sim_flight_forwards_bounded_arm_mode_transition_and_rtl() -> None:
     adapter = FakeAdapter()
     forwarded: list[tuple[bytes, tuple[str, int]]] = []
@@ -568,6 +582,7 @@ def test_sim_flight_forwards_bounded_arm_mode_transition_and_rtl() -> None:
     assert evidence["qgc_forwarded_message_ids"] == {"11": 1, "76": 3}
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_sim_flight_lifecycle_sink_updates_local_model_without_changing_forwarding() -> None:
     model = DeterministicFlightModel()
     sink = SimulatorFlightModelMav(model)
@@ -589,6 +604,7 @@ def test_sim_flight_lifecycle_sink_updates_local_model_without_changing_forwardi
     assert evidence["lifecycle_sink_errors"] == 0
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_sim_flight_rejects_unsafe_command_parameters_and_modes() -> None:
     adapter = FakeAdapter()
     forwarded: list[tuple[bytes, tuple[str, int]]] = []
@@ -623,6 +639,7 @@ def test_sim_flight_rejects_unsafe_command_parameters_and_modes() -> None:
     assert forwarded == []
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_sim_flight_mission_count_and_item_are_bounded_and_targeted() -> None:
     adapter = FakeAdapter()
     forwarded: list[tuple[bytes, tuple[str, int]]] = []
@@ -659,6 +676,7 @@ def test_sim_flight_mission_count_and_item_are_bounded_and_targeted() -> None:
     assert len(forwarded) == 2
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_sim_flight_ftp_read_only_target_uses_configured_system() -> None:
     adapter = FakeAdapter()
     forwarded: list[tuple[bytes, tuple[str, int]]] = []
@@ -681,6 +699,7 @@ def test_sim_flight_ftp_read_only_target_uses_configured_system() -> None:
     assert len(forwarded) == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_router_rejects_frames_after_stop_and_clears_bound_endpoints() -> None:
     ports = _ports()
     adapter = FakeAdapter()
@@ -698,6 +717,7 @@ def test_router_rejects_frames_after_stop_and_clears_bound_endpoints() -> None:
     assert router.evidence()["qgc_rejected_reasons"]["router_not_accepting"] == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_run_binds_both_legs_and_stop_neutral_is_once() -> None:
     ports = _ports()
     adapter = FakeAdapter(shutdown_receipt={"source": "shutdown"})
@@ -746,6 +766,7 @@ def test_run_binds_both_legs_and_stop_neutral_is_once() -> None:
     assert result["stop_requested"] is True
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_run_rejects_second_concurrent_start() -> None:
     ports = _ports()
     router = SimulatorInteractiveRouter(FakeAdapter(), config=_config(ports))

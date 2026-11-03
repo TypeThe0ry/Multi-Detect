@@ -13,6 +13,28 @@ from scripts.diagnose_onboard_teacher_px4_events import crc16
 from scripts.onboard_teacher_telemetry_capture_v3 import TeacherTelemetryCaptureV3
 
 
+@pytest.fixture
+def pinned_parameter_source(monkeypatch):
+    import importlib.util
+
+    source = diagnostics.COMMON
+    if not source.is_file():
+        spec = importlib.util.find_spec("pymavlink")
+        if spec is None or not spec.submodule_search_locations:
+            pytest.skip("pinned parameter diagnostics require optional pymavlink common dialect")
+        source = Path(next(iter(spec.submodule_search_locations))) / "dialects/v20/common.py"
+        if not source.is_file():
+            pytest.skip(f"pymavlink common dialect is missing: {source}")
+        raw = source.read_bytes()
+        if (len(raw), hashlib.sha256(raw).hexdigest()) != (
+            diagnostics.COMMON_BYTES, diagnostics.COMMON_SHA,
+        ):
+            pytest.skip(
+                "installed pymavlink common dialect does not match the frozen source identity"
+            )
+    monkeypatch.setattr(diagnostics, "COMMON", source)
+
+
 def frame(message_id, payload, *, sequence=1, system=1, component=1):
     trimmed = payload.rstrip(b"\0") or b"\0"
     header = bytes((len(trimmed), 0, 0, sequence, system, component)) + message_id.to_bytes(
@@ -153,6 +175,7 @@ def capture_fixture(tmp_path, messages):
     return receipt["receipt"]
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_closed_actual_writer_source_capability_and_original_nan_union(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     messages = [
@@ -174,6 +197,7 @@ def test_closed_actual_writer_source_capability_and_original_nan_union(tmp_path,
         )
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_changed_version_identity_blocks_encoding(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     capture = capture_fixture(
@@ -194,6 +218,7 @@ def test_changed_version_identity_blocks_encoding(tmp_path, monkeypatch):
     )
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_original_foreign_parameter_remains_foreign(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     capture = capture_fixture(
@@ -212,6 +237,7 @@ def test_original_foreign_parameter_remains_foreign(tmp_path, monkeypatch):
     assert report["actual_parameter_values_observed"] is False
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_whole_journal_hash_change_refused(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     capture = capture_fixture(tmp_path, [Message(version(), "AUTOPILOT_VERSION", 1)])
@@ -235,6 +261,7 @@ def rewrite_fixture_receipt(binding, mutate):
     return {"path": str(path), "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_cannot_omit_conflicting_version_already_in_whole_journal(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     binding = capture_fixture(
@@ -253,6 +280,7 @@ def test_cannot_omit_conflicting_version_already_in_whole_journal(tmp_path, monk
     assert not (tmp_path / "result.json").exists()
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_original_unknown_cannot_be_reclassified_by_receipt_kind(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     binding = capture_fixture(
@@ -276,6 +304,7 @@ def test_original_unknown_cannot_be_reclassified_by_receipt_kind(tmp_path, monke
 
 
 @pytest.mark.parametrize("change", ("packet-sha", "nonbool-source", "nonbool-count"))
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_primary_receipt_identity_cannot_disagree_with_original_record(
     tmp_path, monkeypatch, change
 ):
@@ -300,6 +329,7 @@ def test_primary_receipt_identity_cannot_disagree_with_original_record(
     assert not (tmp_path / "result.json").exists()
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_projection_embedded_raw_binding_must_equal_selected_receipt_binding(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     binding = capture_fixture(tmp_path, [Message(version(), "AUTOPILOT_VERSION", 1)])
@@ -328,6 +358,7 @@ def test_projection_embedded_raw_binding_must_equal_selected_receipt_binding(tmp
     assert not (tmp_path / "result.json").exists()
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_raw_header_is_not_opaque_hash_only_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     binding = capture_fixture(tmp_path, [Message(version(), "AUTOPILOT_VERSION", 1)])
@@ -380,6 +411,7 @@ def test_raw_header_is_not_opaque_hash_only_metadata(tmp_path, monkeypatch):
     assert not (tmp_path / "result.json").exists()
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_repeated_same_firmware_capabilities_ignore_only_packet_sequence(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     binding = capture_fixture(
@@ -398,6 +430,7 @@ def test_repeated_same_firmware_capabilities_ignore_only_packet_sequence(tmp_pat
     assert report["parameter_rows"][0]["wire"]["value"] == -1
 
 
+@pytest.mark.usefixtures("pinned_parameter_source")
 def test_conflicting_version_cannot_hide_as_nonselected_receipt_kind(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "ROOT", tmp_path)
     binding = capture_fixture(

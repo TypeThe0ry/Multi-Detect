@@ -299,6 +299,10 @@ def test_docker_down_aborts_collect_without_consuming_episode_attempt(monkeypatc
     import json
     import pytest
     import scripts.run_r15_round as r15
+    # Slot ownership is outside this test's Docker-down state transition.
+    monkeypatch.setattr(r15, "SitlLock", lambda *_a, **_kw: types.SimpleNamespace(
+        acquire=lambda: None, release=lambda: None, slot=None,
+    ))
 
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir()
@@ -523,7 +527,14 @@ def test_identity_summary_reads_the_metrics_block_and_size_buckets():
     assert not any("<12 px" in r for r in reasons)  # 46% -> 92% is a real improvement
 
 
-def _annotate_round(tmp_path: Path, **overrides) -> Round:
+def _annotate_round(tmp_path: Path, monkeypatch, **overrides) -> Round:
+    import scripts.run_r15_round as r15
+
+    # TMPDIR may live inside the checkout; model an external episode repository
+    # by giving the runner its own separate checkout boundary.
+    checkout = tmp_path / "checkout"
+    checkout.mkdir(exist_ok=True)
+    monkeypatch.setattr(r15, "ROOT", checkout)
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True, exist_ok=True)
     episodes = repo / "artifacts" / "r19-round" / "episodes"
@@ -548,8 +559,10 @@ def _annotate_round(tmp_path: Path, **overrides) -> Round:
     return Round(Namespace(**args))
 
 
-def test_annotate_caches_the_index_worlds_keyed_from_the_episodes_repository(tmp_path: Path):
-    runner = _annotate_round(tmp_path)
+def test_annotate_caches_the_index_worlds_keyed_from_the_episodes_repository(
+    tmp_path: Path, monkeypatch,
+):
+    runner = _annotate_round(tmp_path, monkeypatch)
     cmd = runner.annotate_command()
     campaigns = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--campaign"]
     episodes = tmp_path / "repo" / "artifacts" / "r19-round" / "episodes"
@@ -560,21 +573,23 @@ def test_annotate_caches_the_index_worlds_keyed_from_the_episodes_repository(tmp
     assert cmd[cmd.index("--source-root") + 1] == str((tmp_path / "repo").resolve())
 
 
-def test_annotate_rejects_a_source_root_whose_keys_build_sft_never_looks_up(tmp_path: Path):
+def test_annotate_rejects_a_source_root_whose_keys_build_sft_never_looks_up(
+    tmp_path: Path, monkeypatch,
+):
     import pytest
 
     wrong = tmp_path / "repo" / "artifacts"
-    runner = _annotate_round(tmp_path, source_root=wrong)
+    runner = _annotate_round(tmp_path, monkeypatch, source_root=wrong)
     with pytest.raises(RuntimeError, match="不一致"):
         runner.annotate_command()
-    explicit = _annotate_round(tmp_path, source_root=tmp_path / "repo")
+    explicit = _annotate_round(tmp_path, monkeypatch, source_root=tmp_path / "repo")
     assert "--source-root" in explicit.annotate_command()
 
 
-def test_annotate_refuses_when_no_round_world_was_collected(tmp_path: Path):
+def test_annotate_refuses_when_no_round_world_was_collected(tmp_path: Path, monkeypatch):
     import pytest
 
-    runner = _annotate_round(tmp_path)
+    runner = _annotate_round(tmp_path, monkeypatch)
     runner.a.r15_index.write_text('{"worlds": [{"world_id": "gen_x_w0000"}]}', encoding="utf-8")
     with pytest.raises(RuntimeError, match="找不到"):
         runner.annotate_command()

@@ -266,7 +266,7 @@ class EpisodeRecorder:
                                 .clip(0, 65535)
                                 .astype(np.uint16)
                             )
-                        Image.fromarray(array, mode="I;16").save(path, format="PNG", optimize=True)
+                        Image.fromarray(array).save(path, format="PNG", optimize=True)
                     else:
                         np.save(path, array.astype("float32"))
                     out["depth_path"] = str(path.relative_to(self.episode_dir))

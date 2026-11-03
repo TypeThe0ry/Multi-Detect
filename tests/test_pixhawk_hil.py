@@ -79,6 +79,7 @@ def test_hil_config_rejects_invalid_values(changes: dict[str, object]) -> None:
         FixedWingTelemetryHilConfig(**changes)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_real_pymavlink_udp_loopback_maps_fields_and_becomes_stale() -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         probe.bind(("127.0.0.1", 0))

@@ -25,6 +25,7 @@ def _free_udp_port() -> int:
         return int(channel.getsockname()[1])
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_prepare_persists_hash_bound_stack_plan_and_result(tmp_path: Path) -> None:
     orchestrator = SimulatorOrchestrator(SCENARIO, dry_run=True, job_root=tmp_path)
 
@@ -44,6 +45,7 @@ def test_prepare_persists_hash_bound_stack_plan_and_result(tmp_path: Path) -> No
     assert result_document["stack_plan_sha256"] == orchestrator.stack_plan.evidence_hash
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_prepare_persists_job_local_px4_launch_plan_and_result(tmp_path: Path) -> None:
     orchestrator = SimulatorOrchestrator(SCENARIO, dry_run=True, job_root=tmp_path)
 
@@ -63,6 +65,7 @@ def test_prepare_persists_job_local_px4_launch_plan_and_result(tmp_path: Path) -
     assert job_document["px4_launch_sha256"] == orchestrator.px4_launch_plan.evidence_hash
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_px4_launch_can_be_explicitly_disabled_for_legacy_stack(tmp_path: Path) -> None:
     orchestrator = SimulatorOrchestrator(
         SCENARIO,
@@ -79,6 +82,7 @@ def test_px4_launch_can_be_explicitly_disabled_for_legacy_stack(tmp_path: Path) 
     assert (result.job_dir / "px4-launch.json").is_file()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_stack_planner_environment_is_attached_to_default_process_specs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -105,6 +109,7 @@ def test_stack_planner_environment_is_attached_to_default_process_specs(
     assert gazebo.env == px4.env
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_custom_process_specs_remain_compatible_when_stack_plan_fails(
     tmp_path: Path,
 ) -> None:
@@ -140,6 +145,7 @@ def test_explicit_stack_ports_conflict_with_control_endpoint(tmp_path: Path) -> 
         )
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_stack_plan_can_be_disabled_without_changing_legacy_specs(tmp_path: Path) -> None:
     orchestrator = SimulatorOrchestrator(
         SCENARIO,

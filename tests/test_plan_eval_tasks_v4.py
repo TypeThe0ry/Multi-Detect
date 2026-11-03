@@ -8,6 +8,17 @@ from multidetect.autonomy.plan_intent import check_plan_intent
 ROOT = Path(__file__).resolve().parents[1]
 
 
+# planning-v5 deliberately reused five v4 prompts when it was frozen (its
+# published scores include them), so they stay; any new overlap still fails.
+FROZEN_V5_V4_OVERLAP = frozenset({
+    "固定翼飞到大门上方定点降落。",
+    "A fixed-wing aircraft should land precisely on the gate.",
+    "数停车场里的红色轿车，然后返航。",
+    "Count the bicycles in the parking lot and return home.",
+    "Inspect the gate and return home, but do not invent a fire truck target.",
+})
+
+
 def test_v4_structure_holdout_categories_and_expected_plans():
     doc = json.loads((ROOT / "configs/onboard/plan-eval-tasks-v4.json").read_text(encoding="utf-8"))
     tasks = doc["tasks"]
@@ -35,5 +46,7 @@ def test_v4_texts_are_unique_across_eval_files():
     for path in sorted((ROOT / "configs/onboard").glob("plan-eval-tasks*.json")):
         for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]:
             text = " ".join(task["text"].split())
+            if path.name == "plan-eval-tasks-v5.json" and text in FROZEN_V5_V4_OVERLAP:
+                continue
             assert text not in seen
             seen.add(text)

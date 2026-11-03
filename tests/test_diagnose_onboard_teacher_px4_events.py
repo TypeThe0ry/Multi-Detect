@@ -204,11 +204,19 @@ class Fixture:
 
 
 @pytest.fixture
-def fixture(tmp_path, monkeypatch):
+def fixture(tmp_path, monkeypatch, event_headers):
     return Fixture(tmp_path, monkeypatch)
 
 
-def test_crc_golden_and_exact_header_bindings():
+@pytest.fixture
+def event_headers():
+    directory = REPO / "artifacts/diagnostics/onboard-teacher-px4-event-definitions-20261008-r1"
+    for name, *_ in api.HEADERS.values():
+        if not (directory / name).is_file():
+            pytest.skip(f"pinned PX4 event definition evidence is missing: {directory / name}")
+
+
+def test_crc_golden_and_exact_header_bindings(event_headers):
     assert api.crc16(b"123456789") == 0x6F91
     for name, size, digest, *_ in api.HEADERS.values():
         raw = (
