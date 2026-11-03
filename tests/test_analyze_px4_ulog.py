@@ -20,7 +20,7 @@ def _synthetic_ulog() -> bytes:
     data.extend(_message("D", struct.pack("<H?B", 1, True, 4)))
     data.extend(_message("D", struct.pack("<HQf", 2, 1_000_000, 0.25)))
     data.extend(_message("D", struct.pack("<HQf", 2, 4_000_000, 0.75)))
-    data.extend(_message("L", struct.pack("<QB", 3_500_000, 2) + b"lockstep stalled\0"))
+    data.extend(_message("L", struct.pack("<BQ", ord("2"), 3_500_000) + b"lockstep stalled\0"))
     return bytes(data)
 
 
@@ -33,6 +33,8 @@ def test_minimal_parser_reads_topics_gaps_failsafe_and_console():
     assert "failsafe=1" in report
     assert "load=0.75" in report
     assert "lockstep stalled" in report
+    assert parsed.console[0].timestamp_us == 3_500_000
+    assert parsed.console[0].level == ord("2")
     assert "Parser: `minimal`" in report
 
 
@@ -51,3 +53,18 @@ def test_minimal_parser_resolves_real_ulog_add_message_from_format():
         ("float", "load"),
     ]
     assert parsed.topics["cpuload"].rows == [{"timestamp": 2_000_000, "load": 0.5}]
+
+
+def test_minimal_parser_distinguishes_flag_bits_dropouts_and_tagged_logging():
+    data = bytearray(struct.pack("<8sQ", b"ULog\x01\x12\x35", 0))
+    data.extend(_message("B", bytes(40)))  # Flag Bits, not a dropout.
+    data.extend(_message("C", struct.pack("<BHQ", ord("4"), 17, 8_000_000) + b"sensor timeout"))
+    data.extend(_message("O", struct.pack("<H", 250)))
+
+    parsed = _parse_internal(bytes(data))
+
+    assert [(m.timestamp_us, m.level, m.text) for m in parsed.console] == [
+        (8_000_000, ord("4"), "[17] sensor timeout")
+    ]
+    assert len(parsed.warnings) == 1
+    assert parsed.warnings[0].endswith(": 250 ms")

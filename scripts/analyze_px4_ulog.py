@@ -172,18 +172,19 @@ def _parse_internal(raw: bytes, path: Path | None = None) -> ParsedLog:
                 if name in topics:
                     topics[name].rows.append(_decode_row(payload[2:], topics[name].fields))
             elif kind in {"L", "C"}:
-                if len(payload) >= 9:
-                    timestamp, level = struct.unpack_from("<QB", payload)
-                    message = payload[9:]
-                    if kind == "C" and len(message) >= 4:
-                        tag = message[:4].split(b"\0", 1)[0].decode("utf-8", "replace")
-                        body = message[4:].split(b"\0", 1)[0].decode("utf-8", "replace")
-                        text = f"[{tag}] {body}" if tag else body
+                header_size = 11 if kind == "C" else 9
+                if len(payload) >= header_size:
+                    if kind == "C":
+                        level, tag, timestamp = struct.unpack_from("<BHQ", payload)
                     else:
-                        text = message.split(b"\0", 1)[0].decode("utf-8", "replace")
+                        level, timestamp = struct.unpack_from("<BQ", payload)
+                    text = payload[header_size:].split(b"\0", 1)[0].decode("utf-8", "replace")
+                    if kind == "C":
+                        text = f"[{tag}] {text}"
                     console.append(ConsoleMessage(timestamp, level, text))
-            elif kind == "B":
-                warnings.append(f"dropout message at {offset - size - 3}")
+            elif kind == "O":
+                duration_ms = struct.unpack_from("<H", payload)[0]
+                warnings.append(f"dropout message at {offset - size - 3}: {duration_ms} ms")
         except (struct.error, UnicodeError, ValueError) as exc:
             warnings.append(f"could not decode {kind!r} at offset {offset}: {exc}")
     return ParsedLog(path, topics, console, warnings)

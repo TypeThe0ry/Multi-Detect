@@ -155,6 +155,7 @@ LAND_DISARM_CONFIRM_TIMEOUT_S = 10.0
 LAND_PROGRESS_GRACE_S = 30.0
 LAND_PROGRESS_TOLERANCE_M = 0.05
 LAND_HARD_CEILING_S = 600.0
+FW_LAND_HARD_WALL_CEILING_S = 3600.0
 LAND_SETTLED_ALTITUDE_M = 1.5
 LAND_SETTLED_VERTICAL_SPEED_MPS = 0.08
 LAND_SETTLED_DURATION_S = 10.0
@@ -3131,54 +3132,104 @@ def _wait_near_home(reader: MavlinkReader, *, radius_m: float, timeout_s: float)
     return {"status": "timeout", "distance_m": distance, "elapsed_s": time.monotonic() - started}
 
 
+def _wait_airframe_landed(
+    reader: MavlinkReader,
+    *,
+    timeout_s: float,
+    after_ns: int | None = None,
+    clock: callable = time.monotonic,
+    sleep: callable = time.sleep,
+) -> dict[str, Any]:
+    """Await fresh touchdown on PX4 time; bound frozen/very slow SITL on host time.
+
+    A full fixed-wing approach can take hundreds of simulation seconds. Its
+    wall ceiling must allow slow lockstep rather than reusing the 600 s MC cap.
+    Windows and adapters without PX4 timestamps retain wall-clock budgets.
+    """
+    wall_started = clock()
+    after_ns = int(wall_started * 1e9) if after_ns is None else after_ns
+    budget_clock = clock if os.name == "nt" else _SimClock(reader, wall=clock)
+    started = last_budget = budget_clock()
+    last_progress_wall = wall_started
+    wall_ceiling_s = max(timeout_s, FW_LAND_HARD_WALL_CEILING_S)
+    while True:
+        reader.raise_if_failed()
+        wall_now, now = clock(), budget_clock()
+        flight = _flight_state_snapshot(reader.state)
+        received = getattr(reader.state, "received_monotonic_ns", {})
+        heartbeat = reader.state.get("HEARTBEAT")
+        base_mode = _field(heartbeat, "base_mode", None)
+        disarmed = base_mode is not None and not (int(base_mode) & 128)
+
+        def fresh(name: str) -> bool:
+            stamp = received.get(name, -1)
+            return stamp >= after_ns and 0 <= wall_now - stamp / 1e9 <= LANDING_TELEMETRY_STALE_S
+
+        reason = None
+        if os.name != "nt":
+            if now > last_budget:
+                last_budget, last_progress_wall = now, wall_now
+            if wall_now - wall_started >= wall_ceiling_s:
+                reason = "hard wall-clock ceiling"
+            elif wall_now - last_progress_wall >= LANDING_TELEMETRY_STALE_S:
+                reason = "PX4 simulation clock stalled (telemetry)"
+        heartbeat_ns = received.get("HEARTBEAT")
+        if reason is None and heartbeat_ns is not None and (
+            wall_now - heartbeat_ns / 1e9 > LANDING_TELEMETRY_STALE_S
+        ):
+            reason = "PX4 telemetry stale (heartbeat)"
+        if reason is None and now - started >= timeout_s:
+            reason = "landing budget exhausted"
+        if reason is not None:
+            raise TimeoutError(
+                f"timed out waiting for airframe landing: {reason}; "
+                f"elapsed_wall_s={wall_now - wall_started:.3f}; "
+                f"elapsed_budget_s={now - started:.3f}; "
+                f"landed_state={flight['landed_state']}; airspeed_mps={flight['airspeed_mps']}"
+            )
+        if (fresh("EXTENDED_SYS_STATE") and flight["landed_state"] == 1) or (
+            fresh("HEARTBEAT") and disarmed
+        ):
+            return {
+                "status": "landed",
+                "timeout_s": timeout_s,
+                "elapsed_s": wall_now - wall_started,
+                "elapsed_budget_s": now - started,
+                "flight_state": flight,
+            }
+        sleep(0.1)
+
+
 def _fixed_wing_or_vtol_land_and_wait(
     executor: FixedWingVtolExecutor,
     reader: MavlinkReader,
     *,
     timeout_s: float | None = None,
+    clock: callable = time.monotonic,
+    sleep: callable = time.sleep,
 ) -> dict[str, Any]:
     """Wait for the airframe-specific landing state after its command/mission."""
     wait_timeout_s = float(
         timeout_s if timeout_s is not None else FixedWingVtolExecutor.STATE_TIMEOUT_S["land"]
     )
-    started = time.monotonic()
-    started_ns = time.monotonic_ns()
+    started = clock()
+    started_ns = int(started * 1e9)
     result = executor.land()
     if result.status != "success":
         raise RuntimeError(f"fixed-wing/VTOL landing command failed: {_plain_record(result.ack)}")
-    while time.monotonic() - started < wait_timeout_s:
-        reader.raise_if_failed()
-        flight = _flight_state_snapshot(reader.state)
-        last_heartbeat_ns = getattr(reader.state, "received_monotonic_ns", {}).get("HEARTBEAT")
-        if last_heartbeat_ns is not None and (
-            time.monotonic_ns() - last_heartbeat_ns > LANDING_TELEMETRY_STALE_S * 1e9
-        ):
-            # A frozen SITL (PX4 lockstep waiting on a stalled Gazebo) looks like a
-            # landing that never finishes; report it as what it is.
-            raise RuntimeError(
-                f"PX4 telemetry stopped {LANDING_TELEMETRY_STALE_S:.0f}s+ during landing; "
-                f"last landed_state={flight['landed_state']}"
-            )
-        heartbeat = reader.state.get("HEARTBEAT")
-        base_mode = _field(heartbeat, "base_mode", None)
-        disarmed = base_mode is not None and not (int(base_mode) & 128)
-        received = getattr(reader.state, "received_monotonic_ns", {})
-        landed_fresh = received.get("EXTENDED_SYS_STATE", -1) >= started_ns
-        heartbeat_fresh = received.get("HEARTBEAT", -1) >= started_ns
-        if (landed_fresh and flight["landed_state"] == 1) or (heartbeat_fresh and disarmed):
-            return {
-                "status": "landed",
-                "timeout_s": wait_timeout_s,
-                "elapsed_s": time.monotonic() - started,
-                "flight_state": flight,
-                "command": _plain_record(result.ack),
-            }
-        time.sleep(0.25)
-    flight = _flight_state_snapshot(reader.state)
-    raise TimeoutError(
-        f"timed out waiting for airframe landing after {wait_timeout_s:.1f}s; "
-        f"landed_state={flight['landed_state']}; airspeed_mps={flight['airspeed_mps']}"
+    remaining_s = (
+        max(0.0, wait_timeout_s - (clock() - started))
+        if os.name == "nt" else wait_timeout_s
     )
+    landed = _wait_airframe_landed(
+        reader, timeout_s=remaining_s, after_ns=started_ns, clock=clock, sleep=sleep
+    )
+    return {
+        **landed,
+        "timeout_s": wait_timeout_s,
+        "elapsed_s": clock() - started,
+        "command": _plain_record(result.ack),
+    }
 
 
 def _takeoff_wait(
@@ -3955,6 +4006,9 @@ def run_episode(
 
                 def _wait_fw_state(phase: str, timeout_s: float) -> bool:
                     nonlocal launch_applied
+                    if phase == "land":
+                        _wait_airframe_landed(mav_reader, timeout_s=timeout_s)
+                        return True
                     if phase == "takeoff" and takeoff_method in {"hand", "catapult"}:
                         launch_applied = _apply_gazebo_launch(
                             plan,
@@ -4018,10 +4072,6 @@ def run_episode(
                                 and profile.min_airspeed_mps <= speed <= profile.max_airspeed_mps
                             ):
                                 return True
-                        hb_base = _field(mav_reader.state.get("HEARTBEAT"), "base_mode", None)
-                        disarmed = hb_base is not None and (int(hb_base) & 128) == 0
-                        if phase == "land" and (state["landed_state"] == 1 or disarmed):
-                            return True
                         time.sleep(0.1)
                     return False
 
