@@ -26,6 +26,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(_repository_source))
 
 from multidetect.autonomy.serialization import canonical_sha256
+from multidetect.simulator.cpu import SimulatorCpuIsolation, resolve_cpu_isolation
 from multidetect.simulator.stack import (
     SimulatorStackError,
     SimulatorStackPorts,
@@ -321,6 +322,7 @@ class DockerSimulatorPlan:
     gpu_device: str | None = None
     gpu_devices: tuple[str, ...] = ()
     worker_index: int = 0
+    cpu_isolation: SimulatorCpuIsolation | None = None
 
     @property
     def command_text(self) -> str:
@@ -399,6 +401,7 @@ class DockerSimulatorPlan:
             "gpu_device": self.gpu_device,
             "gpu_devices": list(self.gpu_devices),
             "worker_index": self.worker_index,
+            **({"cpu_isolation": self.cpu_isolation.to_mapping()} if self.cpu_isolation else {}),
             "container_network_mode": self.container_network_mode,
             "container_security": {
                 "cap_drop_all": cap_drop_all,
@@ -524,6 +527,10 @@ def build_docker_simulator_plan(
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
+    try:
+        cpu_isolation = resolve_cpu_isolation(worker_index)
+    except ValueError as exc:
+        raise DockerSimulatorPlanError(str(exc)) from exc
     gpu_render, selected_gpu, resolved_gpu_devices = _resolve_gpu_selection(
         gpu_render=gpu_render,
         gpu_device=gpu_device,
@@ -756,6 +763,7 @@ def build_docker_simulator_plan(
         "ALL",
         "--security-opt",
         "no-new-privileges:true",
+        *(cpu_isolation.docker_options if cpu_isolation else ()),
         *(('--gpus', f'device={selected_gpu}') if gpu_render else ()),
         *network_tokens,
         "--mount",
@@ -816,6 +824,7 @@ def build_docker_simulator_plan(
         gpu_device=selected_gpu,
         gpu_devices=resolved_gpu_devices,
         worker_index=worker_index,
+        cpu_isolation=cpu_isolation,
     )
 
 

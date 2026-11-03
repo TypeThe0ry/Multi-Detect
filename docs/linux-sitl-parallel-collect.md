@@ -4,6 +4,40 @@
 
 `MULTIDETECT_SITL_SLOTS=N` 开启 N 个独立 SITL 租约。夜间任务使用 `run_nightly_regression.py --workers K`，每个 mission 获得独立 control/telemetry 端口块、llama/operator 端口、容器名前缀和 GPU worker 索引；`K=1` 仍使用 14540/14541、14580 和 `md-sim-teacher`。r15 worker 也逐个租用同一组槽位，因此在剩余槽位足够时可与 nightly 同时运行。槽位不足时 worker 等待，不会复用正在使用的端口。
 
+## 可选的 SITL CPU 绑定与争用权重
+
+`docs/nightly-8-ulog-analysis-20261103.md` 记录了启动期 EKF、起飞确认和传感器流等不同失败路径，以及部分 PX4 `cpuload` 接近 1 的样本；这些日志不能单独证明所有失败都来自 CPU 饱和。主机上其他项目的负载很高时，可以显式为 SITL 划分 CPU 池，减少并行容器互相争抢，并提高容器在争用时的调度权重。此设置不会改写已有证据，也不能替代后续真实运行验证。
+
+默认关闭：未设置 `MULTIDETECT_SIM_CPUSET`，或值为空、`off`、`false`、`no` 时，Docker 命令与原命令逐字节一致，其他 CPU 变量也不会生效。启用后只增加 `--cpuset-cpus` 和 `--cpu-shares`，不增加 `--cpus` 或 CPU quota，不人为限制 PX4/Gazebo 的总 CPU 时间。
+
+| 环境变量 | 含义与默认值 |
+| --- | --- |
+| `MULTIDETECT_SIM_CPUSET` | `auto` 按槽位分配；或显式 CPU 列表，例如 `48-53`、`48-50,54,56-57`。`0` 表示 CPU 0，不是关闭。 |
+| `MULTIDETECT_SIM_CPU_POOL` | 自动模式的候选 CPU 池；省略时使用本机 `os.cpu_count()` 对应的 `0..count-1`。生产运行建议显式设置。显式 cpuset 模式下若提供此变量，cpuset 必须完全包含在池中。 |
+| `MULTIDETECT_SIM_CPUS_PER_SLOT` | 自动模式每个槽位的逻辑 CPU 数，默认 `6`，必须为正整数。 |
+| `MULTIDETECT_SIM_CPU_SHARES` | 启用绑定后的 Docker CPU shares，默认 `4096`，范围 `2..262144`。 |
+| `MULTIDETECT_SITL_SLOTS` | 全局可租用槽位总数，默认 `1`；池必须足够覆盖全部槽位，即使本轮只启动部分 worker。 |
+
+例如，在 96 逻辑 CPU 的主机上为 8 个全局槽位预留候选池：
+
+```bash
+export MULTIDETECT_SITL_SLOTS=8
+export MULTIDETECT_SIM_CPUSET=auto
+export MULTIDETECT_SIM_CPU_POOL=48-95
+export MULTIDETECT_SIM_CPUS_PER_SLOT=6
+export MULTIDETECT_SIM_CPU_SHARES=4096
+```
+
+池按 CPU 编号升序排列，再连续取 N 个编号：slot 0 使用 `48-53`，slot 1 使用 `54-59`，slot 2 使用 `60-65`，直到 slot 7 使用 `90-95`。稀疏池也可使用，例如 `48-53,60-65`，各块不必在数值上连续。这里的“CPU”是 Linux **逻辑 CPU 编号**，不是物理核心数；不自动识别 SMT 兄弟线程、NUMA 节点或为宿主服务留核。
+
+运行时优先使用租约传播的 `MULTIDETECT_SITL_SLOT`；没有租约编号时才使用 `--worker-index`，默认 0。worker 编号大于默认槽位数时，自动模式同样检查从 slot 0 到该编号所需的全部容量，不取模复用 CPU。mission suite 会在取得实际租约后重写 worker 参数并传递子进程环境；collector 自行获取租约时也按实际 slot 解析；r15 的少量本地 worker 可从整个全局槽位池租用空闲 slot。不同作业和 worktree 必须共享 SITL 锁路径、槽位总数、CPU 池和每槽数量，参见 `docs/sitl-lock.md`。
+
+显式列表表示单个容器的完整 cpuset，不再按每槽数量切分。例如单槽运行可设置 `MULTIDETECT_SIM_CPUSET=48-53`。多槽位继承同一显式列表会造成重叠，因此 `MULTIDETECT_SITL_SLOTS>1` 时拒绝显式列表，要求改用 `auto` 和共享池。列表仅支持非负整数和闭区间；空项、反向区间、重复 CPU、区间交叠、超出本机 CPU 编号范围、容量不足或非法 shares 均在启动前报错，不会静默去重或重复分配。
+
+`run_simulator_docker.py` 的 JSON 计划与 collector `--dry-run` 计划会包含 `cpu_isolation`，包括实际 cpuset、shares、slot、池和每槽数量；Docker 计划哈希覆盖这些字段及命令。episode 的 `provenance.simulator_cpu_isolation` 记录运行时选中的同一分配。复用 `--attach-container` 时不会改变已有容器的 CPU 配置，provenance 标记 `mode=attached`，不声称知道其实际 cpuset。mission suite 的 dry-run 输出逐任务展示 CPU 计划；r15 collect 的 dry-run 输出全局可租用槽位的 CPU 分配。它们都是预览，实际运行以拿到的租约和 episode provenance 为准。
+
+**资源边界：** `--cpuset-cpus` 限制容器能在哪些 CPU 上运行，但不阻止宿主进程和其他项目进入这些 CPU；`--cpu-shares` 是争用权重，不是硬性最低算力承诺。要获得宿主层面的独占，运维仍需把其他项目移出这组 CPU，并保持 Docker daemon 与本机 CPU 编号一致。此改动不自动修改宿主 cgroup、systemd 或其他项目的亲和性。当前仅做离线单元测试，未启动 Docker/SITL/GPU，也未验证任务成功率改善。
+
 ## 结论
 
 这批 r21id-r4c 失败的首要原因是采集器的解锁确认时序，而不是 PX4 拒绝解锁。采集器把 `COMMAND_ACK(command=400, result=0)` 和带 armed 位的 `HEARTBEAT` 放进同一个 6 次、约 6 秒的重试窗口；在软件渲染和 6 worker 并发下，PX4 经常先接受 ARM，再过约 5.8--6.0 秒才在下一次心跳中反映 armed。采集器在这之前继续重复发送 ARM，窗口耗尽后报错。日志中的 `Preflight Fail: No connection to the GCS` 是启动期/GCS 门控文字，不能单独解释为 ARM 被拒绝；同一条记录随后出现 `Armed by external command`，且 ACK 结果为 accepted。
