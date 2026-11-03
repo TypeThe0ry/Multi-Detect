@@ -352,9 +352,13 @@ def test_real_session_uses_original_recv_and_same_clock_full_wire(harness):
         assert not harness.connection.calls  # no heartbeat/probe/qualification receive
         assert session.raw_receive(0.1) is first_message
         assert harness.connection.calls == [{"blocking": True, "timeout": 0.1}]
+        # The listen host depends on the SIM network mode (loopback for host
+        # networking, the docker bridge gateway otherwise).
+        from multidetect.sim_network import sim_udpin_endpoint
+
         assert harness.connections == [
             (
-                "udpin:127.0.0.1:14582",
+                sim_udpin_endpoint(14582),
                 {"source_system": 250, "source_component": 191, "autoreconnect": False},
             )
         ]
