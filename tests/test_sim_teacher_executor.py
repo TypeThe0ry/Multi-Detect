@@ -84,6 +84,34 @@ def test_primitive_timeout_runs_on_the_given_clock_with_a_wall_bound() -> None:
     )
     result = bounded.execute(ActionPrimitive.translate(15.0, 0.0, 0.0))
     assert result.status == "timeout" and 30.0 <= wall["t"] < 31.0
+    assert result.ack["wall_timeout"] is True
+
+
+def test_slow_simulation_progress_is_not_cut_short_by_total_wall_budget() -> None:
+    sim = {"t": 0.0}
+    wall = {"t": 0.0}
+
+    def sleep(seconds: float) -> None:
+        wall["t"] += seconds
+        sim["t"] += 0.2 * seconds
+
+    executor = PymavlinkPrimitiveExecutor(
+        FakeVehicle(),
+        position=lambda: (0.0, 0.0, -10.0),
+        clock=lambda: sim["t"],
+        wall_clock=lambda: wall["t"],
+        sleep=sleep,
+        max_wall_s=30.0,
+    )
+    result = executor.execute(ActionPrimitive.translate(15.0, 0.0, 0.0))
+
+    # Twenty seconds of sim time take 100 seconds of wall time at 0.2x real
+    # time, but the sim clock keeps progressing so the inactivity bound does
+    # not abort the primitive.
+    assert result.status == "timeout"
+    assert result.elapsed_s >= 20.0
+    assert wall["t"] >= 99.0
+    assert "wall_timeout" not in result.ack
 
 
 def test_a_hold_cut_short_by_the_wall_bound_is_a_timeout() -> None:
