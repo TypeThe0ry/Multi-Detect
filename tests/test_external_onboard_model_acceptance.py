@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,20 @@ from scripts.run_external_onboard_model_acceptance import (
     _scenario_seed_from_runtime,
     run_acceptance,
 )
+
+
+@pytest.fixture
+def current_reference_artifacts() -> None:
+    root = Path(__file__).resolve().parents[1]
+    reference = json.loads(DEFAULT_MODEL_REFERENCE.read_text(encoding="utf-8"))
+    for name in ("model", "training_config", "training_report", "gazebo_3d_manifest"):
+        path = (root / reference[name]["path"]).resolve()
+        if not path.is_relative_to(root):
+            pytest.skip(
+                f"默认模型 dry-run 需要仓库内的固定证据包；{name} 解析到 worktree 外：{path}"
+            )
+        if not path.is_file():
+            pytest.skip(f"默认模型 dry-run 缺少固定证据 {name}：{path}")
 
 
 class _FakeMav:
@@ -91,7 +106,9 @@ def test_disposable_sitl_lifecycle_is_explicit_and_idempotent() -> None:
     assert lifecycle.evidence()["physical_output_enabled"] is False
 
 
-def test_external_dry_run_defaults_to_hash_bound_current_reference(tmp_path) -> None:
+def test_external_dry_run_defaults_to_hash_bound_current_reference(
+    tmp_path, current_reference_artifacts
+) -> None:
     evidence = tmp_path / "external-default-reference.json"
 
     result = run_acceptance(evidence_path=evidence)
@@ -116,7 +133,9 @@ def test_scenario_seed_is_resolved_from_hash_bound_runtime() -> None:
     assert _scenario_seed_from_runtime(scenario, document) == 71041
 
 
-def test_external_dry_run_plans_recording_binding_after_real_capture(tmp_path) -> None:
+def test_external_dry_run_plans_recording_binding_after_real_capture(
+    tmp_path, current_reference_artifacts
+) -> None:
     result = run_acceptance(
         evidence_path=tmp_path / "recording-plan.json",
         sensor_frame_count=2,
@@ -145,7 +164,9 @@ def test_recording_binding_rejects_missing_capture_directories(tmp_path) -> None
         )
 
 
-def test_external_dry_run_binds_offline_capture_plan_without_runtime_truth(tmp_path) -> None:
+def test_external_dry_run_binds_offline_capture_plan_without_runtime_truth(
+    tmp_path, current_reference_artifacts
+) -> None:
     result = run_acceptance(
         evidence_path=tmp_path / "external-capture-plan.json",
         capture_plan_path=DEFAULT_OUTPUT,

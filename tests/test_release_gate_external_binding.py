@@ -22,6 +22,7 @@ from multidetect.simulator_external_evidence import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION_MANIFEST = REPO_ROOT / "configs" / "product-version.json"
+RELEASE_LABEL = json.loads(VERSION_MANIFEST.read_text(encoding="utf-8"))["release_label"]
 PARITY = {field: hashlib.sha256(field.encode()).hexdigest() for field in PARITY_FIELDS}
 
 
@@ -52,7 +53,7 @@ def _external_document(
     document: dict[str, object] = {
         "schema": "multidetect.simulator-docker-acceptance",
         "schema_version": 1,
-        "release_status": "v0.3.0-pre.8; final v0.3.0 remains blocked",
+        "release_status": f"v{RELEASE_LABEL}; final v0.3.0 remains blocked",
         "execution_requested": True,
         "gate_passed": True,
         "preflight_gate_passed": True,
@@ -126,7 +127,7 @@ def _external_inputs(tmp_path: Path) -> tuple[dict[str, Path], dict[str, Path], 
             {
                 "schema_version": 1,
                 "product": "Multi-Detect",
-                "release_label": "0.3.0-pre.8",
+                "release_label": RELEASE_LABEL,
                 "parity": PARITY,
             }
         ),
@@ -173,7 +174,7 @@ def _write_external_pair(tmp_path: Path) -> tuple[Path, Path, dict[str, Path]]:
     write_simulator_external_evidence(join, document)
     verification = revalidate_simulator_external_evidence(
         join,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=RELEASE_LABEL,
     )
     write_simulator_external_evidence(revalidation, verification)
     return join, revalidation, _mode_inputs(tmp_path)
