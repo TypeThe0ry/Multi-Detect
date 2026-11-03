@@ -2,11 +2,11 @@
 
 ## 目标与现状
 
-`scripts/onboard_policy.py` 当前为 3179 行。它既是机载策略实现，也充当历史兼容入口：脚本和测试直接从这里导入类、函数、配置常量，并 monkeypatch 这里的依赖。拆分应逐步迁移实现，长期保留这个公开入口；每个阶段都可单独合并和回滚，不改变策略行为。
+`scripts/onboard_policy.py` 初始盘点为 3179 行；完成下述第 3 步剩余子阶段后约为 1870 行。它既是机载策略实现，也充当历史兼容入口：脚本和测试直接从这里导入类、函数、配置常量，并 monkeypatch 这里的依赖。拆分应逐步迁移实现，长期保留这个公开入口；每个阶段都可单独合并和回滚，不改变策略行为。
 
 当前 `src/multidetect/autonomy/onboard_policy_parts/` 已有：`config.py`（49 行，`DEFAULTS`、`POSITION_DEFAULTS`、`llama_server_path`）、`proposer.py`（107 行，`YoloeProposer`）和 `vocabulary.py`（25 行，`VOCABULARY`）。主文件从这些模块导入并重新导出 `DEFAULTS`、`POSITION_DEFAULTS`、`YoloeProposer`、`VOCABULARY`。
 
-## 文件结构和职责
+## 初始文件结构和职责
 
 | 行号（当前） | 定义 | 职责/主要依赖 |
 | --- | --- | --- |
@@ -82,11 +82,64 @@
 4. 在有黄金架次数据的主环境运行 golden replay；当前环境若只报告全部缺失，应记录为未验证，并把有数据环境 replay 作为最终合并前置条件。
 5. 代码与 parity 变更分阶段关联，确保回滚后 parity 文件清单/生成 JSON 与代码处于同一版本；不要提交只更新 hash 却遗漏新策略模块绑定的状态。
 
-## 未纳入本任务
+## 本次阶段边界
 
-本文件只规划，不改代码、不运行策略测试、不更新 parity JSON 或黄金基线。兼容层最终是否能删，应在所有仓库调用方和 monkeypatch 测试完成迁移后另行决策；默认保留 `scripts.onboard_policy` 作为稳定 facade。
+本次仅完成第 3 步剩余子阶段，不推进第 4–6 步，不修改 `artifacts/`、parity JSON、其他证据约束文件或黄金基线。第 6 步仍须把 `runtime.py` 和新建的 `assembly.py` 纳入 parity source list，再经生成器更新证据。兼容层最终是否能删，应在所有仓库调用方和 monkeypatch 测试完成迁移后另行决策；默认保留 `scripts.onboard_policy` 作为稳定 facade。
+
+### 第 3 步子阶段状态（2026-11-03）
+
+| 子阶段 | 边界与依赖通道 | 状态 |
+| --- | --- | --- |
+| 3a | `runtime.py::build_safety_envelope`；显式接收 options、airframe/adapter、package、home 与 ground projection | 已完成（前序工作） |
+| 3b | `load_runtime_mission_package` 与 `RuntimeAdmissionMixin`；任务包安全键、能力约束及准入辅助 | 已完成（前序工作） |
+| 3c | `runtime.py::prepare_runtime_operator_package`；迁移 operator package 规划、串行模型切换、fallback、取消与候选 supervisor 构造 | 已实现；由 facade 传入规划/感知 callback、Path factory 和延迟 runner/HTTP loader |
+| 3d | 新建 `assembly.py`；分别承载 loop/search factory、proposer/runner/health 装配、启动计划与 executor/supervisor 装配 | 已实现；facade 保持原调用顺序，`RuntimeRunnerState` 仅传递两个装配阶段间的启动状态与 identity 启动 callback |
+
+3c/3d 不复制或修改模块 globals，也不从 `src/` 导入 `scripts.*`。`scripts.eval_slow_system` 的延迟导入留在 facade 的两个 loader 中，并在原阶段调用。`YoloeProposer`、`HealthMonitor`、`build_mission_from_text`、模型配置/哈希 helper、`Path` 与感知文本 callback 经显式参数动态委托至 facade；共享的 `time` 模块仍保留原 patch 语义。公开类、构造参数、方法名与 `__all__` 不变。
+
+新增测试覆盖构造后替换 runner/HTTP/规划函数，以及 planner 失败时再次替换 facade 规划函数的 identity fallback；同时将“不读 scenario truth”的既有检查扩展到两个装配模块，并检查 policy parts 不导入脚本或注入全局命名空间。
+
+### 本次验证记录（2026-11-03）
+
+所有测试均依次、单进程执行，使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python`，设置 `PYTHONPATH=src:.`、`PYTHONUTF8=1`、`TMPDIR=$PWD/.tmp`、`CUDA_VISIBLE_DEVICES=-1`；后续 gate/专项同时将 OMP/OpenBLAS/MKL 线程数限制为 1。未启动 SITL、Docker、模型服务或 GPU 工作。
+
+| 检查 | 结果 |
+| --- | --- |
+| 最终专项：package、model split、operator model split、health、main、policy plan、proposer tiling、place memory、near depth、safety envelope、loop、operator admission、real process，共 13 个测试文件；`-m pytest … -q -p no:xdist` | **242 passed，2 skipped**；可选 pinned depth model 缺失，且沙箱禁止 real process 测试所需的 loopback socket |
+| 首轮完整通配范围：`-m pytest tests/test_onboard_*.py tests/test_mission_*.py -q -p no:xdist` | **4655 passed，198 skipped，65 failed，8 errors**；其中 mission 为 763 passed、47 skipped、零失败/错误；本次完整范围未达到全绿门槛。该首轮包含下述随后修正为环境跳过的 real process 用例 |
+| `scripts/run_onboard_gate.py --workers=1 -q -p no:warnings -p no:xdist` | 重跑 **1675 passed，15 skipped，22 deselected，PASS**；22 个 timing 用例按默认 gate 规则未选中 |
+| 首轮 gate | 1674 passed、15 skipped、22 deselected、1 failed；唯一失败为 `test_onboard_main.py::test_replay_cli_uses_shared_policy_and_latency_backends_without_hardware` 的实时速率门槛，观测为约 9.60 Hz、最大间隔约 176 ms。该用例在首轮完整通配测试、gate 重跑及最终专项均通过；保留负载敏感记录 |
+| `scripts/check_golden_replay.py` | 退出码 0，但 **checked=0、missing=16**，黄金重放未验证；没有更新 baseline |
+| 静态检查 | `git diff --check`、编译检查、两个 runtime/assembly 模块的 Ruff F 检查通过；AST 对照确认未搬移方法/helper、公开方法参数和 `__all__` 不变 |
+
+首轮完整范围的 198 个跳过项按原因归并如下（包含 6 个模块级依赖跳过）：
+
+| 环境前置条件 | 跳过数 |
+| --- | --- |
+| 主 `.venv` 缺少可选 torch/transformers | 66 |
+| 当前 onboard 模型要求仓库本地绑定产物 | 15 |
+| 密封导航证据要求仓库内 artifacts；当前为只读共享外链 | 43 |
+| 原始模型/运行报告/RGB 或 probe 产物缺失 | 13 |
+| 已安装 pymavlink dialect 与冻结源身份不同 | 13 |
+| 未配置 Windows `MultiDetectMissionSelfTest.exe` | 44 |
+| 沙箱禁止 loopback socket | 3 |
+| 性能基准未显式 opt-in | 1 |
+
+gate 的 15 个跳过项为：可选 torch 模块 2 个、loopback socket 3 个、可选深度模型 1 个、本地验收/RTSP/synthetic replay 证据 9 个。
+
+完整范围尚未通过的项目保留原断言，不能把它们归入上述已跳过项：
+
+- 历史证据绑定/缺失产物：continuation、continuation host、Gazebo live shadow、history development、retained replay、R37、SDF visual、teacher checkpoint/origin/sortie、visual replay increment，以及 VLM execution/grounding/runtime/shadow evidence。部分冻结记录仍期望 `configs/release-parity.json` 为 13874 字节，而当前 HEAD 为 18099 字节；另有源文件字节、README 链接或 prerelease 版本漂移及共享 artifacts 的目录边界拒绝。核对过的 parity/product-version/progress/README、continuation/agent 和 grounding 测试源均与本次任务开始的 HEAD 字节一致。本次没有修改这些证据或其受约束文件。
+- loopback：`test_onboard_continuation_host.py` 的 3 个真实 UDP 用例受到沙箱限制；该文件被证据绑定，未修改。未绑定的 `test_onboard_real_process.py` 已复用既有 `require_loopback_sockets` 前置检查，在当前沙箱下正确跳过；同时用 `os.pathsep` 构造子进程的 PYTHONPATH，保持 Windows 分号行为并修正 Linux 分隔符。原测试断言全部保留，最终专项确认该环境跳过。
+- 可选依赖及非隔离 fixture：`test_onboard_navigation_live_loader.py` 的一个用例直接导入缺失的 torch；两个 `test_onboard_navigation_gazebo_learned_shadow*.py` 各有 2 个 fallback fixture 未隔离已导入依赖，以及 1 个仅模拟 Windows taskkill、缺少 Linux `process.kill` 的进程桩。
+- Windows 路径假设：`test_onboard_live_vlm_backend.py` 使用 `D:/fixture` 作为绝对路径；`test_onboard_vlm_shadow_input.py` 将 Windows 盘符路径在 Linux 上也当作绝对路径。前者和 shadow input 测试、navigation learned-shadow 两版测试分别被历史证据或 training 配置中的源文件字节/哈希记录绑定，因此本次遵守“证据绑定文件不改”约束，未修写这些测试或降低断言。
+- `test_onboard_rendered_3d_dataset.py` 的自报哈希拒绝测试先遇到当前 canonical 场景资源 aggregate hash 与 stack planner 不符，未进入它预期的拒绝分支；没有重写场景证据。
+
+曾按规则尝试 `git worktree add --detach .tmp/step3-baseline HEAD`，但主仓库 `.git/worktrees` 为只读，创建失败，因此没有完成独立 worktree 的修改前整套对照；未使用 stash 或临时覆盖工作树源文件。详细 stdout/JUnit 保留于本工作树忽略目录 `.tmp-policy-split-3e-step3/`。第 3 步剩余代码拆分及专项/gate 验证完成，但完整通配测试与有数据环境的黄金重放仍是未完成的验证项；不宣称全部 onboard 测试已通过。
 
 ## 进度记录
+
+以下保留前序阶段的历史记录；本次边界与状态以上述 3a–3d 状态表和验证记录为准。
 
 - 第 1 步（helpers/simulation）、第 2 步（model_config）已合并，行为不变，回归闸门通过。
 - 第 3 步（构造与任务包准入方法移入 runtime mixin）**未合并**：实现用 `globals().update(vars(scripts.onboard_policy))` 把 facade 的全局变量整体复制进 `src/` 下的新模块，形成 `src → scripts` 的反向依赖和循环导入，而且测试对 facade 名字的 monkeypatch 只对其中 3 个显式改成动态读取的名字生效，其余会静默失效。黄金重放数据不在这台机器上，无法用重放兜底验证。下一次做第 3 步前，先把这些方法依赖的名字显式导入（或通过参数注入），再按计划搬移。

@@ -670,7 +670,12 @@ def test_return_home_turns_then_flies_and_stops() -> None:
 
 
 def test_onboard_modules_never_read_scenario_truth() -> None:
-    for path in ("src/multidetect/autonomy/onboard_loop.py", "scripts/onboard_policy.py"):
+    for path in (
+        "src/multidetect/autonomy/onboard_loop.py",
+        "scripts/onboard_policy.py",
+        "src/multidetect/autonomy/onboard_policy_parts/assembly.py",
+        "src/multidetect/autonomy/onboard_policy_parts/runtime.py",
+    ):
         tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         strings = {
