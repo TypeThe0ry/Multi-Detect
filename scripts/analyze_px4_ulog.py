@@ -123,6 +123,7 @@ def _parse_internal(raw: bytes, path: Path | None = None) -> ParsedLog:
     if len(raw) < HEADER_SIZE or raw[:7] != MAGIC:
         raise ValueError("not a ULog file (bad magic or truncated header)")
     topics: dict[str, Topic] = {}
+    format_defs: dict[str, list[tuple[str, str]]] = {}
     ids: dict[int, str] = {}
     console: list[ConsoleMessage] = []
     offset = HEADER_SIZE
@@ -142,17 +143,27 @@ def _parse_internal(raw: bytes, path: Path | None = None) -> ParsedLog:
                 type_name, _, field_text = text.partition(":")
                 fields = [_field_parts(item) for item in field_text.split(";")]
                 fields = [(t, n) for t, n in fields if t and n]
+                format_defs[type_name.strip()] = fields
                 topics.setdefault(type_name.strip(), Topic(type_name.strip(), fields))
             elif kind == "A":
                 if len(payload) < 3:
                     continue
                 multi_id, msg_id = struct.unpack_from("<BH", payload)
                 text = payload[3:].decode("utf-8", "replace")
-                name, _, field_text = text.partition(":")
-                fields = [_field_parts(item) for item in field_text.split(";")]
-                topic = Topic(name.strip(), [(t, n) for t, n in fields if t and n])
-                topics[name.strip()] = topic
-                ids[msg_id] = name.strip()
+                # ULog ``A`` records normally contain only the topic name; its
+                # fields were declared by a preceding ``F`` record.  A few
+                # synthetic/legacy fixtures include the fields inline, so keep
+                # accepting that form as well.
+                name, separator, field_text = text.partition(":")
+                name = name.strip()
+                if separator:
+                    fields = [_field_parts(item) for item in field_text.split(";")]
+                    fields = [(t, n) for t, n in fields if t and n]
+                    format_defs[name] = fields
+                else:
+                    fields = format_defs.get(name, topics.get(name, Topic(name, [])).fields)
+                topics.setdefault(name, Topic(name, fields))
+                ids[msg_id] = name
             elif kind == "D":
                 if len(payload) < 2:
                     continue
