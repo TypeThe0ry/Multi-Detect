@@ -202,6 +202,7 @@ def test_gateway_rejects_nonfinite_duration_and_post_stop_input() -> None:
     assert gateway.evidence()["rejected_reasons"]["gateway_not_accepting"] == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_gateway_run_receives_and_rejects_oversized_datagram_without_truncation() -> None:
     gateway, _ = make_gateway()
     gateway.config = SimulatorControlGatewayConfig(

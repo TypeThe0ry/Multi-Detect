@@ -299,6 +299,10 @@ def test_docker_down_aborts_collect_without_consuming_episode_attempt(monkeypatc
     import json
     import pytest
     import scripts.run_r15_round as r15
+    # Slot ownership is outside this test's Docker-down state transition.
+    monkeypatch.setattr(r15, "SitlLock", lambda *_a, **_kw: types.SimpleNamespace(
+        acquire=lambda: None, release=lambda: None, slot=None,
+    ))
 
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir()

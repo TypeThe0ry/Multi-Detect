@@ -12,6 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 TASKS = ROOT / "configs/onboard/plan-eval-tasks-v3.json"
 
 
+# planning-v5 deliberately reused five v4 prompts when it was frozen (its
+# published scores include them), so they stay; any new overlap still fails.
+FROZEN_V5_V4_OVERLAP = frozenset({
+    "固定翼飞到大门上方定点降落。",
+    "A fixed-wing aircraft should land precisely on the gate.",
+    "数停车场里的红色轿车，然后返航。",
+    "Count the bicycles in the parking lot and return home.",
+    "Inspect the gate and return home, but do not invent a fire truck target.",
+})
+
+
 def test_v3_size_languages_coverage_and_held_out_texts():
     document = json.loads(TASKS.read_text(encoding="utf-8"))
     tasks = document["tasks"]
@@ -27,6 +38,8 @@ def test_v3_size_languages_coverage_and_held_out_texts():
     for path in sorted(TASKS.parent.glob("plan-eval-tasks*.json")):
         for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]:
             text = task["text"].strip()
+            if path.name == "plan-eval-tasks-v5.json" and text in FROZEN_V5_V4_OVERLAP:
+                continue
             assert text not in seen, (path, text)
             seen.add(text)
     for task in tasks:

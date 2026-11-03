@@ -1024,6 +1024,7 @@ def test_operator_udp_cli_rejects_bad_signing_key_without_echoing_secrets(
     assert signing_secret not in captured.out + captured.err
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_operator_udp_authorization_cli_closes_signed_protocol_hil_loop(
     monkeypatch,
 ) -> None:
@@ -2913,6 +2914,7 @@ def test_patrol_reacquisition_sitl_requires_opt_in_and_refuses_qgc_port(capsys) 
     )
 
 
+@pytest.mark.timing(reason="real CPU latency/rate budget requires a quiet performance runner")
 def test_short_term_tracking_bench_exercises_image_recovery_without_hardware(
     tmp_path: Path,
     capsys,

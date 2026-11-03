@@ -117,6 +117,7 @@ def test_authority_rejects_invalid_setpoint_without_mutating_state() -> None:
     assert authority.last_setpoint is None
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_simulator_dry_run_binds_sim_profile_and_seed(tmp_path: Path) -> None:
     orchestrator = SimulatorOrchestrator(SCENARIO, dry_run=True, job_root=tmp_path)
     assert orchestrator.runtime_descriptor.mode is RuntimeMode.SIM
@@ -130,6 +131,7 @@ def test_simulator_dry_run_binds_sim_profile_and_seed(tmp_path: Path) -> None:
     assert (result.job_dir / "control-gateway.json").is_file()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_simulator_starts_and_stops_shared_control_gateway(tmp_path: Path) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
         listener.bind(("127.0.0.1", 0))
@@ -170,6 +172,7 @@ def test_simulation_endpoint_rejects_real_and_non_loopback() -> None:
     validate_simulation_endpoint("gazebo://river/front-camera")
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_ensure_port_available_detects_bound_port() -> None:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))

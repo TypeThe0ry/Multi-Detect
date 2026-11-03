@@ -77,6 +77,7 @@ def _ports() -> tuple[int, int, int, int]:
     return tuple(selected)  # type: ignore[return-value]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_interactive_dry_run_persists_router_and_ai_evidence(tmp_path: Path) -> None:
     qgc_input, qgc_output, px4_input, px4_output = _ports()
     orchestrator = SimulatorOrchestrator(
@@ -107,6 +108,7 @@ def test_interactive_dry_run_persists_router_and_ai_evidence(tmp_path: Path) -> 
     assert job["qgc_control_mode"] == "sim_flight"
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_interactive_orchestrator_can_explicitly_force_read_only(tmp_path: Path) -> None:
     qgc_input, qgc_output, px4_input, px4_output = _ports()
     orchestrator = SimulatorOrchestrator(
@@ -125,6 +127,7 @@ def test_interactive_orchestrator_can_explicitly_force_read_only(tmp_path: Path)
     assert result.interactive_router["qgc_control_mode"] == "read_only"
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_interactive_router_mode_override_must_match_custom_config(tmp_path: Path) -> None:
     qgc_input, qgc_output, px4_input, px4_output = _ports()
     config = SimulatorInteractiveRouterConfig(
@@ -180,6 +183,7 @@ def test_simulator_cli_exposes_manual_control_watchdog_override() -> None:
     assert args.manual_watchdog_seconds == pytest.approx(0.75)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_noninteractive_orchestrator_keeps_manual_watchdog_disabled_by_default(
     tmp_path: Path,
 ) -> None:
@@ -192,6 +196,7 @@ def test_noninteractive_orchestrator_keeps_manual_watchdog_disabled_by_default(
     assert orchestrator.control_adapter.config.manual_watchdog_s is None
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_interactive_qgc_command_uses_native_isolated_hil_ports(tmp_path: Path) -> None:
     qgc_input, qgc_output, px4_input, px4_output = _ports()
     seen: list[list[str]] = []
@@ -232,6 +237,7 @@ def test_interactive_qgc_command_uses_native_isolated_hil_ports(tmp_path: Path) 
     assert (orchestrator.job_dir / "interactive-router.json").is_file()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_custom_interactive_router_throttle_mode_must_match_adapter(tmp_path: Path) -> None:
     qgc_input, qgc_output, px4_input, px4_output = _ports()
     config = SimulatorInteractiveRouterConfig(
@@ -254,6 +260,7 @@ def test_custom_interactive_router_throttle_mode_must_match_adapter(tmp_path: Pa
         )
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_custom_auto_router_mode_accepts_concrete_adapter_and_owns_ports(
     tmp_path: Path,
 ) -> None:
@@ -284,6 +291,7 @@ def test_custom_auto_router_mode_accepts_concrete_adapter_and_owns_ports(
     assert result.interactive_router["throttle_wire_mode"] == "auto"
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_custom_interactive_router_port_conflict_is_rejected(tmp_path: Path) -> None:
     qgc_input, qgc_output, px4_input, px4_output = _ports()
     config = SimulatorInteractiveRouterConfig(
@@ -304,6 +312,7 @@ def test_custom_interactive_router_port_conflict_is_rejected(tmp_path: Path) -> 
         )
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_legacy_control_gateway_remains_default_without_qgc(tmp_path: Path) -> None:
     qgc_input, _, _, px4_output = _ports()
     orchestrator = SimulatorOrchestrator(
@@ -324,6 +333,7 @@ def test_legacy_control_gateway_remains_default_without_qgc(tmp_path: Path) -> N
         orchestrator.stop()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_ai_step_uses_shared_executor_and_stop_neutralizes(tmp_path: Path) -> None:
     qgc_input, _, _, px4_output = _ports()
     orchestrator = SimulatorOrchestrator(
@@ -358,6 +368,7 @@ def test_ai_step_uses_shared_executor_and_stop_neutralizes(tmp_path: Path) -> No
     assert control["transport_sink"] == "in_process_recording_mavlink"
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_live_ai_bridge_consumes_px4_telemetry_through_router(tmp_path: Path) -> None:
     qgc_input, qgc_output, px4_input, px4_output = _ports()
     orchestrator = SimulatorOrchestrator(
@@ -405,6 +416,7 @@ def test_live_ai_bridge_consumes_px4_telemetry_through_router(tmp_path: Path) ->
     assert router_evidence["px4_telemetry_sink_frames"] == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_live_ai_watchdog_sink_drives_bridge_freshness_and_persists_evidence(
     tmp_path: Path,
 ) -> None:
@@ -457,6 +469,7 @@ def test_live_ai_watchdog_sink_drives_bridge_freshness_and_persists_evidence(
     orchestrator.stop()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_watchdog_evidence_write_failure_does_not_duplicate_neutral_output(
     tmp_path: Path,
 ) -> None:
@@ -518,6 +531,7 @@ def test_live_ai_requires_interactive_router(tmp_path: Path) -> None:
         SimulatorOrchestrator(SCENARIO, dry_run=True, live_ai=True, job_root=tmp_path)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_live_ai_evidence_writes_are_atomic_under_router_concurrency(
     tmp_path: Path,
 ) -> None:
@@ -605,6 +619,7 @@ def test_live_ai_evidence_writes_are_atomic_under_router_concurrency(
     orchestrator.stop()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_initial_ai_state_syncs_executor(tmp_path: Path) -> None:
     _, _, _, px4_output = _ports()
     orchestrator = SimulatorOrchestrator(

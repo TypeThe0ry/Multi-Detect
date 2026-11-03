@@ -78,6 +78,7 @@ def _message(release_id: str) -> PayloadConfirmationHilMessage:
     )
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_udp_independent_confirmation_advances_mission_without_commands() -> None:
     mission, release_id = _verifying_mission()
     with UdpPayloadConfirmationHilReceiver(bind_host="127.0.0.1", port=0) as receiver:
@@ -105,6 +106,7 @@ def test_udp_independent_confirmation_advances_mission_without_commands() -> Non
     assert mission.payload.get_slot("payload-1").state is PayloadState.RELEASE_CONFIRMED
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_udp_receiver_ignores_tampered_packet_then_accepts_valid_evidence() -> None:
     mission, release_id = _verifying_mission()
     with UdpPayloadConfirmationHilReceiver(bind_host="127.0.0.1", port=0) as receiver:
@@ -130,6 +132,7 @@ def test_udp_receiver_ignores_tampered_packet_then_accepts_valid_evidence() -> N
         assert receiver.rejected_datagrams == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_udp_confirmation_timeout_does_not_fabricate_release_success() -> None:
     mission, release_id = _verifying_mission()
     with UdpPayloadConfirmationHilReceiver(bind_host="127.0.0.1", port=0) as receiver:

@@ -239,6 +239,12 @@ def test_docker_desktop_diagnostics_reports_stale_socket_from_bounded_log(
         encoding="utf-8",
     )
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    # Exercise Windows log parsing while keeping pathlib native to the host.
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        runtime_preflight, "os", SimpleNamespace(name="nt", environ=runtime_preflight.os.environ)
+    )
 
     diagnostics = runtime_preflight._probe_docker_desktop_diagnostics()
 

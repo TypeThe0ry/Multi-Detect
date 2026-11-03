@@ -264,6 +264,7 @@ def test_mapping_observation_errors_cannot_be_hidden_by_heartbeat_counter() -> N
     assert "heartbeat_rejected_frames" in result.errors
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_orchestrator_publishes_process_readiness_and_final_return_codes(
     tmp_path: Path,
 ) -> None:
@@ -307,6 +308,7 @@ def test_orchestrator_publishes_process_readiness_and_final_return_codes(
     assert stopped_by_name["gazebo"]["returncode"] == 0
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_orchestrator_strict_readiness_rejects_process_that_exited_on_start(
     tmp_path: Path,
 ) -> None:

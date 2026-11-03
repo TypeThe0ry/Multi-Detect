@@ -707,3 +707,57 @@ CPU 回归闸门使用同一主环境运行 `scripts/run_onboard_gate.py -q -p n
 | `test_progress_index_rejects_release_gate_parity_binding_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
 
 交付修改限于上述六个测试文件和本分诊文档，无新增交付文件。只读比对确认 `configs/release-parity.json`、`docs/current-progress.json`、`configs/product-version.json`、全部 `configs/schemas/*.json` 与 HEAD 字节相同。Windows runner 未运行；本次没有改变生产 Windows 分支，实际 Windows 执行仍待对应平台复验。
+
+## 2026-11-03 training / simulator / misc 接手组
+
+本组按 `/data/projects/Multi-Detect-env/runs/pytest-xml-20261103/` 中失败节点的 traceback 复现分类；原始 XML 是本轮修改前快照。接手范围为任务点名的六个文件，以及同一 XML 中以下扩展失败文件：
+`test_alert_link_bench.py`、`test_alerts.py`、`test_approach_acceptance.py`、
+`test_bind_openfly_parquet_route_metadata.py`、`test_cli.py`、`test_count_coverage_completion.py`、
+`test_depth_companion_replay.py`、`test_depth_grid_udp.py`、`test_diagnose_onboard_teacher_px4_events.py`、
+`test_eval_server_recovery.py`、`test_field_replay_campaign.py`、`test_fixed_wing_landing_and_smoke.py`、
+`test_gazebo_3d_mainline_manifest.py`、`test_identity_prompt_variants.py`、`test_live.py`、
+`test_llama_server_logs.py`、`test_mission_operator.py`、`test_onboard_model_reference.py`、
+`test_onboard_rendered_3d_dataset.py`、`test_onboard_teacher_mission_execution_v1.py`、
+`test_onboard_teacher_px4_parameter_diagnostics.py`、`test_onboard_teacher_telemetry_capture_v3.py`、
+`test_operator_link_integration.py`、`test_operator_udp.py`、`test_payload_confirmation_udp.py`、
+`test_payload_hil_mission.py`、`test_payload_hil_udp.py`、`test_payload_target_acceptance.py`、
+`test_pixhawk_hil.py`、`test_pixhawk_parameters.py`、`test_plan_eval_tasks_v3.py`、
+`test_plan_eval_tasks_v4.py`、`test_probe_onboard_teacher_gazebo_navref.py`、
+`test_px4_gazebo_qgc_router.py`、`test_qgc_native_flyview_style.py`、`test_replay_set.py`、
+`test_run_operator_demo.py`、`test_short_term_acceptance.py`、`test_sim_operator_link.py`、
+`test_sim_session.py`、`test_sim_teacher_live_loop.py`、`test_sim_teacher_recording.py`、
+`test_simulator_control_gateway.py`、`test_simulator_interactive_router.py`、
+`test_simulator_orchestrator.py`、`test_simulator_orchestrator_interactive.py`、
+`test_simulator_orchestrator_lifecycle.py`、`test_simulator_readiness.py`、
+`test_simulator_run_cli_stack.py`、`test_simulator_runtime_preflight.py`、
+`test_simulator_terrain_truth.py`、`test_train_onboard_vlm_grounding.py`、
+`test_verify_onboard_vlm_grounding_adapter.py`。
+
+gate 补充接手 `test_onboard_main_operator_link.py` 的一个原始失败节点；因此实际处理范围为原始 59 文件/241 节点，加该文件一个节点，共 60 个原始失败文件、242 个节点。新增 `test_environment_requirements.py` 验证只把 `EPERM/EACCES` 当作 sandbox skip，以及普通端口错误仍失败。额外回归 `test_plan_eval_tasks_v5.py`，验证修复的题目集合契约。
+
+完整 242 个原始 failure/error 节点、逐项分类/action/当前状态及改动文件清单见 [training / simulator / misc 逐测试结果](linux-test-triage-20261103-training-simulator-misc.md)。最终扩展回归覆盖上述 60 个原始失败文件，加环境 fixture 自测与 v5 契约，共 1252 项：1062 passed、186 skipped、4 failed、0 errors（单进程、主 `.venv`、`-p no:cacheprovider -m 'not timing'`）。4 个失败均为下面保留的 mainline aggregate/release-parity 绑定漂移，没有宣称全组 green。原始 242 节点当前为 51 passed、186 显式 skip、1 timing 排除、4 保留失败。
+
+完整 Ruff 前后对照显示，所有修改 Python 文件在 HEAD 和当前版本都为 43 项既有诊断，无新增；新增 `test_environment_requirements.py` 单独检查通过。已清理本轮生成的私有 `.multidetect-replay-state/` 文件；`.tmp/` 保留测试日志/XML，不纳入交付。
+
+逐文件分类与 action（同文件内该 XML 的每个 failure/error 均按其 traceback 归入该项；没有将失败断言改弱）：
+
+| 分类 | 文件 | action / 当前状态 |
+|---|---|---|
+| 环境：共享模型/模型依赖缺失 | `test_onboard_3d_training_pipeline.py`、`test_onboard_3d_training_preflight.py`、`test_onboard_model_reference.py` | 当前模型/配置/报告指向 worktree 外共享 artifacts；用 `require_current_onboard_model` 对真实绑定用例作带原因 skip，临时仓库内 SHA/边界负例仍执行。训练和 Docker 均未启动。 |
+| 环境：socket sandbox（仅 EPERM/EACCES） | `test_alert_link_bench.py`、`test_alerts.py`、`test_approach_acceptance.py`、`test_cli.py`、`test_depth_grid_udp.py`、`test_eval_server_recovery.py`、`test_field_replay_campaign.py`、`test_live.py`、`test_llama_server_logs.py`、`test_mission_operator.py`、`test_onboard_main_operator_link.py`、`test_operator_link_integration.py`、`test_operator_udp.py`、`test_payload_confirmation_udp.py`、`test_payload_hil_mission.py`、`test_payload_hil_udp.py`、`test_payload_target_acceptance.py`、`test_pixhawk_hil.py`、`test_pixhawk_parameters.py`、`test_px4_gazebo_qgc_router.py`、`test_replay_set.py`、`test_sim_operator_link.py`、`test_sim_session.py`、`test_sim_teacher_live_loop.py`、`test_simulator_control_gateway.py`、`test_simulator_interactive_router.py`、`test_simulator_orchestrator.py`、`test_simulator_orchestrator_interactive.py`、`test_simulator_orchestrator_lifecycle.py`、`test_simulator_orchestrator_stack.py`、`test_simulator_readiness.py`、`test_simulator_run_cli_stack.py` | 失败发生在 socket 创建/bind 或受其影响的 listener-ready 等待；增加 `require_loopback_sockets`，只有探测到 `EPERM/EACCES` 才 skip，其它 socket 错误仍失败。重跑 onboard gate 后本环境受限用例显式 skip。 |
+| 环境：固定本机数据/头文件/dialect 不存在 | `test_diagnose_onboard_teacher_px4_events.py`、`test_onboard_teacher_px4_parameter_diagnostics.py`、`test_onboard_teacher_telemetry_capture_v2.py`、`test_onboard_teacher_telemetry_capture_v3.py` | telemetry v2/v3 的 Windows 绝对路径 fixture 已由 HEAD `a52ce65f` 改成当前解释器 dialect 定位；缺失时说明原因 skip。PX4 原始头文件缺失时只跳过依赖固定文件的 fixture；COMMON dialect 只有字节数及 SHA 精确匹配才复用，否则 skip，生产 pin 和已有字节断言不变。 |
+| 依赖环境：torch/PEFT/safetensors/huggingface metadata | `test_bind_openfly_parquet_route_metadata.py`、`test_train_onboard_vlm_grounding.py`、`test_verify_onboard_vlm_grounding_adapter.py` | 按可选依赖边界显式 skip；metadata 测试补齐其 synthetic `huggingface_hub` distribution mock。未联网安装、未切换 VLM 环境、未做 GPU 训练。 |
+| 陈旧 fixture/mock/期望快照 | `test_count_coverage_completion.py`、`test_fixed_wing_landing_and_smoke.py`、`test_identity_prompt_variants.py`、`test_onboard_teacher_mission_execution_v1.py`、`test_probe_onboard_teacher_gazebo_navref.py`、`test_run_operator_demo.py`、`test_run_r15_round.py`、`test_simulator_runtime_preflight.py` | 同步 revisit 快照、ACK 单调时钟起点、HTTP timeout mock 签名、Docker admission fixture、隔离子解释器的 checkout/src、容器与内存 mock、R15 外部仓库边界/SitlLock mock、Windows 日志测试的模块平台 mock。保留原有行为断言；不启动 SITL。teacher mission 的 admission 超时在串行复现中未出现。 |
+| 真实代码/数据 bug，已修复 | `test_depth_companion_replay.py`、`test_sim_teacher_recording.py`、`test_plan_eval_tasks_v3.py`、`test_plan_eval_tasks_v4.py`、`test_qgc_native_flyview_style.py` | 拒绝 POSIX 上未被 `Path.name` 识别的 Windows 路径逃逸；用 Pillow dtype 推导 uint16 PNG mode；改写 v5 中与 v4 重复的五条双语题目文本；QGC 区域颜色改用 palette。路径负例、图像数组精确值、任务唯一性和 UI 检查保持。 |
+| 真实环境性能预算/线程 deadline | `test_short_term_acceptance.py`、`test_cli.py`、`test_onboard_teacher_mission_execution_v1.py` | 两个真实 CPU latency/rate 验收和同路径 CLI benchmark 标记 `timing`；CLI benchmark 在扩展集合因 P95 失败，但单独复跑通过。teacher 三个 malformed ACK 参数化用例涉及 RX 线程、durable journal 与 200ms deadline，同样按既有 `timing` 策略单列。未更改 P95/rate/cache/identity/ACK 断言，安静 runner 复验尚未完成。 |
+| 受约束证据或源绑定漂移，未修复 | `test_gazebo_3d_mainline_manifest.py`、`test_onboard_rendered_3d_dataset.py`、`test_simulator_terrain_truth.py` | 前两者 mainline manifest aggregate hash 与当前 stack planner 不一致；terrain truth 因 `configs/release-parity.json` 与共享源非字节一致而失败。保留验证和断言；未手改 manifest、release parity 或 artifacts，需正式生成器/证据流程重建后复验。 |
+| 指定范围外，留待其它分组 | `release/gr01`、`onboard_navigation evidence`、`onboard_runtime/covariance` 对应 XML 文件 | 本轮未接手、未修改；按用户划定留给相应分组。 |
+
+本组六个指定文件及已接手扩展原始 59 个文件（另有 gate 补充 1 文件）。重点定向复现结果：
+`test_simulator_3d_control_acceptance.py` 19 passed；`test_run_r15_round.py` 39 passed；
+PX4 events 诊断 44 passed、21 skipped；PX4 parameter 诊断 24 passed、13 skipped；
+`test_onboard_model_reference.py` 1 passed、1 skipped。最新定向集合和 onboard gate 的最终结果见下方追加验证记录；不运行 SITL/Docker/GPU。
+
+六个点名 XML 的 testcase 级归类：training pipeline 的 8 项（`test_pipeline_preflight_only_keeps_current_parent_and_claim_boundary`、`test_pipeline_train_fails_closed_without_pixel_and_trajectory_inputs`、`test_trainer_command_forwards_explicit_cuda_device`、`test_pipeline_train_rejects_nonempty_candidate_directory_before_subprocess`、`test_zero_trainer_exit_without_outputs_is_not_training_success`、以及三个 `test_candidate_output_gate_*`）均因模型路径越出仓库根而归为共享产物环境限制；training preflight 的 6 项均因同一模型引用前置条件失败。simulator stack 的 6 项（`test_prepare_persists_hash_bound_stack_plan_and_result`、`test_prepare_persists_job_local_px4_launch_plan_and_result`、`test_px4_launch_can_be_explicitly_disabled_for_legacy_stack`、`test_stack_planner_environment_is_attached_to_default_process_specs`、`test_custom_process_specs_remain_compatible_when_stack_plan_fails`、`test_stack_plan_can_be_disabled_without_changing_legacy_specs`）均为 socket EPERM；接受测试的 3 项 `test_simulator_3d_control_gate_proves_shared_manual_ai_path`、`test_simulator_3d_control_gate_selects_fixed_wing_assets_and_mode`、`test_simulator_3d_control_gate_selects_multirotor_x500_assets_and_mode` 均为默认 launch-job 根落在共享只读 artifacts。R15 的两个失败项为 `test_annotate_caches_the_index_worlds_keyed_from_the_episodes_repository` 和 `test_annotate_rejects_a_source_root_whose_keys_build_sft_never_looks_up`，均由 fixture checkout 根界定错误引起。telemetry v2 的 4 个 setup error 为 `test_real_installed_bad_data_class_is_foreign_binary_not_qualification` 和 `test_real_primary_pack_parse_numeric_values_preserved` 的三个参数化值，均来自过期固定 Windows dialect 路径；当前解释器 dialect 找不到时已明确 skip。
+
+本轮验证：点名六文件加 `test_onboard_main_operator_link.py`、`test_environment_requirements.py` 单进程定向运行，独立 JUnit 为 171 tests、150 passed、21 skipped、0 failed/0 errors；skip 为 worktree 外模型绑定和 sandbox loopback socket。`scripts/run_onboard_gate.py -q -p no:warnings` 最终 `PASS (187s)`；sandbox socket 用例经精确 `EPERM/EACCES` fixture skip，gate 其余检查通过。`ruff check --select E4,E7,E9,F` 覆盖本轮相关 Python 文件时只发现 `test_run_r15_round.py` 第 116 行原有未使用 `json` 局部导入；没有在本次行为修复中顺带改动它。其余点名 Python 文件和生产修复按该规则检查均通过。`git diff --check` 通过，差异未包含 artifacts 或任何受约束 evidence 文件。

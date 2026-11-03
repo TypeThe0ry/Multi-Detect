@@ -90,6 +90,7 @@ def test_retention_cap_only_removes_runner_created_logs(tmp_path):
     assert [path.exists() for _, path in runners] == [False, False, True]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_port_wait_ignores_time_wait_after_server_close(tmp_path):
     import socket
 

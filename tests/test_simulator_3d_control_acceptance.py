@@ -27,6 +27,11 @@ V56_MULTIROTOR_EVIDENCE = (
 )
 
 
+@pytest.fixture(autouse=True)
+def local_launch_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(acceptance_module, "DEFAULT_LAUNCH_JOB_ROOT", tmp_path / "launch-jobs")
+
+
 def test_simulator_3d_control_gate_proves_shared_manual_ai_path() -> None:
     result = run_acceptance()
     assert result["product"] == "Multi-Detect"

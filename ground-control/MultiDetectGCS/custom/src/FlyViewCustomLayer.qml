@@ -1589,7 +1589,7 @@ Item {
             parent: root.mapControl
             readonly property var centre: root._zoneCentre(modelData)
             line.width: 3
-            line.color: root._isNoFlyZone(modelData) ? "#ff1744" : qgcPal.colorGreen
+            line.color: root._isNoFlyZone(modelData) ? qgcPal.colorRed : qgcPal.colorGreen
             path: root._circlePath(centre.n, centre.e, Number(modelData.radius_m || modelData.r || 1))
             z: 22
         }
@@ -1598,7 +1598,7 @@ Item {
     MapPolyline {
         parent: root.mapControl
         line.width: 3
-        line.color: "#42a5f5"
+        line.color: qgcPal.colorBlue
         z: 21
         path: {
             const area = root._missionPlan.operating_area || root._missionPackage.operating_area || {}
@@ -1613,7 +1613,7 @@ Item {
         coordinate: root._missionHomeCoordinate || QtPositioning.coordinate()
         visible: root._missionHomeCoordinate !== null
         z: 24
-        sourceItem: Rectangle { width: 18; height: 18; radius: 9; color: "#1565c0"; border.color: "white"; border.width: 2 }
+        sourceItem: Rectangle { width: 18; height: 18; radius: 9; color: qgcPal.colorBlue; border.color: qgcPal.text; border.width: 2 }
     }
 
     // Plan geometry uses the same local N/E projection as findings.  These

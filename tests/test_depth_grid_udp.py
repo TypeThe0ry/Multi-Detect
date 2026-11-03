@@ -55,6 +55,7 @@ def test_depth_grid_codec_rejects_tampering() -> None:
         codec.decode_fragment(bytes(datagram))
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_depth_grid_publisher_uses_fixed_return_port_after_keepalive() -> None:
     receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     receiver.bind(("127.0.0.1", 0))
@@ -80,6 +81,7 @@ def test_depth_grid_publisher_uses_fixed_return_port_after_keepalive() -> None:
         receiver.close()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_depth_grid_publisher_coalesces_display_frames_to_configured_rate() -> None:
     receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     receiver.bind(("127.0.0.1", 0))
@@ -189,6 +191,7 @@ def test_depth_grid_publisher_starts_interval_after_slow_frame_send(
         publisher.close()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_depth_grid_publisher_serializes_concurrent_publish_calls() -> None:
     """Concurrent producers cannot both pass the limiter before completion."""
 

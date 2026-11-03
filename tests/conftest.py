@@ -8,6 +8,9 @@ the ``pythonpath`` configuration option.
 
 from __future__ import annotations
 
+import errno
+import json
+import socket
 import sys
 from pathlib import Path
 
@@ -32,6 +35,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from onboard_gate_files import files as _onboard_gate_files  # noqa: E402
 
 _ONBOARD_NAMES = frozenset(p.name for p in _onboard_gate_files())
+
+
+@pytest.fixture(scope="session")
+def require_loopback_sockets() -> None:
+    """Skip network integration tests only when host policy denies local sockets."""
+    for kind in (socket.SOCK_DGRAM, socket.SOCK_STREAM):
+        try:
+            with socket.socket(socket.AF_INET, kind) as channel:
+                channel.bind(("127.0.0.1", 0))
+        except OSError as exc:
+            if exc.errno not in (errno.EPERM, errno.EACCES):
+                raise
+            pytest.skip(f"loopback sockets denied by host sandbox: {exc}")
+
+
+@pytest.fixture(scope="session")
+def require_current_onboard_model() -> None:
+    """Keep real model-reference integration separate from missing shared artifacts."""
+    reference = _ROOT / "configs/training/onboard-policy-current-reference-v1.json"
+    document = json.loads(reference.read_text(encoding="utf-8"))
+    for key in ("model", "training_config", "training_report"):
+        path = (_ROOT / document[key]["path"]).resolve()
+        if not path.is_relative_to(_ROOT) or not path.is_file():
+            pytest.skip(f"current onboard model requires repository-local bound artifacts: {path}")
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

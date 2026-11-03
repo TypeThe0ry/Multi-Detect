@@ -1509,6 +1509,7 @@ def test_remote_manual_tracking_without_detections_cannot_create_mission_events(
     assert publisher.alerts() == ()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_live_runner_closes_pixhawk_remote_authorization_and_two_channel_hil(
     tmp_path: Path,
 ) -> None:
@@ -2222,6 +2223,7 @@ def test_live_outbox_marks_delivered_only_after_correlated_ack(tmp_path) -> None
     outbox.close()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_live_patrol_delivers_over_authenticated_udp_to_persistent_ground_store(
     tmp_path,
 ) -> None:
@@ -2277,6 +2279,7 @@ def test_live_patrol_delivers_over_authenticated_udp_to_persistent_ground_store(
     ground_store.close()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_authenticated_udp_pending_alert_recovers_after_ground_restart(tmp_path) -> None:
     key = b"live-restart-alert-key-at-least-32-bytes"
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
