@@ -15,6 +15,8 @@ import re
 import shutil
 import subprocess
 import sys
+import os
+import concurrent.futures
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
 METADATA = {
     "id",
     "index",
@@ -103,6 +106,11 @@ def build_command(
     disk_check_every: int = 1,
     strict: bool = False,
     keep_px4_ulog: bool = False,
+    control_port: int = 14540,
+    telemetry_port: int = 14541,
+    container_prefix: str = "md-sim-teacher",
+    operator_port: int = 14580,
+    worker_index: int = 0,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -126,6 +134,14 @@ def build_command(
         "--report",
         str(report_path),
     ]
+    if (control_port, telemetry_port, container_prefix, worker_index, operator_port) != (14540, 14541, "md-sim-teacher", 0, 14580):
+        command += [
+            "--control-port", str(control_port),
+            "--telemetry-port", str(telemetry_port),
+            "--container-prefix", container_prefix,
+            "--worker-index", str(worker_index),
+            "--operator-port", str(operator_port),
+        ]
     if retry_failed_episodes:
         command.append("--retry-failed-episodes")
     if strict:
@@ -430,6 +446,8 @@ def main(
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--only", nargs="+", help="mission ids, space or comma separated")
     parser.add_argument("--episodes", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--lock-path", type=Path, default=default_lock_path())
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--retry-failed-episodes", action="store_true")
     parser.add_argument(
@@ -452,6 +470,8 @@ def main(
         parser.error("mission ids must be unique, safe directory names")
     if args.episodes < 1:
         parser.error("--episodes must be positive")
+    if args.workers < 1:
+        parser.error("--workers must be positive")
     if args.disk_check_every < 1 or args.min_free_disk_gb < 0:
         parser.error("disk-check-every must be positive; disk GB must be nonnegative")
     if args.only:
@@ -486,9 +506,14 @@ def main(
                 parser.error(f"{mission['id']}: {exc}")
     out = args.out.resolve()
     reports, errors = {}, []
+    runner_is_default = runner is None
     runner = runner or subprocess.run
     generator_runner = generator_runner or subprocess.run
     scheduled = []
+    pending = []
+    configured_slots = max(1, int(os.environ.get("MULTIDETECT_SITL_SLOTS", "1")))
+    if args.workers > configured_slots:
+        parser.error(f"--workers ({args.workers}) exceeds MULTIDETECT_SITL_SLOTS ({configured_slots})")
     for mission in missions:
         mission = {**mission, "episodes": args.episodes}
         scheduled.append(mission)
@@ -552,6 +577,14 @@ def main(
         else:
             mission["variant_label"] = "base"
         config = merge_config(suite["defaults"], mission)
+        slot = len(scheduled) % args.workers
+        control_port = 14540 + slot * 100
+        telemetry_port = 14541 + slot * 100
+        operator_port = 14580 if args.workers == 1 else 15480 + slot * 100
+        if configured_slots > 1:
+            config["port"] = 9941 + slot
+        if configured_slots > 1 and config.get("mission") == "operator_link":
+            config["operator_port"] = operator_port
         write_json(config_path, config)
         command = build_command(
             mission,
@@ -564,6 +597,11 @@ def main(
             disk_check_every=args.disk_check_every,
             strict=args.strict,
             keep_px4_ulog=args.keep_px4_ulog,
+            control_port=control_port,
+            telemetry_port=telemetry_port,
+            container_prefix=(f"md-sim-teacher-slot-{slot}" if configured_slots > 1 else "md-sim-teacher"),
+            operator_port=operator_port,
+            worker_index=slot,
         )
         if args.dry_run:
             print(
@@ -582,13 +620,56 @@ def main(
             continue
         # Remove stale reports so a failed campaign cannot appear successful.
         report_path.unlink(missing_ok=True)
-        try:
-            runner(command, cwd=ROOT, check=True)
-            reports[mission["id"]] = json.loads(report_path.read_text(encoding="utf-8"))
-        except (OSError, subprocess.CalledProcessError, ValueError) as exc:
-            errors.append(f"{mission['id']}: {exc}")
+        pending.append((mission["id"], command, report_path, slot, config_path))
     if args.dry_run:
         return 0
+    def execute(item):
+        mission_id, command, report_path, planned_slot, config_path = item
+        if runner_is_default and os.environ.get("MULTIDETECT_SITL_LOCK_HELD") != "1":
+            lock = SitlLock(
+                args.lock_path,
+                label=f"mission-{mission_id}",
+                slots=configured_slots,
+            )
+            lock.acquire()
+            slot = lock.slot if lock.slot is not None else planned_slot
+            if configured_slots > 1:
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                config["port"] = 9941 + slot
+                if config.get("mission") == "operator_link":
+                    config["operator_port"] = 15480 + slot * 100
+                write_json(config_path, config)
+                for flag, value in {
+                    "--control-port": 14540 + slot * 100,
+                    "--telemetry-port": 14541 + slot * 100,
+                    "--container-prefix": f"md-sim-teacher-slot-{slot}",
+                    "--worker-index": slot,
+                    "--operator-port": 15480 + slot * 100,
+                }.items():
+                    index = command.index(flag)
+                    command[index + 1] = str(value)
+            child_env = os.environ.copy()
+            child_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
+            child_env["MULTIDETECT_SITL_SLOT"] = str(slot)
+            try:
+                if runner_is_default:
+                    runner(command, cwd=ROOT, check=True, env=child_env)
+                else:
+                    runner(command, cwd=ROOT, check=True)
+            finally:
+                lock.release()
+        else:
+            runner(command, cwd=ROOT, check=True)
+        return mission_id, json.loads(report_path.read_text(encoding="utf-8"))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = {pool.submit(execute, item): item[0] for item in pending}
+        for future, mission_id in futures.items():
+            try:
+                key, report = future.result()
+                reports[key] = report
+            except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
+                errors.append(f"{mission_id}: {exc}")
     table = build_table(scheduled, reports)
     table["errors"] = errors
     table["provenance"] = build_provenance(root=ROOT, config_paths=[args.suite], command=sys.argv)

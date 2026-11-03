@@ -1,6 +1,7 @@
 """Run all SIM mission suites sequentially and merge their reports."""
 from __future__ import annotations
 import argparse, json, os, shutil, signal, subprocess, sys, time
+from contextlib import nullcontext as _null_context
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ SIM_ENV_KEYS = (
     "MULTIDETECT_SIM_GPU_AVOID",
     "MULTIDETECT_SIM_NETWORK",
     "MULTIDETECT_SITL_LOCK",
+    "MULTIDETECT_SITL_SLOTS",
 )
 SIM_CONTROL_PORT = 14540
 SIM_TELEMETRY_PORT = 14541
@@ -113,6 +115,7 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     p.add_argument("--model-set", choices=list(MODEL_SET_SUITES), default=os.environ.get("MULTIDETECT_MODEL_SET", "default"))
     p.add_argument("--suites", nargs="+", default=None)
     p.add_argument("--episodes", type=int, default=1)
+    p.add_argument("--workers", type=int, default=1)
     p.add_argument("--suite-episodes", action="append", default=[], metavar="NAME=N")
     p.add_argument("--fire-hydrant-episodes", type=int, default=None)
     p.add_argument("--out", type=Path, default=None)
@@ -137,6 +140,13 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     if unknown_suites:
         p.error(f"unknown suites for model set {args.model_set}: {', '.join(unknown_suites)}")
     if args.episodes < 1: p.error("--episodes must be positive")
+    if args.workers < 1: p.error("--workers must be positive")
+    try:
+        slot_count = int(os.environ.get("MULTIDETECT_SITL_SLOTS", "1"))
+    except ValueError:
+        p.error("MULTIDETECT_SITL_SLOTS must be a positive integer")
+    if slot_count < 1 or args.workers > slot_count:
+        p.error(f"--workers must be between 1 and MULTIDETECT_SITL_SLOTS ({slot_count})")
     counts = {name: args.episodes for name in suites}
     for item in args.suite_episodes:
         name, sep, value = item.partition("=")
@@ -166,6 +176,8 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         cmd = [sys.executable, str(ROOT / "scripts/run_mission_suite.py"), "--suite", str(config), "--out", str(suite_out), "--episodes", str(counts[name]), "--min-free-disk-gb", str(args.min_free_disk_gb), "--disk-check-every", str(args.disk_check_every)]
         if args.keep_px4_ulog:
             cmd.append("--keep-px4-ulog")
+        if args.workers > 1:
+            cmd += ["--workers", str(args.workers)]
         if name == "e2e": cmd = [sys.executable, str(ROOT / "scripts/run_e2e_operator_suite.py"), "--suite", str(config), "--out", str(suite_out), "--episodes", str(counts[name])]
         plans.append((name, cmd, suite_out))
     if args.dry_run:
@@ -179,14 +191,17 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         for name, cmd, _ in plans: print(json.dumps({"suite": name, "episodes": counts[name], "command": cmd}, ensure_ascii=False))
         return 0
     records = []
-    with sitl_lock_context(SitlLock(lock_path)):
-        # Children inherit this lock; without the marker each collector waits on it forever.
-        child_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
+    # Mission workers acquire their own slot locks. The parent only coordinates
+    # suites and writes the aggregate nightly report.
+    with _null_context():
         for name, cmd, suite_out in plans:
             started = now_iso(); code = 0; error = None
             try:
                 preflight(args.min_free_disk_gb); suite_out.mkdir(parents=True, exist_ok=True)
-                completed = runner(cmd, cwd=ROOT, check=False, env=child_env)
+                run_env = dict(child_env)
+                if name == "e2e":
+                    run_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
+                completed = runner(cmd, cwd=ROOT, check=False, env=run_env)
                 code = completed if isinstance(completed, int) else getattr(completed, "returncode", 0)
             except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
                 code = getattr(exc, "returncode", 1) or 1; error = str(exc)

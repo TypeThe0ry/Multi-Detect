@@ -171,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="copy PX4 .ulg flight logs into each collector job before cleanup",
     )
+    parser.add_argument("--control-port", type=int, default=14540)
+    parser.add_argument("--telemetry-port", type=int, default=14541)
+    parser.add_argument("--container-prefix", default="md-sim-teacher")
+    parser.add_argument("--worker-index", type=int, default=0)
+    parser.add_argument("--operator-port", type=int, default=14580)
     parser.add_argument(
         "--strict",
         action="store_true",
@@ -254,6 +259,11 @@ def main(argv: list[str] | None = None) -> int:
                 "1280x960",
                 "--max-episode-s",
                 str(args.max_episode_s),
+                "--control-port", str(args.control_port),
+                "--telemetry-port", str(args.telemetry_port),
+                "--container-prefix", args.container_prefix,
+                "--worker-index", str(args.worker_index),
+                "--operator-port", str(args.operator_port),
             ]
             if args.segmentation:
                 command.append("--segmentation")
@@ -336,6 +346,11 @@ def main(argv: list[str] | None = None) -> int:
                 "1280x960",
                 "--max-episode-s",
                 str(args.max_episode_s),
+                "--control-port", str(args.control_port),
+                "--telemetry-port", str(args.telemetry_port),
+                "--container-prefix", args.container_prefix,
+                "--worker-index", str(args.worker_index),
+                "--operator-port", str(args.operator_port),
             ]
             if args.segmentation:
                 command.append("--segmentation")

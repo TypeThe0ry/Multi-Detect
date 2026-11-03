@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import multiprocessing
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,22 @@ import pytest
 
 import scripts.sitl_lock as lock_module
 from scripts.sitl_lock import SitlLock, running_sitl_containers, sitl_lock_context
+
+
+def _empty_docker_runner(*_args, **_kwargs):
+    return SimpleNamespace(returncode=0, stdout="")
+
+
+def _hold_fake_slot(path: str, result_queue):
+    lock = SitlLock(
+        Path(path), retry_s=0.01, slots=2,
+        runner=_empty_docker_runner,
+        memory_fn=lambda: 100.0,
+    )
+    lock.acquire()
+    result_queue.put(lock.slot)
+    time.sleep(1.0)
+    lock.release()
 
 
 def test_container_gate_matches_only_sitl_prefixes():
@@ -108,6 +125,36 @@ def test_lock_waits_for_gate_and_releases_owned_directory(tmp_path):
     assert "start=" in lock.owner.read_text(encoding="utf-8")
     lock.release()
     assert not lock.path.exists()
+
+
+def test_slot_locks_allocate_distinct_directories_and_release(tmp_path, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_SITL_SLOTS", "2")
+    runner = lambda *_a, **_k: SimpleNamespace(stdout="")
+    first = SitlLock(tmp_path / "multi", retry_s=0, runner=runner, memory_fn=lambda: 9)
+    second = SitlLock(tmp_path / "multi", retry_s=0, runner=runner, memory_fn=lambda: 9)
+    first.acquire(wait=False)
+    second.acquire(wait=False)
+    assert {first.slot, second.slot} == {0, 1}
+    assert first.path != second.path
+    first.release()
+    second.release()
+    assert not list(tmp_path.glob("multi.slot-*"))
+
+
+def test_slot_locks_are_unique_across_processes(tmp_path):
+    context = multiprocessing.get_context("spawn")
+    result_queue = context.Queue()
+    processes = [
+        context.Process(target=_hold_fake_slot, args=(str(tmp_path / "process-lock"), result_queue))
+        for _ in range(2)
+    ]
+    for process in processes:
+        process.start()
+    slots = [result_queue.get(timeout=5) for _ in processes]
+    for process in processes:
+        process.join(timeout=5)
+    assert all(process.exitcode == 0 for process in processes)
+    assert set(slots) == {0, 1}
 
 
 def test_dead_owner_is_reclaimed_only_after_grace_period(tmp_path, monkeypatch):

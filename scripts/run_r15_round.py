@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
 from multidetect.sim_network import sim_network_mode
 from scripts.platform_paths import default_llama_server
-from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
+from scripts.sitl_lock import SitlLock, configured_slot_count, default_lock_path
 from scripts.run_simulator_docker import gpu_assignment_for_worker
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
@@ -948,7 +948,7 @@ class Round:
             )
         )
 
-    def _collect_one(self, key: str, cmd: list[str], target: Path) -> dict:
+    def _collect_one(self, key: str, cmd: list[str], target: Path, *, env=None) -> dict:
         # Each attempt writes to its own directory so a failed or partial attempt can
         # never be mistaken for this key's episode (or another key's).
         prefix = cmd[cmd.index("--container-prefix") + 1]
@@ -968,7 +968,7 @@ class Round:
             try_index += 1
             attempt_cmd = [*cmd[:-1], str(attempt_dir)]
             _remove_worker_containers(prefix)
-            completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True)
+            completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True, env=env)
             output = "\n".join(
                 part for part in (getattr(completed, "stdout", ""), getattr(completed, "stderr", "")) if part
             )
@@ -1169,18 +1169,34 @@ class Round:
             print(f"[dry-run] GPU worker slots: {assignments}")
             return
         self._docker_abort = threading.Event()
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.a.workers)
+        active_workers = min(self.a.workers, configured_slot_count())
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=active_workers)
         # Each job's ports/container prefix were planned from its episode index,
         # which can repeat across concurrently running jobs.  Lease a free worker
         # slot at run time instead so two live containers never share ports.
         slots: queue.Queue[int] = queue.Queue()
-        for slot in range(self.a.workers):
+        for slot in range(active_workers):
             slots.put(slot)
 
         def run_on_free_slot(key: str, cmd: list[str], target: Path):
             slot = slots.get()
             try:
-                return self._collect_one(key, with_worker_slot(cmd, slot), target)
+                lock = SitlLock(
+                    getattr(self.a, "sitl_lock_path", default_lock_path()),
+                    label=f"r15-worker-slot-{slot}",
+                    slots=active_workers,
+                    min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
+                )
+                lock.acquire()
+                try:
+                    slot = lock.slot if lock.slot is not None else slot
+                    slotted = with_worker_slot(cmd, slot)
+                    slot_env = os.environ.copy()
+                    slot_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
+                    slot_env["MULTIDETECT_SITL_SLOT"] = str(slot)
+                    return self._collect_one(key, slotted, target, env=slot_env)
+                finally:
+                    lock.release()
             finally:
                 slots.put(slot)
 
@@ -1275,12 +1291,7 @@ class Round:
             if getattr(self.a, "dry_run", False):
                 self.collect()
             else:
-                with sitl_lock_context(SitlLock(
-                    getattr(self.a, "sitl_lock_path", default_lock_path()),
-                    label="r15-worker",
-                    min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
-                )):
-                    self.collect()
+                self.collect()
         if self.a.stage in ("all", "annotate"):
             self.guards("annotate")
             cmd = self.annotate_command()

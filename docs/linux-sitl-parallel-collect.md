@@ -1,5 +1,9 @@
 # Linux 并行 SITL 采集失败分析
 
+## 槽位并发约定
+
+`MULTIDETECT_SITL_SLOTS=N` 开启 N 个独立 SITL 租约。夜间任务使用 `run_nightly_regression.py --workers K`，每个 mission 获得独立 control/telemetry 端口块、llama/operator 端口、容器名前缀和 GPU worker 索引；`K=1` 仍使用 14540/14541、14580 和 `md-sim-teacher`。r15 worker 也逐个租用同一组槽位，因此在剩余槽位足够时可与 nightly 同时运行。槽位不足时 worker 等待，不会复用正在使用的端口。
+
 ## 结论
 
 这批 r21id-r4c 失败的首要原因是采集器的解锁确认时序，而不是 PX4 拒绝解锁。采集器把 `COMMAND_ACK(command=400, result=0)` 和带 armed 位的 `HEARTBEAT` 放进同一个 6 次、约 6 秒的重试窗口；在软件渲染和 6 worker 并发下，PX4 经常先接受 ARM，再过约 5.8--6.0 秒才在下一次心跳中反映 armed。采集器在这之前继续重复发送 ARM，窗口耗尽后报错。日志中的 `Preflight Fail: No connection to the GCS` 是启动期/GCS 门控文字，不能单独解释为 ARM 被拒绝；同一条记录随后出现 `Armed by external command`，且 ACK 结果为 accepted。
