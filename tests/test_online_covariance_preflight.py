@@ -130,7 +130,9 @@ def _mode_binding(sources: dict[str, Path]) -> dict[str, object]:
     }
 
 
-def _raw_probe(sources: dict[str, Path], mode_binding: dict[str, object]) -> dict[str, object]:
+def _raw_probe(
+    sources: dict[str, Path], mode_binding: dict[str, object], *, release_label: str
+) -> dict[str, object]:
     heartbeat = _heartbeat()
     autopilot_version = _autopilot_version()
     return {
@@ -174,7 +176,7 @@ def _raw_probe(sources: dict[str, Path], mode_binding: dict[str, object]) -> dic
         "source_preflight": {
             "schema": "multidetect.pixhawk-covariance-field-source-preflight/v1",
             "schema_version": 1,
-            "release_label": "0.3.0-pre.8",
+            "release_label": release_label,
             "config_path": str(sources["config"]),
             "config_sha256": _sha(sources["config"]),
             "records": [{"status": "ready"}] * 6,
@@ -194,11 +196,11 @@ def _raw_probe(sources: dict[str, Path], mode_binding: dict[str, object]) -> dic
     }
 
 
-def _source_preflight_summary(sources: dict[str, Path]) -> dict[str, object]:
+def _source_preflight_summary(sources: dict[str, Path], *, release_label: str) -> dict[str, object]:
     return {
         "schema": "multidetect.pixhawk-covariance-field-source-preflight/v1",
         "schema_version": 1,
-        "release_label": "0.3.0-pre.8",
+        "release_label": release_label,
         "config_path": str(sources["config"]),
         "config_sha256": _sha(sources["config"]),
         "ready_count": 6,
@@ -212,6 +214,8 @@ def _observation(
 ) -> tuple[dict[str, object], dict[str, Path]]:
     sources = _sources(tmp_path)
     mode_binding = _mode_binding(sources)
+    parity = json.loads(online.PARITY_PATH.read_text(encoding="utf-8"))
+    release_label = parity["release_label"]
     monkeypatch.setattr(
         online,
         "build_pixhawk_covariance_mode_binding",
@@ -220,13 +224,12 @@ def _observation(
     monkeypatch.setattr(
         online,
         "_verify_current_campaign",
-        lambda *args, **kwargs: _source_preflight_summary(sources),
+        lambda *args, **kwargs: _source_preflight_summary(sources, release_label=release_label),
     )
-    parity = json.loads(online.PARITY_PATH.read_text(encoding="utf-8"))
     return (
         online.build_online_covariance_preflight_observation(
-            _raw_probe(sources, mode_binding),
-            release_label=parity["release_label"],
+            _raw_probe(sources, mode_binding, release_label=release_label),
+            release_label=release_label,
             config_path=sources["config"],
             mission_path=sources["mission"],
             mission_feedback_path=sources["feedback"],

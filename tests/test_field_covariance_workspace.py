@@ -16,6 +16,9 @@ from multidetect.field_covariance_campaign import REQUIRED_COMBINATIONS, load_ca
 
 
 def _write_config(tmp_path: Path) -> Path:
+    parity = json.loads(workspace.PARITY_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(campaign.CONFIG_SCHEMA_PATH.read_text(encoding="utf-8"))
+    release_label = schema["properties"]["release_label"].get("const", parity["release_label"])
     entries: list[dict[str, object]] = []
     for index, (mode, vehicle) in enumerate(REQUIRED_COMBINATIONS):
         source = tmp_path / "original" / mode / vehicle
@@ -44,13 +47,25 @@ def _write_config(tmp_path: Path) -> Path:
             {
                 "schema": "multidetect.pixhawk-covariance-field-campaign/v1",
                 "schema_version": 1,
-                "release_label": "0.3.0-pre.8",
+                "release_label": release_label,
                 "entries": entries,
             }
         ),
         encoding="utf-8",
     )
     return config
+
+
+def _require_current_campaign_release(config_path: Path) -> None:
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    parity = json.loads(workspace.PARITY_PATH.read_text(encoding="utf-8"))
+    if config["release_label"] != parity["release_label"]:
+        pytest.skip(
+            f"Evidence-bound {campaign.CONFIG_SCHEMA_PATH.name} requires "
+            f"{config['release_label']}, but configs/release-parity.json is "
+            f"{parity['release_label']}; regenerate the release contracts before "
+            "running current-parity workspace integration tests"
+        )
 
 
 def _install_source_parsers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -117,8 +132,10 @@ def _install_source_parsers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _export(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    config_path = _write_config(tmp_path)
+    _require_current_campaign_release(config_path)
     _install_source_parsers(monkeypatch)
-    config = load_campaign_config(_write_config(tmp_path))
+    config = load_campaign_config(config_path)
     return workspace.export_field_covariance_workspace(
         config,
         tmp_path / "portable",
@@ -273,6 +290,7 @@ def test_cli_export_and_verify(
 ) -> None:
     _install_source_parsers(monkeypatch)
     config = _write_config(tmp_path)
+    _require_current_campaign_release(config)
     exported = tmp_path / "cli-portable"
 
     assert workspace.main(["export", "--config", str(config), "--out", str(exported)]) == 0
