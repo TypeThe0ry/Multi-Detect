@@ -26,6 +26,8 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(_repository_source))
 
 from multidetect.autonomy.serialization import canonical_sha256
+from multidetect.runtime import RuntimeMode
+from multidetect.simulation import load_runtime_scenario
 from multidetect.simulator.cpu import SimulatorCpuIsolation, resolve_cpu_isolation
 from multidetect.simulator.stack import (
     SimulatorStackError,
@@ -563,8 +565,14 @@ def build_docker_simulator_plan(
         px4_telemetry_port=telemetry_port,
     )
     try:
+        # Suite-generated manifests live under --out, which can be outside a
+        # pinned worktree. The runtime loader contains channel paths and checks
+        # their hashes; build_stack_plan still binds all assets to `root`.
+        source = scenario
+        if not Path(scenario).expanduser().resolve().is_relative_to(root):
+            source = load_runtime_scenario(scenario, mode=RuntimeMode.SIM)
         stack = build_stack_plan(
-            scenario,
+            source,
             repository_root=root,
             ports=ports,
             tool_capabilities={"px4": False, "gazebo": False},

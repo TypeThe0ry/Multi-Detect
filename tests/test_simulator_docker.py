@@ -255,6 +255,27 @@ def test_docker_plan_supports_fixed_wing_assets(tmp_path: Path) -> None:
     assert plan.world_path.name == "coastal_patrol_fixed_wing_001.sdf"
 
 
+@pytest.mark.parametrize("invalid,error", [
+    ("hash", "hash mismatch"), ("path", "relative and contained"),
+])
+def test_external_manifest_must_keep_runtime_channel_bound(tmp_path: Path, invalid, error) -> None:
+    manifest = json.loads(SCENARIO.read_text(encoding="utf-8"))
+    reference = manifest["channels"]["runtime_input"]
+    runtime = tmp_path / reference["path"]
+    runtime.write_bytes((SCENARIO.parent / reference["path"]).read_bytes())
+    if invalid == "hash":
+        payload = json.loads(runtime.read_text(encoding="utf-8"))
+        payload["seed"] += 1
+        runtime.write_text(json.dumps(payload), encoding="utf-8")
+    else:
+        reference["path"] = "../outside.runtime_input.json"
+    scenario = tmp_path / "exported.scenario.json"
+    scenario.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(DockerSimulatorPlanError, match=error):
+        build_docker_simulator_plan(scenario, repository_root=ROOT, job_dir=tmp_path / "job")
+
+
 def test_docker_cli_prints_json_and_writes_out_without_invoking_docker(
     tmp_path: Path, capsys
 ) -> None:
