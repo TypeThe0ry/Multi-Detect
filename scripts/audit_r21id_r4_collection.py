@@ -20,13 +20,7 @@ SFT_ACCEPTANCE_DIRECTIONS = (
     "pickup->suv", "suv->pickup", "person->postbox", "postbox->person",
     "car->postbox", "postbox->car",
 )
-SHORT_SIDE_BANDS = {
-    "8-12": (8.0, 12.0),
-    "12-16": (12.0, 16.0),
-    "16-24": (16.0, 24.0),
-    "24-32": (24.0, 32.0),
-    ">=32": (32.0, float("inf")),
-}
+_SHORT_SIDE_BAND_RE = re.compile(r"^\s*(?:(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)|>=\s*(\d+(?:\.\d+)?)|<\s*(\d+(?:\.\d+)?))\s*$")
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -42,11 +36,11 @@ def _episode_dir(path: str | Path) -> Path:
 
 
 def _world_id(key: str, path: Path | None = None) -> str:
-    match = re.search(r"gen_r21id_r4_w\d{4}", key)
+    match = re.search(r"gen_r21id_[A-Za-z0-9]+_w\d{4}", key)
     if match:
         return match.group(0)
     if path is not None:
-        match = re.search(r"gen_r21id_r4_w\d{4}", str(path))
+        match = re.search(r"gen_r21id_[A-Za-z0-9]+_w\d{4}", str(path))
         if match:
             return match.group(0)
     return "unknown"
@@ -76,10 +70,18 @@ def _find_scenario_file(scenarios: Path, scenario_id: str, suffix: str) -> Path:
 def _short_side_ok(geometry: dict[str, Any]) -> bool:
     band_name = str(geometry.get("target_short_side_px", ""))
     estimate = geometry.get("target_short_side_px_estimate")
-    if band_name not in SHORT_SIDE_BANDS or estimate is None:
+    if estimate is None:
         return False
-    lower, upper = SHORT_SIDE_BANDS[band_name]
-    return lower <= float(estimate) < upper
+    match = _SHORT_SIDE_BAND_RE.fullmatch(band_name)
+    if match is None:
+        return False
+    value = float(estimate)
+    if match.group(1) is not None:
+        lower, upper = float(match.group(1)), float(match.group(2))
+        return lower <= value < upper
+    if match.group(3) is not None:
+        return value >= float(match.group(3))
+    return value < float(match.group(4))
 
 
 def _failure_group(value: Any) -> str:
