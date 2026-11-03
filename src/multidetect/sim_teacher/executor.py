@@ -264,9 +264,29 @@ class PymavlinkPrimitiveExecutor:
     def execute(self, action: ActionPrimitive) -> ExecutionResult:
         start_time = self._clock()
         wall_start = self._wall_clock()
+        last_clock = start_time
+        last_progress_wall = wall_start
+        wall_timeout_hit = False
 
-        def wall_left() -> bool:
-            return self.max_wall_s is None or self._wall_clock() - wall_start < self.max_wall_s
+        def wall_progress_ok(now: float) -> bool:
+            """Bound only periods where the simulation clock stops advancing.
+
+            Lockstep SITL can be much slower than real time on a loaded Linux
+            host.  A total wall-clock budget would therefore cut a valid
+            simulation-time primitive short.  The wall bound is still needed
+            when telemetry/simulation stalls completely.
+            """
+            nonlocal last_clock, last_progress_wall, wall_timeout_hit
+            if self.max_wall_s is None:
+                return True
+            wall_now = self._wall_clock()
+            if now > last_clock:
+                last_clock = now
+                last_progress_wall = wall_now
+            if wall_now - last_progress_wall >= self.max_wall_s:
+                wall_timeout_hit = True
+                return False
+            return True
 
         measured_start = tuple(float(x) for x in self._position())
         measured_yaw = float(self._yaw())
@@ -277,14 +297,16 @@ class PymavlinkPrimitiveExecutor:
         start_pos = self._commanded_position
         start_yaw = self._commanded_yaw
         if action.kind == "hold":
-            while self._clock() - start_time < action.seconds and wall_left():
+            while True:
+                now = self._clock()
+                if now - start_time >= action.seconds or not wall_progress_ok(now):
+                    break
                 self._send_setpoint(*start_pos, start_yaw)
                 self._sleep(1.0 / self.stream_hz)
             held = self._clock() - start_time
-            # A hold cut short by the wall bound (a stalled simulation) did not happen.
             status = "success" if held >= action.seconds else "timeout"
             ack = {"stream_hz": self.stream_hz}
-            if status == "timeout":
+            if wall_timeout_hit:
                 ack["wall_timeout"] = True
             return ExecutionResult(status, held, ack=ack)
         if action.kind == "stop":
@@ -297,7 +319,10 @@ class PymavlinkPrimitiveExecutor:
         self._commanded_yaw = target_yaw
         result = "pending"
         current = measured_start
-        while self._clock() - start_time < self.criterion.timeout_s and wall_left():
+        while True:
+            now = self._clock()
+            if now - start_time >= self.criterion.timeout_s or not wall_progress_ok(now):
+                break
             self._send_setpoint(*target, target_yaw)
             current = tuple(float(x) for x in self._position())
             error = math.sqrt(sum((current[i] - target[i]) ** 2 for i in range(3)))
@@ -314,12 +339,15 @@ class PymavlinkPrimitiveExecutor:
         elapsed = self._clock() - start_time
         if result == "pending":
             result = "timeout"
+        ack = {"stream_hz": self.stream_hz}
+        if wall_timeout_hit:
+            ack["wall_timeout"] = True
         return ExecutionResult(
             result,
             elapsed,
             tuple(current[i] - start_pos[i] for i in range(3)),
             float(self._yaw()) - start_yaw,
-            {"stream_hz": self.stream_hz},
+            ack,
         )
 
     def rtl(self) -> None:
