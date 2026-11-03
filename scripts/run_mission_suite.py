@@ -578,8 +578,11 @@ def main(
             mission["variant_label"] = "base"
         config = merge_config(suite["defaults"], mission)
         slot = len(scheduled) % args.workers
-        control_port = 14540 + slot * 100
-        telemetry_port = 14541 + slot * 100
+        # Multi-slot runs share the r15 per-slot port scheme (14560 + 10 * slot)
+        # so a leased global slot maps to one port pair whoever holds it; a
+        # 100-port stride put slot 1 on the in-container metadata port 14640.
+        control_port = 14540 if configured_slots == 1 else 14560 + slot * 10
+        telemetry_port = 14541 if configured_slots == 1 else 14561 + slot * 10
         operator_port = 14580 if args.workers == 1 else 15480 + slot * 100
         if configured_slots > 1:
             config["port"] = 9941 + slot
@@ -640,8 +643,8 @@ def main(
                     config["operator_port"] = 15480 + slot * 100
                 write_json(config_path, config)
                 for flag, value in {
-                    "--control-port": 14540 + slot * 100,
-                    "--telemetry-port": 14541 + slot * 100,
+                    "--control-port": 14560 + slot * 10,
+                    "--telemetry-port": 14561 + slot * 10,
                     "--container-prefix": f"md-sim-teacher-slot-{slot}",
                     "--worker-index": slot,
                     "--operator-port": 15480 + slot * 100,
