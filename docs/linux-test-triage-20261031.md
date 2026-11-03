@@ -174,3 +174,165 @@ collection/setup error 项；这些数目包含下表中后来修复的项，不
 本轮修改文件：`tests/test_onboard_teacher_telemetry_capture_v2.py`（Linux 可移植 dialect fixture）、
 `tests/test_verify_onboard_navigation_recovery_identity.py`（POSIX 显式跳过 Windows API 分支）。定向验证：
 两文件合计通过，只有 Windows 专用分支显式跳过。全量分片结果用于最终覆盖和分类，未宣称在当前沙箱中 green。
+
+## 2026-11-03 release / GR01 分组修复
+
+范围为本节下列六个测试文件。先读取 `/data/projects/Multi-Detect-env/runs/pytest-xml-20261103/` 的六份 JUnit XML：原共 112 项，91 failed、21 passed。所有复测使用主 `.venv`、单进程，设置 `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp CUDA_VISIBLE_DEVICES=''`，使用 `-p no:cacheprovider -p no:xdist`。
+
+修复前复现：74 failed、21 passed、17 deselected。17 个 deselected 是 XML 中会在共享 `artifacts/` 创建或删除临时目录的用例；为遵守共享产物只读要求，没有重演这些写入，依据原始 traceback 分类，并在改成独占 `.tmp` 临时目录后纳入完整复测。没有启动 SITL、Docker、llama-server、GPU 或下载依赖。
+
+历史与根因核对：
+
+- `abca8465` 从引入 GR01 plan 时就明确拒绝符号链接，handoff 也保持相同约束。Linux uv 的 `sys.executable` 是符号链接；测试夹具改传 `Path(sys.executable).resolve()`，生产的链接拒绝条件不变。修复遮挡解除后，handoff 的越界输出用例另暴露 `TMPDIR` 位于仓库内的旧假设，改用现有 `ROOT.parent` 作为仓库外目标，仍断言必须拒绝。
+- `d0a3a95c` 将产品升级到 `0.3.0-pre.9`；`571c3926` 明确要求绑定当前版本清单。external-binding 三个失败仍由 `pre.8` 夹具构造。改为从现有版本清单读取 release label，保持源漂移、parity 不匹配及最终版本必须提供外部证据的断言。
+- 默认模型 dry-run 的三项需要固定模型、训练配置、训练报告和 manifest。当前 `artifacts` 符号链接解析到主仓库，生产 loader 按设计拒绝越出 worktree；仅这三项增加固定证据前置检查，缺失或外置时附原因 skip，不捕获 SHA 不匹配。
+- current-progress 的 52 项依赖完整的本地证据包；增加显式 fixture，在共享产物外置或固定包缺失时 skip，不能绕过生产路径或 hash 检查。五处临时变异目录（17 个参数化用例）迁入每次独占的 `.tmp/current-progress-*`，不再创建、删除或写入 `artifacts/`。独立 parity 测试和原来可通过的字段审计测试保持执行。
+- `test_release_parity_sources_recompute_against_current_workspace` 是仍存在的受证据约束快照漂移，不是陈旧断言。源码只读复算确认 `ui_contract_hash`、`core_algorithm_hash`、`task_contract_hash`、`safety_policy_hash`、`px4_mission_path_hash` 五项都不同；保留失败，只报告。需要由正式生成器及证据再绑定流程处理，未手改 parity、progress、schema 或产品版本。
+
+本组未确认需要修改生产实现的代码缺陷。没有删测试或放宽断言；原有测试函数及 assert 数量相同，唯一 assert AST 差别是 CLI 调用中的解释器参数改用解析后的路径。
+
+| 文件 | 原始失败 | 修复后完整复测 |
+|---|---:|---|
+| `tests/test_gr01_release_session.py` | 14 | 15 passed |
+| `tests/test_gr01_release_handoff.py` | 12 | 12 passed |
+| `tests/test_gr01_release_plan.py` | 6 | 6 passed |
+| `tests/test_release_gate_external_binding.py` | 3 | 4 passed |
+| `tests/test_external_onboard_model_acceptance.py` | 3 | 14 passed、3 skipped |
+| `tests/test_current_progress_index.py` | 53 | 5 passed、52 skipped、1 failed |
+
+完整六文件复测：**56 passed、55 skipped、1 failed（53.33s）**。前五文件合计 51 passed、3 skipped；current-progress 为 5 passed、52 skipped、1 failed。跳过表示本机证据前置条件不足，不表示该断言验证通过。日志及 XML 位于本工作树 `.tmp/release-gr01-triage/`，不纳入交付。
+
+CPU 回归闸门使用同一主环境运行 `scripts/run_onboard_gate.py -q -p no:warnings -p no:cacheprovider -p no:xdist --tb=short`：JUnit 共 1667 项，**1652 passed、12 skipped、3 failed**，脚本耗时 201s。三项失败与本文件既有沙箱分类一致，均在创建 socket 时收到 `PermissionError: [Errno 1] Operation not permitted`，本组未改这些范围外测试：
+
+- `tests/test_llama_server_logs.py::test_port_wait_ignores_time_wait_after_server_close`：TCP socket 创建被拒绝。
+- `tests/test_onboard_main_operator_link.py::test_start_up_mission_is_bound_and_held_for_operator_approval`：UDP socket 创建被拒绝。
+- `tests/test_replay_set.py::test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutations`：HTTP server socket 创建被拒绝。
+
+静态检查：六个修改测试文件的 `ruff check` 全部通过，`git diff --check` 通过。未声称全量或回归闸门 green；Windows、完整证据环境中的 55 个跳过项以及受保护 parity 重生成/再绑定未执行。
+
+### 原始失败逐项分类与处置
+
+下表逐项对应全量 JUnit 的 91 个 failure（包括每个参数化实例），没有将未知失败推断为已修复。
+
+`tests/test_gr01_release_session.py`
+
+| 测试 | 分类 | 处置及复测 |
+|---|---|---|
+| `test_record_is_schema_valid_and_independently_reverified` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_verifier_rejects_source_tampering` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_verifier_rejects_release_plan_configuration_drift` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_relocated_origin_plan_is_authorized_only_by_ready_target_handoff` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_verifier_rejects_handoff_tampering` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_creator_rejects_expired_gr01_binding` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_verifier_rejects_record_metadata_tampering` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_creator_is_write_new_and_cli_reports_failure` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_field_snapshot_and_second_machine_portable_review` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_portable_review_rejects_changed_copy` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_portable_semantic_review_rejects_reinventoried_record_tampering` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_portable_review_requires_matching_out_of_band_inventory_hash` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_portable_review_rejects_missing_or_invalid_signing_key_before_outputs[None-environment variable is missing]` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_portable_review_rejects_missing_or_invalid_signing_key_before_outputs[not-a-key-64 hexadecimal characters]` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+
+`tests/test_gr01_release_handoff.py`
+
+| 测试 | 分类 | 处置及复测 |
+|---|---|---|
+| `test_handoff_is_path_relocated_source_bound_and_schema_valid` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_can_be_ready_only_with_target_secrets` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_requested_execution_match_fails_closed_before_network[overrides0-configuration does not match]` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_requested_execution_match_fails_closed_before_network[overrides1-configuration does not match]` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_requested_execution_match_fails_closed_before_network[overrides2-secret names do not match]` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_reports_target_source_mismatch_fail_closed` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_rejects_malformed_source_identity_before_writing[<lambda>-repository identity]` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_rejects_malformed_source_identity_before_writing[<lambda>-tool scripts_run_gr01_release_session_ps1 identity]` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_detects_source_plan_and_environment_drift` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_portable_handoff_recomputes_stored_target_checks` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_handoff_is_write_new_and_target_output_must_stay_in_repository` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；仓库外目录改用 ROOT.parent；**passed** |
+| `test_handoff_cli_create_allows_diagnostic_receipt_and_verify_is_strict` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+
+`tests/test_gr01_release_plan.py`
+
+| 测试 | 分类 | 处置及复测 |
+|---|---|---|
+| `test_plan_is_source_bound_schema_valid_and_reverifiable` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_verifier_rejects_tool_projection_tampering` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_environment_recheck_detects_presence_change` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_require_ready_rejects_diagnostic_plan` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_ready_requires_secrets_clean_git_and_verified_parity` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+| `test_creator_is_write_new_and_cli_rejects_invalid_plan` | 陈旧测试：跨平台夹具 | 解析真实解释器路径；原断言保留；**passed** |
+
+`tests/test_release_gate_external_binding.py`
+
+| 测试 | 分类 | 处置及复测 |
+|---|---|---|
+| `test_release_gate_writer_binds_external_join_and_revalidation` | 陈旧测试：历史版本夹具 | 夹具绑定当前版本清单，保留拒绝漂移/parity 不匹配断言；**passed** |
+| `test_release_gate_external_binding_rejects_source_drift` | 陈旧测试：历史版本夹具 | 夹具绑定当前版本清单，保留拒绝漂移/parity 不匹配断言；**passed** |
+| `test_release_gate_external_writer_requires_current_parity` | 陈旧测试：历史版本夹具 | 夹具绑定当前版本清单，保留拒绝漂移/parity 不匹配断言；**passed** |
+
+`tests/test_external_onboard_model_acceptance.py`
+
+| 测试 | 分类 | 处置及复测 |
+|---|---|---|
+| `test_external_dry_run_defaults_to_hash_bound_current_reference` | 环境：共享模型/证据外置 | 增加仅限该 dry-run 的固定证据前置 fixture；不放宽 loader/hash 校验；**skipped** |
+| `test_external_dry_run_plans_recording_binding_after_real_capture` | 环境：共享模型/证据外置 | 增加仅限该 dry-run 的固定证据前置 fixture；不放宽 loader/hash 校验；**skipped** |
+| `test_external_dry_run_binds_offline_capture_plan_without_runtime_truth` | 环境：共享模型/证据外置 | 增加仅限该 dry-run 的固定证据前置 fixture；不放宽 loader/hash 校验；**skipped** |
+
+`tests/test_current_progress_index.py`
+
+| 测试 | 分类 | 处置及复测 |
+|---|---|---|
+| `test_release_parity_sources_recompute_against_current_workspace` | 受保护证据漂移：未解决 | 保留真实重算失败；五个 parity hash 漂移，报告而不编辑 JSON；**failed** |
+| `test_current_progress_index_is_bound` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_binds_v030_pre1_foundation_receipt` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_rejects_v030_pre1_foundation_source_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_binds_current_qgc_combined_sim` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_rejects_current_qgc_combined_sim_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_binds_external_fixed_wing_shared_policy_depth_mission` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_binds_external_mission_matrix` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_binds_current_shared_policy_vtol_campaign` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_rejects_current_vtol_receipt_bound_to_old_parity` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_binds_current_shared_policy_runtime_matrix` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_rejects_shared_policy_runtime_matrix_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_external_mission_matrix_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_external_report_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_shared_policy_training_report_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_trained_artifact_receipt_canonical_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_binds_all_external_gazebo_fault_sources` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_binds_external_multirotor_shared_policy_depth_mission` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_rejects_external_multirotor_cross_binding_drift[container-external multirotor shared-policy depth Mission safety binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_multirotor_cross_binding_drift[mission-external multirotor shared-policy depth Mission safety binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_multirotor_cross_binding_drift[wire-external multirotor shared-policy depth Mission safety binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_multirotor_cross_binding_drift[airframe-external multirotor policy artifact canonical binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_multirotor_ranker_semantic_drift` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_multirotor_depth_evidence_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_depth_binding_drift[topic-external fixed-wing depth scenario binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_depth_binding_drift[scenario-external fixed-wing depth scenario binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_depth_binding_drift[safety-external fixed-wing shared-policy depth Mission safety binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_depth_binding_drift[stamp-external fixed-wing depth companion binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_runtime_identity_drift[active_model-external fixed-wing depth Mission provenance binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_runtime_identity_drift[assets-external fixed-wing depth Mission provenance binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_runtime_identity_drift[inspect-external fixed-wing depth Mission provenance binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_runtime_identity_drift[sensor_binding-external fixed-wing depth Mission provenance binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_runtime_identity_drift[zero_frames-external fixed-wing depth Mission provenance binding]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_fixed_wing_runtime_identity_drift[duplicate_frames-external fixed-wing depth frame coverage drift]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_external_gazebo_fault_evidence_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_ai_flight_parity_receipt_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_ai_flight_parity_canonical_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_field_link_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_field_link_byte_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_observed_session_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_observed_session_completion_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_binds_current_shared_policy_observed_session` | 环境：固定证据缺失 | 增加完整本地证据包前置 fixture，附原因 skip；**skipped** |
+| `test_progress_index_rejects_current_observed_session_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_campaign_receipt_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_campaign_receipt_parity_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_positive_replay_accuracy_hash_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_missing_release_gate_artifact[report_path]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_missing_release_gate_artifact[manifest_path]` | 环境：共享证据只读；旧临时目录夹具 | 临时变异改用独占 .tmp；因缺少仓库内证据包明确 skip；**skipped** |
+| `test_progress_index_rejects_field_link_report_binding_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_release_gate_report_binding_drift[file_sha256]` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_release_gate_report_binding_drift[file_bytes]` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_release_gate_report_binding_drift[local_path]` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+| `test_progress_index_rejects_release_gate_parity_binding_drift` | 环境：共享证据越出 worktree | 增加本地证据包前置 fixture；避免前置 foundation 错误遮挡目标断言；**skipped** |
+
+交付修改限于上述六个测试文件和本分诊文档，无新增交付文件。只读比对确认 `configs/release-parity.json`、`docs/current-progress.json`、`configs/product-version.json`、全部 `configs/schemas/*.json` 与 HEAD 字节相同。Windows runner 未运行；本次没有改变生产 Windows 分支，实际 Windows 执行仍待对应平台复验。

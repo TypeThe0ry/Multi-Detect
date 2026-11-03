@@ -40,6 +40,7 @@ from multidetect.release_gate import PARITY_FIELDS, evaluate_release_gate
 from multidetect.release_gate_manifest import create_release_gate_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
+PYTHON = Path(sys.executable).resolve()
 VERSION_MANIFEST = ROOT / "configs" / "product-version.json"
 SESSION_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session.schema.json"
 REVIEW_SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session-review.schema.json"
@@ -229,7 +230,7 @@ def _sources(
         maximum_attempts=3,
         maximum_evidence_age_s=max_age_s,
         repository_root=ROOT,
-        python_path=Path(sys.executable),
+        python_path=PYTHON,
         output_root=repository_output,
     )
     if relocated_origin_plan:
@@ -252,7 +253,7 @@ def _sources(
         handoff,
         source_plan=plan,
         target_repository_root=ROOT,
-        target_python=Path(sys.executable),
+        target_python=PYTHON,
         target_output_root=repository_output,
         host_id="GR01-SESSION-TEST",
     )
