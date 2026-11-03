@@ -34,3 +34,20 @@ def test_minimal_parser_reads_topics_gaps_failsafe_and_console():
     assert "load=0.75" in report
     assert "lockstep stalled" in report
     assert "Parser: `minimal`" in report
+
+
+def test_minimal_parser_resolves_real_ulog_add_message_from_format():
+    data = bytearray(struct.pack("<8sQ", b"ULog\x01\x12\x35", 0))
+    data.extend(_message("F", b"cpuload:uint64_t timestamp;float load"))
+    # Real PX4 ULogs put only the topic name in an Add Logged Message record;
+    # the format comes from the preceding Format record.
+    data.extend(_message("A", struct.pack("<BH", 0, 7) + b"cpuload"))
+    data.extend(_message("D", struct.pack("<HQf", 7, 2_000_000, 0.5)))
+
+    parsed = _parse_internal(bytes(data))
+
+    assert parsed.topics["cpuload"].fields == [
+        ("uint64_t", "timestamp"),
+        ("float", "load"),
+    ]
+    assert parsed.topics["cpuload"].rows == [{"timestamp": 2_000_000, "load": 0.5}]
