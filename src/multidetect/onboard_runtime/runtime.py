@@ -545,9 +545,10 @@ class OnboardRuntime:
 
     def _guard(self) -> None:
         """Runs in the pump, independent of coordinator or inference delays."""
-        now = time.monotonic()
         try:
             state, frame = self.vehicle.snapshot(), self.camera.latest()
+            # Reads can return telemetry newer than the start of this guard tick.
+            now = time.monotonic()
             fault = self._freshness_fault(state, frame, now)
             with self._lock:
                 if (
@@ -588,7 +589,7 @@ class OnboardRuntime:
                 if self.hazard and self._hazard_target and self.pump:
                     self._set_target_checked(self._hazard_target, "hazard_hold", state=state)
         except Exception as exc:
-            self._latch(f"sensor_error: {exc}", now)
+            self._latch(f"sensor_error: {exc}", time.monotonic())
 
     def start(self, *, active: bool = True, own_flight: bool = True) -> None:
         if self.pump is not None:
@@ -913,6 +914,7 @@ class OnboardRuntime:
             except Exception as exc:
                 self._latch(f"sensor_error: {exc}", now)
                 return
+            now = time.monotonic()
             fault = self._freshness_fault(state, frame, now)
             if fault:
                 self._latch(fault, now)

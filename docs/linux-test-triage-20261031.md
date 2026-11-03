@@ -413,3 +413,135 @@ CPU 回归闸门（单进程、主 `.venv`）也已完成：
 
 日志为 `.tmp/nav-gate.log`，结果为 `.tmp/nav-gate.xml`。需要允许本地 socket 的 Linux runner
 重新验证这三项；本次未把整个 onboard gate 声称为通过。
+
+## 2026-11-03 onboard runtime / covariance 分组复核
+
+范围为 `tests/test_onboard_runtime.py`、`tests/test_field_covariance_workspace.py`、
+`tests/test_online_covariance_preflight.py`。先读取
+`/data/projects/Multi-Detect-env/runs/pytest-xml-20261103/` 中对应三个 JUnit XML 的失败栈，
+再以主 `.venv` 单进程复现，结果与原始 XML 一致：47 项中 36 failed、11 passed，
+没有收集错误。以下逐项表中的参数化实例分别计数。
+
+复现和修复后定向验证均设置 `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp CUDA_VISIBLE_DEVICES=''`，
+解释器为 `/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python`，pytest 参数为
+`-q -p no:cacheprovider -p no:xdist --tb=short`。修复后增加独立的
+`tests/test_onboard_runtime_freshness.py`，用于默认 CPU gate 可执行的确定性回归。
+
+| 文件 | 修复前复现 | 最终定向结果 |
+|---|---|---|
+| `tests/test_onboard_runtime.py` | 7 passed、13 failed | 20 passed |
+| `tests/test_field_covariance_workspace.py` | 3 passed、13 failed | 3 passed、13 skipped（受证据约束的契约冲突） |
+| `tests/test_online_covariance_preflight.py` | 1 passed、10 failed | 11 passed |
+| `tests/test_onboard_runtime_freshness.py`（新增） | 控制时钟在修复前稳定复现 4 个失败；其余 16 项通过 | 20 passed |
+| 合计 | 原有三文件 36 failed、11 passed | 54 passed、13 skipped、0 failed、0 error |
+
+### 根因、历史与处理
+
+- **R：真实 runtime 代码 bug。** `_guard()` 和 `poll()` 在读取 vehicle/camera 前取 `now`，
+  读取期间生成的正常时间戳因此满足 `stamp > now`，被严格的 freshness 检查误判成 `stale_pose`。
+  同一顺序还会漏算读取耗时，使实际已过期的缓存通过检查。`git blame` 将这两处追溯到
+  `4718a1625`（2026-10-15）；近期 `2e042bb7` 只增加 observation 的 `time_boot_ms`，
+  没有改变 freshness 语义。修复只把 freshness 比较时钟移到两次传感器读取之后，
+  守卫读失败时重新取时钟记录故障；没有改变允许年龄或对未来时间戳的拒绝条件。
+  新文件以控制时钟分别覆盖 guard/poll：读取期间产生的新状态/帧、四种传感器的过期与未来时间戳、
+  以及读取耗时导致的失效，共 20 项；不启动线程、模型或真实传输，不标为 `timing`。
+- **O：online preflight 陈旧测试 fixture。** `0d757a21`（2026-09-06）引入的 raw probe 和
+  current-campaign stub 写死 `0.3.0-pre.8`，而 observation 外层已读取当前 parity 的 release。
+  `d0a3a95c`（2026-10-19）将 parity 切到 `0.3.0-pre.9`，导致 fixture 自相矛盾，
+  在真正执行篡改/时效断言前被 source-preflight 一致性检查拒绝。现在从当前 parity 读取一次 release，
+  显式传给 raw probe、campaign stub 和 observation builder；原有断言及生产校验保持原样。
+- **W：环境/受证据约束的发布契约漂移，尚未修复契约本身。**
+  `configs/schemas/pixhawk-covariance-field-campaign.schema.json` 的
+  `properties.release_label.const` 仍为 `0.3.0-pre.8`（历史 `7bd337d9`、2026-09-06），
+  但 `configs/release-parity.json` 为 `0.3.0-pre.9`。export 的当前 release 校验自
+  `42bc4e5d`（2026-09-06）即存在：pre.8 配置会被 exporter 拒绝，改用 pre.9 又会被 schema 拒绝。
+  因此这 13 项不能仅靠更新测试标签修复，也不是 Linux 路径问题。按本任务禁止手改证据契约的要求，
+  fixture 按 schema 构造配置；仅在需要当前 parity 的 export/CLI 入口检测标签不一致并
+  `pytest.skip`，原因明确包含 schema 文件名、两个标签和需重新生成发布契约的说明。
+  独立的 schema 封闭性、blocked-preflight 零写入、symlink-root 拒绝测试仍执行并通过；
+  未 mock 掉生产 release/schema 校验。正式生成流程同步契约后，条件 skip 自动解除。
+
+### 原始失败逐项分类与处理
+
+`tests/test_onboard_runtime.py`：
+
+| 测试（含参数化实例） | 分类 | 处理/结果 |
+|---|---|---|
+| `test_runtime_calls_final_arbiter_before_pump_target` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_stream_rate_and_hold_during_one_and_half_second_policy_call` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_stale_sensor_holds_then_chosen_failsafe_and_discards_late_action[hold-camera-stale_camera]` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_stale_sensor_holds_then_chosen_failsafe_and_discards_late_action[hold-pose-stale_pose]` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_stale_sensor_holds_then_chosen_failsafe_and_discards_late_action[land-camera-stale_camera]` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_stale_sensor_holds_then_chosen_failsafe_and_discards_late_action[land-pose-stale_pose]` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_stale_sensor_holds_then_chosen_failsafe_and_discards_late_action[rtl-camera-stale_camera]` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_stale_sensor_holds_then_chosen_failsafe_and_discards_late_action[rtl-pose-stale_pose]` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_hung_autonomy_times_out_without_stopping_stream` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_receiver_error_still_completes_hold_grace_and_configured_rtl` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_policy_timeout_is_enforced_even_if_worker_finishes_between_guard_ticks` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_takeoff_primes_stream_and_confirms_mode_arm_before_home_relative_climb` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+| `test_changed_home_cannot_silently_shift_policy_coordinate_frame` | 真实代码 bug（R） | 修正 guard/poll 的取时顺序；原断言保留，现通过 |
+
+`tests/test_field_covariance_workspace.py`：
+
+| 测试（含参数化实例） | 分类 | 处理/结果 |
+|---|---|---|
+| `test_export_is_portable_and_verifies_after_root_move` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_verifier_rejects_source_tamper_and_unexpected_files` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_verifier_rejects_manifest_tamper_even_with_recomputed_digest` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_verifier_rejects_noncanonical_or_escaping_paths` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_verifier_rejects_current_parity_drift` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_cli_export_and_verify` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_receive_atomically_copies_and_receipt_verifies_without_source_media` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_receipt_reverification_allows_only_declared_and_verified_campaign_reports` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_receive_rejects_paths_inside_closed_bundles_before_mutation` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_receive_never_overwrites_destination_or_receipt` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_receive_rolls_back_new_destination_when_receipt_write_fails` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_receipt_rejects_document_and_received_workspace_tamper` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+| `test_cli_receive_and_verify_receipt_after_source_removal` | 环境/证据契约漂移（W） | 标签冲突时显式 skip；待正式流程同步 schema/parity 后复跑 |
+
+`tests/test_online_covariance_preflight.py`：
+
+| 测试（含参数化实例） | 分类 | 处理/结果 |
+|---|---|---|
+| `test_build_write_load_and_freshness_round_trip` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_archived_verification_explicitly_relaxes_only_next_leaf_requirement` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_loader_enforces_default_expiry` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_verifier_rejects_tamper_unknown_fields_and_source_drift` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_verifier_rejects_stale_and_future_observations` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_verifier_rejects_relational_claim_tamper[<lambda>-probe timing0]` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_verifier_rejects_relational_claim_tamper[<lambda>-probe timing1]` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_verifier_rejects_relational_claim_tamper[<lambda>-response claim]` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_verifier_rejects_current_campaign_drift` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+| `test_writer_and_loader_reject_symbolic_links` | 陈旧测试（O） | fixture 统一使用当前 parity release；原断言保留，现通过 |
+
+### 验证与交付边界
+
+最终定向命令：
+
+```text
+/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python -m pytest tests/test_onboard_runtime.py tests/test_field_covariance_workspace.py tests/test_online_covariance_preflight.py tests/test_onboard_runtime_freshness.py -q -p no:cacheprovider -p no:xdist --tb=short -ra --junitxml=.tmp/runtime-covariance-final.xml
+```
+
+结果为 54 passed、13 skipped、0 failed、0 error。Ruff 检查及格式检查覆盖全部 4 个修改/新增 Python 文件。
+定向复现/最终日志、JUnit XML 留在工作树 `.tmp/runtime-covariance-*`，不属于交付源码。
+
+CPU onboard 回归闸门也使用同一解释器及上述环境，单进程运行：
+
+```text
+/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python scripts/run_onboard_gate.py -q -p no:warnings -p no:cacheprovider -p no:xdist --tb=short --junitxml=$PWD/.tmp/runtime-covariance-gate.xml
+```
+
+闸门退出码为 1，耗时约 218 秒。JUnit 共 1687 项，1672 passed、12 skipped、3 failed、0 error；
+新增 freshness 文件的 20 项全部纳入默认 gate 并通过。三项失败均与既有记录一致，属于本组外的
+socket 沙箱限制；没有为了得到 green 扩大本组修改范围：
+
+| 闸门失败项 | 分类 | 本次 traceback 与处理 |
+|---|---|---|
+| `tests/test_llama_server_logs.py::test_port_wait_ignores_time_wait_after_server_close` | 环境：socket 沙箱限制 | 在 `socket.socket(AF_INET, SOCK_STREAM)` 抛 `PermissionError: [Errno 1] Operation not permitted`；保留原测试，需允许本地 socket 的 runner 复跑 |
+| `tests/test_onboard_main_operator_link.py::test_start_up_mission_is_bound_and_held_for_operator_approval` | 环境：socket 沙箱限制 | `UdpOperatorSelectionServer` 创建 UDP socket 被拒绝；保留原测试，未启动真实 operator 服务 |
+| `tests/test_replay_set.py::test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutations` | 环境：socket 沙箱限制 | `ThreadingHTTPServer` 创建 socket 被拒绝；保留原测试，需允许 loopback 的 runner 复跑 |
+
+没有修改 `artifacts/`、`docs/evidence/`、`configs/release-parity.json`、`docs/current-progress.json`、
+`configs/schemas/*.json` 或 `configs/product-version.json`；未安装依赖、联网下载、启动 SITL/Docker/GPU 任务，
+未提交。runtime 源码变更后的正式 parity/进度证据需由获准的生成流程重新绑定；本组不手工更新旧哈希。
+13 项 workspace skip 代表证据契约阻塞，不能声称它们的业务行为已在当前发布契约下通过。
