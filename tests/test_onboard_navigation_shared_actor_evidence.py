@@ -10,7 +10,10 @@ from xml.etree import ElementTree
 
 import pytest
 
+from tests.onboard_navigation_evidence_support import requires_local_artifacts
+
 ROOT = Path(__file__).resolve().parents[1]
+pytestmark = requires_local_artifacts(ROOT)
 RECEIPT = ROOT / "docs/evidence/onboard-navigation-shared-actor-inputs-20261007-r1.json"
 FIELDS = {"input_ids", "attention_mask", "pixel_values", "image_grid_thw"}
 FALSE_CLAIMS = (

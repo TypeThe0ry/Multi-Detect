@@ -174,3 +174,242 @@ collection/setup error 项；这些数目包含下表中后来修复的项，不
 本轮修改文件：`tests/test_onboard_teacher_telemetry_capture_v2.py`（Linux 可移植 dialect fixture）、
 `tests/test_verify_onboard_navigation_recovery_identity.py`（POSIX 显式跳过 Windows API 分支）。定向验证：
 两文件合计通过，只有 Windows 专用分支显式跳过。全量分片结果用于最终覆盖和分类，未宣称在当前沙箱中 green。
+
+
+## 2026-11-03 onboard navigation evidence 组定向修复
+
+本组首先读取 `/data/projects/Multi-Detect-env/runs/pytest-xml-20261103` 下对应的 13 份 XML，
+共 163 项：85 passed、34 failed、34 error、10 skipped。随后在当前 worktree 按原要求单进程复现，
+得到 **111 passed、34 failed、7 error、11 skipped**；差异来自 HEAD 已含 identity fixture 的修复，
+不是遗漏测试。复现日志/XML 为 `.tmp/nav-baseline.log`、`.tmp/nav-baseline.xml`。
+
+本轮没有发现需要修改生产实现的真实代码 bug。两类陈旧测试已修正：
+
+- original82 的 CPU 替身编排 fixture 仍调用真实 Windows 内存采样器，导致 6 项在生成前以
+  `NotImplementedError: This evidence sampler requires Windows` 退出。现在注入显式
+  `fixture_only` 采样替身，并增加三个采样阶段及替身标识断言；59 条持久化预测、错误计数、
+  清理与旧产物不变等原断言全部保留。真实 Windows sampler 及其拒绝 Linux 的行为未改。
+- 数据集进度测试仍要求 README 直接链接历史 pilot。`417cc71d` 后 README 定位是稳定入口，
+  `docs/development-update-policy.md` 要求逐轮记录留在进度/专题文档。现在断言真实的
+  `README → docs/current-progress.md → onboard-openfly-navigation-pilot.md` 入口链，
+  同时保留其余四份文档的专题引用、专题文件存在、receipt 大小/SHA、计数及发布门断言。
+
+证据环境门槛集中在新文件 `tests/onboard_navigation_evidence_support.py`：只对缺失的根证据包，
+或解析到 worktree 根外的共享 `artifacts/` 进行显式 skip，原因写入 pytest/JUnit。
+9 个完整依赖原始产物的证据模块使用 `skipif`；streamed CPU 仅在实际 evidence fixture 中检查，
+其 8 个纯软件测试继续执行；数据集模块只标记 8 个依赖封存原件的用例，进度测试照常执行。
+没有捕获/忽略 SHA 或大小断言；具有仓库内证据包时所有原始绑定、路径范围和业务断言仍执行。
+新增 6 个环境回归测试，证明共享产物未改、本地同长度哈希漂移仍失败、内部软链接越界仍失败、
+仓库内目录软链接可用、错误类型的根路径不会被跳过，以及缺失包的明确原因。
+
+以下封存身份问题**只报告，未刷新或伪造证据**。当前共享环境跳过并不表示它们已被修复；
+即使恢复仓库内原始产物，当前源码/默认配置仍不能冒充 2026-10-07 的原始身份：
+
+| 原始绑定 | 封存 bytes | 当前 bytes | 历史核对与后续要求 |
+|---|---:|---:|---|
+| `tests/test_verify_onboard_navigation_recovery_identity.py` | 11776 | 12444 | `15101dcf` / `a52ce65f` 修改了跨平台 fixture；exact-reload 回执仍绑定旧文件。需要原始封存源码树或按证据生成流程产生新回执。 |
+| `tests/test_build_onboard_openfly_navigation_dataset.py` | 13247 | 13346 | `11a9f5b0` 增加 PyYAML 可选依赖门槛；不能把旧 dataset receipt 的 SHA 手改为当前文件。 |
+| `configs/release-parity.json` | 13874 | 18099 | `d0a3a95c`、`9e2d2135`、`ef18403b` 已生成 pre.9 parity；旧 dataset receipt 绑定旧版本。保持文件只读。 |
+| `configs/product-version.json` | 162 | 170 | 当前产品版本与旧封存版本不同；保持文件只读，需要原始快照或正式生成的新证据。 |
+
+### 逐文件复验结果
+
+结果来自 `.tmp/nav-final.xml`，指定的原始 13 文件合计 **118 passed、45 skipped、0 failed/error**；
+加上新环境回归 6 项和原有 host-memory 回归 10 项，合计 **134 passed、45 skipped**。
+43 个跳过是证据环境限制，另 2 个是既有 Windows argv/进程捕获专用测试；不声称完成真实原件审计。
+
+| 文件 | 通过 | 跳过 |
+|---|---:|---:|
+| `tests/test_verify_onboard_navigation_recovery_identity.py` | 26 | 2 |
+| `tests/test_onboard_navigation_early_import_failure_evidence.py` | 0 | 2 |
+| `tests/test_onboard_navigation_exact_reload_evidence.py` | 0 | 3 |
+| `tests/test_onboard_navigation_full_load_evidence.py` | 0 | 2 |
+| `tests/test_onboard_navigation_load_only_failure_evidence.py` | 0 | 4 |
+| `tests/test_onboard_navigation_native_load_failure_evidence.py` | 0 | 4 |
+| `tests/test_onboard_navigation_pread_failure_evidence.py` | 0 | 4 |
+| `tests/test_onboard_navigation_shared_actor_evidence.py` | 0 | 2 |
+| `tests/test_onboard_navigation_streamed_cpu_evidence.py` | 8 | 7 |
+| `tests/test_onboard_navigation_streaming_failure_evidence.py` | 0 | 4 |
+| `tests/test_onboard_navigation_trained_adapter_evidence.py` | 0 | 3 |
+| `tests/test_evaluate_onboard_navigation_original82.py` | 83 | 0 |
+| `tests/test_onboard_openfly_navigation_dataset_evidence.py` | 1 | 8 |
+| `tests/test_onboard_navigation_evidence_environment.py` | 6 | 0 |
+| `tests/test_onboard_navigation_host_memory.py` | 10 | 0 |
+
+### 最新全量 XML 中每个失败/错误的分类与处理
+
+以下逐项使用原始 XML 的参数化测试名。identity 的 27 个 setup error 有共同根因：当时两层
+fixture 重复绑定同一解释器，生产 guard 正确拒绝 `Recovery source binding repeats`。
+当前 HEAD 的 `a52ce65f` 已使追加绑定幂等，并把 readonly Windows 成功分支显式限于 Windows；
+本轮复现确认 26 passed、2 skipped，因此不重复修改该文件或生产 guard。
+
+#### `tests/test_verify_onboard_navigation_recovery_identity.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_readonly_exact_chain_followup_closes_reload_not_original_failure` | 陈旧 fixture 已由 HEAD 修复；另有 Windows API 前置条件 | 未新增修改；当前 Linux 显式 skip，需 Windows runner 验证真实 argv 分支。 |
+| `test_identity_admission_rejects_non_pid_failures_before_outputs[native]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_identity_admission_rejects_non_pid_failures_before_outputs[original-supervisor]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_identity_admission_rejects_non_pid_failures_before_outputs[reason]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_identity_admission_rejects_non_pid_failures_before_outputs[sources]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_identity_admission_rejects_non_pid_failures_before_outputs[promotion]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_identity_admission_rejects_non_pid_failures_before_outputs[entry]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_identity_admission_rejects_non_pid_failures_before_outputs[missing-source]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[parent]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[duplicate]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[siblings]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[worker-pid]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[tool-exit]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[time]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[future]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[arguments]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[executable]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[warmup-pid]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[constructor-pid]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[worker-result]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[parent-missing]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[parent-arguments]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[parent-time]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_actual_identity_or_output_drift_is_never_accepted[same-executable]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_followup_cannot_overwrite_or_pollute_bound_sources[existing]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_followup_cannot_overwrite_or_pollute_bound_sources[original-output]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+| `test_followup_cannot_overwrite_or_pollute_bound_sources[source]` | 陈旧 fixture，已由 `a52ce65f` 修复 | 本轮复现通过；保留严格 admission/漂移/只读输出断言，不修改生产 guard。 |
+
+#### `tests/test_onboard_navigation_early_import_failure_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_import_order_failure_never_becomes_a_training_or_gpu_result` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_installed_hooks_and_cpu_checks_do_not_imply_weight_reads` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_onboard_navigation_exact_reload_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_native_worker_and_identity_pass_do_not_reclassify_original_failures` | 环境：原始源码身份漂移，且原始产物位于共享树外 | 仓库内完整封存包前置条件显式 skip；旧 identity 测试 pin 仍报告未解决。 |
+| `test_actual_625_bf16_and_112_fp32_reload_preserves_four_weak_train_probes` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_balanced_280_draws_keep_all_86_sources_without_authorizing_training` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_onboard_navigation_full_load_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_actual_full_cuda_weight_read_and_all_three_gates_pass` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_loaded_base_does_not_close_training_quality_or_flight_gates` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_onboard_navigation_load_only_failure_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_native_fault_and_unknown_counters_are_not_training_success` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_worker_not_launcher_pid_matches_actual_fault_and_raw_stack` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_frozen_sources_and_prior_failure_remain_separate` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_cpu_wrapper_validation_and_independent_audit_are_not_native_load_acceptance` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_onboard_navigation_pread_failure_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_os_error_before_constructor_return_is_failed_model_load` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_runtime_source_bindings_and_raw_loader_observations` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_independent_cpu_and_source_audits_are_separate_from_model_acceptance` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_capacity_snapshot_is_post_exit_not_exact_fault_or_permission_to_change_host` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_onboard_navigation_shared_actor_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_official_cpu86_native_receipt_is_not_a_model_or_live_acceptance` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_all_86_source_order_and_four_cpu_tensor_records_remain_equal` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_onboard_navigation_streamed_cpu_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_actual_cpu_phase_exit_zero_never_becomes_full_pipeline_exit_zero` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_exact_287_software_results_remain_distinct_from_runtime_acceptance` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_captured_cim_parent_chain_chronology_argv_and_finished_report_binding` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_180_source_metadata_matches_declarations_without_rehashing_5gb` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_all86_prepared_and_official_prefix_records_cover_exact_source_identities` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_metadata_and_residency_claims_keep_their_explicit_verification_limits` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_new_cpu_success_cannot_overwrite_the_old_host_memory_failure` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_onboard_navigation_streaming_failure_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_native_oom_before_payload_is_not_training_or_full_load` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_two_real_header_opens_do_not_imply_any_tensor_payload_read` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_source_and_cpu_audits_remain_distinct_from_native_acceptance` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_post_exit_resource_snapshot_does_not_authorize_host_changes` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_onboard_navigation_trained_adapter_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_all_86_actual_updates_follow_exact_fsynced_four_stage_journal` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_saved_112_fp32_tensor_bytes_reconstruct_original_adapter_digest` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+| `test_saved_updates_do_not_turn_failed_reload_or_train_probes_into_acceptance` | 环境：原始证据解析至 worktree 根外的只读共享 artifacts | 在原件前置条件显式 skip；保留 repository 范围、bytes/SHA 及业务断言。 |
+
+#### `tests/test_evaluate_onboard_navigation_original82.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_orchestration_durable_raw_before_offline_gold59_and_no_old_writes` | 陈旧测试：CPU 替身遗漏 Windows sampler 隔离 | 仅 fixture 注入采样替身；本项通过，原模型计数/失败路径断言保留。 |
+| `test_partial_model_failure_no_success_or_automatic_retry[model_error]` | 陈旧测试：CPU 替身遗漏 Windows sampler 隔离 | 仅 fixture 注入采样替身；本项通过，原模型计数/失败路径断言保留。 |
+| `test_partial_model_failure_no_success_or_automatic_retry[prefix_mismatch]` | 陈旧测试：CPU 替身遗漏 Windows sampler 隔离 | 仅 fixture 注入采样替身；本项通过，原模型计数/失败路径断言保留。 |
+| `test_durable_write_failure_counts_no_saved_prediction` | 陈旧测试：CPU 替身遗漏 Windows sampler 隔离 | 仅 fixture 注入采样替身；本项通过，原模型计数/失败路径断言保留。 |
+| `test_final_current_source_drift_preserves_partial_but_rejects_completion` | 陈旧测试：CPU 替身遗漏 Windows sampler 隔离 | 仅 fixture 注入采样替身；本项通过，原模型计数/失败路径断言保留。 |
+| `test_cleanup_failure_does_not_invent_no_model_load` | 陈旧测试：CPU 替身遗漏 Windows sampler 隔离 | 仅 fixture 注入采样替身；本项通过，原模型计数/失败路径断言保留。 |
+
+#### `tests/test_onboard_openfly_navigation_dataset_evidence.py`
+
+| 测试 | 分类 | 处理/当前结果 |
+|---|---|---|
+| `test_original_sources_snapshots_and_defaults_remain_byte_bound[sources]` | 环境/封存身份不匹配：历史 source bytes/SHA | 共享证据包环境显式 skip；另报告旧 source pin 漂移，未更新回执。 |
+| `test_original_sources_snapshots_and_defaults_remain_byte_bound[frozen_defaults]` | 环境/受证据约束默认配置已更新 | 共享证据包环境显式 skip；旧 parity/version 绑定待原始快照或生成器处理，未改配置。 |
+| `test_previous_stage_receipt_and_document_bytes_are_preserved` | 环境：缺少原始 postseal-validation 与文档快照 | 原件前置条件显式 skip；未制造或改写 postseal 原件。 |
+| `test_repository_progress_points_to_exact_source_evidence` | 陈旧测试：README 专题直链约定过时 | 改为验证当前进度入口链与专题存在；本项通过，证据摘要及门断言保留。 |
+
+### 本轮命令及约束核验
+
+所有 pytest 使用指定主 `.venv`、单进程，未切换到 `.venv-vlm`：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp CUDA_VISIBLE_DEVICES=''
+/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python -m pytest \
+  tests/test_verify_onboard_navigation_recovery_identity.py \
+  tests/test_onboard_navigation_*evidence*.py \
+  tests/test_evaluate_onboard_navigation_original82.py \
+  tests/test_onboard_openfly_navigation_dataset_evidence.py \
+  tests/test_onboard_navigation_host_memory.py \
+  -q -p no:cacheprovider -p no:xdist --tb=short --junitxml=.tmp/nav-final.xml
+```
+
+结果：134 passed、45 skipped、0 failed/error。此前复现以相同文件组（不含新增环境测试和
+host-memory 附加回归）运行；另一次修复后中间验证也成功，日志保留在 `.tmp/nav-targeted.*`。
+相关修改文件的 `python -m ruff check ...` 和 `git diff --check` 通过。
+
+没有改生产实现、没有删除测试或放宽绑定断言；没有写入 `artifacts/`、`docs/evidence/`、
+`configs/release-parity.json`、`docs/current-progress.json`、`configs/schemas/*.json` 或
+`configs/product-version.json`。未联网下载，未运行 SITL/Docker/GPU/模型训练，未提交。
+
+
+CPU 回归闸门（单进程、主 `.venv`）也已完成：
+
+```bash
+/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python scripts/run_onboard_gate.py \
+  -q -p no:warnings -p no:cacheprovider -p no:xdist --tb=short \
+  --junitxml=.tmp/nav-gate.xml
+```
+
+结果为 **1652 passed、3 failed、12 skipped、0 error**，约 230 秒。
+3 项失败均属于本组以外的既有 socket 沙箱限制，traceback 都在创建 TCP/UDP/HTTP socket 时
+报 `PermissionError: [Errno 1] Operation not permitted`；未修改组外测试：
+
+- `tests/test_llama_server_logs.py::test_port_wait_ignores_time_wait_after_server_close`。
+- `tests/test_onboard_main_operator_link.py::test_start_up_mission_is_bound_and_held_for_operator_approval`。
+- `tests/test_replay_set.py::test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutations`。
+
+日志为 `.tmp/nav-gate.log`，结果为 `.tmp/nav-gate.xml`。需要允许本地 socket 的 Linux runner
+重新验证这三项；本次未把整个 onboard gate 声称为通过。
