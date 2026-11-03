@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.audit_r21id_r4_collection import audit_collection, audit_sft_additions
+from scripts.audit_r21id_r4_collection import _short_side_ok, audit_collection, audit_sft_additions
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -130,6 +130,47 @@ def test_audit_marks_missing_view(tmp_path):
     )
     assert report["qualified_episode_count"] == 0
     assert any("缺视角: recovery" in issue for issue in report["complete_reports"][0]["issues"])
+
+
+def test_short_side_accepts_generic_band_syntax():
+    assert _short_side_ok({"target_short_side_px": "16-24", "target_short_side_px_estimate": 16})
+    assert _short_side_ok({"target_short_side_px": ">=32", "target_short_side_px_estimate": 32})
+    assert _short_side_ok({"target_short_side_px": "<8", "target_short_side_px_estimate": 7.99})
+    assert not _short_side_ok({"target_short_side_px": "16-24", "target_short_side_px_estimate": 24})
+    assert not _short_side_ok({"target_short_side_px": "n/a", "target_short_side_px_estimate": 12})
+
+
+def test_audit_uses_visibility_adjusted_station_distance(tmp_path):
+    episodes, round_state, index, scenarios = _fixture(tmp_path)
+    intent_path = scenarios / "gen_r21id_r4_w0000.teacher_intent.json"
+    intent = json.loads(intent_path.read_text())
+    intent["observation"]["camera_pitch_rad"] = -0.18
+    intent["observation"]["max_detection_range_m"] = 80.0
+    intent["observation"]["camera_altitude_m"] = 18.0
+    # At this altitude and pitch, the teacher moves the station outward by its
+    # 0.5 m search step; recorded observations fall inside the adjusted band.
+    intent["observation"]["views"][0]["observation_waypoint"] = {
+        "x_east_m": 20.0, "y_north_m": 0.0, "z_up_m": 0.0,
+    }
+    intent_path.write_text(json.dumps(intent), encoding="utf-8")
+    truth_path = scenarios / "gen_r21id_r4_w0000.truth.json"
+    truth = json.loads(truth_path.read_text())
+    truth["targets"][0]["pose"]["x_east_m"] = 30.0
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    steps_path = next(episodes.rglob("steps.jsonl"))
+    rows = [json.loads(line) for line in steps_path.read_text().splitlines()]
+    for row in rows:
+        row["obs_before"]["pose"]["local_ned_m"][1] = 16.0
+    steps_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    report = audit_collection(
+        episodes_root=episodes,
+        round_state=round_state,
+        index_path=index,
+        scenarios=scenarios,
+    )
+    row = report["complete_reports"][0]
+    assert row["view_counts"]["front"] == 8
+    assert row["designed_ground_distance_m"] == 14.5
 
 
 def test_sft_audit_counts_direction_views_splits_and_acceptance(tmp_path):
