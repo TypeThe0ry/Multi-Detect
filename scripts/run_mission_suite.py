@@ -24,6 +24,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from multidetect.simulator.cpu import resolve_cpu_isolation
 from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
 METADATA = {
     "id",
@@ -514,6 +515,10 @@ def main(
     configured_slots = max(1, int(os.environ.get("MULTIDETECT_SITL_SLOTS", "1")))
     if args.workers > configured_slots:
         parser.error(f"--workers ({args.workers}) exceeds MULTIDETECT_SITL_SLOTS ({configured_slots})")
+    try:
+        resolve_cpu_isolation()
+    except ValueError as exc:
+        parser.error(str(exc))
     for mission in missions:
         mission = {**mission, "episodes": args.episodes}
         scheduled.append(mission)
@@ -615,6 +620,10 @@ def main(
                         "variant_command": variant_command if variant else None,
                         "command": command,
                         "config": config,
+                        **(
+                            {"cpu_isolation": cpu.to_mapping()}
+                            if (cpu := resolve_cpu_isolation(slot)) is not None else {}
+                        ),
                     },
                     ensure_ascii=False,
                     indent=2,

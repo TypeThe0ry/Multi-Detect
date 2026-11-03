@@ -37,6 +37,7 @@ if __package__ in {None, ""}:
 from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.provenance import build_provenance, model_paths_from_config, snapshot_config  # noqa: E402
+from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.px4_mission import (  # noqa: E402
     MAV_CMD_NAV_LAND,
@@ -293,6 +294,9 @@ class CollectionPlan:
         result["takeoff_altitude_m"] = altitude
         result["takeoff_altitude_source"] = source
         result["docker_command"] = docker_command(self)
+        cpu_isolation = resolve_cpu_isolation(self.worker_index)
+        if cpu_isolation is not None:
+            result["cpu_isolation"] = cpu_isolation.to_mapping()
         return result
 
 
@@ -3588,6 +3592,14 @@ def run_episode(
         model_cache=Path(plan.out) / f"{episode_id}-onboard-frames" / ".model-hash-cache.json",
     )
     recorder.meta["provenance"]["config_snapshot"] = config_snapshot
+    cpu_isolation = resolve_cpu_isolation(plan.worker_index)
+    if cpu_isolation is not None:
+        # Attaching does not apply the planned Docker options to an existing
+        # container, so never claim its actual affinity from our environment.
+        recorder.meta["provenance"]["simulator_cpu_isolation"] = (
+            {"mode": "attached", "cpuset_cpus": None, "cpu_shares": None}
+            if plan.attach_container else cpu_isolation.to_mapping()
+        )
     recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
     started = time.monotonic()
     telemetry_connection = None
@@ -4620,7 +4632,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--worker-index",
         type=int,
         default=0,
-        help="zero-based worker number used to round-robin the GPU pool",
+        help="zero-based worker for GPU/CPU allocation; CPU prefers the leased SITL slot",
     )
     parser.add_argument("--operator-port", type=int, default=14580)
     parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
@@ -4769,6 +4781,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         operator_port=args.operator_port,
     )
     _validate_spawn_clearance(plan)
+    # Reject deterministic CPU configuration errors before contacting Docker.
+    # After acquiring our own lease below, resolution uses the actual slot.
+    resolve_cpu_isolation(plan.worker_index)
     if args.dry_run:
         print(json.dumps(plan.to_mapping(), ensure_ascii=False, indent=2))
         return 0

@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from multidetect.simulator.cpu import resolve_cpu_isolation
 from multidetect.sim_network import sim_network_mode
 from scripts.platform_paths import default_llama_server
 from scripts.sitl_lock import SitlLock, configured_slot_count, default_lock_path
@@ -1019,6 +1020,13 @@ class Round:
         raise AssertionError("unreachable")
 
     def collect(self):
+        # Validate all globally leaseable CPU blocks before any container or
+        # retries, even when this round uses fewer workers than global slots.
+        cpu_assignments = [
+            cpu.to_mapping()
+            for slot in range(configured_slot_count())
+            if (cpu := resolve_cpu_isolation(slot_index=slot)) is not None
+        ]
         # Read IDs from the supplied index so fresh rounds can use an isolated
         # prefix (for example ``gen_r19_w``) without touching r15 worlds.
         world_ids = round_world_ids(self.a.r15_index)
@@ -1167,6 +1175,8 @@ class Round:
                 for slot, gpu in worker_gpu_assignments(self.a.workers)
             )
             print(f"[dry-run] GPU worker slots: {assignments}")
+            if cpu_assignments:
+                print(f"[dry-run] CPU slot allocations: {json.dumps(cpu_assignments, sort_keys=True)}")
             return
         self._docker_abort = threading.Event()
         active_workers = min(self.a.workers, configured_slot_count())
@@ -1184,7 +1194,7 @@ class Round:
                 lock = SitlLock(
                     getattr(self.a, "sitl_lock_path", default_lock_path()),
                     label=f"r15-worker-slot-{slot}",
-                    slots=active_workers,
+                    slots=configured_slot_count(),
                     min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
                 )
                 lock.acquire()
