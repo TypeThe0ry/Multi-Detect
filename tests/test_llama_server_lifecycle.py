@@ -9,6 +9,7 @@ def _owner(pid=123, parent=999, name="llama-server.exe", command=""):
     return {"ProcessId": pid, "ParentProcessId": parent, "Name": name, "CommandLine": command}
 
 
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="requires Windows process and path APIs")
 def test_windows_orphan_artifact_server_is_terminated(monkeypatch, tmp_path):
     monkeypatch.setattr(slow.sys, "platform", "win32")
     model = tmp_path / "artifacts" / "models" / "identity.gguf"
@@ -23,6 +24,7 @@ def test_windows_orphan_artifact_server_is_terminated(monkeypatch, tmp_path):
     assert killed == [123]
 
 
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="requires Windows process and path APIs")
 def test_windows_live_owner_is_reported_without_termination(monkeypatch, tmp_path):
     monkeypatch.setattr(slow.sys, "platform", "win32")
     model = tmp_path / "artifacts" / "models" / "identity.gguf"
@@ -37,6 +39,7 @@ def test_windows_live_owner_is_reported_without_termination(monkeypatch, tmp_pat
     assert killed == []
 
 
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="requires Windows process and path APIs")
 def test_windows_unrelated_owner_is_not_terminated(monkeypatch, tmp_path):
     monkeypatch.setattr(slow.sys, "platform", "win32")
     model = tmp_path / "artifacts" / "models" / "identity.gguf"
@@ -45,6 +48,7 @@ def test_windows_unrelated_owner_is_not_terminated(monkeypatch, tmp_path):
         "_windows_port_processes",
         lambda port: [_owner(name="python.exe", command="python unrelated.py")],
     )
+    monkeypatch.setattr(slow, "_windows_process_exists", lambda pid: True)
     killed = []
     monkeypatch.setattr(slow, "_terminate_windows_process", killed.append)
 
@@ -61,6 +65,7 @@ def test_non_windows_cleanup_is_unchanged(monkeypatch, tmp_path):
     slow._cleanup_orphaned_windows_server(9941, Path("model.gguf"), tmp_path)
 
 
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="requires Windows Job Object API")
 def test_windows_spawn_job_object_uses_kill_on_close(monkeypatch):
     calls = []
 
@@ -77,7 +82,7 @@ def test_windows_spawn_job_object_uses_kill_on_close(monkeypatch):
             calls.append(("assign", job, process.value))
             return 1
 
-    monkeypatch.setattr(slow.ctypes, "WinDLL", lambda *args, **kwargs: Kernel())
+    monkeypatch.setattr(slow.ctypes, "WinDLL", lambda *args, **kwargs: Kernel(), raising=False)
     process = type("Process", (), {"_handle": 42})()
 
     assert slow._attach_windows_job(process) == 77

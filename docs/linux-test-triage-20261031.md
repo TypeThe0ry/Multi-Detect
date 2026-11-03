@@ -105,3 +105,40 @@ scripts/run_onboard_gate.py -q -p no:warnings
 `tests/test_llama_server_logs.py::test_port_wait_ignores_time_wait_after_server_close`、
 `tests/test_onboard_main_operator_link.py::test_start_up_mission_is_bound_and_held_for_operator_approval`、
 `tests/test_replay_set.py::test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutations`。
+
+## 2026-11-03 全量复测与分类
+
+执行环境为主 `.venv`，设置 `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp`，使用
+`-p no:cacheprovider --continue-on-collection-errors --tb=short`。pytest 没有安装
+`pytest-timeout` 插件；本轮全量进程由外层 1800 秒 timeout 结束在 100% 进度条后的汇总阶段，
+因此没有可信的最终 pytest 总计。完整输出保存在工作树临时文件
+`.tmp/pytest-full-20261103.log`（未纳入交付）。日志在修复前产生，尾部列出 528 个失败项和 284 个
+collection/setup error 项；这些数目包含下表中后来修复的项，不能解释为修复后的当前失败总数。
+本次禁止启动 SITL、Docker、GPU 训练；没有通过标记或删测试来隐藏环境限制。
+
+| 测试/测试组 | 分类 | 证据/根因 | 修改或未修改 | 当前验证 |
+|---|---|---|---|---|
+| 22 个 teacher/operator/mission collector 文件的收集错误，包括 `test_run_onboard_teacher_sim_operator_v2.py`、`test_teacher_live_checkpoint_probe_v1.py` | 已修复：冻结身份级联更新 | HEAD 的 `edb89d87` 修改 `scripts/onboard_teacher_gazebo_session.py`，引入 Linux Docker bridge gateway telemetry endpoint；该文件为 V3 固定 hash 的基类，随后 V4/operator/V2 再固定上游源。原 guard 按字节数和 SHA-256 在导入时拒绝不匹配 | 依次刷新 V3→V4→operator→operator V2 的 pins 和测试里的身份断言；没有绕过 guard | 修复后相关集 207 passed、1 skipped；更晚一次相同集合运行出现 2 个 Docker bridge 探测后 session deadline 失败（见下行），冻结 guard 本身已通过导入和测试。
+| `test_onboard_teacher_gazebo_session.py` stand-in mount 验证 | 已修复：测试 fixture 陈旧 | 生产计划在有 `fuel_resolved_root` 时增加只读 Fuel cache mount，native Docker inspect stand-in 未反映此 mount | stand-in 按生产计划补齐只读 mount，没有改生产验证条件 | 包含在 teacher/operator 相关定向验证中。
+| `tests/test_onboard_campaign_retry.py`，特别是 `test_complete_replacement_reduces_missing` | 已修复：测试 mock 与当前行为陈旧 | 当前 campaign 在报告 provenance 构建中调用 git；旧 mock 把所有 `subprocess.run` 都算作 collector。默认报告路径指向只读共享 `artifacts/`。当前完整替换语义仍要求只发起一个 collector batch | 测试为报告指定 tmp 路径；仅统计命令包含 `collect_sim_teacher_episodes.py` 的调用；在测试边界 stub provenance；保留 1 batch 断言 | 当前文件单独运行 11 passed。
+| `test_onboard_teacher_gazebo_session_v4.py::test_owned_session_reuses_frozen_lifecycle_and_closes_rx_on_partial_api_error`、`test_onboard_teacher_sim_operator.py::test_normal_one_change_all_protected_readbacks_and_closed_outputs` | 环境敏感的 Docker bridge 探测 | 较早合并批次及单独运行时，Docker network inspect 失败/超时后触发 session deadline；测试使用 mock native Docker，不启动容器，但生产 endpoint 规划会探测 bridge | 未调大 deadline 或放宽行为；保持测试 | 后续重新运行完整 teacher/operator 定向集合成功（exit 0，含上述两项）；本机 Docker probe 仍打印 fallback warning，真实 Docker/SITL 未运行。
+| `test_operator_udp.py`、`test_alerts.py`、`test_px4_continuation_wire.py`、`test_field_link_preflight.py`、`test_simulator_orchestrator_*`、`test_live.py` 等 socket/loopback 测试 | 环境限制：沙箱禁止 socket | traceback 为 `PermissionError: [Errno 1] Operation not permitted`，包括 UDP socket、loopback 服务或 HTTP server 创建 | 保留测试；未加 skip，因为限制属于本次执行沙箱，不是测试的产品前置条件 | 全量基线日志可见；当前沙箱不能验证协议行为。
+| `test_current_progress_index.py`（53 项）及 release/parity/evidence 绑定组；`test_external_mission_matrix_receipt.py` | 环境/证据缺失 | 固定证据位于共享 `artifacts/`；部分目标缺失，另一些解析到主仓库共享目录而越过当前 worktree 根；`artifacts/` 按要求只读 | 未改受证据约束 JSON，未写 artifacts | 未解决；需在具有相应完整证据包的正式仓库环境运行。
+| VLM/training/navigation evidence suites（包括 `test_onboard_vlm_grounding_training_evidence.py`） | 环境/证据缺失 | 主 `.venv` 不含 torch；VLM evidence 路径指向共享 artifacts。部分测试明确以 `importorskip` 跳过 torch，而依赖已在 fixture setup 才导入的测试会报错 | 未改测试跳过策略或 evidence-bound files；本任务指定主 `.venv`，不切换到模型环境，不运行 GPU 训练 | 基线日志中有 torch 缺失错误及越出 worktree 的 evidence 路径错误；需 `.venv-vlm` 和完整证据才能验证。
+| `test_bind_openfly_parquet_route_metadata.py`、`test_fetch_and_audit_openfly_parquet.py` 等 | 环境依赖缺失 | 主 `.venv` 缺少 `huggingface_hub` distribution metadata（fixture setup 中 `PackageNotFoundError`）；部分 parquet 用例还需要 pyarrow | 未联网安装依赖；已有显式 optional import skip 的测试保留其策略 | 全量基线日志中仍有 setup error；需准备项目声明的可选数据依赖后复验。
+| `test_onboard_teacher_telemetry_capture_v2.py` 的 4 个真实 dialect 用例 | 环境路径陈旧/Windows fixture | fixture 硬编码 `.venv-gazebo-navigation-20261008-r1/Lib/site-packages/...` Windows 路径，并要求该本地 dialect 文件存在 | 本轮未改，因固定 dialect/source identity 和适用 fixture 应先确认设计意图；这是明确的跨平台可移植性候选问题，不归因于 Ubuntu 核心行为 | 日志显示 `Pinned local primary dialect required`；需要确定应将固定文件随测试夹具提供，还是把真实安装依赖测试限制在相应环境。
+| `test_verify_onboard_navigation_recovery_identity.py` Windows argv 用例；`test_llama_server_lifecycle.py::test_windows_*` | Windows 专用行为测试在 Linux 上执行 | 前者 fixture 原先硬编码不存在的 `python.exe`，且解析器确实依赖 Windows `CommandLineToArgvW`；后三项调用 PowerShell/`ctypes.WinDLL` | 将 recovery fixture 绑定到当前解释器；对仅依赖 Windows API/路径语义的测试加 `skipif`，并补齐 unrelated-owner 的进程存活 mock；未改生产 Windows 行为 | Linux 上 `test_llama_server_lifecycle.py` 为 `3 skipped, 3 passed`，Windows argv 用例 `1 skipped`；需 Windows runner 验证实际 Windows 分支。
+| `test_onboard_teacher_gazebo_observation_v3.py` 的 lazy import/setup 项 | 受冻结源 guard 级联影响，或尚待复核 | 全量基线日志中的 setup 尝试重新导入 V3，发生在 hash 刷新前；同文件另有 4 个逻辑测试没有从全量 summary 确认根因 | 没有为其余逻辑测试作推断 | 修复后未单独重跑此文件；当前分类未完成，须重跑并逐项看 traceback。
+| `test_analyze_onboard_navigation_original59.py`（10 项）及其它没有上述明确 traceback 的失败 | 尚未分类：可能是回归，也可能是 evidence/fixture 缺失 | 全量日志列出失败名，但未在本轮为每个 failure 建立独立 traceback 分类；不能仅凭文件名归入环境问题 | 未改断言或实现；保留为待核查项 | 未逐项复跑，不能宣称通过。
+
+## 修复后验证
+
+| 命令 | 结果 |
+|---|---|
+| 主环境运行 `tests/test_onboard_campaign_retry.py` | `11 passed` |
+| 主环境运行 teacher/operator 定向集合（V3、V4、operator V1/V2、worker/probe tests） | 最后运行 exit 0，全部通过，含 1 个 skip；未启动 Docker/SITL |
+| 较早单独复跑两个 Docker deadline 用例 | 当时 `2 failed`；后续同两项纳入定向集合均通过，说明失败受 bridge 探测时间影响 |
+| 单独运行 `tests/test_llama_server_lifecycle.py` | `3 skipped, 3 passed`；Windows API/路径语义测试在 Linux 上显式跳过 |
+| 全量 pytest | 进度到 100%，1800 秒外层 timeout 在最终汇总时结束；日志基线为修复前，不能作为修复后全量结果 |
+
+截至本记录，campaign 和冻结源 guard 的核心修复有通过的定向验证；全量套件仍未达到 green，也未完全分类。剩余真实回归候选、Windows 专用测试标记、缺失 dependencies/evidence、Docker 可用环境以及 socket 沙箱限制均已明确列出，不把未知项伪装成已修复。

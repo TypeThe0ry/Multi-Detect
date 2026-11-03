@@ -119,6 +119,14 @@ class NativeDocker:
                     "ReadOnly": True,
                 },
             ]
+            if self.plan.fuel_resolved_root is not None:
+                mounts.append(
+                    {
+                        "Target": "/opt/multidetect-gz-fuel-resolved",
+                        "Source": str(self.plan.fuel_resolved_root),
+                        "ReadOnly": True,
+                    }
+                )
             self.current = {
                 "Id": IDENTITY,
                 "Name": "/" + self.plan.container_name,
