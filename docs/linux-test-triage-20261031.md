@@ -142,3 +142,35 @@ collection/setup error 项；这些数目包含下表中后来修复的项，不
 | 全量 pytest | 进度到 100%，1800 秒外层 timeout 在最终汇总时结束；日志基线为修复前，不能作为修复后全量结果 |
 
 截至本记录，campaign 和冻结源 guard 的核心修复有通过的定向验证；全量套件仍未达到 green，也未完全分类。剩余真实回归候选、Windows 专用测试标记、缺失 dependencies/evidence、Docker 可用环境以及 socket 沙箱限制均已明确列出，不把未知项伪装成已修复。
+
+## 2026-11-03 分片全量最终结果
+
+为避免单个长文件阻塞全量汇总，按 `tests/test_*.py` 文件拆分执行。每个文件独立启动主环境
+`/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python -m pytest <file> -q -p no:cacheprovider
+--continue-on-collection-errors --tb=short`，外层 `timeout 240s`，最多 8 个进程并行；环境变量为
+`PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp CUDA_VISIBLE_DEVICES=''`。所有进程均在截止时间内结束，
+没有文件级超时或遗漏结果。
+
+| 项目 | 最终结果 |
+|---|---:|
+| 测试文件 | 827（827/827 有退出状态和 JUnit XML） |
+| 收集/执行测试项 | 15,760 |
+| 通过 | 14,770 |
+| 失败 | 443 |
+| 错误 | 143 |
+| 跳过 | 404 |
+
+上述数字来自分片 JUnit 汇总；原始日志和 XML 保存在 `.tmp/pytest-full-20261103-final/`，不纳入交付。失败/错误的确定分类如下：
+
+| 分类 | 代表文件/测试 | 证据与处置 |
+|---|---|---|
+| 本次 Linux 沙箱限制 | `test_px4_continuation_wire.py`、`test_operator_udp.py`、`test_simulator_interactive_router.py`、`test_llama_server_logs.py`、`test_replay_set.py` 等 socket/HTTP 用例 | traceback 为 `PermissionError: [Errno 1] Operation not permitted`，发生在 `socket.socket` 或 `ThreadingHTTPServer` 创建处。保留测试和断言；需允许 loopback/UDP 的 Linux runner 复跑。未启动 SITL、Docker 或真实设备。 |
+| 共享证据/产物不可用 | `test_current_progress_index.py`、`test_external_mission_matrix_receipt.py`、VLM/evidence binding 文件 | 目标解析到共享主仓库 `artifacts/` 或缺失固定证据，校验明确报越出当前 worktree 或文件不存在。`artifacts/` 只读，未改任何 evidence-bound JSON；需完整证据包环境复跑。 |
+| 主 `.venv` 可选依赖缺失 | 以 torch/transformers/peft 训练与 VLM 文件为主，另有 parquet/huggingface 元数据用例 | 错误是 `ModuleNotFoundError`/`PackageNotFoundError`，不是产品断言。主环境无 torch；相关 CPU fixture 已改用带原因的 `pytest.importorskip`，不联网安装、不切换 `.venv-vlm`；应在声明的 VLM/data extra 环境运行。 |
+| 固定本机 fixture 陈旧（已修复） | `test_onboard_teacher_telemetry_capture_v2.py` 的 4 个真实 dialect 用例 | 原 fixture 硬编码 Windows `.venv-.../Lib/site-packages`。改为从当前解释器解析 `pymavlink`，缺包时显式 `pytest.skip`；定向结果通过。 |
+| Windows 专用行为（已标记） | `test_verify_onboard_navigation_recovery_identity.py::test_readonly_exact_chain_followup_closes_reload_not_original_failure` | 被测函数明确调用 Windows `CommandLineToArgvW`；Linux 上原先误执行并报 bounded command line。增加 `skipif(os.name != "nt")`，Windows 行为和专用 parser 测试保持不变；定向结果为显式 skip。 |
+| 其余失败/错误 | 其余 failure/error 节点（包括固定身份/配置摘要、并行时序、历史 evidence 快照和若干真实断言） | 已逐文件保留在 JUnit/XML 中，不能从文件名安全推断为环境问题。未删除测试、未放宽断言、未修改受证据约束文件；后续应按 XML 中的具体 traceback 在有完整证据、允许网络和匹配依赖的环境逐项复验。 |
+
+本轮修改文件：`tests/test_onboard_teacher_telemetry_capture_v2.py`（Linux 可移植 dialect fixture）、
+`tests/test_verify_onboard_navigation_recovery_identity.py`（POSIX 显式跳过 Windows API 分支）。定向验证：
+两文件合计通过，只有 Windows 专用分支显式跳过。全量分片结果用于最终覆盖和分类，未宣称在当前沙箱中 green。

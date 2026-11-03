@@ -35,7 +35,11 @@ def invocation(tmp_path, monkeypatch):
     # command line is Windows-formatted below, but the fixture must also run
     # on POSIX where the Windows venv path does not exist.
     base_python = Path(sys.executable).resolve()
-    old_manifest["source_files"].append(sup.file_record(base_python))
+    # The base fixture may already bind the active interpreter on POSIX.
+    # Keep the source identity set unique before exercising recovery admission.
+    base_record = sup.file_record(base_python)
+    if all(row.get("path") != base_record["path"] for row in old_manifest["source_files"]):
+        old_manifest["source_files"].append(base_record)
     write(old.recovery_manifest, old_manifest)
     old.recovery_manifest_sha256 = sup.sha256_file(old.recovery_manifest)
     popen = base.fake_child(old, monkeypatch)
@@ -153,6 +157,7 @@ def test_windows_native_argument_parser_preserves_quoted_paths():
     assert entry.windows_arguments(subprocess.list2cmdline(values)) == values
 
 
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows process command-line identity capture")
 def test_readonly_exact_chain_followup_closes_reload_not_original_failure(invocation):
     before = set(sys.modules)
     original_completion = invocation.old.supervisor_dir / "completion.json"
