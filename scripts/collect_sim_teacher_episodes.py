@@ -285,6 +285,7 @@ class CollectionPlan:
     gpu_device: str | None = None
     gpu_devices: tuple[str, ...] | None = None
     worker_index: int = 0
+    operator_port: int = 14580
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -1365,7 +1366,7 @@ def _start_sim_operator_link(plan: CollectionPlan, policy) -> None:
 
     args = types.SimpleNamespace(
         operator_bind_host=str(config.get("operator_bind_host", "127.0.0.1")),
-        operator_port=int(config.get("operator_port", 14580)),
+        operator_port=int(config.get("operator_port", plan.operator_port)),
         operator_hmac_key_hex=config.get("operator_hmac_key_hex"),
         operator_mavlink_signing_key_hex=config.get("operator_mavlink_signing_key_hex"),
         operator_requires_approval=bool(config.get("operator_requires_approval", True)),
@@ -4621,6 +4622,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="zero-based worker number used to round-robin the GPU pool",
     )
+    parser.add_argument("--operator-port", type=int, default=14580)
     parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     parser.add_argument(
         "--attach-container",
@@ -4764,6 +4766,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             else None
         ),
         worker_index=args.worker_index,
+        operator_port=args.operator_port,
     )
     _validate_spawn_clearance(plan)
     if args.dry_run:

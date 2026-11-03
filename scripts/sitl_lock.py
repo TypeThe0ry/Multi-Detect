@@ -30,6 +30,17 @@ except ImportError:  # pragma: no cover
 
 CONTAINER_NAME_RE = re.compile(r"^(?:md-|r15-worker)")
 SITL_LOCK_HELD_ENV = "MULTIDETECT_SITL_LOCK_HELD"
+SITL_SLOT_ENV = "MULTIDETECT_SITL_SLOT"
+
+
+def configured_slot_count() -> int:
+    try:
+        count = int(os.environ.get("MULTIDETECT_SITL_SLOTS", "1"))
+    except ValueError as exc:
+        raise ValueError("MULTIDETECT_SITL_SLOTS must be a positive integer") from exc
+    if count < 1:
+        raise ValueError("MULTIDETECT_SITL_SLOTS must be a positive integer")
+    return count
 
 
 def default_lock_path() -> Path:
@@ -117,8 +128,15 @@ class SitlLock:
         min_memory_gb: float = 5.0,
         runner: Callable[..., object] = subprocess.run,
         memory_fn: Callable[[], float] = available_memory_gb,
+        slots: int | None = None,
+        slot: int | None = None,
     ) -> None:
-        self.path = Path(path or default_lock_path())
+        self.root_path = Path(path or default_lock_path())
+        self.slots = configured_slot_count() if slots is None else int(slots)
+        if self.slots < 1:
+            raise ValueError("slots must be a positive integer")
+        self.slot = slot
+        self.path = self.root_path
         self.label, self.retry_s, self.stale_s = label, retry_s, stale_s
         self.min_memory_gb = min_memory_gb
         self.runner, self.memory_fn = runner, memory_fn
@@ -153,17 +171,53 @@ class SitlLock:
 
     def _ready(self) -> bool:
         containers = running_sitl_containers(self.runner)
-        return containers == () and self.memory_fn() >= self.min_memory_gb
+        if self.slots > 1 and self.slot is not None and containers is not None:
+            slot_marker = re.compile(r"(?:-slot-|^r15-worker-)(\d+)(?:-|$)")
+            active_slots = {
+                int(path.name.rsplit(".slot-", 1)[1])
+                for path in self.root_path.parent.glob(f"{self.root_path.name}.slot-*")
+                if path.is_dir() and path.name.rsplit(".slot-", 1)[1].isdigit()
+            }
+            foreign = []
+            for name in containers:
+                match = slot_marker.search(name)
+                if match is None or int(match.group(1)) == self.slot:
+                    foreign.append(name)
+            containers = tuple(foreign)
+            memory_required = self.min_memory_gb
+        else:
+            memory_required = self.min_memory_gb
+        return containers == () and self.memory_fn() >= memory_required
 
     def acquire(self, wait: bool = True) -> None:
         while True:
-            self._reclaim_stale()
-            try:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-                self.path.mkdir()
-            except FileExistsError as exc:
+            self.root_path.parent.mkdir(parents=True, exist_ok=True)
+            if self.slots > 1 and self.root_path.exists():
                 if not wait:
-                    raise RuntimeError(f"SITL lock busy: {self.path}") from exc
+                    raise RuntimeError(f"legacy SITL lock busy: {self.root_path}")
+                time.sleep(self.retry_s)
+                continue
+            candidates = (self.slot,) if self.slot is not None else range(self.slots)
+            acquired_path = None
+            for slot in candidates:
+                if slot is None or slot < 0 or slot >= self.slots:
+                    raise ValueError(f"SITL slot outside configured range: {slot}")
+                self.path = self.root_path if self.slots == 1 else self.root_path.with_name(
+                    f"{self.root_path.name}.slot-{slot}"
+                )
+                self.owner = self.path / "owner"
+                self._reclaim_stale()
+                try:
+                    self.path.mkdir()
+                    self.slot = slot
+                    self.owner = self.path / "owner"
+                    acquired_path = self.path
+                    break
+                except FileExistsError:
+                    continue
+            if acquired_path is None:
+                if not wait:
+                    raise RuntimeError(f"SITL slots busy: {self.root_path}")
                 time.sleep(self.retry_s)
                 continue
             alive, start = _process_snapshot(os.getpid())
@@ -214,6 +268,7 @@ def sitl_lock_context(lock: object, *acquire_args: object, **acquire_kwargs: obj
     restored when leaving the context.
     """
     previous = os.environ.get(SITL_LOCK_HELD_ENV)
+    previous_slot = os.environ.get(SITL_SLOT_ENV)
     acquired = previous != "1"
     used_context_manager = False
     if acquired:
@@ -223,6 +278,9 @@ def sitl_lock_context(lock: object, *acquire_args: object, **acquire_kwargs: obj
         else:
             lock.__enter__()  # type: ignore[attr-defined]
             used_context_manager = True
+    slot = getattr(lock, "slot", None)
+    if acquired and slot is not None:
+        os.environ[SITL_SLOT_ENV] = str(slot)
     os.environ[SITL_LOCK_HELD_ENV] = "1"
     try:
         yield lock
@@ -231,6 +289,10 @@ def sitl_lock_context(lock: object, *acquire_args: object, **acquire_kwargs: obj
             os.environ.pop(SITL_LOCK_HELD_ENV, None)
         else:
             os.environ[SITL_LOCK_HELD_ENV] = previous
+        if previous_slot is None:
+            os.environ.pop(SITL_SLOT_ENV, None)
+        else:
+            os.environ[SITL_SLOT_ENV] = previous_slot
         if acquired:
             if used_context_manager:
                 lock.__exit__(None, None, None)  # type: ignore[attr-defined]

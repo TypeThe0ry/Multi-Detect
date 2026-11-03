@@ -79,6 +79,37 @@ def test_build_command_uses_same_interpreter_and_absolute_paths(work_tmp):
     assert command[command.index("--max-episode-s") + 1] == "120"
 
 
+def test_k1_command_keeps_legacy_slot_arguments_absent(work_tmp):
+    command = suite.build_command(_mission(), work_tmp / "onboard.json", work_tmp / "campaign", work_tmp / "report.json")
+    assert not {"--control-port", "--telemetry-port", "--container-prefix", "--operator-port"} & set(command)
+
+
+def test_worker_dry_run_assigns_unique_ports_and_container_names(work_tmp, monkeypatch, capsys):
+    monkeypatch.setenv("MULTIDETECT_SITL_SLOTS", "2")
+    suite_path = work_tmp / "suite.json"
+    suite_path.write_text(json.dumps({"defaults": {"mission": "from_text"}, "missions": [_mission(id="one"), _mission(id="two", world="gen_cnt2_w0001")]}), encoding="utf-8")
+    assert suite.main(["--suite", str(suite_path), "--out", str(work_tmp / "out"), "--workers", "2", "--dry-run"]) == 0
+    output = capsys.readouterr().out
+    decoder = json.JSONDecoder()
+    rows = []
+    offset = 0
+    while offset < len(output):
+        while offset < len(output) and output[offset].isspace():
+            offset += 1
+        if offset == len(output):
+            break
+        row, offset = decoder.raw_decode(output, offset)
+        rows.append(row)
+    commands = [row["command"] for row in rows]
+    controls = [command[command.index("--control-port") + 1] for command in commands]
+    telemetry = [command[command.index("--telemetry-port") + 1] for command in commands]
+    prefixes = [command[command.index("--container-prefix") + 1] for command in commands]
+    operators = [command[command.index("--operator-port") + 1] for command in commands]
+    model_ports = [row["config"]["port"] for row in rows]
+    assert len(set(controls)) == len(set(telemetry)) == len(set(prefixes)) == 2
+    assert len(set(operators)) == len(set(model_ports)) == 2
+
+
 def test_build_table_maps_metrics_and_missing_episode_is_failure():
     mission = _mission()
     report = {
@@ -170,6 +201,27 @@ def test_main_only_filters_and_runner_receives_expected_command(work_tmp):
     assert calls[0][1] == suite.ROOT
     assert calls[0][2] is True
     assert "gen_cnt2_w0001" in calls[0][0]
+
+
+def test_parallel_worker_reports_are_aggregated(work_tmp, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_SITL_SLOTS", "2")
+    suite_path = work_tmp / "suite.json"
+    _write_suite(suite_path)
+
+    def fake_runner(command, *, cwd, check):
+        world = command[command.index("--worlds") + 1]
+        Path(command[command.index("--report") + 1]).write_text(
+            json.dumps({"episodes": [{"world": world, "status": "complete", "mission_completed": True}]}),
+            encoding="utf-8",
+        )
+
+    assert suite.main(
+        ["--suite", str(suite_path), "--out", str(work_tmp / "parallel"), "--workers", "2"],
+        runner=fake_runner,
+    ) == 0
+    report = json.loads((work_tmp / "parallel/suite-report.json").read_text(encoding="utf-8"))
+    assert [row["id"] for row in report["missions"]] == ["count-cones", "count-hydrants"]
+    assert report["summary"]["completion_rate"] == 1.0
 
 
 def test_main_dry_run_writes_configs_and_does_not_call_runner(work_tmp, capsys):
