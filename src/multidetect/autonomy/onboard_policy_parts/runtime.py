@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import time
 import warnings
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
-from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,8 @@ from multidetect.autonomy.capability_contract import (
     effective_capabilities,
     normalize_capabilities,
 )
+from multidetect.autonomy.energy_estimator import EnergyConfig
+from multidetect.autonomy.mission_executor import MissionExecutor
 from multidetect.autonomy.mission_package import (
     MissionPackage,
     check_plan_against_package,
@@ -22,6 +24,7 @@ from multidetect.autonomy.mission_package import (
 from multidetect.autonomy.mission_plan import PlanDecision
 from multidetect.autonomy.mission_supervisor import MissionSupervisor
 from multidetect.autonomy.onboard_mission_log import DownlinkQueue, OnboardMissionLog
+from multidetect.autonomy.onboard_policy_parts.helpers import labelled_refs
 from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig
 
 
@@ -248,3 +251,212 @@ class RuntimeAdmissionMixin:
         return self.executor is not None and self.executor.acknowledge_payload_release(
             request_id, released=released
         )
+
+
+def prepare_runtime_operator_package(
+    self: Any,
+    package: MissionPackage,
+    *,
+    build_mission_from_text: Callable[..., Any],
+    perception_task_text: Callable[..., str],
+    path_type: Callable[..., Path],
+    load_runner_type: Callable[[], Any],
+    load_http_json: Callable[[], Callable[..., Any]],
+) -> MissionSupervisor:
+    """Plan with serialized model switching, then build an uninstalled candidate."""
+    if self.executor is None:
+        raise RuntimeError("operator package arrived before policy initialization")
+    capabilities = effective_capabilities(
+        getattr(self, "airframe_capabilities", frozenset()),
+        normalize_capabilities(package.document.get("capabilities", ())),
+    )
+    if package.plan is not None:
+        plan = package.plan
+        report: dict[str, Any] = {"error": None, "source": "package"}
+    else:
+        _http_json = load_http_json()
+        LlamaServerRunner = load_runner_type()
+
+        planning_runner = None
+
+        def post(prompt: str, schema: dict[str, Any]) -> str:
+            runner = planning_runner or self.slow
+            if runner is None:
+                raise ConnectionRefusedError("慢模型不可用: planner runner unavailable")
+            response = _http_json(
+                f"http://127.0.0.1:{runner.port}/v1/chat/completions",
+                {
+                    "model": "local",
+                    "temperature": 0,
+                    "max_tokens": 768,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "mission_plan",
+                            "strict": True,
+                            "schema": schema,
+                        },
+                    },
+                },
+                timeout=self.slow_call_timeout_s,
+            )
+            return response["choices"][0]["message"].get("content", "")
+
+        if self._model_split:
+            active_supervisor = getattr(self, "supervisor", None)
+            if active_supervisor is not None:
+                active_supervisor.planned_model_switch = True
+            with self._model_lock:
+                self._model_switching = True
+            self._cancel_slow_restart()
+            restart_thread = self._slow_restart_thread
+            if restart_thread is not None and restart_thread.is_alive():
+                with self._model_lock:
+                    self._model_switching = False
+                raise RuntimeError("慢模型重建仍在运行，暂不切换规划模型")
+            with self._model_lock:
+                started = time.monotonic()
+                identity = self.slow
+                planner = None
+                try:
+                    identity_close = getattr(identity, "close", None)
+                    if callable(identity_close):
+                        identity_close()
+                    planner = LlamaServerRunner(
+                        path_type(self._planning_model_path),
+                        path_type(self._planning_mmproj) if self._planning_mmproj else None,
+                        executable=path_type(self.config["llama_server"]), port=self._identity_port,
+                        max_new_tokens=768, crop_policy="none", identity_only=False,
+                        logprobs=False, wait_port_free=True,
+                        cache_ram_mib=int(self.config.get("llama_cache_ram_mib", 0)),
+                    )
+                    self.slow = planner
+                    planning_runner = planner
+                    self.health.runner = planner
+                    if self._model_shutdown.is_set():
+                        raise RuntimeError("operator package planning cancelled")
+                    plan, report = build_mission_from_text(
+                        str(package.document["task_text"]),
+                        labelled_refs(package.refs, package.document.get("ref_labels") or {}),
+                        post, capabilities=capabilities,
+                        plan_checker=lambda candidate: check_plan_against_package(
+                            candidate, package, capabilities=capabilities,
+                            executor_config=self.executor.config,
+                        ),
+                        include_decision_contract=bool(
+                            self.config.get("planning_decision_contract", False)
+                        ),
+                        enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
+                    )
+                    if report.get("error"):
+                        raise ValueError(f"operator task planning failed: {report['error']}")
+                    if self._model_shutdown.is_set():
+                        raise RuntimeError("operator package planning cancelled")
+                except Exception:
+                    if self._model_shutdown.is_set():
+                        if planner is not None:
+                            planner.close()
+                            self.slow = None
+                        raise RuntimeError("operator package planning cancelled")
+                    self._model_runtime["planning_fallback_to_identity"] = True
+                    self.health.record_planning_failure()
+                    if planner is not None:
+                        planner_close = getattr(planner, "close", None)
+                        if callable(planner_close):
+                            planner_close()
+                    self.slow = self._make_identity_runner()
+                    planning_runner = self.slow
+                    self.health.runner = self.slow
+                    plan, report = build_mission_from_text(
+                        str(package.document["task_text"]),
+                        labelled_refs(package.refs, package.document.get("ref_labels") or {}),
+                        post, capabilities=capabilities,
+                        plan_checker=lambda candidate: check_plan_against_package(
+                            candidate, package, capabilities=capabilities,
+                            executor_config=self.executor.config,
+                        ),
+                        include_decision_contract=bool(
+                            self.config.get("planning_decision_contract", False)
+                        ),
+                        enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
+                    )
+                else:
+                    planner_close = getattr(planner, "close", None)
+                    if callable(planner_close):
+                        planner_close()
+                    self.slow = self._make_identity_runner()
+                    planning_runner = self.slow
+                    self.health.runner = self.slow
+                finally:
+                    completed = time.monotonic()
+                    self._model_runtime["swap_duration_s"] = completed - started
+                    self._model_runtime["swap_completed_monotonic_s"] = completed
+                    self._model_switching = False
+                    if active_supervisor is not None:
+                        active_supervisor.planned_model_switch = False
+        else:
+            plan, report = build_mission_from_text(
+            str(package.document["task_text"]),
+            # The same labelled references as a start-up from_text mission.
+            # Bare names lost the link from the operator's words to the zone:
+            # "数一数场地里…" with "zone:site" alone planned zone:all (e2e
+            # run10: a 150 m search, budget exhausted); with "zone:site
+            # (场地 / the site)" both planner models choose zone:site.
+            labelled_refs(package.refs, package.document.get("ref_labels") or {}),
+            post,
+            capabilities=capabilities,
+            plan_checker=lambda candidate: check_plan_against_package(
+                candidate,
+                package,
+                capabilities=capabilities,
+                executor_config=self.executor.config,
+            ),
+            include_decision_contract=bool(
+                self.config.get("planning_decision_contract", False)
+            ),
+            enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
+            )
+        if report.get("error"):
+            raise ValueError(f"operator task planning failed: {report['error']}")
+        if isinstance(plan, PlanDecision):
+            self._record_planner_decision(plan, package)
+    # The same package policy as a package loaded at start-up, whether the
+    # plan came with the package or was compiled here.
+    violations = check_plan_against_package(
+        plan, package, capabilities=capabilities, executor_config=self.executor.config
+    )
+    if violations:
+        self._refuse_package_plan(violations, package, close_runner=False)
+    package.validate_plan(plan)
+    executor = MissionExecutor(
+        plan,
+        loop_factory=self.executor.loop_factory,
+        refs=package.refs,
+        capabilities=capabilities,
+        mission_package=package,
+        config=self.executor.config,
+        task_text=lambda step: perception_task_text(
+            step, package.document.get("task_text", plan.goal)
+        ),
+        airframe_adapter=self.motion_adapter,
+    )
+    executor.home = self.executor.home
+    executor.cruise_altitude_m = self.executor.cruise_altitude_m
+    log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
+    downlink = DownlinkQueue(log, sender=None)
+    supervisor = MissionSupervisor(
+        executor,
+        package,
+        log=log,
+        downlink=downlink,
+        requires_approval=bool(self.config.get("operator_requires_approval", False)),
+        runtime_mode=self.runtime_mode,
+        **self._supervisor_link_options(),
+        # The same onboard energy model as a package loaded at start-up.
+        energy_config=EnergyConfig.from_budget(
+            package.document["budget"], self.config.get("energy_model")
+        ),
+    )
+    supervisor.plan_report = report
+    return supervisor

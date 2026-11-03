@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import time
+from pathlib import Path
 
 import pytest
 from test_mission_supervisor import document
@@ -24,6 +26,19 @@ COLLECTOR_LABELS = {
     "fast_latency_s",
     "mission",
 }
+
+
+def test_split_policy_parts_have_no_script_imports_or_global_namespace_injection():
+    parts = Path(onboard_policy.ROOT) / "src/multidetect/autonomy/onboard_policy_parts"
+    for path in parts.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                assert all(name.name.split(".")[0] != "scripts" for name in node.names), path
+            elif isinstance(node, ast.ImportFrom):
+                assert (node.module or "").split(".")[0] != "scripts", path
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                assert node.func.id not in {"globals", "__import__", "exec", "eval"}, path
 
 
 @pytest.fixture
