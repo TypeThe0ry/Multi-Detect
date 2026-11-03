@@ -801,7 +801,8 @@ def _cap_task_variant_positives(
 
     report_strata: dict[str, dict[str, int | float]] = {}
     kept_ids: set[str] = set()
-    for key, candidates in sorted(variants.items()):
+    # view is None for rows without view metadata; sort on a None-safe key.
+    for key, candidates in sorted(variants.items(), key=lambda item: tuple("" if part is None else str(part) for part in item[0])):
         world, view, pair = key
         base = original[key] or original_by_world_view[(world, view)]
         limit = math.floor(base * positive_cap)
