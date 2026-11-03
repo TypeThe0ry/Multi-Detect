@@ -31,7 +31,10 @@ def write(path, value):
 def invocation(tmp_path, monkeypatch):
     old = base.invocation.__wrapped__(tmp_path, monkeypatch)
     old_manifest = json.loads(old.recovery_manifest.read_bytes())
-    base_python = Path(sys.base_prefix) / "python.exe"
+    # Keep the executable identity tied to this interpreter. The captured
+    # command line is Windows-formatted below, but the fixture must also run
+    # on POSIX where the Windows venv path does not exist.
+    base_python = Path(sys.executable).resolve()
     old_manifest["source_files"].append(sup.file_record(base_python))
     write(old.recovery_manifest, old_manifest)
     old.recovery_manifest_sha256 = sup.sha256_file(old.recovery_manifest)
@@ -144,6 +147,7 @@ def update_binding(args, path):
     args.identity_manifest_sha256 = sup.sha256_file(args.identity_manifest)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows CommandLineToArgvW")
 def test_windows_native_argument_parser_preserves_quoted_paths():
     values = [r"D:\a path\python.exe", "-B", r"D:\source path\entry.py", "--worker", "bound sha"]
     assert entry.windows_arguments(subprocess.list2cmdline(values)) == values
