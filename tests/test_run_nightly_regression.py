@@ -2,7 +2,12 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from scripts.run_nightly_regression import SitlLock, compare_reports, run
+import pytest
+
+from scripts.run_nightly_regression import (
+    FAILURE_CATEGORIES, SitlLock, compare_reports, failure_category,
+    final_campaign_exception, mission_triage, run,
+)
 
 
 def test_lock_reclaims_stale_and_releases(tmp_path):
@@ -178,3 +183,182 @@ def test_pid_alive_probes_without_signalling(monkeypatch):
     monkeypatch.setattr(psutil, "pid_exists", lambda pid: pid == 4242)
     assert module.pid_alive(4242) is True
     assert module.pid_alive(4243) is False
+
+
+@pytest.mark.parametrize(("exception", "category"), [
+    ("TimeoutError: timed out waiting for offboard_entered after 30s", "offboard_timeout"),
+    ("TimeoutError: timed out waiting for land after 120s", "land_timeout"),
+    ("RuntimeError: landing_timeout", "land_timeout"),
+    ("RuntimeError: PX4 rejected DISARM command with MAV_RESULT=2", "disarm_rejected"),
+    ("TimeoutError: episode telemetry stalled after wall-clock budget", "telemetry_stall"),
+    ("RuntimeError: sensor stream ended unexpectedly", "sensor_stream_eof"),
+    ("EOFError: sensor stream EOF", "sensor_stream_eof"),
+    ("RuntimeError: PX4 pre-arm health checks did not pass: GPS", "preflight_health"),
+    ("RuntimeError: preflight health failed", "preflight_health"),
+    ("ValueError: mission plan refused: unsafe route", "plan_refused"),
+    ("ValueError: bad configuration", "other"),
+    ("TimeoutError: timed out waiting for disarmed heartbeat after collector DISARM; landed_state=4", "other"),
+    ("TimeoutError: sensor stream produced no frame before timeout", "other"),
+    ("BrokenPipeError: [Errno 32] Broken pipe", "other"),
+])
+def test_failure_categories(exception, category):
+    assert failure_category(exception, row={}) == category
+
+
+def test_sensor_broken_pipe_requires_sensor_traceback():
+    exception = "BrokenPipeError: [Errno 32] Broken pipe"
+    context = '  File "src/multidetect/sim_teacher/streams.py", line 176, in request\n    self.request_stream.write(payload)'
+    assert failure_category(exception, context, row={}) == "sensor_stream_eof"
+    assert failure_category(exception, context.replace("/", "\\"), row={}) == "sensor_stream_eof"
+    assert failure_category("EOFError: unexpected end of stream", context, row={}) == "sensor_stream_eof"
+    assert failure_category(exception, 'File "transport.py", in send', row={}) == "other"
+
+
+def test_plan_refusal_fallback_does_not_override_final_exception():
+    row = {"planned_skills": ["refuse"]}
+    assert failure_category(None, row=row) == "plan_refused"
+    assert failure_category("TimeoutError: telemetry stalled", row=row) == "telemetry_stall"
+    assert failure_category(None, row={"step_outcomes": [{"reason": "plan_refused"}]}) == "plan_refused"
+
+
+def _trace(exception):
+    return f'Traceback (most recent call last):\n  File "collector.py", line 1, in run\n    run_episode()\n{exception}\n'
+
+
+def _suite_output(root, rows, logs=None):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "suite-report.json").write_text(json.dumps({
+        "summary": {"expectation_pass_rate": .5, "plan_accuracy": 1.0}, "missions": rows,
+    }), encoding="utf-8")
+    for (mission, world), text in (logs or {}).items():
+        path = root / mission / "campaign" / f"{world}.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+def _row(ident, *, status="complete", checks=None, episode=1, world="world"):
+    checks = {"skills": True} if checks is None else checks
+    return {"id": ident, "world": world, "episode": episode, "status": status,
+            "mission_completed": status == "complete", "expectation_checks": checks,
+            "expectations_passed": all(checks.values())}
+
+
+def test_final_exception_ignores_causes_events_and_prior_attempts(tmp_path):
+    log = tmp_path / "world.log"
+    log.write_text(
+        _trace("TimeoutError: offboard timeout")
+        + "During handling of the above exception, another exception occurred:\n\n"
+        + _trace("custom.CampaignFailure: 中文 | <unsafe>\nDetails: second message line")
+        + json.dumps({"error": "Traceback (most recent call last):\nEOFError: stale", "phase": "cleanup"})
+        + "\n", encoding="utf-8",
+    )
+    exception, context, error = final_campaign_exception(log)
+    assert exception == "custom.CampaignFailure: 中文 | <unsafe>\nDetails: second message line"
+    assert "offboard timeout" not in context
+    assert error is None
+    assert failure_category(exception, context, row={}) == "other"
+
+
+def test_missing_log_and_no_traceback_are_distinct(tmp_path):
+    log = tmp_path / "world.log"
+    assert final_campaign_exception(log)[2].startswith("FileNotFoundError:")
+    log.write_text('{"error": "TimeoutError: offboard timeout"}\n', encoding="utf-8")
+    assert final_campaign_exception(log) == (None, "", None)
+
+
+def test_triage_preserves_episodes_worlds_and_expected_safe_abort(tmp_path):
+    rows = [
+        _row("mission", episode=1),
+        _row("mission", episode=2, status="missing", checks={"skills": False}),
+        _row("mission", world="other", checks={"min_count_exact": False}),
+        _row("safe-abort"),
+        _row("no-log", status="missing"),
+    ]
+    rows[3]["mission_completed"] = False
+    _suite_output(tmp_path / "main", rows, {
+        ("mission", "world"): _trace("TimeoutError: offboard timeout"),
+        ("mission", "other"): "collector complete\n",
+        ("safe-abort", "world"): "collector complete\n",
+    })
+    report = json.loads((tmp_path / "main/suite-report.json").read_text(encoding="utf-8"))
+    result = mission_triage(report, tmp_path / "main")
+    assert len(result) == 5
+    assert [r["failure_category"] for r in result] == [None, "offboard_timeout", "other", None, "other"]
+    assert result[2]["failed_expectations"] == ["min_count_exact"]
+    assert result[2]["complete"] is True
+    assert result[3]["complete"] is True and result[3]["mission_completed"] is False
+    assert result[4]["log_error"].startswith("FileNotFoundError:")
+
+
+def test_report_only_reads_synthetic_suites_without_running_or_writing_sources(tmp_path, monkeypatch):
+    import scripts.run_nightly_regression as mod
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("report-only must not run collectors, preflight or acquire locks")
+
+    monkeypatch.setattr(mod, "SitlLock", forbidden)
+    monkeypatch.setattr(mod, "preflight", forbidden)
+    source = tmp_path / "inputs/main"
+    _suite_output(source, [
+        _row("bad|mission", status="missing", checks={"skills": False, "max_x": False}),
+        _row("good"), _row("no-log", status="missing"),
+    ], {
+        ("bad|mission", "world"): _trace("RuntimeError: sensor stream EOF | <closed>\n详情"),
+        ("good", "world"): "complete\n",
+    })
+    second = tmp_path / "inputs/follow"
+    _suite_output(second, [_row("follow", status="missing")], {
+        ("follow", "world"): _trace("TimeoutError: telemetry stalled"),
+    })
+    before = {p: p.read_bytes() for p in (tmp_path / "inputs").rglob("*") if p.is_file()}
+    out = tmp_path / "reports"
+    assert run(["--report-only", str(source), str(second), "--out", str(out)], runner=forbidden) == 0
+    assert before == {p: p.read_bytes() for p in (tmp_path / "inputs").rglob("*") if p.is_file()}
+    report = json.loads((out / "nightly-report.json").read_text(encoding="utf-8"))
+    histogram = report["failure_categories"]
+    assert set(histogram) == set(FAILURE_CATEGORIES)
+    assert histogram == {key: int(key in {"sensor_stream_eof", "telemetry_stall", "other"}) for key in FAILURE_CATEGORIES}
+    assert report["suites"][0]["exit_code"] is None
+    text = (out / "nightly-report.md").read_text(encoding="utf-8")
+    assert "bad&#124;mission" in text
+    assert "RuntimeError: sensor stream EOF &#124; &lt;closed&gt;<br>详情" in text
+    assert "skills, max_x" in text
+    assert "日志不可读：FileNotFoundError:" in text
+    assert "| sensor_stream_eof | 1 |" in text
+
+
+@pytest.mark.parametrize("relative_out", [None, ".", "nested"])
+def test_report_only_requires_output_outside_sources(tmp_path, relative_out):
+    source = tmp_path / "main"
+    _suite_output(source, [])
+    args = ["--report-only", str(source)]
+    if relative_out is not None:
+        args += ["--out", str(source / relative_out)]
+    with pytest.raises(SystemExit, match="2"):
+        run(args)
+    assert sorted(p.name for p in source.iterdir()) == ["suite-report.json"]
+
+
+def test_regular_run_includes_triage_from_suite_output(tmp_path, monkeypatch):
+    import scripts.run_nightly_regression as mod
+
+    class NoopLock:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+
+    def runner(cmd, **kwargs):
+        source = Path(cmd[cmd.index("--out") + 1])
+        _suite_output(source, [_row("failure", status="missing")], {
+            ("failure", "world"): _trace("TimeoutError: waiting for land timed out"),
+        })
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(mod, "SitlLock", NoopLock)
+    monkeypatch.setattr(mod, "preflight", lambda *args: None)
+    # The scheduler creates the suite directory before calling the child runner.
+    (tmp_path / "out").mkdir()
+    assert run(["--suites", "main", "--out", str(tmp_path / "out")], runner=runner) == 1
+    report = json.loads((tmp_path / "out/nightly-report.json").read_text(encoding="utf-8"))
+    assert report["suites"][0]["missions"][0]["failure_category"] == "land_timeout"
+    assert report["failure_categories"]["land_timeout"] == 1

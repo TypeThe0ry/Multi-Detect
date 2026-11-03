@@ -1,6 +1,6 @@
 """Run all SIM mission suites sequentially and merge their reports."""
 from __future__ import annotations
-import argparse, json, os, shutil, signal, subprocess, sys, time
+import argparse, json, os, re, shutil, signal, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -41,6 +41,10 @@ SIM_ENV_KEYS = (
 )
 SIM_CONTROL_PORT = 14540
 SIM_TELEMETRY_PORT = 14541
+FAILURE_CATEGORIES = (
+    "offboard_timeout", "land_timeout", "disarm_rejected", "telemetry_stall",
+    "sensor_stream_eof", "preflight_health", "plan_refused", "other",
+)
 
 
 def pid_alive(pid: int) -> bool:
@@ -108,6 +112,132 @@ def load_suite_report(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def final_campaign_exception(log: Path) -> tuple[str | None, str, str | None]:
+    """Return the last traceback's exception and context, never a JSON event error."""
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return None, "", f"{type(exc).__name__}: {exc}"
+    traces = list(re.finditer(r"^Traceback \(most recent call last\):[ \t]*$", text, re.MULTILINE))
+    if not traces:
+        return None, "", None
+    # Unindented exception classes distinguish the terminal line from frames,
+    # source code, chained causes and the collector's JSON diagnostics.
+    context = text[traces[-1].end():]
+    match = re.search(
+        r"^(?:[\w]+\.)*[A-Z][\w]*(?::[^\r\n]*)?$", context, re.MULTILINE
+    )
+    if not match:
+        return None, context, None
+    message = [match.group()]
+    for line in context[match.end():].splitlines():
+        if not line.strip() and not message[1:]:
+            continue
+        if not line.strip() or line.startswith(("{", "Traceback ")):
+            break
+        message.append(line)
+    return "\n".join(message), context[:match.end()], None
+
+
+def failure_category(exception: str | None, context: str = "", *, row: dict[str, Any]) -> str:
+    """Prefer the final exception; only use structured plan evidence if absent."""
+    text = (exception or "").lower()
+    timeout = any(word in text for word in ("timeout", "timed out", "deadline"))
+    if "telemetry" in text and any(word in text for word in ("stall", "stale", "timeout", "timed out")):
+        return "telemetry_stall"
+    if "offboard" in text and timeout:
+        return "offboard_timeout"
+    if "disarm" in text and any(word in text for word in ("reject", "denied", "refused")):
+        return "disarm_rejected"
+    if re.search(r"\bland(?:ing)?\b|landing_timeout", text) and timeout and "disarm" not in text:
+        return "land_timeout"
+    sensor = any(word in text for word in ("sensor stream", "sensor_stream", "mdgz"))
+    eof = any(word in text for word in ("eof", "end of file", "ended unexpectedly", "broken pipe"))
+    if (sensor and eof) or (
+        any(word in text for word in ("brokenpipeerror", "eoferror"))
+        and "sim_teacher/streams.py" in context.replace("\\", "/")
+        and ("_fresh_sensor_snapshot" in context or "request_stream.write" in context)
+    ):
+        return "sensor_stream_eof"
+    if any(word in text for word in ("preflight", "pre-flight", "pre-arm health", "prearm health")):
+        return "preflight_health"
+    if "plan" in text and any(word in text for word in ("refus", "reject")):
+        return "plan_refused"
+    if not exception:
+        if row.get("planned_skills") == ["refuse"] or any(
+            step.get("reason") == "plan_refused" for step in (row.get("step_outcomes") or [])
+        ):
+            return "plan_refused"
+    return "other"
+
+
+def mission_triage(report: dict[str, Any], suite_out: Path) -> list[dict[str, Any]]:
+    rows = []
+    logs = {}
+    for row in report.get("missions", []):
+        log = suite_out / row["id"] / "campaign" / f"{row['world']}.log"
+        if log not in logs:
+            logs[log] = final_campaign_exception(log)
+        exception, context, log_error = logs[log]
+        failed = [name for name, passed in row.get("expectation_checks", {}).items() if not passed]
+        complete = row.get("status") == "complete"
+        is_failure = not complete or bool(failed) or row.get("expectations_passed") is False
+        rows.append({
+            "id": row["id"], "world": row["world"], "episode": row.get("episode"),
+            "complete": complete, "mission_completed": bool(row.get("mission_completed", False)),
+            "final_exception": exception, "failed_expectations": failed,
+            "failure_category": failure_category(exception, context, row=row) if is_failure else None,
+            "campaign_log": str(log), "log_error": log_error,
+        })
+    return rows
+
+
+def _markdown_cell(value: Any) -> str:
+    if value is None:
+        return "—"
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(
+        ">", "&gt;"
+    ).replace("|", "&#124;").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
+def write_nightly_report(merged: dict[str, Any], out: Path) -> None:
+    records = merged["suites"]
+    histogram = {category: 0 for category in FAILURE_CATEGORIES}
+    for record in records:
+        for row in record.get("missions", []):
+            if row["failure_category"] is not None:
+                histogram[row["failure_category"]] += 1
+    merged["failure_categories"] = histogram
+    lines = ["# SIM 夜间回归合并报告", "", f"生成时间：{merged['generated_at']}", "", "| 套件 | 起止 | 退出码 | 预期通过率 | 计划准确率 | 关键指标 |", "| --- | --- | ---: | ---: | ---: | --- |"]
+    for r in records:
+        s = r["summary"]
+        values = (r["name"], f"{r.get('started_at') or '—'} → {r.get('ended_at') or '—'}", r["exit_code"], s.get("expectation_pass_rate"), s.get("plan_accuracy"), json.dumps(r["metrics"], ensure_ascii=False))
+        lines.append("| " + " | ".join(_markdown_cell(value) for value in values) + " |")
+    lines += ["", "## 逐任务失败分诊", "",
+              "complete 表示采集状态为 complete；任务完成对应 mission_completed，安全中止可能为 no。",
+              "异常取该任务、该世界 campaign 日志中的最后一条 traceback；同一 campaign 的多架次共享此诊断，不代表逐架次异常定位。",
+              "分类仅统计采集不完整或预期未通过的记录；无失败为 —。日志缺失会显式标注，无法归类的失败为 other。", "",
+              "| 套件 | 任务 | 世界 | 架次 | complete | 任务完成 | 最终异常（类 + 消息） | 失败预期 | 失败分类 |",
+              "| --- | --- | --- | ---: | --- | --- | --- | --- | --- |"]
+    for r in records:
+        for row in r.get("missions", []):
+            exception = row["final_exception"]
+            if row["log_error"]:
+                exception = f"日志不可读：{row['log_error']}"
+            values = (r["name"], row["id"], row["world"], row["episode"],
+                      "yes" if row["complete"] else "no", "yes" if row["mission_completed"] else "no",
+                      exception, ", ".join(row["failed_expectations"]) or None, row["failure_category"])
+            lines.append("| " + " | ".join(_markdown_cell(value) for value in values) + " |")
+    lines += ["", "## 失败分类直方图", "", "按失败记录计数（每任务 × 架次一条）；成功记录不计入。", "",
+              "| 分类 | 数量 |", "| --- | ---: |"]
+    lines += [f"| {category} | {count} |" for category, count in histogram.items()]
+    lines += ["", "## 回退", ""]
+    lines += [f"- {x['suite']} {x['metric']}: {x['previous']} → {x['current']} (Δ{x['delta']})" for x in merged["regressions"]] or ["- 未发现回退。"]
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "nightly-report.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (out / "nightly-report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model-set", choices=list(MODEL_SET_SUITES), default=os.environ.get("MULTIDETECT_MODEL_SET", "default"))
@@ -116,6 +246,8 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     p.add_argument("--suite-episodes", action="append", default=[], metavar="NAME=N")
     p.add_argument("--fire-hydrant-episodes", type=int, default=None)
     p.add_argument("--out", type=Path, default=None)
+    p.add_argument("--report-only", type=Path, nargs="+", metavar="SUITE_DIR",
+                   help="read existing suite outputs without running collectors; requires a separate --out")
     p.add_argument("--previous-report", type=Path, default=None)
     p.add_argument("--lock-path", type=Path, default=DEFAULT_LOCK)
     p.add_argument("--min-free-disk-gb", type=float, default=0.0)
@@ -129,6 +261,29 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         help="copy PX4 .ulg flight logs into each collector job before cleanup",
     )
     args = p.parse_args(argv)
+    if args.report_only:
+        if args.out is None:
+            p.error("--report-only requires --out outside the input suite directories")
+        sources = [source.resolve() for source in args.report_only]
+        out = args.out.resolve()
+        if any(out == source or source in out.parents for source in sources):
+            p.error("--out must be outside the input suite directories")
+        if len({source.name for source in sources}) != len(sources):
+            p.error("--report-only suite directory names must be unique")
+        records = []
+        for source in sources:
+            report_path = source / "suite-report.json"
+            report = load_suite_report(report_path)
+            records.append({"name": source.name, "started_at": None, "ended_at": None,
+                            "exit_code": None, "error": None, "summary": report.get("summary", {}),
+                            "metrics": _metric_summary(report.get("missions", [])),
+                            "missions": mission_triage(report, source), "report": str(report_path)})
+        merged = {"generated_at": now_iso(), "suites": records,
+                  "provenance": build_provenance(root=ROOT, command=sys.argv)}
+        previous = load_suite_report(args.previous_report) if args.previous_report else None
+        merged["regressions"] = compare_reports(merged, previous)
+        write_nightly_report(merged, out)
+        return 0
     if args.model_set not in MODEL_SET_SUITES:
         p.error(f"unknown --model-set: {args.model_set}")
     suite_paths = MODEL_SET_SUITES[args.model_set]
@@ -196,18 +351,12 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
             report = {}
             rp = suite_out / "suite-report.json"
             if rp.exists(): report = load_suite_report(rp)
-            records.append({"name": name, "started_at": started, "ended_at": now_iso(), "exit_code": code, "error": error, "summary": report.get("summary", {}), "metrics": _metric_summary(report.get("missions", [])), "report": str(rp)})
+            records.append({"name": name, "started_at": started, "ended_at": now_iso(), "exit_code": code, "error": error, "summary": report.get("summary", {}), "metrics": _metric_summary(report.get("missions", [])), "missions": mission_triage(report, suite_out), "report": str(rp)})
     merged = {"generated_at": now_iso(), "suites": records,
               "provenance": build_provenance(root=ROOT, config_paths=[suite_paths[n] for n in suites if suite_paths[n].is_file()], command=sys.argv)}
     previous = load_suite_report(previous_path) if previous_path.exists() else None
     merged["regressions"] = compare_reports(merged, previous)
-    (out / "nightly-report.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    lines = ["# SIM 夜间回归合并报告", "", f"生成时间：{merged['generated_at']}", "", "| 套件 | 起止 | 退出码 | 预期通过率 | 计划准确率 | 关键指标 |", "| --- | --- | ---: | ---: | ---: | --- |"]
-    for r in records:
-        s=r["summary"]; lines.append(f"| {r['name']} | {r['started_at']} → {r['ended_at']} | {r['exit_code']} | {s.get('expectation_pass_rate','—')} | {s.get('plan_accuracy','—')} | {json.dumps(r['metrics'],ensure_ascii=False)} |")
-    lines += ["", "## 回退", ""]
-    lines += [f"- {x['suite']} {x['metric']}: {x['previous']} → {x['current']} (Δ{x['delta']})" for x in merged["regressions"]] or ["- 未发现回退。"]
-    (out / "nightly-report.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
+    write_nightly_report(merged, out)
     return int(any(r["exit_code"] for r in records))
 
 if __name__ == "__main__": raise SystemExit(run())
