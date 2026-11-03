@@ -103,6 +103,26 @@ frame timestamp 仍增长。更可能的方向是容器内 PX4 进程或 MAVLink
    lockstep 状态的失败快照；同时保留 frame server 的 emitted/dropped/rejected
    计数。这样可以区分 PX4 scheduler 饥饿、控制回路等待和 UDP 输出路径异常。
 
+### 离线分析保留的 ULog
+
+nightly 产物中的每个 `.ulg` 都可以单独分析，也可以把某个 episode/campaign
+目录交给脚本（目录模式会递归查找 `.ulg`）。阈值默认是 1 秒，报告可直接重定向
+保存为 Markdown：
+
+```bash
+export PYTHONPATH=src:.
+export PYTHONUTF8=1
+python scripts/analyze_px4_ulog.py /path/to/jobs/<container>/px4-ulog \
+  --gap-seconds 1.0 --output /tmp/px4-stall.md
+python scripts/analyze_px4_ulog.py /path/to/episode.ulg --gap-seconds 0.5
+```
+
+报告按每个日志列出主题样本数、最后时间戳及达到阈值的最大间隙，并汇总可识别的
+cpuload/task CPU、estimator/sensor timeout/fault 字段、failsafe 状态、lockstep
+消息和最后主题时间戳前后 10 秒的 ULog console 消息。若 venv 可导入 `pyulog`，
+脚本优先用它；否则使用内置的 ULog 最小读取器（header、format/add_subscription、
+data、logging 消息）。未记录在 ULog 中的容器 stdout/stderr 不会出现在该报告中。
+
 容器侧需要单独处理 operator-pause-resume 的 odometry 异常：运行期出现异常速度
 时不要直接关闭整个 sensor stream。可选方案是丢弃该样本并重置 source buffer，
 或发送明确的可恢复诊断后继续等待下一组 RGB/depth/odometry；具体阈值和恢复策略
