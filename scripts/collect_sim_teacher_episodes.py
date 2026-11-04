@@ -34,7 +34,11 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "src"))
 
-from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
+from multidetect.autonomy.airframe_profile import (  # noqa: E402
+    AirframeProfile,
+    airframe_uses_multirotor_executor,
+    resolve_airframe_profile,
+)
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.provenance import build_provenance, model_paths_from_config, snapshot_config  # noqa: E402
 from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
@@ -361,30 +365,7 @@ def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> di
 
 
 def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> AirframeProfile | None:
-    normalized = str(airframe).strip().lower().replace("-", "_")
-    if normalized == "x500_gimbal":
-        return AirframeProfile.from_json(ROOT / "configs" / "airframes" / "x500_gimbal.json")
-    if normalized in {"x500", "x500_mono_cam", "multirotor"}:
-        return None
-    if normalized in {"fixed_wing", "fw", "vtol"}:
-        return None
-    selected = normalized
-    if normalized == "rc_cessna_mono_cam" and takeoff_method in {"hand", "catapult"}:
-        selected = f"rc_cessna_{takeoff_method}"
-    candidates = [ROOT / "configs" / "airframes" / f"{selected}.json"]
-    aliases = {
-        "rc_cessna_mono_cam": "rc_cessna_runway",
-        "advanced_plane_mono_cam": "advanced_plane",
-        "quadtailsitter_mono_cam": "quadtailsitter",
-        "tiltrotor_mono_cam": "tiltrotor",
-        "standard_vtol_mono_cam": "standard_vtol",
-    }
-    if normalized in aliases and selected == normalized:
-        candidates.insert(0, ROOT / "configs" / "airframes" / f"{aliases[normalized]}.json")
-    for path in candidates:
-        if path.is_file():
-            return AirframeProfile.from_json(path)
-    raise ValueError(f"unknown airframe profile: {airframe}")
+    return resolve_airframe_profile(airframe, takeoff_method, base_dir=ROOT)
 
 
 def _new_video_sample(sample: Any, last_written_ns: int) -> bool:
@@ -423,6 +404,23 @@ _DEFAULT_CAMERA_SENSOR_LINKS = {"rgb": "camera_link", "depth": "depth_camera_lin
 _CAMERA_SENSOR_LINKS = {
     "x500_gimbal": {"rgb": "camera_link", "depth": "depth_camera_link"},
 }
+
+
+def _has_registered_depth_camera(airframe: str) -> bool:
+    """Whether the collector may bind the model's repository depth topic by default."""
+    normalized = str(airframe).strip().lower().replace("-", "_")
+    if normalized == "x500_mono_cam":
+        return False
+    profile = _airframe_profile(airframe)
+    if profile is not None and profile.id == "x500_gimbal":
+        overlay = ROOT / "simulation/gazebo/model-overlays/x500_gimbal_seg/model.sdf"
+        try:
+            model = ET.parse(overlay).getroot().find("model")
+        except (OSError, ET.ParseError):
+            return False
+        return model is not None and model.find(".//sensor[@name='depth_camera']") is not None
+    # Preserve the collector's established default for every non-x500 id.
+    return True
 
 
 def _camera_sensor_topics(*, world: str, model: str, airframe: str) -> dict[str, str]:
@@ -736,7 +734,7 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
     )
     if not rgb:
         raise RuntimeError("scenario has no RGB camera")
-    if depth is None and plan.airframe != "x500_mono_cam":
+    if depth is None and _has_registered_depth_camera(plan.airframe):
         # Every *_mono_cam airframe model carries the registered depth camera, and the
         # frame server requires its contract; fall back to the default binding.
         depth = {}
@@ -776,14 +774,11 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         "--depth-encoding",
         plan.depth_encoding,
     ]
+    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
     category = (
         "multirotor"
-        if plan.airframe == "x500_mono_cam"
-        else (
-            _airframe_profile(plan.airframe).category
-            if _airframe_profile(plan.airframe)
-            else "fixed_wing"
-        )
+        if airframe_uses_multirotor_executor(plan.airframe, plan.takeoff_method, base_dir=ROOT)
+        else profile.category if profile is not None else "fixed_wing"
     )
     calibration_name = (
         "gazebo-multirotor-front-camera-v1.json"
@@ -1268,7 +1263,13 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
                 altitude, source = requested, "teacher_intent_camera_altitude"
         except (OSError, json.JSONDecodeError):
             pass
-    profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
+    profile = (
+        _airframe_profile(plan.airframe, plan.takeoff_method)
+        if not airframe_uses_multirotor_executor(
+            plan.airframe, plan.takeoff_method, base_dir=ROOT
+        )
+        else None
+    )
     if profile is None or profile.category == "multirotor":
         return altitude, source
     # The multirotor default (5 m) is far below what a fixed-wing needs to loiter
@@ -1553,7 +1554,7 @@ def _onboard_airframe_id(plan: CollectionPlan) -> str | None:
     """Profile id the onboard policy plans for; None keeps the x500 default untouched."""
     if plan.airframe == "x500_mono_cam":
         return None
-    profile = _airframe_profile(plan.airframe)
+    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
     return profile.id if profile is not None else None
 
 
@@ -3841,7 +3842,7 @@ def run_episode(
                 isinstance(s, dict) and s.get("kind") == "depth_camera"
                 for s in runtime.get("sensors", [])
             )
-            if declares_depth or plan.airframe != "x500_mono_cam":
+            if declares_depth or _has_registered_depth_camera(plan.airframe):
                 # The helper's contract is deterministic and is embedded in
                 # the command; SensorStreamReader validates it on every frame.
                 model = _gazebo_model_name(plan, runtime)
@@ -3951,7 +3952,7 @@ def run_episode(
                 raise TimeoutError(f"{exc}; still missing: {_ekf_missing()}") from exc
             vehicle = telemetry_connection
             start_pos = _state_position(mav_reader.state)
-            if plan.airframe == "x500_mono_cam":
+            if airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
                 setpoint_streamer = SetpointStreamer(vehicle, rate_hz=20.0)
                 setpoint_streamer.set_target(
                     start_pos[0], start_pos[1], -altitude_m, _state_yaw(mav_reader.state)
@@ -3981,8 +3982,16 @@ def run_episode(
                 mavutil_module=mavutil,
             )
             recorder.meta["prearm_health"] = prearm_health
+            multirotor_profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+            if (
+                airframe_uses_multirotor_executor(
+                    plan.airframe, plan.takeoff_method, base_dir=ROOT
+                )
+                and multirotor_profile is not None
+            ):
+                recorder.meta["airframe_profile"] = multirotor_profile.to_mapping()
             recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
-            if plan.airframe == "x500_mono_cam":
+            if airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
                 # This is the original x500 sequence. Keep it byte-for-byte
                 # equivalent: setpoints -> arm -> OFFBOARD -> climb.
                 arm_ack = _arm(
@@ -4508,7 +4517,7 @@ def run_episode(
             # make a fixed wall-clock wait expire before PX4 reaches the ground.
             mav_reader.raise_if_failed()
             _progress("land")
-            if plan.airframe != "x500_mono_cam":
+            if not airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
                 rtl_started_ns = time.monotonic_ns()
                 executor.rtl()
                 # Confirm PX4 is really in AUTO.RTL before anything else is sent:
@@ -4541,7 +4550,7 @@ def run_episode(
                     )
             # Fixed-wing/VTOL use their physical landing lifecycle. x500 uses
             # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
-            if plan.airframe == "x500_mono_cam":
+            if airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
                 land_result = _land_and_wait(
                     executor,
                     mav_reader,
