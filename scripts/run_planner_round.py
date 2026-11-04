@@ -160,12 +160,12 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
     if args.negative_target_mode != "safe_rejection":
         data_cmd += ["--negative-target-mode", args.negative_target_mode]
     learning_rate = args.learning_rate
-    if args.r23_recipe or args.r24_recipe or args.r25_recipe or args.r26_recipe or args.r27_recipe or args.r28_recipe or args.r29_recipe:
+    if args.r23_recipe or args.r24_recipe or args.r25_recipe or args.r26_recipe or args.r27_recipe or args.r28_recipe or args.r29_recipe or args.r30_recipe:
         data_cmd += ["--r23-recipe", "--r23-v3-count", str(args.r23_v3_count),
                      "--r23-deliver-count", str(args.r23_deliver_count)]
         if learning_rate == 1e-4:
             learning_rate = 2.5e-5
-    if args.r24_recipe or args.r25_recipe or args.r26_recipe or args.r27_recipe or args.r28_recipe or args.r29_recipe:
+    if args.r24_recipe or args.r25_recipe or args.r26_recipe or args.r27_recipe or args.r28_recipe or args.r29_recipe or args.r30_recipe:
         data_cmd += ["--r24-recipe", "--r24-reference-count", str(args.r24_reference_count),
                      "--r24-unknown-count", str(args.r24_unknown_count),
                      "--r24-context-count", str(args.r24_context_count)]
@@ -197,6 +197,12 @@ def command_plan(args, out: Path) -> dict[str, list[list[str]]]:
                      "--r29-query-grounding-count", str(args.r29_query_grounding_count),
                      "--r29-ref-alias-count", str(args.r29_ref_alias_count),
                      "--r29-return-intent-count", str(args.r29_return_intent_count)]
+    if args.r30_recipe:
+        data_cmd += ["--r30-recipe",
+                     "--r30-direct-follow-count", str(args.r30_direct_follow_count),
+                     "--r30-step-fidelity-count", str(args.r30_step_fidelity_count),
+                     "--r30-terminal-intent-count", str(args.r30_terminal_intent_count),
+                     "--r30-grounded-refs-count", str(args.r30_grounded_refs_count)]
     train = [py, str(ROOT / "scripts/train_slow_system_lora.py"), "--dataset", str(dataset), "--model", str(BASE_CACHE), "--output", str(adapter), "--epochs", str(args.epochs), "--accumulation", "4", "--rank", "16", "--alpha", "32", "--learning-rate", str(learning_rate), "--max-side", "448", "--crop-policy", "candidate_zoom_v2"]
     if args.init_adapter:
         train += ["--init-adapter", str(args.init_adapter)]
@@ -273,6 +279,12 @@ def main(argv=None) -> int:
     parser.add_argument("--r29-query-grounding-count", type=int, default=72)
     parser.add_argument("--r29-ref-alias-count", type=int, default=72)
     parser.add_argument("--r29-return-intent-count", type=int, default=72)
+    parser.add_argument("--r30-recipe", action="store_true",
+                        help="extend the r24 recipe with focused follow/order/terminal/reference positives")
+    parser.add_argument("--r30-direct-follow-count", type=int, default=80)
+    parser.add_argument("--r30-step-fidelity-count", type=int, default=80)
+    parser.add_argument("--r30-terminal-intent-count", type=int, default=40)
+    parser.add_argument("--r30-grounded-refs-count", type=int, default=40)
     contract = parser.add_mutually_exclusive_group()
     contract.add_argument("--decision-contract", dest="decision_contract", action="store_true",
                           help="enable structured reject/clarify evaluation")
@@ -303,10 +315,16 @@ def main(argv=None) -> int:
                                    args.r28_stop_count, args.r28_fixed_wing_count,
                                    args.r28_return_count, args.r29_query_ungrounded_count,
                                    args.r29_return_negated_land_count, args.r29_query_grounding_count,
-                                   args.r29_ref_alias_count, args.r29_return_intent_count)):
+                                   args.r29_ref_alias_count, args.r29_return_intent_count,
+                                   args.r30_direct_follow_count, args.r30_step_fidelity_count,
+                                   args.r30_terminal_intent_count, args.r30_grounded_refs_count)):
         parser.error("recipe counts must be non-negative")
     if args.r28_fixed_wing_count % 2:
         parser.error("r28 fixed-wing contrast count must be even")
+    if args.r30_recipe and any(value % 2 for value in (
+            args.r30_direct_follow_count, args.r30_step_fidelity_count,
+            args.r30_terminal_intent_count, args.r30_grounded_refs_count)):
+        parser.error("r30 counts must be even for an equal Chinese/English split")
     out = args.out.resolve()
     allowed_roots = (ROOT.resolve(), SCRATCH.resolve())
     if not any(out == allowed or out.is_relative_to(allowed) for allowed in allowed_roots):
