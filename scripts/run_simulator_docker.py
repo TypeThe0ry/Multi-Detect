@@ -636,6 +636,14 @@ def build_docker_simulator_plan(
         container_environment["PX4_SYS_AUTOSTART"] = "4019"
         container_environment["PX4_SIM_MODEL"] = "gz_x500_gimbal"
         container_environment["PX4_GZ_MODELS"] = CONTAINER_IMAGE_MODEL_ROOT
+    # The gimbal overlay shadows the image-provided x500_gimbal model.  Keep
+    # PX4 pointed at that image model root so its model://gimbal dependency is
+    # resolved from the same upstream directory.
+    container_model_root = (
+        CONTAINER_IMAGE_MODEL_ROOT
+        if airframe_profile_id == "x500_gimbal"
+        else CONTAINER_MODEL_ROOT
+    )
     if gpu_render:
         # NVIDIA Container Toolkit injects the driver libraries.  EGL_PLATFORM
         # and the vendor manifest make the selection deterministic in a
@@ -741,7 +749,7 @@ def build_docker_simulator_plan(
                 if selected_network_mode == "host"
                 else "export PX4_NET_INTERFACE=; "
             ),
-            "export PX4_GZ_MODELS=/opt/multidetect-gazebo-models; ",
+            f"export PX4_GZ_MODELS={container_model_root}; ",
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
             SIM_STARTUP_PATCHES,
             "export GZ_SIM_RESOURCE_PATH=",

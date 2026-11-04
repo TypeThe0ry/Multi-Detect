@@ -154,3 +154,44 @@ def test_collector_overlay_and_channel_are_opt_in(tmp_path, monkeypatch):
     )
     assert "model-overlays" in command[command.index("--mount") + 1]
     assert "--segmentation" in collector._camera_stream_command(enabled, environment)
+
+
+def test_gimbal_segmentation_overlay_targets_image_model_root(tmp_path):
+    from scripts.collect_sim_teacher_episodes import CollectionPlan, docker_command
+    from scripts.run_simulator_docker import CONTAINER_IMAGE_MODEL_ROOT
+
+    root = Path(__file__).resolve().parents[1]
+    scenario = root / "configs/scenarios/generated-v2/gen_v2_w0038.scenario.json"
+    runtime = scenario.parent / "gen_v2_w0038.runtime_input.json"
+    truth = scenario.parent / "gen_v2_w0038.truth.json"
+    plan = CollectionPlan(
+        str(scenario),
+        str(runtime),
+        str(truth),
+        "expert_search",
+        1,
+        1,
+        0,
+        str(tmp_path),
+        airframe="x500_gimbal",
+        segmentation=True,
+    )
+
+    command = docker_command(plan, name="gimbal-overlay-test")
+    mounts = [command[index + 1] for index, token in enumerate(command) if token == "--mount"]
+    overlay = next(mount for mount in mounts if "x500_gimbal_seg" in mount)
+
+    assert "target=/opt/px4-gazebo/share/gz/models/x500_gimbal,readonly" in overlay
+    assert "target=/opt/multidetect-gazebo-models/x500_gimbal,readonly" not in overlay
+    environment = {
+        command[index + 1].split("=", 1)[0]: command[index + 1].split("=", 1)[1]
+        for index, token in enumerate(command)
+        if token == "--env"
+    }
+    assert environment["PX4_GZ_MODELS"] == CONTAINER_IMAGE_MODEL_ROOT
+    assert CONTAINER_IMAGE_MODEL_ROOT in environment["GZ_SIM_RESOURCE_PATH"].split(":")
+    startup = command[-1]
+    assert f"export PX4_GZ_MODELS={CONTAINER_IMAGE_MODEL_ROOT};" in startup
+    assert "model://gimbal" in (
+        root / "simulation/gazebo/model-overlays/x500_gimbal_seg/model.sdf"
+    ).read_text(encoding="utf-8")
