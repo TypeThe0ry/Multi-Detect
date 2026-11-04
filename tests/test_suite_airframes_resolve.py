@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from scripts.collect_sim_teacher_episodes import _airframe_profile, _rgb_camera_topics
+from scripts.collect_sim_teacher_episodes import (
+    _airframe_profile,
+    _camera_sensor_topics,
+    _rgb_camera_topics,
+)
 
 pytestmark = pytest.mark.onboard
 
@@ -52,3 +56,15 @@ def test_gimbal_rgb_topics_follow_the_px4_camera_link():
         "/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/image",
         "/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/camera_info",
     )
+
+
+def test_gimbal_sensor_topics_follow_merged_camera_structure():
+    assert _camera_sensor_topics(
+        world="default", model="x500_gimbal_0", airframe="x500_gimbal"
+    ) == {
+        "image": "/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/image",
+        "camera_info": "/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/camera_info",
+        "depth_image": "/world/default/model/x500_gimbal_0/link/depth_camera_link/sensor/depth_camera/depth_image",
+        "depth_camera_info": "/world/default/model/x500_gimbal_0/link/depth_camera_link/sensor/depth_camera/camera_info",
+        "segmentation": "/multidetect/teacher/segmentation/labels_map",
+    }

@@ -89,6 +89,12 @@ def test_x500_gimbal_segmentation_camera_follows_gimbal_camera_link() -> None:
     assert joint.findtext("child") == "segmentation_camera_link"
     assert joint.find("pose").attrib == {"relative_to": "camera_link"}
 
+    odometry = model.find("plugin[@name='gz::sim::systems::OdometryPublisher']")
+    assert odometry is not None
+    assert odometry.attrib.get("filename") == "gz-sim-odometry-publisher-system"
+    assert odometry.findtext("dimensions") == "3"
+    assert odometry.findtext("odom_publish_frequency") == "50"
+
 
 def test_gimbal_rgb_depth_and_segmentation_match_standard_camera_calibration() -> None:
     standard_model = ET.parse(
