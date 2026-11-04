@@ -1,0 +1,17 @@
+#!/bin/sh
+# @name Folding Delta Tailsitter with C11 gimbal (design estimate, unverified)
+# @type VTOL Quad Tailsitter
+# Shared 4050 propulsion/flight parameters; this wrapper only enables PX4 gimbal v2.
+. ${R}etc/init.d-posix/airframes/4050_gz_delta_tailsitter
+
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=delta_tailsitter_gimbal_cam}
+param set-default MNT_MODE_IN 4
+param set-default MNT_MODE_OUT 2
+param set-default MNT_RC_IN_MODE 1
+param set-default MNT_MAN_ROLL 1
+param set-default MNT_MAN_PITCH 2
+param set-default MNT_MAN_YAW 3
+param set-default MNT_RANGE_ROLL 90
+param set-default MNT_MAX_PITCH 45
+param set-default MNT_MIN_PITCH -135
+param set-default MNT_RANGE_YAW 720

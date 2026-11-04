@@ -13,7 +13,7 @@
   },
   "vehicle": {
     "model": "delta_tailsitter_mono_cam",
-    "airframe_profile_id": "px4_delta_tailsitter_gazebo_v1",
+    "airframe_profile_id": "delta_tailsitter",
     "spawn_id": "delta_tailsitter_vtol_hover",
     "spawn_pose": {
       "x_east_m": 0.0,
@@ -29,7 +29,7 @@
       "sensor_id": "front-camera",
       "kind": "rgb_camera",
       "stream_uri": "gazebo://delta_tailsitter_mono_cam_001/front-camera",
-      "calibration_id": "gazebo-delta_tailsitter-mono-camera-v1"
+      "calibration_id": "gazebo-front-camera-v1"
     },
     {
       "sensor_id": "px4-telemetry",

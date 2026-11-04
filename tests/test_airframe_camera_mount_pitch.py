@@ -27,6 +27,11 @@ def _sdf_camera_pitch(model: str) -> float:
     root = ET.fromstring(
         (ROOT / "simulation/gazebo/models" / model / "model.sdf").read_text("utf-8")
     )
+    camera_link = root.find("model/link[@name='camera_link']")
+    if camera_link is not None:
+        pose = camera_link.find("pose")
+        if pose is not None and pose.get("relative_to") == "base_link":
+            return float(re.split(r"\s+", pose.text.strip())[4])
     for joint in root.iter("joint"):
         pose = joint.find("pose")
         if pose is not None and pose.get("relative_to") == "base_link":
@@ -42,7 +47,7 @@ def test_profile_mount_pitch_matches_the_simulated_camera(profile_id: str) -> No
     )
 
 
-@pytest.mark.parametrize("profile_id", ["quadtailsitter", "delta_tailsitter"])
+@pytest.mark.parametrize("profile_id", ["quadtailsitter", "delta_tailsitter", "delta_tailsitter_gimbal"])
 def test_tailsitter_per_mode_mounts_fall_back_to_the_default(profile_id: str) -> None:
     profile = AirframeProfile.from_json(ROOT / f"configs/airframes/{profile_id}.json")
     assert profile_mount_pitch_down_rad(profile, 0.25) == 0.25
@@ -58,7 +63,7 @@ def test_tailsitter_mc_mount_matches_the_simulated_camera_in_hover(profile_id: s
     profile = AirframeProfile.from_json(ROOT / f"configs/airframes/{profile_id}.json")
     if profile.camera.mount == "gimbal":
         root = ET.fromstring(
-            (ROOT / "simulation/gazebo/models/delta_tailsitter/model.sdf").read_text("utf-8")
+            (ROOT / "simulation/gazebo/models/delta_tailsitter_gimbal_cam/model.sdf").read_text("utf-8")
         )
         assert float(root.findtext("model/joint[@name='c11_pitch_joint']/axis/initial_position")) == pytest.approx(
             -math.radians(45), abs=1e-6

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 import shutil
@@ -12,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from multidetect.autonomy.airframe_profile import AirframeProfile
+from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.simulator.delta_tailsitter import cad_to_base_m, select_visual_mesh
 from scripts import collect_sim_teacher_episodes as collector
 from scripts import run_simulator_docker as docker
@@ -21,6 +23,7 @@ from scripts.generate_delta_tailsitter_model import generate
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_DIR = ROOT / "simulation/gazebo/models/delta_tailsitter"
 WRAPPER_DIR = ROOT / "simulation/gazebo/models/delta_tailsitter_mono_cam"
+GIMBAL_WRAPPER_DIR = ROOT / "simulation/gazebo/models/delta_tailsitter_gimbal_cam"
 OVERLAY_DIR = ROOT / "simulation/gazebo/model-overlays/delta_tailsitter_mono_cam_seg"
 SCENARIO_DIR = ROOT / "configs/scenarios/airframes"
 SCENARIO = SCENARIO_DIR / "delta_tailsitter_mono_cam_001.scenario.json"
@@ -63,22 +66,19 @@ def test_complete_model_has_sensors_and_no_upstream_aircraft_dependency():
         "air_pressure",
         "magnetometer",
         "navsat",
-        "camera",
-        "depth_camera",
     }
+    assert not [joint for joint in model.findall("joint") if str(joint.get("name", "")).startswith("c11_")]
     assert model.find("joint[@name='airspeed_joint']/parent").text == "base_link"
-    assert len(model.findall("joint[@type='revolute']")) == 7
-    assert {model.findtext(f"joint[@name='c11_{axis}_joint']/axis/xyz") for axis in ("yaw", "roll", "pitch")} == {
-        "0 0 1", "1 0 0", "0 1 0"
-    }
+    assert len(model.findall("joint[@type='revolute']")) == 4
     assert not model.findall(".//control_joint_rad_to_cl")
     for mesh in model.findall(".//mesh/uri"):
         assert (MODEL_DIR / mesh.text.removeprefix("model://delta_tailsitter/")).is_file()
     assert "model://quadtailsitter" not in (MODEL_DIR / "model.sdf").read_text("utf-8")
 
 
-def test_assembly_mass_cg_and_inertia_match_report_and_are_positive_definite():
-    links = _model(MODEL_DIR).findall("link") + _model(WRAPPER_DIR).findall("link")
+@pytest.mark.parametrize("wrapper_dir", [WRAPPER_DIR, GIMBAL_WRAPPER_DIR])
+def test_assembly_mass_cg_and_inertia_match_report_and_are_positive_definite(wrapper_dir):
+    links = _model(MODEL_DIR).findall("link") + _model(wrapper_dir).findall("link")
     mass = 0.0
     first_moment = [0.0] * 3
     inertia = [[0.0] * 3 for _ in range(3)]
@@ -91,7 +91,8 @@ def test_assembly_mass_cg_and_inertia_match_report_and_are_positive_definite():
         elif link.find("pose") is not None:
             position = list(_numbers(link.findtext("pose"))[:3])
         center = _numbers(inertial.findtext("pose", "0 0 0 0 0 0"))[:3]
-        position = [position[i] + center[i] for i in range(3)]
+        if not (wrapper_dir == GIMBAL_WRAPPER_DIR and link.get("name") == "camera_link"):
+            position = [position[i] + center[i] for i in range(3)]
         matrix = inertial.find("inertia")
         local = [
             [
@@ -214,7 +215,7 @@ def test_aerodynamic_area_lift_slope_static_margin_and_parasitic_drag():
 
 @pytest.mark.parametrize("directory", [WRAPPER_DIR, OVERLAY_DIR])
 def test_c11_camera_depth_and_projection_matrix_use_the_same_mount(directory):
-    model = _model(MODEL_DIR)
+    model = _model(WRAPPER_DIR)
     wrapper = _model(directory)
     assert wrapper.findtext("include/uri") == "model://delta_tailsitter"
     rgb = model.find("link[@name='camera_link']/sensor[@name='camera']")
@@ -258,9 +259,58 @@ def test_cad_mesh_preference_preserves_physics_and_drops_placeholders(tmp_path):
         root = ET.fromstring(text).find("model")
         base = root.find("link[@name='base_link']")
         assert base.findtext("visual[@name='cad_visual']/geometry/mesh/uri").endswith(f".{ext}")
-        assert len(base.findall("visual")) == 1
+        assert len(base.findall("visual")) == 2
         assert len(base.findall("collision")) == 5
         assert len(root.findall("plugin")) == len(_model(MODEL_DIR).findall("plugin"))
+
+
+def test_fixed_and_gimbal_variants_share_base_mass_calibration_and_airframe_parameters():
+    fixed = _model(WRAPPER_DIR)
+    gimbal_dir = ROOT / "simulation/gazebo/models/delta_tailsitter_gimbal_cam"
+    gimbal = _model(gimbal_dir)
+    base = _model(MODEL_DIR)
+    assert base.find("link[@name='base_link']/visual[@name='c11_shell_mesh']") is not None
+    assert not [joint for joint in base.findall("joint") if "c11_" in str(joint.get("name"))]
+    assert fixed.find("joint[@name='c11_pitch_joint']") is None
+    assert gimbal.find("joint[@name='c11_pitch_joint']") is not None
+    assert all(model.findtext("include/uri") == "model://delta_tailsitter" for model in (fixed, gimbal))
+    for wrapper in (fixed, gimbal):
+        wrapper_mass = sum(float(link.findtext("inertial/mass", "0")) for link in wrapper.findall("link"))
+        base_mass = sum(float(link.findtext("inertial/mass", "0")) for link in base.findall("link"))
+        assert base_mass == pytest.approx(2.928996, abs=1e-9)
+        assert base_mass + wrapper_mass == pytest.approx(2.929, abs=1e-5)
+    fixed_profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
+    gimbal_profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    assert fixed_profile.px4_autostart == 4050 and fixed_profile.camera.mount == "forward"
+    assert "gimbal" not in fixed_profile.camera.to_mapping()
+    assert gimbal_profile.px4_autostart == 4051 and gimbal_profile.camera.mount == "gimbal"
+    assert gimbal_profile.camera.gimbal["axes"] == ["yaw", "roll", "pitch"]
+    calibration = json.loads((ROOT / "simulation/gazebo/calibration/gazebo-front-camera-v1.json").read_text())
+    calibration_values = calibration["calibration"]
+    for directory in (WRAPPER_DIR, gimbal_dir):
+        model = _model(directory)
+        rgb = model.find("link[@name='camera_link']/sensor[@name='camera']")
+        depth = model.find("link[@name='depth_camera_link']/sensor[@name='depth_camera']")
+        for sensor in (rgb, depth):
+            assert sensor.findtext("camera/image/width") == str(calibration_values["width_px"])
+            assert sensor.findtext("camera/image/height") == str(calibration_values["height_px"])
+            expected_fov = 2 * math.atan(calibration_values["width_px"] / (2 * calibration_values["fx_px"]))
+            assert float(sensor.findtext("camera/horizontal_fov")) == pytest.approx(expected_fov, abs=0.005)
+    fixed_params = _parameters()
+    assert not any(name.startswith("MNT_") for name in fixed_params)
+    gimbal_script = (ROOT / "simulation/px4/airframes/4051_gz_delta_tailsitter_gimbal").read_text()
+    assert "4050_gz_delta_tailsitter" in gimbal_script
+    assert "param set-default MNT_MODE_OUT 2" in gimbal_script
+
+
+@pytest.mark.parametrize("stem", ["delta_tailsitter_mono_cam_001", "delta_tailsitter_gimbal_cam_001"])
+def test_variant_scenario_manifest_hashes_match_channel_contents(stem):
+    scenario_path = SCENARIO_DIR / f"{stem}.scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    for channel in ("runtime_input", "truth", "expectations"):
+        entry = scenario["channels"][channel]
+        content = json.loads((SCENARIO_DIR / entry["path"]).read_text(encoding="utf-8"))
+        assert canonical_sha256(content) == entry["sha256"]
 
 
 def test_step_assets_split_rotors_and_c11_into_link_local_meshes():
@@ -283,18 +333,20 @@ def test_step_assets_split_rotors_and_c11_into_link_local_meshes():
     assert struct.unpack("<I", body[80:84])[0] < 120_000
 
 
-@pytest.mark.parametrize("airframe", ["delta_tailsitter", "delta_tailsitter_mono_cam"])
+@pytest.mark.parametrize("airframe", ["delta_tailsitter", "delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"])
 def test_smoke_and_ai_collector_resolve_new_airframe(airframe):
     profile = smoke.profile_for(airframe)
-    assert smoke.default_scenario(airframe) == SCENARIO
-    plan = smoke.build_plan(airframe, profile, SCENARIO, None)
+    scenario = smoke.default_scenario(airframe)
+    assert scenario is not None
+    plan = smoke.build_plan(airframe, profile, scenario, None)
     stages = [step["stage"] for step in plan["steps"]]
     assert stages.index("takeoff") < stages.index("transition_fw") < stages.index("land")
-    assert plan["steps"][3]["airspeed_mps"] == [12, 19]
-    runtime = SCENARIO_DIR / "delta_tailsitter_mono_cam_001.runtime.json"
-    assert collector._airframe_profile(airframe).id == "delta_tailsitter"
+    assert next(step for step in plan["steps"] if step["stage"] == "loiter")["airspeed_mps"] == [12, 19]
+    assert ("gimbal_check" in stages) == ("gimbal" in airframe)
+    runtime = SCENARIO_DIR / ("delta_tailsitter_gimbal_cam_001.runtime.json" if "gimbal" in airframe else "delta_tailsitter_mono_cam_001.runtime.json")
+    assert collector._airframe_profile(airframe).id == ("delta_tailsitter_gimbal" if "gimbal" in airframe else "delta_tailsitter")
     vehicle = collector._validate_runtime(runtime, airframe)["vehicle"]
-    assert vehicle["model"] == "delta_tailsitter_mono_cam"
+    assert vehicle["model"] == ("delta_tailsitter_gimbal_cam" if "gimbal" in airframe else "delta_tailsitter_mono_cam")
 
 
 def test_docker_plan_mounts_custom_airframe_readonly_and_records_its_hash(tmp_path):

@@ -622,9 +622,13 @@ def build_docker_simulator_plan(
     staged_model_sdf = None
     staged_model_sha256 = ""
     extra_mounts: tuple[str, ...] = ()
-    if model_name == "delta_tailsitter_mono_cam":
+    if model_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}:
         # 沿用原来的 rcS -> SYS_AUTOSTART 路径，只挂入一份自定义脚本。
-        custom_airframe = root / "simulation/px4/airframes/4050_gz_delta_tailsitter"
+        custom_airframe = root / "simulation/px4/airframes" / (
+            "4051_gz_delta_tailsitter_gimbal"
+            if model_name == "delta_tailsitter_gimbal_cam"
+            else "4050_gz_delta_tailsitter"
+        )
         extra_mounts += (
             "--mount",
             _mount(custom_airframe,

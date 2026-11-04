@@ -373,6 +373,7 @@ def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> Airfr
         "advanced_plane_mono_cam": "advanced_plane",
         "quadtailsitter_mono_cam": "quadtailsitter",
         "delta_tailsitter_mono_cam": "delta_tailsitter",
+        "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal",
         "tiltrotor_mono_cam": "tiltrotor",
         "standard_vtol_mono_cam": "standard_vtol",
     }
@@ -2434,6 +2435,79 @@ def _plain_record(value: Any) -> Any:
     return {"type": type(value).__name__, **{k: _plain_record(v) for k, v in attrs.items()}}
 
 
+def _gimbal_attitude_angles_deg(status: Any) -> dict[str, float] | None:
+    """Decode GIMBAL_DEVICE_ATTITUDE_STATUS quaternion into yaw/roll/pitch degrees."""
+    q = _field(status, "q", None)
+    if not isinstance(q, (list, tuple)) or len(q) < 4:
+        return None
+    w, x, y, z = (float(value) for value in q[:4])
+    norm = math.sqrt(w * w + x * x + y * y + z * z)
+    if not math.isfinite(norm) or norm <= 1e-9:
+        return None
+    w, x, y, z = (value / norm for value in (w, x, y, z))
+    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
+    pitch = math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))
+    yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+    return {"yaw": math.degrees(yaw), "roll": math.degrees(roll), "pitch": math.degrees(pitch)}
+
+
+def _gimbal_attitude_error_deg(status: Any, target: Mapping[str, float]) -> dict[str, float] | None:
+    actual = _gimbal_attitude_angles_deg(status)
+    if actual is None:
+        return None
+    return {
+        axis: abs((actual[axis] - float(target[axis]) + 180.0) % 360.0 - 180.0)
+        for axis in ("yaw", "roll", "pitch")
+    }
+
+
+def _command_and_wait_gimbal(
+    connection: Any,
+    reader: Any,
+    target: Mapping[str, float],
+    *,
+    timeout_s: float = 15.0,
+    tolerance_deg: float = 4.0,
+) -> dict[str, Any]:
+    """Send MAV_CMD_DO_MOUNT_CONTROL and wait for fresh device attitude telemetry."""
+    sender = getattr(getattr(connection, "mav", None), "command_long_send", None)
+    if sender is None:
+        raise RuntimeError("MAVLink connection cannot send gimbal command")
+    target_system = int(getattr(connection, "target_system", 1) or 1)
+    target_component = int(getattr(connection, "target_component", 1) or 1)
+    command_started_ns = time.monotonic_ns()
+    sender(target_system, target_component, 205, 0, float(target["pitch"]), float(target["roll"]), float(target["yaw"]), 2, 0, 0, 0)
+    ack = _ReaderAckLink(connection, reader).wait_command_ack(205, min(timeout_s, 5.0))
+    if ack is None or int(ack.get("result", -1)) != 0:
+        return {
+            "status": "command_rejected" if ack is not None else "command_ack_timeout",
+            "target_deg": dict(target),
+            "command_ack": ack,
+            "tolerance_deg": tolerance_deg,
+        }
+    started = time.monotonic()
+    last_error = None
+    while time.monotonic() - started < timeout_s:
+        reader.raise_if_failed()
+        status = reader.state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+        received = (
+            reader.state.get("received_monotonic_ns", {})
+            if isinstance(reader.state, dict)
+            else getattr(reader.state, "received_monotonic_ns", {})
+        )
+        error = (
+            _gimbal_attitude_error_deg(status, target)
+            if received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns
+            else None
+        )
+        if error is not None:
+            last_error = error
+            if max(error.values()) <= tolerance_deg:
+                return {"status": "reached", "target_deg": dict(target), "actual_deg": _gimbal_attitude_angles_deg(status), "error_deg": error, "tolerance_deg": tolerance_deg}
+        time.sleep(0.05)
+    return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error, "tolerance_deg": tolerance_deg}
+
+
 class _ReaderAckLink:
     """The telemetry link as seen by the fixed-wing executor.
 
@@ -4110,6 +4184,18 @@ def run_episode(
                     }
                 )
                 _progress("takeoff_reached", method=takeoff_method)
+                if profile.camera.mount == "gimbal":
+                    gimbal_result = _command_and_wait_gimbal(
+                        vehicle,
+                        mav_reader,
+                        {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
+                        tolerance_deg=4.0,
+                    )
+                    recorder.meta["gimbal_smoke"] = gimbal_result
+                    recorder.record_mavlink({"message_type": "gimbal_smoke_result", **gimbal_result})
+                    recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
+                    if gimbal_result["status"] != "reached":
+                        raise RuntimeError(f"gimbal target not reached: {gimbal_result}")
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.

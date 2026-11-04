@@ -99,17 +99,3 @@ param set-default VT_TRANS_TIMEOUT 20
 param set-default VT_TYPE 0
 param set-default WV_EN 0
 param set-default EKF2_FUSE_BETA 0
-
-# C11 三轴云台：PX4 gimbal v2/MAVLink DO_MOUNT_CONTROL 通过 Gazebo
-# command/gimbal_{roll,pitch,yaw} 关节话题驱动。默认俯视 45°，tailsitter
-# MC/FW 的机体姿态差约 90° 时由 gimbal manager 继续保持地平线参考。
-param set-default MNT_MODE_IN 4
-param set-default MNT_MODE_OUT 2
-param set-default MNT_RC_IN_MODE 1
-param set-default MNT_MAN_ROLL 1
-param set-default MNT_MAN_PITCH 2
-param set-default MNT_MAN_YAW 3
-param set-default MNT_RANGE_ROLL 90
-param set-default MNT_MAX_PITCH 45
-param set-default MNT_MIN_PITCH -135
-param set-default MNT_RANGE_YAW 720

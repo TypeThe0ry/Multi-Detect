@@ -12,7 +12,7 @@ DEFAULTS = sorted((ROOT / "configs" / "airframes").glob("*.json"))
 
 
 def test_all_default_profiles_load_and_round_trip(tmp_path: Path) -> None:
-    assert len(DEFAULTS) == 9
+    assert len(DEFAULTS) == 10
     for source in DEFAULTS:
         profile = AirframeProfile.from_json(source)
         destination = tmp_path / source.name

@@ -45,6 +45,8 @@ DEFAULT_AIRFRAME_WORLDS = {
     "standard_vtol": "river_rescue_vtol_001.sdf",
     "quadtailsitter": "quadtailsitter_mono_cam_001.sdf",
     "delta_tailsitter": "delta_tailsitter_mono_cam_001.sdf",
+    "delta_tailsitter_mono_cam": "delta_tailsitter_mono_cam_001.sdf",
+    "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal_cam_001.sdf",
     "tiltrotor": "tiltrotor_mono_cam_001.sdf",
     "rc_cessna": "coastal_patrol_fixed_wing_001.sdf",
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001.sdf",
@@ -82,6 +84,10 @@ AIRFRAME_SCENARIOS = {
     / "configs/scenarios/airframes/quadtailsitter_mono_cam_001.scenario.json",
     "delta_tailsitter": ROOT
     / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter_mono_cam": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter_gimbal_cam": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_gimbal_cam_001.scenario.json",
     "rc_cessna": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_mono_cam": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_runway": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
@@ -92,10 +98,11 @@ WORLD_SCENARIOS.update(
     {
         "quadtailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["quadtailsitter"],
         "delta_tailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["delta_tailsitter"],
+        "delta_tailsitter_gimbal_cam_001.sdf": AIRFRAME_SCENARIOS["delta_tailsitter_gimbal_cam"],
         "tiltrotor_mono_cam_001.sdf": AIRFRAME_SCENARIOS["tiltrotor"],
     }
 )
-VTOL_AIRFRAMES = ("standard_vtol", "quadtailsitter", "delta_tailsitter", "tiltrotor")
+VTOL_AIRFRAMES = ("standard_vtol", "quadtailsitter", "delta_tailsitter", "delta_tailsitter_gimbal_cam", "tiltrotor")
 FIXED_WING_TAKEOFFS = ("runway", "hand", "catapult")
 
 
@@ -107,6 +114,7 @@ def _canonical_airframe(value: str) -> str:
         "standard_vtol_mono_cam": "standard_vtol",
         "quadtailsitter_mono_cam": "quadtailsitter",
         "delta_tailsitter_mono_cam": "delta_tailsitter",
+        "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal_cam",
         "tiltrotor_mono_cam": "tiltrotor",
         "rc_cessna": "rc_cessna_mono_cam",
         "rc_cessna_runway": "rc_cessna_mono_cam",

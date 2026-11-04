@@ -121,9 +121,9 @@ def _gimbal(model, meshes: Path):
     """Add C11-mounted yaw/roll/pitch gimbal and RGB/depth camera."""
     mount = _element(model, "link", name="c11_mount_link")
     _element(mount, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
-    # C11's 100 g is already included in the report mass budget.  Keep the
-    # articulated wrapper numerically present without double-counting it.
-    _inertial(mount, GIMBAL_MASS, (1e-9, 1e-9, 1e-9))
+    # Keep the fixed C11 shell massless here; the 4 mg articulation allocation
+    # is carried by camera_link and removed from the common dynamics body below.
+    _inertial(mount, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
     fixed = _element(model, "joint", name="c11_mount_joint", type="fixed")
     _element(fixed, "parent", "base_link")
     _element(fixed, "child", "c11_mount_link")
@@ -143,7 +143,12 @@ def _gimbal(model, meshes: Path):
     _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "1 0 0", pose="0 0 -0.08 0 0 0", lower=-0.785398, upper=0.785398)
 
     camera = _element(model, "link", name="camera_link")
-    _inertial(camera, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    _inertial(
+        camera,
+        GIMBAL_MASS - 5 * GIMBAL_CHILD_MASS,
+        (1e-9, 1e-9, 1e-9),
+        position=(0.141421356237, 0.0, 0.084852813742),
+    )
     _visual(camera, "camera_body", (-0.04, 0, -0.08), "box", {"size": "0.08 0.06 0.05"}, "0.08 0.08 0.08 1")
     _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 1 0", pose="-0.04 0 -0.08 0 0 0", lower=-2.35619, upper=0.7854, initial=-0.785398)
     camera_pose = "-0.0412 0 -0.08 0 0 3.141592653589793"
@@ -188,6 +193,170 @@ def _gimbal(model, meshes: Path):
     _gimbal_controller(model, "c11_roll_joint", "command/gimbal_roll")
     _gimbal_controller(model, "c11_pitch_joint", "command/gimbal_pitch")
     _gimbal_controller(model, "c11_yaw_joint", "command/gimbal_yaw", p_gain=0.3)
+
+
+def _write_camera_models(model_dir: Path, meshes: Path) -> None:
+    """Write fixed and articulated sensor wrappers around the dynamics model."""
+    base_path = model_dir / "model.sdf"
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    root = ET.parse(base_path, parser=parser).getroot()
+    model = root.find("model")
+    assert model is not None
+
+    # The C11 housing is a visual part of the airframe, not a camera mount.
+    base = model.find("link[@name='base_link']")
+    assert base is not None
+    shell = _element(base, "visual", name="c11_shell")
+    _element(shell, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)))
+    geometry = _element(_element(shell, "geometry"), "box")
+    _element(geometry, "size", "0.084 0.062 0.064")
+    material = _element(shell, "material")
+    _element(material, "ambient", "0.3 0.35 0.4 1")
+    _element(material, "diffuse", "0.3 0.35 0.4 1")
+
+    camera_names = {"c11_mount_link", "c11_yaw_link", "c11_roll_link", "camera_link", "depth_camera_link"}
+    gimbal_joints = {"c11_mount_joint", "c11_yaw_joint", "c11_roll_joint", "c11_pitch_joint", "DepthCameraJoint"}
+    gimbal_plugins = {"gz::sim::systems::JointPositionController"}
+    camera_links = [item for item in model.findall("link") if item.get("name") in camera_names]
+    camera_joints = [item for item in model.findall("joint") if item.get("name") in gimbal_joints]
+    camera_plugins = [item for item in model.findall("plugin") if item.get("name") in gimbal_plugins]
+
+    wrapper = ET.Element("sdf", version="1.9")
+    wrapped_model = _element(wrapper, "model", name="delta_tailsitter_gimbal_cam")
+    include = _element(wrapped_model, "include", merge="true")
+    _element(include, "uri", "model://delta_tailsitter")
+    mount = _element(wrapped_model, "link", name="c11_mount_link")
+    _element(mount, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
+    _inertial(mount, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    fixed = _element(wrapped_model, "joint", name="c11_mount_joint", type="fixed")
+    _element(fixed, "parent", "base_link")
+    _element(fixed, "child", "c11_mount_link")
+    for item in camera_links:
+        if item.get("name") != "c11_mount_link":
+            wrapped_model.append(item)
+    for item in camera_joints:
+        if item.get("name") != "c11_mount_joint":
+            wrapped_model.append(item)
+    for item in camera_plugins:
+        wrapped_model.append(item)
+    ET.indent(wrapper, space="  ")
+    gimbal_dir = model_dir.parent / "delta_tailsitter_gimbal_cam"
+    gimbal_dir.mkdir(parents=True, exist_ok=True)
+    (gimbal_dir / "model.sdf").write_text(ET.tostring(wrapper, encoding="unicode") + "\n", encoding="utf-8")
+    (gimbal_dir / "model.config").write_text(
+        '<?xml version="1.0"?>\n<model><name>delta_tailsitter_gimbal_cam</name><version>1.0</version><sdf version="1.9">model.sdf</sdf><author><name>Multi-Detect</name></author><description>折叠尾座三角翼，C11 三轴云台 RGB/深度相机。</description></model>\n',
+        encoding="utf-8",
+    )
+
+    # Remove camera articulation and sensors from the dynamics-only model.
+    for item in camera_links + camera_joints + camera_plugins:
+        model.remove(item)
+    _element(base, "visual", name="c11_shell_mesh")
+    mesh_visual = base.find("visual[@name='c11_shell_mesh']")
+    assert mesh_visual is not None
+    _element(mesh_visual, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)))
+    mesh_geo = _element(_element(mesh_visual, "geometry"), "mesh")
+    _element(mesh_geo, "uri", "model://delta_tailsitter/meshes/c11.stl")
+    for visual in list(base.findall("visual[@name='c11_shell']")):
+        base.remove(visual)
+    ET.indent(root, space="  ")
+    base_path.write_text(ET.tostring(root, encoding="unicode") + "\n", encoding="utf-8")
+
+    fixed_root = ET.Element("sdf", version="1.9")
+    fixed_model = _element(fixed_root, "model", name="delta_tailsitter_mono_cam")
+    include = _element(fixed_model, "include", merge="true")
+    _element(include, "uri", "model://delta_tailsitter")
+    camera = _element(fixed_model, "link", name="camera_link")
+    _element(camera, "pose", _vector((*CAMERA_POSITION_M, 0, -0.3490658503988659, 0)), relative_to="base_link")
+    _inertial(camera, GIMBAL_MASS - GIMBAL_CHILD_MASS, (1e-9, 1e-9, 1e-9))
+    sensor = _element(camera, "sensor", name="camera", type="camera")
+    _element(sensor, "gz_frame_id", "camera_link")
+    _element(sensor, "pose", "0 0 0 0 0 3.141592653589793")
+    _element(sensor, "always_on", 1)
+    _element(sensor, "update_rate", 30)
+    _element(sensor, "visualize", True)
+    config = _element(sensor, "camera")
+    _element(config, "horizontal_fov", 1.74)
+    image = _element(config, "image")
+    _element(image, "format", "R8G8B8")
+    _element(image, "width", 1280)
+    _element(image, "height", 960)
+    clip = _element(config, "clip")
+    _element(clip, "near", 0.05)
+    _element(clip, "far", 15000)
+    depth = _element(fixed_model, "link", name="depth_camera_link")
+    _element(depth, "pose", "0 0 0 0 0 0", relative_to="camera_link")
+    _inertial(depth, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    sensor = _element(depth, "sensor", name="depth_camera", type="depth_camera")
+    _element(sensor, "gz_frame_id", "depth_camera_link")
+    _element(sensor, "pose", "0 0 0 0 0 0")
+    _element(sensor, "always_on", 1)
+    _element(sensor, "update_rate", 30)
+    _element(sensor, "visualize", True)
+    config = _element(sensor, "camera")
+    _element(config, "horizontal_fov", 1.74)
+    image = _element(config, "image")
+    _element(image, "format", "R_FLOAT32")
+    _element(image, "width", 1280)
+    _element(image, "height", 960)
+    clip = _element(config, "clip")
+    _element(clip, "near", 0.05)
+    _element(clip, "far", 15000)
+    joint = _element(fixed_model, "joint", name="DepthCameraJoint", type="fixed")
+    _element(joint, "parent", "camera_link")
+    _element(joint, "child", "depth_camera_link")
+    _element(joint, "pose", "0 0 0 0 0 0", relative_to="camera_link")
+    ET.indent(fixed_root, space="  ")
+    fixed_dir = model_dir.parent / "delta_tailsitter_mono_cam"
+    fixed_dir.mkdir(parents=True, exist_ok=True)
+    (fixed_dir / "model.sdf").write_text(ET.tostring(fixed_root, encoding="unicode") + "\n", encoding="utf-8")
+    (fixed_dir / "model.config").write_text(
+        '<?xml version="1.0"?>\n<model><name>delta_tailsitter_mono_cam</name><version>1.0</version><sdf version="1.9">model.sdf</sdf><author><name>Multi-Detect</name></author><description>折叠尾座三角翼，C11 固定 RGB/深度相机。</description></model>\n',
+        encoding="utf-8",
+    )
+
+    def write_segmentation_overlay(wrapper_dir: Path, model_name: str) -> None:
+        overlay_root = ET.parse(wrapper_dir / "model.sdf").getroot()
+        overlay_model = overlay_root.find("model")
+        assert overlay_model is not None
+        seg = _element(overlay_model, "link", name="segmentation_camera_link")
+        _element(seg, "pose", "0 0 0 0 0 0", relative_to="camera_link")
+        _inertial(seg, 1e-12, (1e-12, 1e-12, 1e-12))
+        sensor = _element(seg, "sensor", name="segmentation_camera", type="segmentation")
+        _element(sensor, "gz_frame_id", "segmentation_camera_link")
+        _element(sensor, "topic", "/multidetect/teacher/segmentation")
+        _element(sensor, "pose", "0 0 0 0 0 0")
+        config = _element(sensor, "camera")
+        _element(config, "segmentation_type", "instance")
+        _element(config, "horizontal_fov", 1.74)
+        image = _element(config, "image")
+        _element(image, "width", 1280)
+        _element(image, "height", 960)
+        _element(image, "format", "R8G8B8")
+        clip = _element(config, "clip")
+        _element(clip, "near", 0.05)
+        _element(clip, "far", 15000)
+        _element(sensor, "always_on", 1)
+        _element(sensor, "update_rate", 30)
+        _element(sensor, "visualize", False)
+        joint = _element(overlay_model, "joint", name="SegmentationCameraJoint", type="fixed")
+        _element(joint, "parent", "camera_link")
+        _element(joint, "child", "segmentation_camera_link")
+        _element(joint, "pose", "0 0 0 0 0 0", relative_to="camera_link")
+        plugin = _element(overlay_model, "plugin", filename="gz-sim-odometry-publisher-system", name="gz::sim::systems::OdometryPublisher")
+        _element(plugin, "dimensions", 3)
+        _element(plugin, "odom_publish_frequency", 50)
+        overlay_dir = model_dir.parent / ".." / "model-overlays" / f"{model_name}_seg"
+        overlay_dir.mkdir(parents=True, exist_ok=True)
+        ET.indent(overlay_root, space="  ")
+        (overlay_dir / "model.sdf").write_text(ET.tostring(overlay_root, encoding="unicode") + "\n", encoding="utf-8")
+        (overlay_dir / "model.config").write_text(
+            f'<?xml version="1.0"?>\n<model><name>{model_name}</name><version>1.0</version><sdf version="1.9">model.sdf</sdf><author><name>Multi-Detect</name></author><description>分割相机覆盖。</description></model>\n',
+            encoding="utf-8",
+        )
+
+    write_segmentation_overlay(fixed_dir, "delta_tailsitter_mono_cam")
+    write_segmentation_overlay(gimbal_dir, "delta_tailsitter_gimbal_cam")
 
 
 def _wing_mesh(path: Path, polygon: list[tuple[float, float, float]], thickness_mm=12.0):
@@ -552,6 +721,7 @@ def generate(model_dir: Path) -> None:
     selected = select_visual_mesh(model_dir)
     if selected:
         (model_dir / "model.sdf").write_text(selected[0], encoding="utf-8")
+    _write_camera_models(model_dir, meshes)
 
 
 def main(argv=None):

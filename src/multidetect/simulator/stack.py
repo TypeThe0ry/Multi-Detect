@@ -1035,6 +1035,8 @@ def _vehicle_spec(model: str, profile: str) -> tuple[str, str]:
     # Keep the explicit PX4 airframe names ahead of the broad class checks:
     # advanced_plane contains ``plane`` and the tailsitter/tiltrotor profiles
     # contain ``vtol`` in their family name but use different PX4 models.
+    if "delta_tailsitter_gimbal_cam" in identity:
+        return "vtol", "delta_tailsitter_gimbal_cam"
     if "delta_tailsitter" in identity:
         return "vtol", "delta_tailsitter_mono_cam"
     if "quadtailsitter" in identity or "quad_tailsitter" in identity:
@@ -1346,6 +1348,7 @@ def _validate_model_sdf(path: Path, *, expected_name: str, vehicle_class: str) -
         "advanced_plane_mono_cam": "model://advanced_plane",
         "quadtailsitter_mono_cam": "model://quadtailsitter",
         "delta_tailsitter_mono_cam": "model://delta_tailsitter",
+        "delta_tailsitter_gimbal_cam": "model://delta_tailsitter",
         "tiltrotor_mono_cam": "model://tiltrotor",
     }
     try:
@@ -1356,7 +1359,7 @@ def _validate_model_sdf(path: Path, *, expected_name: str, vehicle_class: str) -
         ) from exc
     # 本机 C11 质量已包含在报告整机惯量内；相机包装使用同名、同光学约定的
     # 本地轻质量 camera_link，避免 include mono_cam 重复添加 50 g。
-    local_c11 = expected_name == "delta_tailsitter_mono_cam"
+    local_c11 = expected_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}
     if base not in includes or (not local_c11 and "model://mono_cam" not in includes):
         raise SimulatorStackError(f"{vehicle_class} model is missing required local compositions")
     # The delta tailsitter wrapper includes the base model's articulated C11
@@ -1561,6 +1564,7 @@ def _build_environment(
         "advanced_plane_mono_cam": "4008",
         "quadtailsitter_mono_cam": "4018",
         "delta_tailsitter_mono_cam": "4050",
+        "delta_tailsitter_gimbal_cam": "4051",
         "tiltrotor_mono_cam": "4020",
     }.get(model_name)
     if autostart is None:

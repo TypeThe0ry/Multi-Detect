@@ -1,7 +1,9 @@
 # 折叠尾座式三角翼接入说明
 
-本机档案 ID 为 `delta_tailsitter`，Gazebo 传感器包装为
-`delta_tailsitter_mono_cam`，PX4 自启动编号为 **4050**。资料来自只读的
+本机固定相机档案 ID 为 `delta_tailsitter`，云台档案 ID 为
+`delta_tailsitter_gimbal`。Gazebo 传感器包装分别为
+`delta_tailsitter_mono_cam`（固定相机，4050）和
+`delta_tailsitter_gimbal_cam`（三轴云台，4051）。资料来自只读的
 `md-scratch/px4-upstream/delta_tailsitter_design_report.txt` 全文和镜像中的
 `4018_gz_quadtailsitter`。质量采用报告的**壳体化优化方案 E**，不是待交付实体 CAD
 直接打印的质量。当前使用参数化占位外观，**未经本机 SITL 飞行或实飞验证**。
@@ -11,20 +13,23 @@
 沿用现有链路：场景 runtime → `multidetect.simulator.stack` →
 `scripts/run_simulator_docker.py` → 容器原有 `rcS` → 自启动脚本 → Gazebo。
 
-- `PX4_SYS_AUTOSTART=4050`（rcS 中对应 `SYS_AUTOSTART`）；
-  `PX4_SIM_MODEL=gz_delta_tailsitter_mono_cam`。
+- 固定相机使用 `PX4_SYS_AUTOSTART=4050`、`PX4_SIM_MODEL=gz_delta_tailsitter_mono_cam`；
+  云台版使用 `PX4_SYS_AUTOSTART=4051`、`PX4_SIM_MODEL=gz_delta_tailsitter_gimbal_cam`。
 - 仓库 `simulation/gazebo/models` 仍只读挂载在 `/opt/multidetect-gazebo-models`，
   其路径在 `GZ_SIM_RESOURCE_PATH` 中优先于镜像模型。`PX4_GZ_MODELS` 不另起一套路径。
-- 仅本机额外挂载 `simulation/px4/airframes/4050_gz_delta_tailsitter` 到
-  `/opt/px4-gazebo/etc/init.d-posix/airframes/4050_gz_delta_tailsitter`，只读。
+- 固定版额外挂载 `simulation/px4/airframes/4050_gz_delta_tailsitter`；云台版额外挂载
+  `simulation/px4/airframes/4051_gz_delta_tailsitter_gimbal`，两者均只读。
   不改镜像、不替换 4018；4050 在本仓库/已有上游参考编号中未占用。
-- `delta_tailsitter` 是独立完整的动力学模型，不 include 上游 quadtailsitter。
+- `delta_tailsitter` 只含机体、桨、电机、气动、标准飞行传感器和固定显示的 C11 外壳，
+  不含相机与云台关节，也不 include 上游 quadtailsitter。两个包装模型 include 同一底座：
+  `delta_tailsitter_mono_cam` 固定相机，`delta_tailsitter_gimbal_cam` 增加 C11 三轴关节和传感器。
+  两种包装的 RGB/深度都使用共享标定 `gazebo-front-camera-v1`：1280×960、水平视场 1.74 rad。
   仅空速传感器继续引用镜像中的 `airspeed` 资源。IMU、气压计、磁力计、GNSS
   频率/名称保持上游约定，继续使用现有启动脚本中的 SIM 磁力计修补。
 - RGB、深度、里程计、可选分割相机维持现有链节名/传感器名和默认话题规则。
-  `delta_tailsitter_mono_cam_seg` 按现有采集器 overlay 机制只读覆盖包装。
-  C11 的 100 g 已在整机预算内，所以 RGB/深度链节只保留各 1 mg 数值质量，
-  没有再次 include 会增加 50 g 的通用 mono_cam。光学参数相同。
+  `delta_tailsitter_mono_cam_seg` 和 `delta_tailsitter_gimbal_cam_seg` 按现有采集器 overlay 机制只读覆盖对应包装。
+  C11 的 100 g 已在整机预算内；包装传感器只分配 4 mg 的运动件占位质量并从底座扣除，
+  没有再次 include 会增加 50 g 的通用 mono_cam。4 mg 不代表云台实物质量，待 CAD/称重数据到位后应更新预算。
 - `scripts/run_sim_session.py` 和采集器均接受档案 ID 或 `_mono_cam` 别名。
   `derive_fixed_wing_scenario.py --airframe delta_tailsitter` 可为既有生成世界派生
   AI 场景；首次最小场景已附在 `configs/scenarios/airframes/delta_tailsitter_mono_cam_001.*`。
@@ -47,8 +52,8 @@ PX4_FRD = (x_base, -y_base, -z_base)
 旋转行列式为 +1，不镜像。机头在 Gazebo `+Z`，悬停时向天；前飞时 PX4 俯仰约
 −90°。原 CAD 惯量 `(0.097,0.373,0.431)` 按轴换算为整机 CG 惯量
 `diag(0.431,0.097,0.373)` kg·m²。四个 18 g 桨叶链节从主体质量与惯量中扣除，
-主体自身 CG 和惯量用平行轴定理反算；正常相机包装的显式链节合计为 2.929 kg，
-合成 CG 在原点（上游空速资源的微小数值质量未再重新建模）。
+主体自身 CG 和惯量用平行轴定理反算；动力学底座扣除包装占位后为 2.928996 kg，
+两种包装组合均为 2.929 kg，CG 在原点（上游空速资源的微小数值质量未再重新建模）。
 
 | 项目 | CAD mm | Gazebo base_link m |
 |---|---|---|
@@ -57,15 +62,16 @@ PX4_FRD = (x_base, -y_base, -z_base)
 | 桨盘 | `(±600,605,±150)` | `(-0.159 或 0.141, ±0.6, 0.041)` |
 | 支脚最低接触点 | `(±600,1055,±150)` | `(-0.159 或 0.141, ±0.6, -0.409)` |
 
-相机现在安装在 C11 三轴云台上。STEP 转换器会将 `C11` 单独导出为
+固定版相机沿用 `quadtailsitter_mono_cam` 的固定俯仰和 `body_to_camera_rotation` /
+`attitude_rotations` 约定；云台版相机安装在 C11 三轴云台上。STEP 转换器会将 `C11` 单独导出为
 `meshes/c11.stl`，四个桨分别导出为 `rotor_0..3.stl`；`visual.stl` 不再包含桨，
 桨网格随 `rotor_*_joint` 旋转。云台关节为 `c11_yaw_joint`、`c11_roll_joint`、
 `c11_pitch_joint`，Gazebo 控制话题沿用 PX4 上游：
 `command/gimbal_yaw`、`command/gimbal_roll`、`command/gimbal_pitch`。RGB 和深度
 传感器挂在标准的 `camera_link` 和 `depth_camera_link`，因此现有采集器话题路径保持不变。
 
-角度约定是云台底座坐标中的 yaw、roll、pitch（弧度话题值），相机外参按
-`机体→云台底座 + 实时关节角` 计算。模型初始俯仰为 −45°；`delta_tailsitter.json`
+云台角度约定是云台底座坐标中的 yaw、roll、pitch（弧度话题值），相机外参按
+`机体→云台底座 + 实时关节角` 计算。模型初始俯仰为 −45°；`delta_tailsitter_gimbal.json`
 记录 MC 默认 −45°、FW 默认 +45° 的稳定参考约定，用于 tailsitter 两种姿态相差约
 90° 时保持地平线下的合理前视。没有实时关节样本的旧固定相机调用仍使用原矩阵。
 
@@ -122,12 +128,20 @@ export MULTIDETECT_SIM_GPU=off  # CPU 渲染；已有 GPU 镜像可改用 GPU1/2
 
 # 仅查看动作，不启动仿真。
 "$PY" scripts/smoke_airframe_flight.py --airframe delta_tailsitter_mono_cam --dry-run
+"$PY" scripts/smoke_airframe_flight.py --airframe delta_tailsitter_gimbal_cam --dry-run
 
 # 真正起飞 -> 转平飞 -> 盘旋/重定位 -> RTL -> 转 MC -> 垂直降落。
 "$PY" scripts/smoke_airframe_flight.py \
   --airframe delta_tailsitter_mono_cam --takeoff-method vtol \
   --out .tmp/smoke-delta-tailsitter \
   --container-prefix md-smoke-delta --control-port 14570 --telemetry-port 14571
+
+# 云台版起飞后发送 DO_MOUNT_CONTROL(pitch=-45°, roll=0°, yaw=0°)，并等待
+# GIMBAL_DEVICE_ATTITUDE_STATUS 三轴误差均不超过 4°；判定写入 smoke judgement。
+"$PY" scripts/smoke_airframe_flight.py \
+  --airframe delta_tailsitter_gimbal_cam --takeoff-method vtol \
+  --out .tmp/smoke-delta-gimbal --container-prefix md-smoke-delta-gimbal \
+  --control-port 14572 --telemetry-port 14573
 ```
 
 若要保留 ULog 或使用 GPU，可直接执行同一采集器的冒烟路径：
@@ -139,6 +153,13 @@ export MULTIDETECT_SIM_GPU=off  # CPU 渲染；已有 GPU 镜像可改用 GPU1/2
   --episodes 1 --steps-per-episode 8 --keep-px4-ulog --no-gpu-render \
   --out .tmp/smoke-delta-ulog --container-prefix md-delta-ulog \
   --control-port 14570 --telemetry-port 14571 --sim-network host
+
+"$PY" scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/airframes/delta_tailsitter_gimbal_cam_001.scenario.json \
+  --airframe delta_tailsitter_gimbal_cam --teacher explore --smoke-flight \
+  --episodes 1 --steps-per-episode 8 --no-gpu-render \
+  --out .tmp/smoke-delta-gimbal-collector --container-prefix md-delta-gimbal \
+  --control-port 14572 --telemetry-port 14573 --sim-network host
 ```
 
 有现成 viewer 镜像时，`scripts/run_sim_session.py --airframe delta_tailsitter` 会选中

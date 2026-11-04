@@ -53,7 +53,7 @@
     }
   },
   "camera": {
-    "mount": "gimbal",
+    "mount": "forward",
     "body_to_camera_rotation": [
       0.939692620786,
       0.0,
@@ -88,17 +88,6 @@
         0.0,
         0.939692620786
       ]
-    },
-    "gimbal": {
-      "enabled": true,
-      "base_position_m": [0.046, 0.0, 0.388],
-      "joint_order": ["yaw", "roll", "pitch"],
-      "default_angles_deg": {
-        "mc": {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
-        "fw": {"yaw": 0.0, "roll": 0.0, "pitch": 45.0}
-      },
-      "stabilization_reference": "world_horizon",
-      "angle_source": "GIMBAL_DEVICE_ATTITUDE_STATUS or Gazebo joint state"
     }
   },
   "endurance": {

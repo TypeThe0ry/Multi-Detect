@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "delta_tailsitter_gimbal_cam_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "delta_tailsitter_gimbal_cam_001.runtime.json",
+      "sha256": "689b401f7d50198d3b2a3dfc6e6f617f729501e422d32c3530d9fd67ec973733"
+    },
+    "truth": {
+      "path": "delta_tailsitter_gimbal_cam_001.truth.json",
+      "sha256": "91b05aea7d88b2f1b3c78381076b315c89e0d630cc66a422b40dd906b6c47e85"
+    },
+    "expectations": {
+      "path": "delta_tailsitter_gimbal_cam_001.expectations.json",
+      "sha256": "803d355164da6bf84c966396433e1ba2b850c953fad89071631a25ba211f5db0"
+    }
+  }
+}

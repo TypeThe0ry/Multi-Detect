@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "id": "delta_tailsitter_gimbal",
+  "category": "vtol",
+  "subtype": "tailsitter",
+  "px4_autostart": 4051,
+  "min_airspeed_mps": 12.0,
+  "cruise_airspeed_mps": 15.0,
+  "max_airspeed_mps": 19.0,
+  "stall_airspeed_mps": 10.0,
+  "max_bank_deg": 35.0,
+  "max_climb_rate_mps": 3.0,
+  "max_descent_rate_mps": 2.0,
+  "can_hover": true,
+  "hover_modes": [
+    "multirotor",
+    "vtol"
+  ],
+  "takeoff": {
+    "methods": [
+      "vtol",
+      "multirotor"
+    ]
+  },
+  "landing": {
+    "methods": [
+      "vtol",
+      "multirotor"
+    ]
+  },
+  "transition": {
+    "mc_to_fw_param1": 4.0,
+    "fw_to_mc_param1": 3.0,
+    "minimum_height_m": 30.0,
+    "minimum_airspeed_mps": 13.0,
+    "timeout_s": 20.0,
+    "parameters": {
+      "airspeed": {
+        "value": 13.0,
+        "px4_name": "VT_ARSP_TRANS",
+        "unverified": true
+      },
+      "front_duration": {
+        "value": 2.5,
+        "px4_name": "VT_F_TRANS_DUR",
+        "unverified": true
+      },
+      "back_duration": {
+        "value": 5.0,
+        "px4_name": "VT_B_TRANS_DUR",
+        "unverified": true
+      }
+    }
+  },
+  "camera": {
+    "mount": "gimbal",
+    "body_to_camera_rotation": [
+      0.939692620786,
+      0.0,
+      0.342020143326,
+      0.0,
+      1.0,
+      0.0,
+      -0.342020143326,
+      0.0,
+      0.939692620786
+    ],
+    "attitude_rotations": {
+      "mc": [
+        0.939692620786,
+        0.0,
+        0.342020143326,
+        0.0,
+        1.0,
+        0.0,
+        -0.342020143326,
+        0.0,
+        0.939692620786
+      ],
+      "fw": [
+        0.939692620786,
+        0.0,
+        0.342020143326,
+        0.0,
+        1.0,
+        0.0,
+        -0.342020143326,
+        0.0,
+        0.939692620786
+      ]
+    },
+    "gimbal": {
+      "enabled": true,
+      "axes": ["yaw", "roll", "pitch"],
+      "angle_range_deg": {"yaw": [-360.0, 360.0], "roll": [-45.0, 45.0], "pitch": [-135.0, 45.0]},
+      "base_position_m": [0.046, 0.0, 0.388],
+      "joint_order": ["yaw", "roll", "pitch"],
+      "default_angles_deg": {
+        "mc": {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
+        "fw": {"yaw": 0.0, "roll": 0.0, "pitch": 45.0}
+      },
+      "stabilization_reference": "world_horizon",
+      "angle_source": "GIMBAL_DEVICE_ATTITUDE_STATUS or Gazebo joint state"
+    }
+  },
+  "endurance": {
+    "battery_wh": 74.0,
+    "reserve_fraction": 0.2,
+    "hover_power_w": 500.0,
+    "cruise_power_w": 160.0,
+    "loiter_power_w": 172.0,
+    "climb_power_w": 750.0,
+    "descent_power_w": 420.0,
+    "transition_energy_wh": 6.0,
+    "glide_sink_rate_mps": 2.0,
+    "wind_margin_mps": 3.0
+  },
+  "limits": {
+    "max_step_distance_m": 25.0,
+    "max_acceleration_mps2": 2.0,
+    "max_angular_rate_dps": 60.0
+  },
+  "notes": [
+    "设计计算报告方案 E：壳体化优化目标，非当前实体 CAD 的实际质量；未经实飞验证，也未进行本机 SITL 飞行整定。",
+    "四电机 X 布局、无任何舵面，所有轴依赖差动推力；质量 2.929 kg、CG CAD (0,646,-9) mm、整体惯量 base_link diag(0.431,0.097,0.373) kg·m²。",
+    "S=0.607 m²、MAC=0.569 m、CLα=2.82/rad、CD0=0.032、e=0.8、CLmax 取 0.8；NP 比 CG 靠尾 20 mm，静稳定裕度仅 3.5%，报告建议前移 CG 25 mm。",
+    "74 Wh ×80% /500 W=7.1 min 悬停；/160 W=22.2 min 理论巡航；过渡另留 6 Wh，实际混合任务约 17 min 的报告估计仍须飞行日志验证。",
+    "爬升/下降/盘旋功率、过渡能量及风裕度为保守工程初值；无舵面，不将滑翔或腹部着陆作为已验证能力。"
+  ],
+  "provenance": {
+    "design_report": "delta_tailsitter_design_report.txt 全文；md-scratch/px4-upstream，只读来源；折叠尾座式三角翼（带电设）11.3.stp，真实 STEP 待到位。",
+    "px4": "4051_gz_delta_tailsitter_gimbal 复用 4050_gz_delta_tailsitter；PX4 gimbal v2/MAVLink DO_MOUNT_CONTROL，VT_TYPE=0、CA_AIRFRAME=4、四 MC 电机、零舵面。",
+    "geometry": "CAD mm -> Gazebo MC FLU m: (-(z+9),x,646-y)/1000；PX4 FRD=(x,-y,-z)；机头 +Z，尾部四支脚 CAD y=1055。",
+    "camera": "C11 CAD (0,258,-55) mm -> base_link (0.046,0,0.388) m；固定俯仰 -20°，沿用 quadtailsitter 光学安装矩阵；PX4 tailsitter 的 MC/FW 均报告 MC FRD 姿态，因此两模式矩阵相同。相机链节仅数值质量，C11 100 g 已在整机质量预算中。",
+    "power": "4S 5000 mAh=74 Wh；报告悬停约 34 A/500 W、巡航 10–12 A/约 160 W；20% 储备。",
+    "validation": "未经实飞验证；占位几何、VLM 中性点（误差约 ±15 mm）、电机反扭矩及控制增益均待 SITL/台架/实飞核验。"
+  }
+}

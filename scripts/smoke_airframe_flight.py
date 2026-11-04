@@ -216,6 +216,8 @@ def evaluate_episode(
             and row["obs_after"].get("frame_sensor_stamp_ns") is not None
         )
     failure = episode.get("failure")
+    gimbal = episode.get("gimbal_smoke")
+    gimbal_enabled = profile.camera.mount == "gimbal"
     return {
         "takeoff_success": takeoff_success,
         "launch_detected": launch_detected if launch_required else True,
@@ -234,6 +236,8 @@ def evaluate_episode(
         "landed": landed,
         "camera_frames": camera_frames,
         "frames_aligned": bool(aligned) and all(aligned),
+        "gimbal_command_success": (gimbal is not None and gimbal.get("status") == "reached") if gimbal_enabled else True,
+        "gimbal_error_deg": (gimbal or {}).get("error_deg") if gimbal_enabled else None,
         "failure_reason": failure,
     }
 
@@ -242,6 +246,7 @@ ALIASES = {
     "advanced_plane_mono_cam": "advanced_plane",
     "quadtailsitter_mono_cam": "quadtailsitter",
     "delta_tailsitter_mono_cam": "delta_tailsitter",
+    "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal",
     "tiltrotor_mono_cam": "tiltrotor",
     "standard_vtol_mono_cam": "standard_vtol",
     "rc_cessna_mono_cam": "rc_cessna_runway",
@@ -251,6 +256,7 @@ SCENARIO_ALIASES = {
     "quadtailsitter_mono_cam": "quadtailsitter_mono_cam_001",
     "delta_tailsitter": "delta_tailsitter_mono_cam_001",
     "delta_tailsitter_mono_cam": "delta_tailsitter_mono_cam_001",
+    "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal_cam_001",
     "tiltrotor_mono_cam": "tiltrotor_mono_cam_001",
     "standard_vtol_mono_cam": "river_rescue_vtol_001",
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001",
@@ -309,6 +315,15 @@ def build_plan(
         {"stage": "preflight", "action": "GCS heartbeat + prearm + arm", "timeout_s": 45},
         {"stage": "takeoff", "action": selected, "mav_cmd": 84 if selected == "vtol" else 22},
     ]
+    gimbal_enabled = profile.camera.mount == "gimbal"
+    if gimbal_enabled:
+        steps.append(
+            {
+                "stage": "gimbal_check",
+                "action": "DO_MOUNT_CONTROL pitch=-45 roll=0 yaw=0; verify GIMBAL_DEVICE_ATTITUDE_STATUS",
+                "tolerance_deg": 4.0,
+            }
+        )
     if transition:
         steps.append({"stage": "transition_fw", "action": "MC -> FW", "mav_cmd": 3000, "param1": 4})
     steps.extend(
@@ -362,7 +377,7 @@ def build_plan(
             "rtl",
             "landed_state",
             "frames_aligned",
-        ],
+        ] + (["gimbal_command_success"] if gimbal_enabled else []),
         "judgement": {
             "takeoff_success": None,
             "launch_detected": None if selected in {"hand", "catapult"} else True,
@@ -374,6 +389,8 @@ def build_plan(
             "landed": None,
             "camera_frames": None,
             "frames_aligned": None,
+            "gimbal_command_success": None if gimbal_enabled else True,
+            "gimbal_error_deg": None,
             "failure_reason": None,
         },
     }
@@ -453,6 +470,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if plan["takeoff_method"] in {"hand", "catapult"}:
             required += ("launch_detected", "launch_climb_success")
+        if profile.camera.mount == "gimbal":
+            required += ("gimbal_command_success",)
         result["status"] = (
             "pass"
             if completed.returncode == 0

@@ -5,7 +5,7 @@
   "channels": {
     "runtime_input": {
       "path": "delta_tailsitter_mono_cam_001.runtime.json",
-      "sha256": "8ece8a59ea3ca1a774a79c30904a1ec3d3e3915b38308a75746eb65112783b72"
+      "sha256": "fc2b8397020495c1321f86f6079e27e3f461c2432037a1973329569171e4ae60"
     },
     "truth": {
       "path": "delta_tailsitter_mono_cam_001.truth.json",
