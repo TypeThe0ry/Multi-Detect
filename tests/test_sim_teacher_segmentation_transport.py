@@ -183,6 +183,12 @@ def test_gimbal_segmentation_overlay_targets_image_model_root(tmp_path):
 
     assert "target=/opt/px4-gazebo/share/gz/models/x500_gimbal,readonly" in overlay
     assert "target=/opt/multidetect-gazebo-models/x500_gimbal,readonly" not in overlay
+    gimbal_camera = next(
+        mount
+        for mount in mounts
+        if "target=/opt/px4-gazebo/share/gz/models/gimbal/model.sdf,readonly" in mount
+    )
+    assert "x500_gimbal_seg/gimbal/model.sdf" in gimbal_camera
     environment = {
         command[index + 1].split("=", 1)[0]: command[index + 1].split("=", 1)[1]
         for index, token in enumerate(command)
