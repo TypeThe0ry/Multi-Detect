@@ -74,6 +74,8 @@ from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.sim_network import sim_udpin_endpoint  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
+    CONTAINER_IMAGE_MODEL_ROOT,
+    CONTAINER_MODEL_ROOT,
     CONTAINER_SCRIPT_ROOT,
     _split_gpu_list,
     build_docker_simulator_plan,
@@ -467,10 +469,15 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
         overlay = ROOT / "simulation/gazebo/model-overlays" / model_name
         if not (overlay / "model.sdf").is_file():
             raise FileNotFoundError(overlay / "model.sdf")
+        overlay_target_root = (
+            CONTAINER_IMAGE_MODEL_ROOT
+            if plan.airframe == "x500_gimbal"
+            else CONTAINER_MODEL_ROOT
+        )
         overlay_mount = (
             "--mount",
             f"type=bind,source={overlay.resolve()},"
-            f"target=/opt/multidetect-gazebo-models/{target_model_name},readonly",
+            f"target={overlay_target_root}/{target_model_name},readonly",
         )
         parent_mount = next(
             (
