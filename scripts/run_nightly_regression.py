@@ -30,6 +30,7 @@ MODEL_SET_SUITES = {
         "airframes": ROOT / "configs/onboard/suite-airframes-r21idr3-r24plan.json",
         "follow": ROOT / "configs/onboard/suite-follow-r21idr3-r24plan.json",
         "robustness": ROOT / "configs/onboard/suite-robustness-r21idr3-r24plan.json",
+        "gimbal": ROOT / "configs/onboard/suite-gimbal-r21idr3-r24plan.json",
     },
 }
 SIM_ENV_KEYS = (
@@ -290,7 +291,7 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     if args.model_set not in MODEL_SET_SUITES:
         p.error(f"unknown --model-set: {args.model_set}")
     suite_paths = MODEL_SET_SUITES[args.model_set]
-    suites = list(suite_paths) if args.suites is None else args.suites
+    suites = [name for name in suite_paths if name != "gimbal"] if args.suites is None else args.suites
     unknown_suites = sorted(set(suites) - set(suite_paths))
     if unknown_suites:
         p.error(f"unknown suites for model set {args.model_set}: {', '.join(unknown_suites)}")

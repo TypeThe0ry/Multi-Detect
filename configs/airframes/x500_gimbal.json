@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "x500_gimbal",
+  "category": "multirotor",
+  "subtype": "quad",
+  "px4_autostart": 4019,
+  "min_airspeed_mps": 0.5,
+  "cruise_airspeed_mps": 5.0,
+  "max_airspeed_mps": 8.0,
+  "stall_airspeed_mps": 0.5,
+  "max_bank_deg": 35.0,
+  "max_climb_rate_mps": 2.0,
+  "max_descent_rate_mps": 1.0,
+  "can_hover": true,
+  "hover_modes": ["multirotor"],
+  "takeoff": {"methods": ["multirotor"]},
+  "landing": {"methods": ["multirotor"]},
+  "camera": {"mount": "gimbal", "body_to_camera_rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1]},
+  "camera_mount": {
+    "type": "gimbal",
+    "axes": ["roll", "pitch", "yaw"],
+    "limits": {"roll": [-0.78539816340, 0.78539816340], "pitch": [-2.35619449019, 0.78539816340], "yaw": [-3.14159265359, 3.14159265359]},
+    "rates": {"roll": 3.14159265359, "pitch": 3.14159265359, "yaw": 3.14159265359},
+    "default_mode": "lock-horizon"
+  },
+  "endurance": {"battery_wh": 100.0, "reserve_fraction": 0.2, "hover_power_w": 360.0, "cruise_power_w": 400.0, "loiter_power_w": 360.0, "climb_power_w": 500.0, "descent_power_w": 360.0, "transition_energy_wh": 0.0, "glide_sink_rate_mps": 0.0, "wind_margin_mps": 2.0},
+  "limits": {"max_step_distance_m": 15.0, "max_acceleration_mps2": 3.0, "max_angular_rate_dps": 90.0},
+  "loiter_radius_override_m": 4.0,
+  "notes": ["PX4 x500_gimbal 仿真档案；模型由 PX4 SITL Gazebo 镜像提供。"],
+  "provenance": {"energy": "configs/airframes/x500_mono_cam.json", "camera": "PX4 SITL Gazebo x500_gimbal model"}
+}

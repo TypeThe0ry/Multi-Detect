@@ -541,7 +541,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         # package above; execution receives that exact object below.
         camera_source = int(args.camera) if args.camera.isdecimal() else args.camera
         camera = OpenCVCameraSource(camera_source, calibration, backend=args.camera_backend)
-        vehicle = PymavlinkVehicle(args.endpoint, baud=args.baud)
+        vehicle = PymavlinkVehicle(
+            args.endpoint,
+            baud=args.baud,
+            request_gimbal_attitude_stream=options.get("airframe") == "x500_gimbal",
+        )
         task = package_options.get("task_text") if package else getattr(args, "task", None)
     if package:
         options.update(package_options)

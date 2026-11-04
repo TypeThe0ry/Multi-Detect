@@ -360,6 +360,8 @@ def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> di
 
 def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> AirframeProfile | None:
     normalized = str(airframe).strip().lower().replace("-", "_")
+    if normalized == "x500_gimbal":
+        return AirframeProfile.from_json(ROOT / "configs" / "airframes" / "x500_gimbal.json")
     if normalized in {"x500", "x500_mono_cam", "multirotor"}:
         return None
     if normalized in {"fixed_wing", "fw", "vtol"}:
@@ -400,16 +402,25 @@ def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
     ``px4_fixed_wing_standard``); the simulator stack maps it to the Gazebo model it
     spawns, so use that same mapping instead of guessing from the runtime name.
     """
-    if plan.airframe == "x500_mono_cam":
-        return "x500_mono_cam_0"
     vehicle = runtime.get("vehicle", {}) if isinstance(runtime, Mapping) else {}
     vehicle = vehicle if isinstance(vehicle, Mapping) else {}
+    profile = str(vehicle.get("airframe_profile_id", ""))
+    if plan.airframe == "x500_gimbal" or profile == "x500_gimbal":
+        return "x500_gimbal_0"
+    if plan.airframe == "x500_mono_cam":
+        return "x500_mono_cam_0"
     model = str(vehicle.get("model", plan.airframe))
     try:
         _, name = _stack_vehicle_spec(model, str(vehicle.get("airframe_profile_id", "")))
     except SimulatorStackError:
         name = model
     return name if name.endswith("_0") else name + "_0"
+
+
+def _rgb_camera_topics(*, world: str, model: str, airframe: str) -> tuple[str, str]:
+    camera_link = "camera_link"
+    prefix = f"/world/{world}/model/{model}/link/{camera_link}/sensor/camera"
+    return f"{prefix}/image", f"{prefix}/camera_info"
 
 
 def _frame_age_limit_s(airframe: str) -> float:
@@ -440,6 +451,7 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             gpu_device=plan.gpu_device,
             gpu_devices=plan.gpu_devices,
             worker_index=plan.worker_index,
+            airframe_profile_id=plan.airframe,
         )
     except Exception as exc:
         raise ValueError(f"unable to build simulator stack plan: {exc}") from exc
@@ -681,8 +693,9 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         depth = {}
     world = "default"
     model = _gazebo_model_name(plan, json.loads(Path(plan.runtime).read_text(encoding="utf-8")))
-    image_topic = f"/world/{world}/model/{model}/link/camera_link/sensor/camera/image"
-    camera_topic = f"/world/{world}/model/{model}/link/camera_link/sensor/camera/camera_info"
+    image_topic, camera_topic = _rgb_camera_topics(
+        world=world, model=model, airframe=plan.airframe
+    )
     navsat_topic = f"/world/{world}/model/{model}/link/base_link/sensor/navsat_sensor/navsat"
     odometry_topic = f"/model/{model}/odometry_with_covariance"
     command = [

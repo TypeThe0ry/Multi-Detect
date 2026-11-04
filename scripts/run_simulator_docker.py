@@ -526,6 +526,7 @@ def build_docker_simulator_plan(
     worker_index: int = 0,
     sim_network: str | None = None,
     sim_instance: int = 0,
+    airframe_profile_id: str | None = None,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
@@ -631,6 +632,10 @@ def build_docker_simulator_plan(
         "GZ_VERBOSE": "0",
         **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
+    if airframe_profile_id == "x500_gimbal":
+        container_environment["PX4_SYS_AUTOSTART"] = "4019"
+        container_environment["PX4_SIM_MODEL"] = "gz_x500_gimbal"
+        container_environment["PX4_GZ_MODELS"] = CONTAINER_IMAGE_MODEL_ROOT
     if gpu_render:
         # NVIDIA Container Toolkit injects the driver libraries.  EGL_PLATFORM
         # and the vendor manifest make the selection deterministic in a
