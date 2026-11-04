@@ -37,6 +37,9 @@ class _AttitudeSample:
     roll_deg: float
     pitch_deg: float
     heading_deg: float
+    gimbal_yaw_deg: float = math.nan
+    gimbal_roll_deg: float = math.nan
+    gimbal_pitch_deg: float = math.nan
 
 
 class AttitudeCameraMotionEstimator:
@@ -86,6 +89,9 @@ class AttitudeCameraMotionEstimator:
             roll_deg=telemetry.roll_deg,
             pitch_deg=telemetry.pitch_deg,
             heading_deg=telemetry.heading_deg % 360.0,
+            gimbal_yaw_deg=float(getattr(telemetry, "gimbal_yaw_deg", math.nan)),
+            gimbal_roll_deg=float(getattr(telemetry, "gimbal_roll_deg", math.nan)),
+            gimbal_pitch_deg=float(getattr(telemetry, "gimbal_pitch_deg", math.nan)),
         )
         previous = self._previous
         self._previous = current
@@ -130,6 +136,16 @@ def _camera_to_ned_rotation(
         -calibration.mount_pitch_down_deg,
         calibration.mount_yaw_right_deg,
     )
+    if all(
+        math.isfinite(value)
+        for value in (attitude.gimbal_yaw_deg, attitude.gimbal_roll_deg, attitude.gimbal_pitch_deg)
+    ):
+        gimbal = _rotation_matrix(
+            attitude.gimbal_roll_deg,
+            attitude.gimbal_pitch_deg,
+            attitude.gimbal_yaw_deg,
+        )
+        mount = _matmul(mount, gimbal)
     body_to_ned = _rotation_matrix(
         attitude.roll_deg,
         attitude.pitch_deg,

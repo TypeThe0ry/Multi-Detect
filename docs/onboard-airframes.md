@@ -9,6 +9,10 @@
 - **VTOL（`standard_vtol`、`quadtailsitter`、`tiltrotor`）**：能悬停的 VTOL 默认按“悬停作业”（`vtol_hover_ops`，默认 true）飞：搜索、接近、确认都用多旋翼那套机上循环，在 MC 下执行（`mc_reposition`/`mc_hold`）；遥测报告 FW 时先发 `transition` 转回 MC；确认后发 `stop`，由 PX4 RTL 返航并垂直降落。`vtol_hover_ops: false` 时回到原来的 FW 行为（割草机搜索、盘旋）。低能量或安全拒绝先按档案盘旋（MC 下为原地悬停），再由 supervisor 执行返航/转换/降落策略。详见 [fixed-wing-vtol-sim-flight.md](fixed-wing-vtol-sim-flight.md) 的 VTOL 一节。
 - **相机**：投影使用完整 roll/pitch/yaw。tailsitter 档案可分别提供 `camera.attitude_rotations.mc` 与 `camera.attitude_rotations.fw`，运行时按当前 VTOL 模式选择，避免把 FW 倒置姿态当成 MC 姿态。
 
+`delta_tailsitter` 是同一 VTOL 路径下新增的四电机无舵面折叠三角翼，使用报告方案 E
+的质量/气动估计。支持 `delta_tailsitter_mono_cam` 仿真别名；尚未做本机 SITL 或实飞
+验证。坐标、4050 机架、STEP 工具与启动命令见 [delta-tailsitter-sim.md](delta-tailsitter-sim.md)。
+
 ## 配置
 
 机载配置增加 `airframe`，可以写档案 id 或 JSON 路径：

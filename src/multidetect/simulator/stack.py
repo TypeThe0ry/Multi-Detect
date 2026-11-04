@@ -1035,6 +1035,8 @@ def _vehicle_spec(model: str, profile: str) -> tuple[str, str]:
     # Keep the explicit PX4 airframe names ahead of the broad class checks:
     # advanced_plane contains ``plane`` and the tailsitter/tiltrotor profiles
     # contain ``vtol`` in their family name but use different PX4 models.
+    if "delta_tailsitter" in identity:
+        return "vtol", "delta_tailsitter_mono_cam"
     if "quadtailsitter" in identity or "quad_tailsitter" in identity:
         return "vtol", "quadtailsitter_mono_cam"
     if "tiltrotor" in identity or "tilt_rotor" in identity:
@@ -1343,6 +1345,7 @@ def _validate_model_sdf(path: Path, *, expected_name: str, vehicle_class: str) -
         "rc_cessna_mono_cam": "model://rc_cessna",
         "advanced_plane_mono_cam": "model://advanced_plane",
         "quadtailsitter_mono_cam": "model://quadtailsitter",
+        "delta_tailsitter_mono_cam": "model://delta_tailsitter",
         "tiltrotor_mono_cam": "model://tiltrotor",
     }
     try:
@@ -1351,8 +1354,14 @@ def _validate_model_sdf(path: Path, *, expected_name: str, vehicle_class: str) -
         raise SimulatorStackError(
             f"unsupported simulator model composition: {expected_name}"
         ) from exc
-    if base not in includes or "model://mono_cam" not in includes:
+    # 本机 C11 质量已包含在报告整机惯量内；相机包装使用同名、同光学约定的
+    # 本地轻质量 camera_link，避免 include mono_cam 重复添加 50 g。
+    local_c11 = expected_name == "delta_tailsitter_mono_cam"
+    if base not in includes or (not local_c11 and "model://mono_cam" not in includes):
         raise SimulatorStackError(f"{vehicle_class} model is missing required local compositions")
+    # The delta tailsitter wrapper includes the base model's articulated C11
+    # camera; unlike the legacy mono_cam wrappers it does not duplicate a local
+    # fixed camera link here.
     for uri in includes:
         if not uri.startswith("model://") or _SAFE_IDENTIFIER_RE.fullmatch(uri[8:]) is None:
             raise SimulatorStackError(f"model dependency is not a safe local URI: {uri}")
@@ -1551,6 +1560,7 @@ def _build_environment(
         "x500_mono_cam": "4001",
         "advanced_plane_mono_cam": "4008",
         "quadtailsitter_mono_cam": "4018",
+        "delta_tailsitter_mono_cam": "4050",
         "tiltrotor_mono_cam": "4020",
     }.get(model_name)
     if autostart is None:

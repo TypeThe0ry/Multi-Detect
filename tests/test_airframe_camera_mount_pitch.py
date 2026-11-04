@@ -42,20 +42,30 @@ def test_profile_mount_pitch_matches_the_simulated_camera(profile_id: str) -> No
     )
 
 
-def test_tailsitter_per_mode_mounts_fall_back_to_the_default() -> None:
-    profile = AirframeProfile.from_json(ROOT / "configs/airframes/quadtailsitter.json")
+@pytest.mark.parametrize("profile_id", ["quadtailsitter", "delta_tailsitter"])
+def test_tailsitter_per_mode_mounts_fall_back_to_the_default(profile_id: str) -> None:
+    profile = AirframeProfile.from_json(ROOT / f"configs/airframes/{profile_id}.json")
     assert profile_mount_pitch_down_rad(profile, 0.25) == 0.25
 
 
-def test_tailsitter_mc_mount_matches_the_simulated_camera_in_hover() -> None:
+@pytest.mark.parametrize("profile_id", ["quadtailsitter", "delta_tailsitter"])
+def test_tailsitter_mc_mount_matches_the_simulated_camera_in_hover(profile_id: str) -> None:
     """The tailsitter model stands on its tail: model +X is the MC body x, model +Z
     the nose (MC -z), so the SDF pitch -20 deg about +Y lifts the axis 20 deg in hover.
     The pitch read from the MC matrix and the full-attitude ray must agree on it."""
     from multidetect.autonomy.motion_intent import camera_ray_from_profile
 
-    profile = AirframeProfile.from_json(ROOT / "configs/airframes/quadtailsitter.json")
+    profile = AirframeProfile.from_json(ROOT / f"configs/airframes/{profile_id}.json")
+    if profile.camera.mount == "gimbal":
+        root = ET.fromstring(
+            (ROOT / "simulation/gazebo/models/delta_tailsitter/model.sdf").read_text("utf-8")
+        )
+        assert float(root.findtext("model/joint[@name='c11_pitch_joint']/axis/initial_position")) == pytest.approx(
+            -math.radians(45), abs=1e-6
+        )
+        return
     pitch = profile_mount_pitch_down_rad(profile, 0.0, mode="mc")
-    assert pitch == pytest.approx(_sdf_camera_pitch("quadtailsitter_mono_cam"), abs=2e-3)
+    assert pitch == pytest.approx(_sdf_camera_pitch(f"{profile_id}_mono_cam"), abs=2e-3)
     ray = camera_ray_from_profile(
         320, 240, fx=270, fy=270, cx=320, cy=240, attitude_deg=(0, 0, 0), profile=profile
     )

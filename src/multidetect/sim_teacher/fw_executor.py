@@ -343,6 +343,13 @@ class FixedWingVtolExecutor:
     }
 
     def _state_timeout(self, phase: str) -> float:
+        """Return a budget in the executor clock's seconds.
+
+        The collector injects PX4's lockstep simulation clock here.  A
+        ``wait_for_state`` adapter must therefore compare this budget against
+        that same clock and keep its own generous wall-clock ceiling for a
+        stalled simulator.
+        """
         return max(self._timeout(), self.STATE_TIMEOUT_S.get(phase, self._timeout()))
 
     def _wait_state(self, phase: str) -> tuple[bool, Any | None]:

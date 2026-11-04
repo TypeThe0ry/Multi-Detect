@@ -10,6 +10,7 @@ MAVLink 遥测和相机帧仍按 PX4 仿真时间对齐。
 | `advanced_plane_mono_cam` | 4008 | 滑跑 | 无 | 跑道 |
 | `standard_vtol_mono_cam` | 4004 | VTOL | MC -> FW，再 FW -> MC | VTOL |
 | `quadtailsitter_mono_cam` | 4018 | VTOL | MC -> FW，再 FW -> MC | VTOL |
+| `delta_tailsitter_mono_cam` | 4050（自定义） | VTOL | MC -> FW，再 FW -> MC；尚未飞行验证 | VTOL |
 | `tiltrotor_mono_cam` | 4020 | VTOL | MC -> FW，再 FW -> MC | VTOL |
 
 ## 降落流程

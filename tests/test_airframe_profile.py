@@ -12,7 +12,7 @@ DEFAULTS = sorted((ROOT / "configs" / "airframes").glob("*.json"))
 
 
 def test_all_default_profiles_load_and_round_trip(tmp_path: Path) -> None:
-    assert len(DEFAULTS) == 8
+    assert len(DEFAULTS) == 9
     for source in DEFAULTS:
         profile = AirframeProfile.from_json(source)
         destination = tmp_path / source.name
@@ -75,6 +75,22 @@ def test_tailsitter_requires_both_camera_attitudes() -> None:
     raw["camera"]["attitude_rotations"].pop("fw")
     with pytest.raises(AirframeProfileError):
         AirframeProfile.from_mapping(raw)
+
+
+def test_delta_tailsitter_report_limits_and_energy() -> None:
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
+    assert (profile.category, profile.subtype, profile.px4_autostart) == (
+        "vtol", "tailsitter", 4050
+    )
+    assert (profile.stall_airspeed_mps, profile.min_airspeed_mps,
+            profile.cruise_airspeed_mps, profile.max_airspeed_mps) == (10, 12, 15, 19)
+    assert profile.transition.minimum_airspeed_mps == 13
+    energy = profile.endurance
+    assert energy.battery_wh == 14.8 * 5
+    available = energy.battery_wh * (1 - energy.reserve_fraction)
+    assert available / energy.hover_power_w * 60 == pytest.approx(7.104)
+    assert available / energy.cruise_power_w * 60 == pytest.approx(22.2)
+    assert "未经实飞验证" in " ".join(profile.notes)
 
 
 def test_vtol_transition_command_values_are_fixed() -> None:

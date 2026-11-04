@@ -1,0 +1,358 @@
+"""报告、SDF、PX4 分配和启动边界的离线合同；不启动 SITL/Docker。"""
+
+from __future__ import annotations
+
+import hashlib
+import math
+import re
+import shutil
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+import pytest
+
+from multidetect.autonomy.airframe_profile import AirframeProfile
+from multidetect.simulator.delta_tailsitter import cad_to_base_m, select_visual_mesh
+from scripts import collect_sim_teacher_episodes as collector
+from scripts import run_simulator_docker as docker
+from scripts import smoke_airframe_flight as smoke
+from scripts.generate_delta_tailsitter_model import generate
+
+ROOT = Path(__file__).resolve().parents[1]
+MODEL_DIR = ROOT / "simulation/gazebo/models/delta_tailsitter"
+WRAPPER_DIR = ROOT / "simulation/gazebo/models/delta_tailsitter_mono_cam"
+OVERLAY_DIR = ROOT / "simulation/gazebo/model-overlays/delta_tailsitter_mono_cam_seg"
+SCENARIO_DIR = ROOT / "configs/scenarios/airframes"
+SCENARIO = SCENARIO_DIR / "delta_tailsitter_mono_cam_001.scenario.json"
+AIRFRAME = ROOT / "simulation/px4/airframes/4050_gz_delta_tailsitter"
+
+
+def _numbers(text):
+    return tuple(float(x) for x in text.split())
+
+
+def _model(directory):
+    return ET.parse(directory / "model.sdf").getroot().find("model")
+
+
+def _parameters():
+    return {
+        name: float(value)
+        for name, value in re.findall(
+            r"^param set-default (\S+) ([-+\de.]+)$", AIRFRAME.read_text("utf-8"), re.MULTILINE
+        )
+    }
+
+
+def test_cad_transform_is_a_rotation_and_keeps_report_landmarks():
+    assert cad_to_base_m((0, 646, -9)) == (0, 0, 0)
+    assert cad_to_base_m((0, 258, -55)) == pytest.approx((0.046, 0, 0.388))
+    assert cad_to_base_m((600, 629, 150)) == pytest.approx((-0.159, 0.6, 0.017))
+    # x_c × y_c = z_c，在变换后仍然成立（禁止镜像 STL）。
+    assert cad_to_base_m((1000, 646, -9)) == (0, 1, 0)
+    assert cad_to_base_m((0, 1646, -9)) == (0, 0, -1)
+    assert cad_to_base_m((0, 646, 991)) == (-1, 0, 0)
+
+
+def test_complete_model_has_sensors_and_no_upstream_aircraft_dependency():
+    model = _model(MODEL_DIR)
+    assert model.get("name") == "delta_tailsitter"
+    assert [item.findtext("uri") for item in model.findall("include")] == ["model://airspeed"]
+    assert {sensor.get("type") for sensor in model.findall("link/sensor")} == {
+        "imu",
+        "air_pressure",
+        "magnetometer",
+        "navsat",
+        "camera",
+        "depth_camera",
+    }
+    assert model.find("joint[@name='airspeed_joint']/parent").text == "base_link"
+    assert len(model.findall("joint[@type='revolute']")) == 7
+    assert {model.findtext(f"joint[@name='c11_{axis}_joint']/axis/xyz") for axis in ("yaw", "roll", "pitch")} == {
+        "0 0 1", "1 0 0", "0 1 0"
+    }
+    assert not model.findall(".//control_joint_rad_to_cl")
+    for mesh in model.findall(".//mesh/uri"):
+        assert (MODEL_DIR / mesh.text.removeprefix("model://delta_tailsitter/")).is_file()
+    assert "model://quadtailsitter" not in (MODEL_DIR / "model.sdf").read_text("utf-8")
+
+
+def test_assembly_mass_cg_and_inertia_match_report_and_are_positive_definite():
+    links = _model(MODEL_DIR).findall("link") + _model(WRAPPER_DIR).findall("link")
+    mass = 0.0
+    first_moment = [0.0] * 3
+    inertia = [[0.0] * 3 for _ in range(3)]
+    for link in links:
+        inertial = link.find("inertial")
+        m = float(inertial.findtext("mass"))
+        position = [0.0] * 3
+        if link.get("name") in {"camera_link", "depth_camera_link"}:
+            position = [0.046, 0.0, 0.388]
+        elif link.find("pose") is not None:
+            position = list(_numbers(link.findtext("pose"))[:3])
+        center = _numbers(inertial.findtext("pose", "0 0 0 0 0 0"))[:3]
+        position = [position[i] + center[i] for i in range(3)]
+        matrix = inertial.find("inertia")
+        local = [
+            [
+                float(matrix.findtext(f"i{'xyz'[i]}{'xyz'[j]}", "0")) if i <= j else 0.0
+                for j in range(3)
+            ]
+            for i in range(3)
+        ]
+        for i in range(3):
+            for j in range(i):
+                local[i][j] = local[j][i]
+        a, b, c = local[0]
+        _, d, e = local[1]
+        _, _, f = local[2]
+        assert a > 0 and a * d - b * b > 0
+        assert a * (d * f - e * e) - b * (b * f - c * e) + c * (b * e - c * d) > 0
+        assert all(local[i][i] <= sum(local[j][j] for j in range(3) if j != i) for i in range(3))
+        mass += m
+        for i in range(3):
+            first_moment[i] += m * position[i]
+            for j in range(3):
+                shift = (sum(x * x for x in position) if i == j else 0) - position[i] * position[j]
+                inertia[i][j] += local[i][j] + m * shift
+    assert mass == pytest.approx(2.929, abs=1e-10)
+    assert first_moment == pytest.approx([0, 0, 0], abs=1e-10)
+    for i, expected in enumerate((0.431, 0.097, 0.373)):
+        for j in range(3):
+            assert inertia[i][j] == pytest.approx(expected if i == j else 0, abs=1e-9)
+
+
+def test_motor_geometry_directions_and_thrust_match_control_allocation():
+    model, params = _model(MODEL_DIR), _parameters()
+    motors = model.findall("plugin[@name='gz::sim::systems::MulticopterMotorModel']")
+    assert len(motors) == params["CA_ROTOR_COUNT"] == 4
+    assert params["CA_SV_CS_COUNT"] == 0
+    assert params["CA_AIRFRAME"] == 4 and params["VT_TYPE"] == 0
+    assert params["VT_FW_DIFTHR_EN"] == 7
+    assert params["THR_MDL_FAC"] == 1 and params["MPC_THR_HOVER"] == 0.44
+    assert sorted(int(plugin.findtext("motorNumber")) for plugin in motors) == [0, 1, 2, 3]
+    for motor in motors:
+        i = int(motor.findtext("motorNumber"))
+        position = _numbers(model.findtext(f"link[@name='rotor_{i}']/pose"))[:3]
+        assert (
+            params[f"CA_ROTOR{i}_PX"],
+            params[f"CA_ROTOR{i}_PY"],
+            params[f"CA_ROTOR{i}_PZ"],
+        ) == pytest.approx((position[0], -position[1], -position[2]))
+        km = params[f"CA_ROTOR{i}_KM"]
+        assert motor.findtext("turningDirection") == ("ccw" if km > 0 else "cw")
+        assert abs(km) == float(motor.findtext("momentConstant")) == 0.025
+        speed = float(motor.findtext("maxRotVelocity"))
+        assert params[f"SIM_GZ_EC_FUNC{i + 1}"] == 101 + i
+        assert params[f"SIM_GZ_EC_MAX{i + 1}"] == speed == 1100
+        assert params[f"SIM_GZ_EC_MIN{i + 1}"] == 0
+        assert float(motor.findtext("motorConstant")) * speed**2 == pytest.approx(16.2)
+        assert _numbers(model.findtext(f"joint[@name='rotor_{i}_joint']/axis/xyz")) == (0, 0, 1)
+    assert 2.929 * 9.80665 / (4 * 16.2) == pytest.approx(0.44, abs=0.004)
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
+    for param, value in (
+        ("FW_AIRSPD_STALL", profile.stall_airspeed_mps),
+        ("FW_AIRSPD_MIN", profile.min_airspeed_mps),
+        ("FW_AIRSPD_TRIM", profile.cruise_airspeed_mps),
+        ("FW_AIRSPD_MAX", profile.max_airspeed_mps),
+        ("VT_ARSP_TRANS", profile.transition.minimum_airspeed_mps),
+        ("VT_TRANS_TIMEOUT", profile.transition.timeout_s),
+    ):
+        assert params[param] == value
+
+
+def test_four_feet_touch_before_body_and_support_the_cg():
+    base = _model(MODEL_DIR).find("link[@name='base_link']")
+    feet = [item for item in base.findall("collision") if item.find("geometry/sphere") is not None]
+    assert len(base.findall("collision")) == 5 and len(feet) == 4
+    points = [_numbers(foot.findtext("pose"))[:3] for foot in feet]
+    bottoms = [
+        point[2] - float(foot.findtext("geometry/sphere/radius"))
+        for point, foot in zip(points, feet, strict=True)
+    ]
+    assert bottoms == pytest.approx([-0.409] * 4)
+    assert min(p[0] for p in points) < 0 < max(p[0] for p in points)
+    assert min(p[1] for p in points) < 0 < max(p[1] for p in points)
+    body = base.find("collision[@name='body_collision']")
+    body_bottom = (
+        _numbers(body.findtext("pose"))[2] - _numbers(body.findtext("geometry/box/size"))[2] / 2
+    )
+    assert body_bottom > max(bottoms)
+    for foot in feet:
+        assert float(foot.findtext("surface/friction/ode/mu")) >= 0.5
+
+
+def test_aerodynamic_area_lift_slope_static_margin_and_parasitic_drag():
+    surfaces = _model(MODEL_DIR).findall("plugin[@name='gz::sim::systems::LiftDrag']")
+    wings = [s for s in surfaces if float(s.findtext("cla")) > 0]
+    assert len(wings) == 5
+    assert sum(float(s.findtext("area")) for s in wings) == pytest.approx(0.607)
+    weights = [
+        float(s.findtext("area"))
+        * float(s.findtext("cla"))
+        * _numbers(s.findtext("upward"))[0] ** 2
+        for s in wings
+    ]
+    assert sum(weights) / 0.607 == pytest.approx(2.82)
+    neutral_z = sum(
+        w * _numbers(s.findtext("cp"))[2] for w, s in zip(weights, wings, strict=True)
+    ) / sum(weights)
+    assert -neutral_z / 0.569 == pytest.approx(0.020 / 0.569, abs=1e-10)
+    parasitic = [s for s in surfaces if float(s.findtext("cla")) == 0]
+    assert len(parasitic) == 2
+    for alpha in (-0.3, -0.1, 0, 0.1, 0.3):
+        cd = (
+            sum(
+                float(s.findtext("area"))
+                * abs(float(s.findtext("cda")) * (alpha + float(s.findtext("a0"))))
+                for s in parasitic
+            )
+            / 0.607
+        )
+        assert cd == pytest.approx(0.032)
+
+
+@pytest.mark.parametrize("directory", [WRAPPER_DIR, OVERLAY_DIR])
+def test_c11_camera_depth_and_projection_matrix_use_the_same_mount(directory):
+    model = _model(MODEL_DIR)
+    wrapper = _model(directory)
+    assert wrapper.findtext("include/uri") == "model://delta_tailsitter"
+    rgb = model.find("link[@name='camera_link']/sensor[@name='camera']")
+    depth = model.find("link[@name='depth_camera_link']/sensor[@name='depth_camera']")
+    for sensor in (rgb, depth):
+        assert sensor.findtext("camera/image/width") == "1280"
+        assert sensor.findtext("camera/image/height") == "720"
+        assert float(sensor.findtext("camera/horizontal_fov")) == 2.0
+    assert depth.findtext("camera/image/format") == "R_FLOAT32"
+    assert model.findtext("joint[@name='DepthCameraJoint']/parent") == "camera_link"
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
+    c, s = math.cos(math.radians(-20)), math.sin(math.radians(-20))
+    # Gazebo FLU -> PX4 FRD，以及相机光轴/像面右/像面下约定。
+    expected = (c, 0, -s, 0, 1, 0, s, 0, c)
+    assert profile.camera.body_to_camera_rotation == pytest.approx(expected)
+    for mode in ("mc", "fw"):
+        assert profile.camera.attitude_rotations[mode] == pytest.approx(expected)
+    if directory == OVERLAY_DIR:
+        assert wrapper.findtext("link[@name='segmentation_camera_link']/sensor/topic") == (
+            "/multidetect/teacher/segmentation"
+        )
+
+
+def test_model_generator_is_reproducible(tmp_path):
+    shutil.copytree(MODEL_DIR, tmp_path / "delta_tailsitter")
+    generate(tmp_path / "delta_tailsitter")
+    assert (tmp_path / "delta_tailsitter/model.sdf").read_bytes() == (MODEL_DIR / "model.sdf").read_bytes()
+    for mesh in (tmp_path / "delta_tailsitter/meshes").iterdir():
+        assert mesh.read_bytes() == (MODEL_DIR / "meshes" / mesh.name).read_bytes()
+
+
+def test_cad_mesh_preference_preserves_physics_and_drops_placeholders(tmp_path):
+    shutil.copytree(MODEL_DIR, tmp_path / "delta_tailsitter")
+    directory = tmp_path / "delta_tailsitter"
+    (directory / "meshes" / "visual.stl").unlink()
+    assert select_visual_mesh(directory) is None
+    for ext in ("stl", "dae"):
+        (directory / "meshes" / f"visual.{ext}").write_bytes(b"test mesh selection only")
+        text, selected = select_visual_mesh(directory)
+        assert selected.suffix == f".{ext}"
+        root = ET.fromstring(text).find("model")
+        base = root.find("link[@name='base_link']")
+        assert base.findtext("visual[@name='cad_visual']/geometry/mesh/uri").endswith(f".{ext}")
+        assert len(base.findall("visual")) == 1
+        assert len(base.findall("collision")) == 5
+        assert len(root.findall("plugin")) == len(_model(MODEL_DIR).findall("plugin"))
+
+
+def test_step_assets_split_rotors_and_c11_into_link_local_meshes():
+    meshes = MODEL_DIR / "meshes"
+    assert all((meshes / f"rotor_{index}.stl").is_file() for index in range(4))
+    assert (meshes / "c11.stl").is_file()
+    import struct
+
+    counts = []
+    for index in range(4):
+        data = (meshes / f"rotor_{index}.stl").read_bytes()
+        count = struct.unpack("<I", data[80:84])[0]
+        counts.append(count)
+        assert len(data) == 84 + count * 50
+        assert count > 1000
+    assert max(counts) / min(counts) < 1.1
+    # The static body mesh is intentionally smaller than the previous assembly
+    # export because the four propeller parts are no longer baked into it.
+    body = (meshes / "visual.stl").read_bytes()
+    assert struct.unpack("<I", body[80:84])[0] < 120_000
+
+
+@pytest.mark.parametrize("airframe", ["delta_tailsitter", "delta_tailsitter_mono_cam"])
+def test_smoke_and_ai_collector_resolve_new_airframe(airframe):
+    profile = smoke.profile_for(airframe)
+    assert smoke.default_scenario(airframe) == SCENARIO
+    plan = smoke.build_plan(airframe, profile, SCENARIO, None)
+    stages = [step["stage"] for step in plan["steps"]]
+    assert stages.index("takeoff") < stages.index("transition_fw") < stages.index("land")
+    assert plan["steps"][3]["airspeed_mps"] == [12, 19]
+    runtime = SCENARIO_DIR / "delta_tailsitter_mono_cam_001.runtime.json"
+    assert collector._airframe_profile(airframe).id == "delta_tailsitter"
+    vehicle = collector._validate_runtime(runtime, airframe)["vehicle"]
+    assert vehicle["model"] == "delta_tailsitter_mono_cam"
+
+
+def test_docker_plan_mounts_custom_airframe_readonly_and_records_its_hash(tmp_path):
+    plan = docker.build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "job", gpu_render=False)
+    assert dict(plan.environment)["PX4_SYS_AUTOSTART"] == "4050"
+    assert dict(plan.environment)["PX4_SIM_MODEL"] == "gz_delta_tailsitter_mono_cam"
+    assert float(dict(plan.environment)["PX4_GZ_MODEL_POSE"].split(",")[2]) == 0.411
+    mount = plan.to_mapping()["mounts"]["custom_airframe"]
+    assert mount["readonly"] is True
+    assert mount["sha256"] == hashlib.sha256(AIRFRAME.read_bytes()).hexdigest()
+    assert f"type=bind,source={AIRFRAME},target={mount['container']},readonly" in plan.command
+
+
+def test_docker_cad_override_is_staged_without_mutating_source(tmp_path, monkeypatch):
+    original = (MODEL_DIR / "model.sdf").read_bytes()
+    shutil.copytree(MODEL_DIR, tmp_path / "model")
+    (tmp_path / "model/meshes/visual.stl").write_bytes(b"test selector only")
+    selected = select_visual_mesh(tmp_path / "model")
+    monkeypatch.setattr(docker, "select_visual_mesh", lambda directory: selected)
+    plan = docker.build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "job", gpu_render=False)
+    assert plan.staged_model_sdf.read_text("utf-8") == selected[0]
+    assert plan.to_mapping()["mounts"]["cad_model_sdf"]["readonly"] is True
+    assert (MODEL_DIR / "model.sdf").read_bytes() == original
+
+
+def test_segmentation_collector_keeps_custom_airframe_mount_and_sensor_topics(tmp_path):
+    plan = collector.CollectionPlan(
+        scenario=str(SCENARIO),
+        runtime=str(SCENARIO_DIR / "delta_tailsitter_mono_cam_001.runtime.json"),
+        truth=str(SCENARIO_DIR / "delta_tailsitter_mono_cam_001.truth.json"),
+        teacher="onboard",
+        episodes=1,
+        steps_per_episode=1,
+        seed=0,
+        out=str(tmp_path),
+        airframe="delta_tailsitter_mono_cam",
+        segmentation=True,
+        gpu_render=False,
+    )
+    command = collector.docker_command(plan)
+    mounts = [arg for arg in command if arg.startswith("type=bind,")]
+    assert any(f"source={OVERLAY_DIR}" in mount and "readonly" in mount for mount in mounts)
+    assert any(f"source={AIRFRAME}" in mount and "readonly" in mount for mount in mounts)
+    assert collector._gazebo_model_name(plan, {}) == "delta_tailsitter_mono_cam_0"
+    assert collector._onboard_airframe_id(plan) == "delta_tailsitter"
+
+
+def test_generated_ai_scenarios_can_be_derived_for_this_vtol(tmp_path):
+    import json
+
+    from multidetect.autonomy.serialization import canonical_sha256
+    from multidetect.simulator.world_gen import derive_vtol_scenario
+
+    derive_vtol_scenario(SCENARIO, tmp_path, airframe="delta_tailsitter")
+    runtime = json.loads(
+        (tmp_path / "delta_tailsitter_mono_cam_001.runtime_input.json").read_text("utf-8")
+    )
+    assert runtime["vehicle"]["model"] == "delta_tailsitter_mono_cam"
+    assert runtime["vehicle"]["spawn_pose"]["z_up_m"] == 0.411
+    manifest = json.loads((tmp_path / SCENARIO.name).read_text("utf-8"))
+    assert manifest["channels"]["runtime_input"]["sha256"] == canonical_sha256(runtime)

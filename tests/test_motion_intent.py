@@ -23,7 +23,9 @@ def test_x500_legacy_primitive_is_byte_identical():
     assert adapter.from_primitive(action, pose_ned=(0, 0, -20), yaw_deg=0) == action
 
 
-@pytest.mark.parametrize("name", ["advanced_plane", "standard_vtol", "quadtailsitter", "tiltrotor"])
+@pytest.mark.parametrize("name", [
+    "advanced_plane", "standard_vtol", "quadtailsitter", "delta_tailsitter", "tiltrotor"
+])
 def test_non_multirotor_wait_is_loiter_with_profile_radius(name):
     adapter = AirframeMotionAdapter(name, base_dir=ROOT)
     command = adapter.from_primitive(ActionPrimitive.hold(2), pose_ned=(0, 0, -30), yaw_deg=0)

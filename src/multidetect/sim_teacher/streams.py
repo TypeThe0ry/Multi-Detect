@@ -403,6 +403,8 @@ class MavlinkReader:
             "WIND_COV",
             "HEALTH_REPORT",
             "STATUSTEXT",
+            "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            "GIMBAL_MANAGER_STATUS",
         }
     )
 

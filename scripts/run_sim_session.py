@@ -44,6 +44,7 @@ DEFAULT_AIRFRAME_WORLDS = {
     "x500_mono_cam": DEFAULT_WORLD,
     "standard_vtol": "river_rescue_vtol_001.sdf",
     "quadtailsitter": "quadtailsitter_mono_cam_001.sdf",
+    "delta_tailsitter": "delta_tailsitter_mono_cam_001.sdf",
     "tiltrotor": "tiltrotor_mono_cam_001.sdf",
     "rc_cessna": "coastal_patrol_fixed_wing_001.sdf",
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001.sdf",
@@ -79,6 +80,8 @@ AIRFRAME_SCENARIOS = {
     "tiltrotor": ROOT / "configs/scenarios/airframes/tiltrotor_mono_cam_001.scenario.json",
     "quadtailsitter": ROOT
     / "configs/scenarios/airframes/quadtailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json",
     "rc_cessna": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_mono_cam": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_runway": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
@@ -88,10 +91,11 @@ AIRFRAME_SCENARIOS = {
 WORLD_SCENARIOS.update(
     {
         "quadtailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["quadtailsitter"],
+        "delta_tailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["delta_tailsitter"],
         "tiltrotor_mono_cam_001.sdf": AIRFRAME_SCENARIOS["tiltrotor"],
     }
 )
-VTOL_AIRFRAMES = ("standard_vtol", "quadtailsitter", "tiltrotor")
+VTOL_AIRFRAMES = ("standard_vtol", "quadtailsitter", "delta_tailsitter", "tiltrotor")
 FIXED_WING_TAKEOFFS = ("runway", "hand", "catapult")
 
 
@@ -102,6 +106,7 @@ def _canonical_airframe(value: str) -> str:
         "multirotor": "x500_mono_cam",
         "standard_vtol_mono_cam": "standard_vtol",
         "quadtailsitter_mono_cam": "quadtailsitter",
+        "delta_tailsitter_mono_cam": "delta_tailsitter",
         "tiltrotor_mono_cam": "tiltrotor",
         "rc_cessna": "rc_cessna_mono_cam",
         "rc_cessna_runway": "rc_cessna_mono_cam",
@@ -115,6 +120,7 @@ def _vehicle_family(value: str | None) -> str | None:
     """Coarse vehicle family of an airframe id or a runtime vehicle model."""
     text = str(value or "").lower()
     for token, family in (
+        ("delta_tailsitter", "delta_tailsitter"),
         ("quadtailsitter", "quadtailsitter"),
         ("tiltrotor", "tiltrotor"),
         ("vtol", "standard_vtol"),
@@ -253,7 +259,7 @@ def _scenario_for(world: Path, airframe: str) -> Path:
     except KeyError as exc:
         raise ValueError(
             f"airframe {airframe!r} has no known scenario; use x500, standard_vtol, "
-            "quadtailsitter, tiltrotor, or rc_cessna"
+            "quadtailsitter, delta_tailsitter, tiltrotor, or rc_cessna"
         ) from exc
 
 

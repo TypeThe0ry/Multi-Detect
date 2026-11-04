@@ -241,6 +241,7 @@ def evaluate_episode(
 ALIASES = {
     "advanced_plane_mono_cam": "advanced_plane",
     "quadtailsitter_mono_cam": "quadtailsitter",
+    "delta_tailsitter_mono_cam": "delta_tailsitter",
     "tiltrotor_mono_cam": "tiltrotor",
     "standard_vtol_mono_cam": "standard_vtol",
     "rc_cessna_mono_cam": "rc_cessna_runway",
@@ -248,6 +249,8 @@ ALIASES = {
 SCENARIO_ALIASES = {
     "advanced_plane_mono_cam": "advanced_plane_mono_cam_001",
     "quadtailsitter_mono_cam": "quadtailsitter_mono_cam_001",
+    "delta_tailsitter": "delta_tailsitter_mono_cam_001",
+    "delta_tailsitter_mono_cam": "delta_tailsitter_mono_cam_001",
     "tiltrotor_mono_cam": "tiltrotor_mono_cam_001",
     "standard_vtol_mono_cam": "river_rescue_vtol_001",
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001",

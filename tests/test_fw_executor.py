@@ -7,6 +7,7 @@ from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
 from multidetect.sim_teacher.primitives import ActionPrimitive
 from scripts.collect_sim_teacher_episodes import (
     _apply_motion_wait_result,
+    _SimClock,
     _fixed_wing_reposition_complete,
 )
 from multidetect.sim_teacher.executor import ExecutionResult
@@ -83,6 +84,27 @@ def test_state_wait_timeout_is_reported_with_phase() -> None:
     assert result.ack["phase"] == "takeoff_state"
     assert result.ack["reason"] == "timeout"
     assert waits and waits[0][0] == "takeoff"
+
+
+def test_state_wait_budget_uses_injected_sim_clock():
+    class Reader:
+        class State:
+            def __init__(self):
+                self.messages = {"LOCAL_POSITION_NED": type("M", (), {"time_boot_ms": 1000})()}
+
+            def get(self, name):
+                return self.messages.get(name)
+
+        state = State()
+
+    # The vehicle clock advances by 1 s while host time advances by one call;
+    # the helper never uses a fixed wall timeout for the simulation budget.
+    reader = Reader()
+    wall = iter((100.0, 101.0))
+    clock = _SimClock(reader, wall=lambda: next(wall))
+    assert clock() == pytest.approx(100.0)
+    reader.state.messages["LOCAL_POSITION_NED"].time_boot_ms = 2000
+    assert clock() == pytest.approx(101.0)
 
 
 def test_command_rejection_does_not_advance_commanded_position() -> None:

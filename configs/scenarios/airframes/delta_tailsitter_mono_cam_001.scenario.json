@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario_id": "delta_tailsitter_mono_cam_001",
+  "scenario_version": 1,
+  "channels": {
+    "runtime_input": {
+      "path": "delta_tailsitter_mono_cam_001.runtime.json",
+      "sha256": "8ece8a59ea3ca1a774a79c30904a1ec3d3e3915b38308a75746eb65112783b72"
+    },
+    "truth": {
+      "path": "delta_tailsitter_mono_cam_001.truth.json",
+      "sha256": "84018404ce29f41e6c3a681737f20bb2446d9cfc04cd4f8e1814e877f1e03bd6"
+    },
+    "expectations": {
+      "path": "delta_tailsitter_mono_cam_001.expectations.json",
+      "sha256": "9c1c220f62f5436039a0e7c4580c0395fcc81e411a735e1a9bfab8813cdec3a6"
+    }
+  }
+}

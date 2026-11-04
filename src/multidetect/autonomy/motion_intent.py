@@ -45,6 +45,56 @@ def _mat_vec(matrix: Sequence[float], vector: Sequence[float]) -> tuple[float, f
     )
 
 
+def _mat_mul(left: Sequence[float], right: Sequence[float]) -> tuple[float, ...]:
+    return tuple(
+        sum(float(left[row * 3 + k]) * float(right[k * 3 + column]) for k in range(3))
+        for row in range(3)
+        for column in range(3)
+    )
+
+
+def _axis_rotation(axis: str, angle_deg: float) -> tuple[float, ...]:
+    angle = math.radians(float(angle_deg))
+    c, s = math.cos(angle), math.sin(angle)
+    if axis == "yaw":
+        return (c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0)
+    if axis == "roll":
+        return (1.0, 0.0, 0.0, 0.0, c, -s, 0.0, s, c)
+    if axis == "pitch":
+        return (c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c)
+    raise MotionIntentError(f"unsupported gimbal axis: {axis}")
+
+
+def profile_camera_mount_rotation(
+    profile: AirframeProfile,
+    *,
+    mode: str | None = None,
+    gimbal_angles_deg: Mapping[str, float] | None = None,
+) -> tuple[float, ...]:
+    """Return camera-optical-to-body rotation, optionally including live gimbal joints."""
+    selected = (mode or "mc").lower()
+    gimbal = getattr(profile.camera, "gimbal", {})
+    base = profile.camera.attitude_rotations.get(selected, profile.camera.body_to_camera_rotation)
+    if not gimbal.get("enabled"):
+        return tuple(float(value) for value in base)
+    # Gazebo owns the configured initial joint angle.  A live telemetry sample
+    # must be supplied before applying gimbal joints to a reconstructed ray.
+    if gimbal_angles_deg is None:
+        return tuple(float(value) for value in base)
+    defaults = gimbal.get("default_angles_deg", {})
+    if isinstance(defaults, Mapping) and isinstance(defaults.get(selected), Mapping):
+        selected_defaults = defaults[selected]
+    else:
+        selected_defaults = defaults if isinstance(defaults, Mapping) else {}
+    angles = dict(selected_defaults)
+    if gimbal_angles_deg:
+        angles.update({str(key): float(value) for key, value in gimbal_angles_deg.items()})
+    result = tuple(float(value) for value in base)
+    for axis in gimbal.get("joint_order", ("yaw", "roll", "pitch")):
+        result = _mat_mul(result, _axis_rotation(str(axis), float(angles.get(axis, 0.0))))
+    return result
+
+
 def profile_mount_pitch_down_rad(
     profile: AirframeProfile, default: float, *, mode: str | None = None
 ) -> float:
@@ -77,6 +127,7 @@ def camera_ray_from_profile(
     attitude_deg: Sequence[float],
     profile: AirframeProfile,
     mode: str | None = None,
+    gimbal_angles_deg: Mapping[str, float] | None = None,
 ) -> tuple[float, float, float]:
     """Return a world-NED optical ray using the profile's full mount attitude.
 
@@ -87,8 +138,9 @@ def camera_ray_from_profile(
     separate MC/FW matrices; the selected matrix is applied before vehicle
     roll/pitch/yaw, so a 180-degree FW attitude cannot silently reuse MC rays.
     """
-    selected = (mode or "mc").lower()
-    mount = profile.camera.attitude_rotations.get(selected, profile.camera.body_to_camera_rotation)
+    mount = profile_camera_mount_rotation(
+        profile, mode=mode, gimbal_angles_deg=gimbal_angles_deg
+    )
     camera = (1.0, (float(u) - cx) / fx, (float(v) - cy) / fy)
     body = _mat_vec(mount, camera)
     roll, pitch, yaw = (math.radians(float(value)) for value in attitude_deg)
@@ -850,5 +902,6 @@ __all__ = [
     "energy_params_from_profile",
     "dynamics_from_profile",
     "camera_ray_from_profile",
+    "profile_camera_mount_rotation",
     "profile_mount_pitch_down_rad",
 ]

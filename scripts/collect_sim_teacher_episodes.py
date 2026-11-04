@@ -339,7 +339,7 @@ def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> di
     model_text = str(model or "").lower()
     model_category = (
         "fixed_wing" if "fixed_wing" in model_text else
-        "vtol" if "vtol" in model_text or "tiltrotor" in model_text else
+        "vtol" if any(token in model_text for token in ("vtol", "tiltrotor", "tailsitter")) else
         "multirotor" if "multirotor" in model_text or "x500" in model_text else
         "unknown"
     )
@@ -372,6 +372,7 @@ def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> Airfr
         "rc_cessna_mono_cam": "rc_cessna_runway",
         "advanced_plane_mono_cam": "advanced_plane",
         "quadtailsitter_mono_cam": "quadtailsitter",
+        "delta_tailsitter_mono_cam": "delta_tailsitter",
         "tiltrotor_mono_cam": "tiltrotor",
         "standard_vtol_mono_cam": "standard_vtol",
     }
@@ -1869,10 +1870,22 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
         airspeed = float(airspeed) if airspeed is not None else None
     except (TypeError, ValueError):
         airspeed = None
+    gimbal = state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_manager = state.get("GIMBAL_MANAGER_STATUS")
+    # Keep raw status fields in episode telemetry.  PX4 versions expose either
+    # quaternion/device flags or manager angles; preserving both lets offline
+    # consumers reconstruct the actual joint state without assuming one dialect.
+    gimbal_status = None
+    if gimbal is not None or gimbal_manager is not None:
+        gimbal_status = {
+            "device": MavlinkReader._mapping(gimbal) if gimbal is not None else None,
+            "manager": MavlinkReader._mapping(gimbal_manager) if gimbal_manager is not None else None,
+        }
     return {
         "vtol_state": _field(extended, "vtol_state", None),
         "landed_state": _field(extended, "landed_state", None),
         "airspeed_mps": airspeed,
+        "gimbal_status": gimbal_status,
     }
 
 
@@ -3990,6 +4003,10 @@ def run_episode(
                         else None
                     ),
                     transition_after_takeoff=not hover_mission,
+                    # Fixed-wing/VTOL command durations follow PX4's lockstep
+                    # clock; a separate wall ceiling is enforced by callbacks
+                    # below so a stalled simulator still terminates.
+                    clock=_SimClock(mav_reader),
                 )
                 recorder.meta["airframe_profile"] = profile.to_mapping()
                 recorder.meta["vtol_hover_mission"] = hover_mission
@@ -4035,8 +4052,13 @@ def run_episode(
                             force_n=launch_applied["force_n"],
                             duration_s=launch_applied["duration_s"],
                         )
-                    deadline = time.monotonic() + timeout_s
-                    while time.monotonic() < deadline:
+                    state_clock = executor._clock
+                    started_wall = time.monotonic()
+                    started_sim = state_clock()
+                    # Allow very slow lockstep (the delta tailsitter measured
+                    # about 0.12x realtime) while retaining a finite fallback.
+                    wall_ceiling = max(180.0, float(timeout_s) * 10.0)
+                    while state_clock() - started_sim < timeout_s and time.monotonic() - started_wall < wall_ceiling:
                         mav_reader.raise_if_failed()
                         state = _flight_state_snapshot(mav_reader.state)
                         z = _state_position(mav_reader.state)[2]
