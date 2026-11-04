@@ -26,6 +26,8 @@ _SUBTYPES = frozenset(
 _TAKEOFF_METHODS = frozenset({"hand", "runway", "catapult", "vtol", "multirotor"})
 _LANDING_METHODS = frozenset({"runway", "belly", "parachute", "vtol", "multirotor"})
 _MOUNTS = frozenset({"forward", "downward", "gimbal"})
+_CAMERA_MOUNT_TYPES = frozenset({"fixed", "gimbal"})
+_CAMERA_AXES = frozenset({"pitch", "yaw", "roll"})
 _KNOWN_PX4_PARAMETERS = frozenset(
     {
         "FW_AIRSPD_MIN",
@@ -446,6 +448,84 @@ class CameraProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class CameraMountProfile:
+    """Selectable fixed/gimbal capability declared by an airframe profile."""
+
+    type: str = "fixed"
+    axes: tuple[str, ...] = ()
+    limits: Mapping[str, tuple[float, float]] = MappingProxyType({})
+    rates: Mapping[str, float] = MappingProxyType({})
+    default_mode: str = "follow-body"
+
+    def __post_init__(self) -> None:
+        if self.type not in _CAMERA_MOUNT_TYPES:
+            raise AirframeProfileError("camera_mount.type 必须是 fixed 或 gimbal")
+        axes = tuple(self.axes)
+        if len(set(axes)) != len(axes) or any(axis not in _CAMERA_AXES for axis in axes):
+            raise AirframeProfileError("camera_mount.axes 含有不支持的轴")
+        if self.type == "gimbal" and not axes:
+            raise AirframeProfileError("gimbal camera_mount.axes 不能为空")
+        normalized_limits: dict[str, tuple[float, float]] = {}
+        for axis, bounds in dict(self.limits).items():
+            if axis not in _CAMERA_AXES or not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+                raise AirframeProfileError("camera_mount.limits 必须按轴提供 [min,max]")
+            lower, upper = (_number(value, f"camera_mount.limits.{axis}[]") for value in bounds)
+            if lower > upper:
+                raise AirframeProfileError(f"camera_mount.limits.{axis} 反向")
+            normalized_limits[axis] = (lower, upper)
+        normalized_rates: dict[str, float] = {}
+        for axis, rate in dict(self.rates).items():
+            if axis not in _CAMERA_AXES:
+                raise AirframeProfileError("camera_mount.rates 含有不支持的轴")
+            normalized_rates[axis] = _number(rate, f"camera_mount.rates.{axis}", positive=True)
+        if not isinstance(self.default_mode, str) or not self.default_mode.strip():
+            raise AirframeProfileError("camera_mount.default_mode 必须是非空字符串")
+        allowed_modes = {"follow-body", "lock-horizon", "follow-yaw"}
+        if self.default_mode not in allowed_modes:
+            raise AirframeProfileError("camera_mount.default_mode 不受支持")
+        if self.type == "fixed" and self.default_mode != "follow-body":
+            raise AirframeProfileError("fixed camera_mount 必须使用 follow-body")
+        object.__setattr__(self, "axes", axes)
+        object.__setattr__(self, "limits", MappingProxyType(normalized_limits))
+        object.__setattr__(self, "rates", MappingProxyType(normalized_rates))
+
+    @classmethod
+    def from_mapping(cls, raw: Any) -> CameraMountProfile:
+        value = _strict_mapping(raw, "camera_mount", {"type", "axes", "limits", "rates", "default_mode"}, set())
+        if not isinstance(value["axes"], (list, tuple)):
+            raise AirframeProfileError("camera_mount.axes 必须是数组")
+        return cls(value["type"], tuple(value["axes"]), value["limits"], value["rates"], value["default_mode"])
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "axes": list(self.axes),
+            "limits": {axis: list(bounds) for axis, bounds in self.limits.items()},
+            "rates": dict(self.rates),
+            "default_mode": self.default_mode,
+        }
+
+    def to_camera_mount(self) -> Any:
+        from multidetect.camera_mount import CameraMount, GimbalLimits
+
+        if self.type == "fixed":
+            return CameraMount.fixed()
+        limits = self.limits
+        return CameraMount.gimbal(
+            limits=GimbalLimits(
+                pitch_min_rad=limits.get("pitch", (-math.pi, math.pi))[0],
+                pitch_max_rad=limits.get("pitch", (-math.pi, math.pi))[1],
+                yaw_min_rad=limits.get("yaw", (-math.pi, math.pi))[0],
+                yaw_max_rad=limits.get("yaw", (-math.pi, math.pi))[1],
+                roll_min_rad=limits.get("roll", (-math.pi, math.pi))[0],
+                roll_max_rad=limits.get("roll", (-math.pi, math.pi))[1],
+            ),
+            rate_rad_s=self.rates.get("pitch") or self.rates.get("yaw"),
+            stabilization=self.default_mode,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class EnduranceProfile:
     battery_wh: float
     reserve_fraction: float
@@ -553,6 +633,7 @@ class AirframeProfile:
     camera: CameraProfile
     endurance: EnduranceProfile
     limits: LimitsProfile
+    camera_mount: CameraMountProfile | None = None
     min_turn_radius_m: float | None = None
     transition: TransitionProfile | None = None
     loiter_radius_override_m: float | None = None
@@ -697,6 +778,7 @@ class AirframeProfile:
             "loiter_radius_override_m",
             "notes",
             "provenance",
+            "camera_mount",
         }
         value = _strict_mapping(raw, "AirframeProfile", required, optional)
         raw_hover_modes = value["hover_modes"]
@@ -722,6 +804,11 @@ class AirframeProfile:
             takeoff=TakeoffProfile.from_mapping(value["takeoff"]),
             landing=LandingProfile.from_mapping(value["landing"]),
             camera=CameraProfile.from_mapping(value["camera"]),
+            camera_mount=(
+                CameraMountProfile.from_mapping(value["camera_mount"])
+                if "camera_mount" in value
+                else None
+            ),
             endurance=EnduranceProfile.from_mapping(value["endurance"]),
             limits=LimitsProfile.from_mapping(value["limits"]),
             min_turn_radius_m=value.get("min_turn_radius_m"),
@@ -763,6 +850,8 @@ class AirframeProfile:
         }
         if self.transition is not None:
             result["transition"] = self.transition.to_mapping()
+        if self.camera_mount is not None:
+            result["camera_mount"] = self.camera_mount.to_mapping()
         if self.loiter_radius_override_m is not None:
             result["loiter_radius_override_m"] = self.loiter_radius_override_m
         if self.notes:
@@ -827,6 +916,7 @@ def save_airframe_profile(profile: AirframeProfile, path: str | Path) -> None:
 __all__ = [
     "AirframeProfile",
     "AirframeProfileError",
+    "CameraMountProfile",
     "CameraProfile",
     "EnduranceProfile",
     "LandingProfile",

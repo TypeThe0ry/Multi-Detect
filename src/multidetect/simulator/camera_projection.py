@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from multidetect.autonomy.ground_model import GroundModel
+from multidetect.camera_mount import CameraMount, compose_camera_pose
 
 CAMERA_MOUNT_X_M = 0.18
 CAMERA_MOUNT_Z_DOWN_M = 0.12
@@ -127,12 +128,23 @@ def _body_to_world_ned(
     return cy * x2 - sy * y1, sy * x2 + cy * y1, z2
 
 
-def camera_center_ned_up(pose: Mapping[str, Any]) -> tuple[float, float, float] | None:
+def camera_center_ned_up(
+    pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None
+) -> tuple[float, float, float] | None:
     """Return camera centre as ``(north_m, east_m, up_m)`` for a recorded pose."""
     values = _pose_values(pose)
     if values is None:
         return None
     north, east, down, roll_deg, pitch_deg, yaw_deg = values
+    if camera_mount is not None:
+        composed = compose_camera_pose(
+            (north, east, down),
+            vehicle_roll_rad=math.radians(roll_deg),
+            vehicle_pitch_rad=math.radians(pitch_deg),
+            vehicle_yaw_rad=math.radians(yaw_deg),
+            mount=camera_mount,
+        )
+        return composed.center_ned[0], composed.center_ned[1], -composed.center_ned[2]
     roll, pitch, yaw = (math.radians(value) for value in (roll_deg, pitch_deg, yaw_deg))
     mount_world = _body_to_world_ned(
         (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M),
@@ -151,16 +163,30 @@ def _pixel_camera_ray_raw(
     camera_info: Mapping[str, Any] | None,
     image_size: tuple[int, int],
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+    camera_mount: CameraMount | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Shared inverse projection; retain the legacy unnormalized ground ray."""
     values = _pose_values(pose)
-    centre = camera_center_ned_up(pose)
+    centre = camera_center_ned_up(pose, camera_mount=camera_mount)
     if values is None or centre is None:
         return None
     _, _, _, roll_deg, pitch_deg, yaw_deg = values
     fx, fy, cx, cy = _intrinsics(camera_info, image_size)
     # Optical frame of _body_to_camera_optical: +X forward, +Y right, +Z down.
     x, y, z = 1.0, (u - cx) / fx, (v - cy) / fy
+    if camera_mount is not None:
+        composed = compose_camera_pose(
+            (values[0], values[1], values[2]),
+            vehicle_roll_rad=math.radians(values[3]),
+            vehicle_pitch_rad=math.radians(values[4]),
+            vehicle_yaw_rad=math.radians(values[5]),
+            mount=camera_mount,
+        )
+        optical_to_world = composed.optical_to_world
+        north = optical_to_world[0] * x + optical_to_world[1] * y + optical_to_world[2] * z
+        east = optical_to_world[3] * x + optical_to_world[4] * y + optical_to_world[5] * z
+        down = optical_to_world[6] * x + optical_to_world[7] * y + optical_to_world[8] * z
+        return centre, (north, east, down)
     cp, sp = math.cos(camera_pitch_rad), math.sin(camera_pitch_rad)
     body = (cp * x - sp * z, y, sp * x + cp * z)
     north, east, down = _body_to_world_ned(
@@ -180,6 +206,7 @@ def pixel_camera_ray(
     camera_info: Mapping[str, Any] | None,
     image_size: tuple[int, int],
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+    camera_mount: CameraMount | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Return the camera centre and unit pixel ray, both in true N/E/down.
 
@@ -188,7 +215,7 @@ def pixel_camera_ray(
     """
     result = _pixel_camera_ray_raw(
         u, v, pose=pose, camera_info=camera_info, image_size=image_size,
-        camera_pitch_rad=camera_pitch_rad,
+        camera_pitch_rad=camera_pitch_rad, camera_mount=camera_mount,
     )
     if result is None:
         return None
@@ -209,11 +236,12 @@ def pixel_ground_point(
     ground_up_m: float = 0.0,
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     ground_model: GroundModel | None = None,
+    camera_mount: CameraMount | None = None,
 ) -> tuple[float, float] | None:
     """Invert ``project_target_bbox`` on a surface, preserving legacy arithmetic."""
     result = _pixel_camera_ray_raw(
         u, v, pose=pose, camera_info=camera_info, image_size=image_size,
-        camera_pitch_rad=camera_pitch_rad,
+        camera_pitch_rad=camera_pitch_rad, camera_mount=camera_mount,
     )
     if result is None:
         return None
@@ -331,6 +359,7 @@ def project_target_bbox(
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     target_yaw_rad: float = 0.0,
     target_bottom_offset_m: float | None = None,
+    camera_mount: CameraMount | None = None,
 ) -> tuple[float, float, float, float] | None:
     """Project an upright SDF box and return clipped pixel ``(x1,y1,x2,y2)``.
 
@@ -365,9 +394,17 @@ def project_target_bbox(
         if bottom_offset is None:
             return None
         centre_up = float(target_up) + bottom_offset + sz / 2.0
-    relative_up = centre_up + p_down
     roll, pitch, yaw = (math.radians(value) for value in (roll_deg, pitch_deg, yaw_deg))
     fx, fy, cx, cy = _intrinsics(camera_info, image_size)
+    composed = None
+    if camera_mount is not None:
+        composed = compose_camera_pose(
+            (pn, pe, p_down),
+            vehicle_roll_rad=roll,
+            vehicle_pitch_rad=pitch,
+            vehicle_yaw_rad=yaw,
+            mount=camera_mount,
+        )
     corners: list[tuple[float, float]] = []
     cos_target, sin_target = math.cos(target_yaw_rad), math.sin(target_yaw_rad)
     for dx in (-sx / 2.0, sx / 2.0):
@@ -376,15 +413,43 @@ def project_target_bbox(
                 # Generated SDF target x is east and y is north.
                 offset_east = cos_target * dx - sin_target * dy
                 offset_north = sin_target * dx + cos_target * dy
-                vector_ned = (
-                    float(target_north) + offset_north - pn,
-                    float(target_east) + offset_east - pe,
-                    -relative_up - dz,
+                world_point = (
+                    float(target_north) + offset_north,
+                    float(target_east) + offset_east,
+                    -(centre_up + dz),
                 )
-                body = _world_to_body_ned(vector_ned, roll_rad=roll, pitch_rad=pitch, yaw_rad=yaw)
-                cam_x, cam_y, cam_z = _body_to_camera_optical(
-                    body, mount_pitch_rad=camera_pitch_rad
-                )
+                if composed is None:
+                    vector_ned = (
+                        world_point[0] - pn,
+                        world_point[1] - pe,
+                        world_point[2] - p_down,
+                    )
+                    body = _world_to_body_ned(
+                        vector_ned, roll_rad=roll, pitch_rad=pitch, yaw_rad=yaw
+                    )
+                    cam_x, cam_y, cam_z = _body_to_camera_optical(
+                        body, mount_pitch_rad=camera_pitch_rad
+                    )
+                else:
+                    vector_ned = tuple(
+                        world_point[index] - composed.center_ned[index] for index in range(3)
+                    )
+                    optical_to_world = composed.optical_to_world
+                    cam_x = (
+                        optical_to_world[0] * vector_ned[0]
+                        + optical_to_world[3] * vector_ned[1]
+                        + optical_to_world[6] * vector_ned[2]
+                    )
+                    cam_y = (
+                        optical_to_world[1] * vector_ned[0]
+                        + optical_to_world[4] * vector_ned[1]
+                        + optical_to_world[7] * vector_ned[2]
+                    )
+                    cam_z = (
+                        optical_to_world[2] * vector_ned[0]
+                        + optical_to_world[5] * vector_ned[1]
+                        + optical_to_world[8] * vector_ned[2]
+                    )
                 if cam_x <= 1e-6:
                     continue
                 corners.append((cx + fx * cam_y / cam_x, cy + fy * cam_z / cam_x))

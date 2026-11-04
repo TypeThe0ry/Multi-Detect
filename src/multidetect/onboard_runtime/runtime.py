@@ -928,6 +928,25 @@ class OnboardRuntime:
             if self._result:
                 action, _labels, source_state = self._result
                 self._result = None
+                if (
+                    isinstance(_labels, dict)
+                    and isinstance(_labels.get("gimbal_command"), dict)
+                    and not _labels.get("gimbal_dispatched")
+                ):
+                    sender = getattr(self.vehicle, "send_gimbal_pitch_yaw", None)
+                    if not callable(sender):
+                        self._latch("gimbal_controller_unavailable", now)
+                        return
+                    try:
+                        sender(
+                            float(_labels["gimbal_command"]["pitch_down_rad"]),
+                            float(_labels["gimbal_command"]["yaw_world_rad"]),
+                            mode=str(_labels["gimbal_command"].get("mode", "lock-horizon")),
+                            vehicle_yaw_rad=math.radians(source_state.attitude_deg[2]),
+                        )
+                    except Exception as exc:
+                        self._latch(f"gimbal_command_error: {exc}", now)
+                        return
                 if isinstance(action, MotionCommand):
                     if action.rejected:
                         self._latch(action.reason or "motion command rejected", now)

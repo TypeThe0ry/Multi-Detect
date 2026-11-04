@@ -32,6 +32,8 @@ from multidetect.autonomy.mission_plan import (
 )
 from multidetect.autonomy.motion_intent import AirframeMotionAdapter, MotionCommand
 from multidetect.autonomy.obstacle_source import ObstacleSource
+from multidetect.camera_mount import CameraMount
+from multidetect.gimbal_controller import GimbalController
 from multidetect.autonomy.onboard_loop import (
     Detection,
     OnboardLoop,
@@ -415,6 +417,8 @@ class MissionExecutor:
         package: Any | None = None,
         obstacle_source: ObstacleSource | None = None,
         airframe_adapter: AirframeMotionAdapter | None = None,
+        camera_mount: CameraMount | None = None,
+        gimbal_controller: GimbalController | None = None,
     ) -> None:
         # Validate the contract here; execution gates fail the step through on_fail.
         self.plan = (
@@ -429,6 +433,18 @@ class MissionExecutor:
         self.refs = dict(refs or {})
         self.config = config or ExecutorConfig()
         self.airframe_adapter = airframe_adapter
+        self.camera_mount = camera_mount or getattr(gimbal_controller, "mount", None)
+        if self.camera_mount is None and airframe_adapter is not None:
+            profile_mount = getattr(airframe_adapter.profile, "camera_mount", None)
+            if profile_mount is not None:
+                self.camera_mount = profile_mount.to_camera_mount()
+        if gimbal_controller is not None and self.camera_mount is not None and gimbal_controller.mount.kind != self.camera_mount.kind:
+            raise ValueError("gimbal_controller requires a gimbal camera_mount")
+        self.gimbal_controller = (
+            gimbal_controller
+            if self.camera_mount is not None and self.camera_mount.kind == "gimbal"
+            else None
+        )
         self.task_text = task_text
         package = mission_package if mission_package is not None else package
         self._package_backed = package is not None
@@ -1195,6 +1211,11 @@ class MissionExecutor:
             if result is None:
                 continue  # the step finished without moving; start the next one now
             action, info = result
+            gimbal_command = self._command_gimbal(run, pose_ned, yaw_deg)
+            if gimbal_command is not None:
+                info["gimbal_command"] = gimbal_command
+                if self.gimbal_controller is not None:
+                    info["gimbal_dispatched"] = True
             if action.kind == "translate" and self._translate_enters_no_fly(
                 pose_ned, yaw_deg, action
             ):
@@ -1236,6 +1257,49 @@ class MissionExecutor:
                     info["safety"] = safety
             return action, info
         return ActionPrimitive.hold(self.config.hold_s), {"mission": "stalled"}
+
+    def _command_gimbal(self, run: _StepRun, pose: Pose, yaw_deg: float) -> dict[str, float | str] | None:
+        """Aim the configured gimbal in world coordinates for the active skill."""
+        controller = self.gimbal_controller
+        mount = self.camera_mount
+        if mount is None or mount.kind != "gimbal":
+            return None
+        step = run.step
+        target: tuple[float, float] | None = None
+        if step.skill == "inspect":
+            target = run.centre_ne or self.resolve(str(step.params.get("target_ref", "")))
+        elif step.skill == "follow":
+            track = next((item for item in self._current if item.track_id == run.follow_track_id), None)
+            target = track.ground if track is not None else run.follow_last_position
+        elif step.skill in {"area_search", "count", "patrol", "monitor"}:
+            track = next((item for item in self._current if item.ground is not None), None)
+            target = track.ground if track is not None else None
+        if step.skill in {"survey", "count"}:
+            pitch_down = math.pi / 2.0
+            target_yaw = yaw_deg
+        elif target is not None:
+            dn, de = target[0] - pose[0], target[1] - pose[1]
+            distance = math.hypot(dn, de)
+            pitch_down = math.atan2(max(0.0, -pose[2]), max(distance, 1e-6))
+            target_yaw = math.degrees(math.atan2(de, dn))
+        else:
+            pitch_down = mount.pitch_rad
+            target_yaw = yaw_deg + math.degrees(mount.yaw_rad)
+        pitch_down = min(mount.limits.pitch_max_rad, max(mount.limits.pitch_min_rad, pitch_down))
+        yaw_world = math.radians(target_yaw)
+        command = {
+            "pitch_down_rad": float(pitch_down),
+            "yaw_world_rad": yaw_world,
+            "mode": mount.stabilization,
+        }
+        if controller is not None:
+            controller.command_pitch_yaw(
+                command["pitch_down_rad"],
+                math.radians(target_yaw),
+                mode=mount.stabilization,
+                vehicle_yaw_rad=math.radians(yaw_deg),
+            )
+        return command
 
     @staticmethod
     def _segment_circle_distance(
@@ -2271,7 +2335,7 @@ class MissionExecutor:
                 math.atan2(run.centre_ne[1] - pose[1], run.centre_ne[0] - pose[0])
             )
             delta = _wrap(bearing - yaw)
-            if abs(delta) > self.config.turn_tolerance_deg:
+            if (self.camera_mount is None or self.camera_mount.kind != "gimbal") and abs(delta) > self.config.turn_tolerance_deg:
                 return ActionPrimitive.turn(delta), {"view": run.view_index + 1, "phase": "face"}
             run.phase = "capture"
             return ActionPrimitive.hold(self.config.hold_s), {
