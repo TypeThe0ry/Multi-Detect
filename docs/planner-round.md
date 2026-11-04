@@ -632,3 +632,7 @@ python scripts/run_planner_round.py --stage all --out .tmp/r31 \
 ```
 
 先保护 r24 的通用 v3 分布，再做小规模验证：保留 1,500 条 r24 replay，把四族缩小为 120 条（`direct_follow` 40、`step_fidelity` 40、`terminal_intent` 20、`grounded_refs` 20），中英文各半；按 `record/inspect`、`monitor/hover`、`patrol/goto`、`land/return_home` 分层，并使用与 holdout 不同的句式模板。不要加入新的拒绝目标，继续由 host pregate/validator 处理 `query_ungrounded` 和未知引用；按 family×skill×language 分桶采样，避免短模板挤压多步骤 v3 数据。r24 热启动、1 epoch、学习率不高于 `2.5e-5`。评测除 v3/v4/v5 和 15 条 probe 外，必须补跑 follow suite 的 planner-only 检查，断言首步为 `follow` 且计划不含 `area_search`；若 v3 仍低于 0.80 或 probe 低于 15/15，停止替换尝试。
+
+### r31 结果（2026-11-04）
+
+r31（1,500 条 r24 回放 + 120 条四族样本，r24 热启动，学习率 2.5e-5，1 epoch）：planning-v3 0.688（r24 0.800），planning-v4 0.850（r24 0.900），返航探测 15/15（r24 15/15）。v3、v4 都比 r24 差，**不替换，继续使用 r24 + 主机预检**。r25–r31 连续七轮都没有超过 r24：在 r24 上继续做小规模针对性微调，会损伤 v3 的通用分布。规划训练暂停，后续改从数据规模、基座或评测口径入手，不再沿用“r24 热启动 + 少量补样”这条路线。
