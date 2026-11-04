@@ -7,11 +7,11 @@
       <pose relative_to="base_link">0.046 0 0.388 0 -0.349065850399 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>3.999999e-06</mass>
+        <mass>0.019</mass>
         <inertia>
-          <ixx>1e-09</ixx>
-          <iyy>1e-09</iyy>
-          <izz>1e-09</izz>
+          <ixx>2.102e-05</ixx>
+          <iyy>2.102e-05</iyy>
+          <izz>2.102e-05</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
@@ -41,11 +41,11 @@
       <pose relative_to="camera_link">0 0 0 0 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>1e-12</mass>
+        <mass>0.001</mass>
         <inertia>
-          <ixx>1e-12</ixx>
-          <iyy>1e-12</iyy>
-          <izz>1e-12</izz>
+          <ixx>1e-08</ixx>
+          <iyy>1e-08</iyy>
+          <izz>1e-08</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
@@ -80,11 +80,11 @@
       <pose relative_to="camera_link">0 0 0 0 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>1e-12</mass>
+        <mass>0.001</mass>
         <inertia>
-          <ixx>1e-12</ixx>
-          <iyy>1e-12</iyy>
-          <izz>1e-12</izz>
+          <ixx>1e-08</ixx>
+          <iyy>1e-08</iyy>
+          <izz>1e-08</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>

@@ -25,9 +25,19 @@ from multidetect.simulator.delta_tailsitter import (  # noqa: E402
 # 与 4018 相同：0/1 对角 CCW、2/3 对角 CW。元组为 CAD (x,z)。
 ROTORS = ((-600, -150), (600, 150), (600, -150), (-600, 150))
 CAMERA_POSE = "0.046 0 0.388 0 -0.3490658503988659 0"
-EPSILON_MASS = 1e-6
-GIMBAL_CHILD_MASS = 1e-12
-GIMBAL_MASS = 4 * EPSILON_MASS
+# Gazebo/DART becomes poorly conditioned when camera articulation links use the
+# former 1e-12 kg placeholders.  These are still conservative allocation
+# masses (the C11 shell itself is already included in ASSEMBLY_MASS_KG), but
+# have physical scale and safe inertias for the articulated solver.
+GIMBAL_MOUNT_MASS = 0.005
+GIMBAL_YAW_MASS = 0.002
+GIMBAL_ROLL_MASS = 0.002
+CAMERA_MASS = 0.010
+DEPTH_CAMERA_MASS = 0.001
+SEGMENTATION_CAMERA_MASS = 0.001
+GIMBAL_MASS = GIMBAL_MOUNT_MASS + GIMBAL_YAW_MASS + GIMBAL_ROLL_MASS + CAMERA_MASS + DEPTH_CAMERA_MASS
+GIMBAL_CHILD_INERTIA = (1e-8, 1e-8, 1e-8)
+CAMERA_INERTIA = (2.0e-5, 2.0e-5, 2.0e-5)
 PROP_MASS = 0.018
 PROP_RADIUS = 0.127
 PROP_INERTIA = (PROP_MASS * PROP_RADIUS**2 / 4,) * 2 + (PROP_MASS * PROP_RADIUS**2 / 2,)
@@ -121,9 +131,9 @@ def _gimbal(model, meshes: Path):
     """Add C11-mounted yaw/roll/pitch gimbal and RGB/depth camera."""
     mount = _element(model, "link", name="c11_mount_link")
     _element(mount, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
-    # Keep the fixed C11 shell massless here; the 4 mg articulation allocation
-    # is carried by camera_link and removed from the common dynamics body below.
-    _inertial(mount, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    # The C11 shell visual is already part of the assembly budget; these links
+    # carry explicit solver-safe articulation masses.
+    _inertial(mount, GIMBAL_MOUNT_MASS, (1e-6, 1e-6, 1e-6))
     fixed = _element(model, "joint", name="c11_mount_joint", type="fixed")
     _element(fixed, "parent", "base_link")
     _element(fixed, "child", "c11_mount_link")
@@ -133,21 +143,23 @@ def _gimbal(model, meshes: Path):
         _visual(mount, "c11_bbox_visual", (0, 0, 0), "box", {"size": "0.084 0.062 0.064"})
 
     yaw_link = _element(model, "link", name="c11_yaw_link")
-    _inertial(yaw_link, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    _element(yaw_link, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
+    _inertial(yaw_link, GIMBAL_YAW_MASS, GIMBAL_CHILD_INERTIA)
     _visual(yaw_link, "yaw_arm", (0, 0, -0.045), "box", {"size": "0.02 0.02 0.09"}, "0.12 0.12 0.12 1")
     _revolute_joint(model, "c11_yaw_joint", "c11_mount_link", "c11_yaw_link", "0 0 1", lower=-2 * math.pi, upper=2 * math.pi)
 
     roll_link = _element(model, "link", name="c11_roll_link")
-    _inertial(roll_link, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    _element(roll_link, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
+    _inertial(roll_link, GIMBAL_ROLL_MASS, GIMBAL_CHILD_INERTIA)
     _visual(roll_link, "roll_arm", (0, 0, -0.08), "box", {"size": "0.08 0.02 0.02"}, "0.12 0.12 0.12 1")
     _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "1 0 0", pose="0 0 -0.08 0 0 0", lower=-0.785398, upper=0.785398)
 
     camera = _element(model, "link", name="camera_link")
     _inertial(
         camera,
-        GIMBAL_MASS - 5 * GIMBAL_CHILD_MASS,
-        (1e-9, 1e-9, 1e-9),
-        position=(0.141421356237, 0.0, 0.084852813742),
+        CAMERA_MASS,
+        CAMERA_INERTIA,
+        position=(0, 0, 0),
     )
     _visual(camera, "camera_body", (-0.04, 0, -0.08), "box", {"size": "0.08 0.06 0.05"}, "0.08 0.08 0.08 1")
     _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 1 0", pose="-0.04 0 -0.08 0 0 0", lower=-2.35619, upper=0.7854, initial=-0.785398)
@@ -169,7 +181,7 @@ def _gimbal(model, meshes: Path):
     _element(clip, "far", 15000)
 
     depth = _element(model, "link", name="depth_camera_link")
-    _inertial(depth, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    _inertial(depth, DEPTH_CAMERA_MASS, GIMBAL_CHILD_INERTIA)
     _element(depth, "pose", "0 0 0 0 0 0", relative_to="camera_link")
     sensor = _element(depth, "sensor", name="depth_camera", type="depth_camera")
     _element(sensor, "gz_frame_id", "depth_camera_link")
@@ -227,7 +239,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     _element(include, "uri", "model://delta_tailsitter")
     mount = _element(wrapped_model, "link", name="c11_mount_link")
     _element(mount, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
-    _inertial(mount, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    _inertial(mount, GIMBAL_MOUNT_MASS, (1e-6, 1e-6, 1e-6))
     fixed = _element(wrapped_model, "joint", name="c11_mount_joint", type="fixed")
     _element(fixed, "parent", "base_link")
     _element(fixed, "child", "c11_mount_link")
@@ -268,7 +280,11 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     _element(include, "uri", "model://delta_tailsitter")
     camera = _element(fixed_model, "link", name="camera_link")
     _element(camera, "pose", _vector((*CAMERA_POSITION_M, 0, -0.3490658503988659, 0)), relative_to="base_link")
-    _inertial(camera, GIMBAL_MASS - GIMBAL_CHILD_MASS, (1e-9, 1e-9, 1e-9))
+    # The fixed wrapper carries the complete articulated payload allocation in
+    # one rigid link; this keeps the shared base model's mass/CG budget exact.
+    # Match the shared assembly inertia after replacing the old numeric
+    # placeholders with the wrapper's rigid payload link.
+    _inertial(camera, GIMBAL_MASS - DEPTH_CAMERA_MASS, (2.102e-5, 2.102e-5, 2.102e-5))
     sensor = _element(camera, "sensor", name="camera", type="camera")
     _element(sensor, "gz_frame_id", "camera_link")
     _element(sensor, "pose", "0 0 0 0 0 3.141592653589793")
@@ -286,7 +302,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     _element(clip, "far", 15000)
     depth = _element(fixed_model, "link", name="depth_camera_link")
     _element(depth, "pose", "0 0 0 0 0 0", relative_to="camera_link")
-    _inertial(depth, GIMBAL_CHILD_MASS, (1e-12, 1e-12, 1e-12))
+    _inertial(depth, DEPTH_CAMERA_MASS, GIMBAL_CHILD_INERTIA)
     sensor = _element(depth, "sensor", name="depth_camera", type="depth_camera")
     _element(sensor, "gz_frame_id", "depth_camera_link")
     _element(sensor, "pose", "0 0 0 0 0 0")
@@ -321,7 +337,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
         assert overlay_model is not None
         seg = _element(overlay_model, "link", name="segmentation_camera_link")
         _element(seg, "pose", "0 0 0 0 0 0", relative_to="camera_link")
-        _inertial(seg, 1e-12, (1e-12, 1e-12, 1e-12))
+        _inertial(seg, SEGMENTATION_CAMERA_MASS, GIMBAL_CHILD_INERTIA)
         sensor = _element(seg, "sensor", name="segmentation_camera", type="segmentation")
         _element(sensor, "gz_frame_id", "segmentation_camera_link")
         _element(sensor, "topic", "/multidetect/teacher/segmentation")
@@ -537,13 +553,20 @@ def generate(model_dir: Path) -> None:
             "    CAD mm -> base_link m: (-(z+9), x, 646-y)/1000；原点为报告 CG。\n"
             "    base_link 是 MC FLU；PX4 FRD=(x,-y,-z)，前飞时俯仰约 -90°。\n"
             "    整机质量 2.929 kg、CG 原点惯量 diag(0.431,0.097,0.373)。\n"
-            "    C11 与电子设备质量已经计入整机，包装传感器仅分配 1 mg 数值质量。"
+            "    C11 与电子设备质量已经计入整机，包装相机/云台质量由包装链节显式分配。"
         )
     )
     base = _element(model, "link", name="base_link")
     positions = [cad_to_base_m((x, 605, z)) for x, z in ROTORS]
     parts = [(PROP_MASS, p, PROP_INERTIA) for p in positions]
-    parts += [(GIMBAL_MASS, CAMERA_POSITION_M, (1e-9,) * 3)]
+    # The articulated camera allocation is carried by wrapper links and is
+    # removed from the common dynamics body so both variants retain the same
+    # 2.929 kg assembly mass and CG.
+    parts += [(GIMBAL_MOUNT_MASS, CAMERA_POSITION_M, (1e-6,) * 3)]
+    parts += [(GIMBAL_YAW_MASS, CAMERA_POSITION_M, GIMBAL_CHILD_INERTIA)]
+    parts += [(GIMBAL_ROLL_MASS, CAMERA_POSITION_M, GIMBAL_CHILD_INERTIA)]
+    parts += [(CAMERA_MASS, CAMERA_POSITION_M, CAMERA_INERTIA)]
+    parts += [(DEPTH_CAMERA_MASS, CAMERA_POSITION_M, GIMBAL_CHILD_INERTIA)]
     body_mass = ASSEMBLY_MASS_KG - sum(m for m, _, _ in parts)
     body_cg = tuple(-sum(m * p[i] for m, p, _ in parts) / body_mass for i in range(3))
     # 先从整机 CG 惯量扣除桨/传感器，再用平行轴定理移到主体自身 CG。

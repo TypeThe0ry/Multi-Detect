@@ -12,6 +12,7 @@ import argparse
 import gzip
 import json
 import math
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -446,7 +447,21 @@ def main(argv: list[str] | None = None) -> int:
     ]
     if plan["takeoff_method"] in {"hand", "catapult"}:
         command.extend(["--takeoff-method", plan["takeoff_method"]])
-    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    child: subprocess.Popen[str] | None = None
+
+    def _forward_termination(signum: int, _frame: object) -> None:
+        if child is not None and child.poll() is None:
+            child.send_signal(signum)
+
+    previous_term = signal.signal(signal.SIGTERM, _forward_termination)
+    previous_int = signal.signal(signal.SIGINT, _forward_termination)
+    try:
+        child = subprocess.Popen(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = child.communicate()
+        completed = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+    finally:
+        signal.signal(signal.SIGTERM, previous_term)
+        signal.signal(signal.SIGINT, previous_int)
     result = dict(plan)
     result["status"] = "pass" if completed.returncode == 0 else "fail"
     result["collector_returncode"] = completed.returncode

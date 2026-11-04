@@ -70,14 +70,14 @@ param set-default FW_YR_FF 0
 param set-default FW_YR_I 0
 # 15 m/s 估计阻力约 4 N（满推力 64.8 N 的 6%）；初值 10% 给差动配平余量。
 # 无舵面且 SM 仅 3.5%，零升力力矩未知，最终必须由 SITL/实测重新整定。
-param set-default FW_THR_TRIM 0.1
-param set-default FW_THR_MAX 0.85
+param set-default FW_THR_TRIM 0.35
+param set-default FW_THR_MAX 0.8
 param set-default FW_THR_MIN 0.05
 param set-default FW_R_LIM 35
-param set-default FW_T_CLMB_MAX 3
+param set-default FW_T_CLMB_MAX 6
 param set-default FW_T_HRATE_FF 0.5
-param set-default FW_T_SINK_MAX 2
-param set-default FW_T_SINK_MIN 1
+param set-default FW_T_SINK_MAX 3
+param set-default FW_T_SINK_MIN 1.6
 param set-default FW_AIRSPD_STALL 10
 param set-default FW_AIRSPD_MIN 12
 param set-default FW_AIRSPD_TRIM 15
@@ -93,6 +93,8 @@ param set-default MC_PITCHRATE_P 0.3
 param set-default VT_ARSP_TRANS 13
 param set-default VT_B_TRANS_DUR 5
 param set-default VT_FW_DIFTHR_EN 7
+param set-default VT_FW_DIFTHR_S_R 1
+param set-default VT_FW_DIFTHR_S_P 1
 param set-default VT_FW_DIFTHR_S_Y 1
 param set-default VT_F_TRANS_DUR 2.5
 param set-default VT_TRANS_TIMEOUT 20

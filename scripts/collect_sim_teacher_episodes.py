@@ -15,6 +15,7 @@ import json
 import math
 import os
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -78,6 +79,14 @@ from scripts.run_simulator_docker import (  # noqa: E402
     _split_gpu_list,
     build_docker_simulator_plan,
 )
+
+
+class _TerminationRequested(RuntimeError):
+    """Raised by the top-level signal bridge so lock/container finally blocks run."""
+
+
+def _raise_on_termination(signum: int, _frame: Any) -> None:
+    raise _TerminationRequested(f"terminated by signal {signum}")
 
 PINNED_IMAGE = (
     "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
@@ -4983,4 +4992,9 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Convert TERM/INT into an Exception.  The collector's existing exception
+    # cleanup then stops readers, removes its owned container, and the enclosing
+    # sitl_lock_context finally releases the global lease.
+    signal.signal(signal.SIGTERM, _raise_on_termination)
+    signal.signal(signal.SIGINT, _raise_on_termination)
     raise SystemExit(main())

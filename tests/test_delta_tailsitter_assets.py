@@ -19,6 +19,7 @@ from scripts import collect_sim_teacher_episodes as collector
 from scripts import run_simulator_docker as docker
 from scripts import smoke_airframe_flight as smoke
 from scripts.generate_delta_tailsitter_model import generate
+from scripts.check_delta_tailsitter_aero import aerodynamic_force, aerodynamic_force_moment, surfaces_from_sdf
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_DIR = ROOT / "simulation/gazebo/models/delta_tailsitter"
@@ -70,6 +71,7 @@ def test_complete_model_has_sensors_and_no_upstream_aircraft_dependency():
     assert not [joint for joint in model.findall("joint") if str(joint.get("name", "")).startswith("c11_")]
     assert model.find("joint[@name='airspeed_joint']/parent").text == "base_link"
     assert len(model.findall("joint[@type='revolute']")) == 4
+    assert all(not model.find(f"link[@name='rotor_{i}']/collision") for i in range(4))
     assert not model.findall(".//control_joint_rad_to_cl")
     for mesh in model.findall(".//mesh/uri"):
         assert (MODEL_DIR / mesh.text.removeprefix("model://delta_tailsitter/")).is_file()
@@ -130,6 +132,8 @@ def test_motor_geometry_directions_and_thrust_match_control_allocation():
     assert params["CA_SV_CS_COUNT"] == 0
     assert params["CA_AIRFRAME"] == 4 and params["VT_TYPE"] == 0
     assert params["VT_FW_DIFTHR_EN"] == 7
+    assert params["VT_FW_DIFTHR_S_R"] == params["VT_FW_DIFTHR_S_P"] == params["VT_FW_DIFTHR_S_Y"] == 1
+    assert params["FW_THR_TRIM"] == pytest.approx(0.35)
     assert params["THR_MDL_FAC"] == 1 and params["MPC_THR_HOVER"] == 0.44
     assert sorted(int(plugin.findtext("motorNumber")) for plugin in motors) == [0, 1, 2, 3]
     for motor in motors:
@@ -213,6 +217,31 @@ def test_aerodynamic_area_lift_slope_static_margin_and_parasitic_drag():
         assert cd == pytest.approx(0.032)
 
 
+def test_offline_aero_force_is_trimmed_bounded_and_finite():
+    surfaces = surfaces_from_sdf(MODEL_DIR / "model.sdf")
+    alpha = math.radians(7.4314663815)
+    lift, drag = aerodynamic_force(surfaces, 15.0, alpha)
+    force, moment = aerodynamic_force_moment(surfaces, 15.0, alpha)
+    assert lift == pytest.approx(2.929 * 9.80665, rel=0.06)
+    assert 6.0 <= lift / drag <= 8.0
+    assert all(math.isfinite(value) for value in (*force, *moment))
+    assert abs(moment[0]) < 1.0 and abs(moment[2]) < 1.0
+    assert aerodynamic_force(surfaces, 0.0, 10.0) == (0.0, 0.0)
+    stalled_lift, stalled_drag = aerodynamic_force(surfaces, 80.0, math.radians(89.0))
+    assert math.isfinite(stalled_lift) and math.isfinite(stalled_drag)
+    assert stalled_lift <= 0.5 * 1.15 * 80.0**2 * 0.607 * 0.8 * 1.01
+
+
+def test_articulated_payload_links_have_solver_safe_mass_and_inertia():
+    model = _model(GIMBAL_WRAPPER_DIR)
+    for name in ("c11_mount_link", "c11_yaw_link", "c11_roll_link", "camera_link", "depth_camera_link"):
+        link = model.find(f"link[@name='{name}']")
+        assert link is not None
+        assert float(link.findtext("inertial/mass")) >= 0.001
+        for field in ("ixx", "iyy", "izz"):
+            assert float(link.findtext(f"inertial/inertia/{field}")) >= 1e-8
+
+
 @pytest.mark.parametrize("directory", [WRAPPER_DIR, OVERLAY_DIR])
 def test_c11_camera_depth_and_projection_matrix_use_the_same_mount(directory):
     model = _model(WRAPPER_DIR)
@@ -277,8 +306,9 @@ def test_fixed_and_gimbal_variants_share_base_mass_calibration_and_airframe_para
     for wrapper in (fixed, gimbal):
         wrapper_mass = sum(float(link.findtext("inertial/mass", "0")) for link in wrapper.findall("link"))
         base_mass = sum(float(link.findtext("inertial/mass", "0")) for link in base.findall("link"))
-        assert base_mass == pytest.approx(2.928996, abs=1e-9)
-        assert base_mass + wrapper_mass == pytest.approx(2.929, abs=1e-5)
+        # Camera and gimbal payload mass is carried by the wrapper links and
+        # deducted from the shared dynamics body by the generator.
+        assert base_mass + wrapper_mass == pytest.approx(2.929, abs=1e-10)
     fixed_profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
     gimbal_profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
     assert fixed_profile.px4_autostart == 4050 and fixed_profile.camera.mount == "forward"

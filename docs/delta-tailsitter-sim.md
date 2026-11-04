@@ -28,8 +28,9 @@
   频率/名称保持上游约定，继续使用现有启动脚本中的 SIM 磁力计修补。
 - RGB、深度、里程计、可选分割相机维持现有链节名/传感器名和默认话题规则。
   `delta_tailsitter_mono_cam_seg` 和 `delta_tailsitter_gimbal_cam_seg` 按现有采集器 overlay 机制只读覆盖对应包装。
-  C11 的 100 g 已在整机预算内；包装传感器只分配 4 mg 的运动件占位质量并从底座扣除，
-  没有再次 include 会增加 50 g 的通用 mono_cam。4 mg 不代表云台实物质量，待 CAD/称重数据到位后应更新预算。
+  C11 的 100 g 已在整机预算内；包装相机/云台链节合计分配 20 g 并从底座扣除，
+  没有再次 include 会增加 50 g 的通用 mono_cam。20 g 是当前缺少 CAD/称重数据时的保守下限，
+  到位后应更新预算。
 - `scripts/run_sim_session.py` 和采集器均接受档案 ID 或 `_mono_cam` 别名。
   `derive_fixed_wing_scenario.py --airframe delta_tailsitter` 可为既有生成世界派生
   AI 场景；首次最小场景已附在 `configs/scenarios/airframes/delta_tailsitter_mono_cam_001.*`。
@@ -217,3 +218,30 @@ Gazebo 关节话题仍可用于离线校验实际关节角。
 离线测试检查 XML、相机矩阵、质量/CG/惯量正定、四点接触、总升力斜率/静稳定裕度、
 电机编号和机架几何、场景哈希、只读挂载及 STEP 转换。它们不能证明真实 Gazebo
 接触求解或闭环飞行稳定；本机未装 `gz` CLI，因此没有声称执行过 `gz sdf -k`。
+
+## 第四轮冒烟日志分析与修正
+
+对 `.tmp/smoke-delta-4/` 中 2026-11-04 的 ULog 和 MAVLink 全程记录做了离线解析。PX4
+在约 29.212 s 进入 `vehicle_vtol_status.vehicle_vtol_state=4`；空速约 11.4 m/s，
+30.0 s 已升到 21.1 m/s，31--50 s 维持约 23--32 m/s，而 TECS 的真空速目标约
+16.46 m/s。油门目标在 31 s 后降到 `FW_THR_MIN=0.05`，同时
+`control_allocator_status.thrust_setpoint_achieved=0`，未分配推力约 0.05--0.23，
+说明 PX4 已在减速但四电机总推力/差动分配受限，超速不是 TECS 主动加速造成的。
+
+记录中的机体速度方向与 `base_link +Z` 长时间接近反向，机体系相对风迎角从约
+−80° 到 ±180° 跳变；因此该段不是稳定的 15 m/s 平飞配平，不能用姿态俯仰角直接
+当作气动迎角。SDF 的中央面 `forward=+Z`、`upward=-X`，外翼 `upward` 的 ±Y
+符号成对对称，和本尾座坐标约定一致。离线检查在 15 m/s、7.43° 迎角时得到升力
+30.37 N、阻力 4.24 N、L/D=7.15；零速返回有限零力，失速/大迎角升力有上界。
+
+本轮将 4050 的 `FW_THR_TRIM` 调到 0.35，并补齐 `VT_FW_DIFTHR_S_R/P=1`，其余
+巡航速度档案仍为 10/12/15/19 m/s；该量级沿用镜像 4018 的无舵面 tailsitter 初值，
+最终配平仍需用户重新冒烟确认。云台、相机和深度/分割链节从 1e-12 kg 级占位改为
+0.001--0.010 kg、惯量不低于 1e-8 kg·m²；桨链节没有碰撞体。这样保持两个包装总质量
+2.929 kg、CG 和基准惯量不变，并降低 DART 在极端气动状态下数值发散的风险。
+
+采集器现在把 SIGTERM/SIGINT 转成异常，经过已有容器、遥测线程和
+`sitl_lock_context` 的清理路径；冒烟包装器只转发并等待自己创建的子进程。预期下一次
+FW 段应在过渡后逐步收敛到约 15 m/s，油门不长期贴最小值，迎角应是有限且连续的相对风
+估计；这仍不能替代真实 Gazebo 运行，尤其是差动推力俯仰配平和 LiftDrag 的大迎角模型
+尚未由飞行日志重新验证。
