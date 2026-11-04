@@ -246,6 +246,15 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
             wrapped_model.append(item)
     for item in camera_plugins:
         wrapped_model.append(item)
+    # PX4 的 gz 云台桥用 camera_link 上的 camera_imu 估计云台姿态并上报
+    # GIMBAL_DEVICE_ATTITUDE_STATUS；与上游 gimbal 模型一致，位姿与相机传感器相同。
+    camera_link = wrapped_model.find("link[@name='camera_link']")
+    camera_sensor = camera_link.find("sensor[@name='camera']")
+    imu = _element(camera_link, "sensor", name="camera_imu", type="imu")
+    _element(imu, "gz_frame_id", "camera_link")
+    _element(imu, "always_on", 1)
+    _element(imu, "update_rate", 250)
+    _element(imu, "pose", camera_sensor.findtext("pose"))
     _odometry_publisher(wrapped_model)
     ET.indent(wrapper, space="  ")
     gimbal_dir = model_dir.parent / "delta_tailsitter_gimbal_cam"
