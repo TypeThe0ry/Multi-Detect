@@ -87,6 +87,21 @@ def test_primitive_timeout_runs_on_the_given_clock_with_a_wall_bound() -> None:
     assert result.ack["wall_timeout"] is True
 
 
+def test_linux_primitive_clock_stall_bound_is_shorter_without_changing_windows() -> None:
+    from types import SimpleNamespace
+
+    from scripts import collect_sim_teacher_episodes as collector
+
+    assert collector.LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S == 45.0
+    assert collector.PRIMITIVE_MAX_WALL_S == 180.0
+    assert collector._primitive_max_wall_s("posix") == 45.0
+    assert collector._primitive_max_wall_s("nt") == 180.0
+    stalled = SimpleNamespace(ack={"wall_timeout": True})
+    with pytest.raises(TimeoutError, match="PX4 simulation clock stalled during primitive"):
+        collector._raise_if_px4_clock_stalled(stalled, 12, "posix")
+    collector._raise_if_px4_clock_stalled(stalled, 12, "nt")
+
+
 def test_slow_simulation_progress_is_not_cut_short_by_total_wall_budget() -> None:
     sim = {"t": 0.0}
     wall = {"t": 0.0}
