@@ -1878,6 +1878,28 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
 
 # Wall-clock bound on one primitive when it is timed on the simulation clock.
 PRIMITIVE_MAX_WALL_S = 180.0
+LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S = 45.0
+
+
+def _primitive_max_wall_s(platform_name: str | None = None) -> float:
+    """Bound continuous wall time without PX4 clock progress."""
+    platform_name = os.name if platform_name is None else platform_name
+    return (
+        PRIMITIVE_MAX_WALL_S
+        if platform_name == "nt"
+        else LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S
+    )
+
+
+def _raise_if_px4_clock_stalled(
+    result: Any, step: int, platform_name: str | None = None
+) -> None:
+    platform_name = os.name if platform_name is None else platform_name
+    if platform_name != "nt" and result.ack.get("wall_timeout"):
+        raise TimeoutError(
+            "PX4 simulation clock stalled during primitive; "
+            f"step={step}; wall_timeout_s={LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S:.0f}"
+        )
 
 
 class _SimClock:
@@ -3887,7 +3909,7 @@ def run_episode(
                     # simulation ran at 0.22x real time and a third of the 15 m legs
                     # hit the 20 s wall-clock timeout before settling.
                     clock=_SimClock(mav_reader),
-                    max_wall_s=PRIMITIVE_MAX_WALL_S,
+                    max_wall_s=_primitive_max_wall_s(),
                 )
             # Let PX4's commander settle and report healthy before arming.
             # The normal arm command does not bypass these checks.
@@ -4276,6 +4298,7 @@ def run_episode(
                 if execute_error:
                     raise execute_error[0]
                 result = result_box[0]
+                _raise_if_px4_clock_stalled(result, index)
                 timing["command_and_primitive_wait_ms"] = round(
                     (time.perf_counter_ns() - primitive_started_ns) / 1e6, 3
                 )
