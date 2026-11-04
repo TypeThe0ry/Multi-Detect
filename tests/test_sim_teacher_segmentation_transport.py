@@ -154,6 +154,12 @@ def test_collector_overlay_and_channel_are_opt_in(tmp_path, monkeypatch):
     )
     assert "model-overlays" in command[command.index("--mount") + 1]
     assert "--segmentation" in collector._camera_stream_command(enabled, environment)
+    command = collector._camera_stream_command(
+        replace(enabled, airframe="x500_gimbal"), environment
+    )
+    assert command[command.index("--segmentation-topic") + 1] == (
+        "/multidetect/teacher/segmentation/labels_map"
+    )
 
 
 def test_gimbal_segmentation_overlay_targets_image_model_root(tmp_path):

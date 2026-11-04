@@ -419,10 +419,39 @@ def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
     return name if name.endswith("_0") else name + "_0"
 
 
+_DEFAULT_CAMERA_SENSOR_LINKS = {"rgb": "camera_link", "depth": "depth_camera_link"}
+_CAMERA_SENSOR_LINKS = {
+    "x500_gimbal": {"rgb": "camera_link", "depth": "depth_camera_link"},
+}
+
+
+def _camera_sensor_topics(*, world: str, model: str, airframe: str) -> dict[str, str]:
+    """Derive the scoped topics from the merged model sensor structure.
+
+    The gimbal overlay merges ``model://gimbal`` into the x500 composite, so
+    its camera links remain direct children of the spawned model.  Keeping the
+    link and sensor names in one mapping prevents the collector and frame
+    server contract from drifting apart when a model composition changes.
+    """
+    normalized = str(airframe).strip().lower().replace("-", "_")
+    links = _CAMERA_SENSOR_LINKS.get(normalized, _DEFAULT_CAMERA_SENSOR_LINKS)
+    camera_link = links["rgb"]
+    depth_link = links["depth"]
+    model_prefix = f"/world/{world}/model/{model}"
+    rgb_prefix = f"{model_prefix}/link/{camera_link}/sensor/camera"
+    depth_prefix = f"{model_prefix}/link/{depth_link}/sensor/depth_camera"
+    return {
+        "image": f"{rgb_prefix}/image",
+        "camera_info": f"{rgb_prefix}/camera_info",
+        "depth_image": f"{depth_prefix}/depth_image",
+        "depth_camera_info": f"{depth_prefix}/camera_info",
+        "segmentation": "/multidetect/teacher/segmentation/labels_map",
+    }
+
+
 def _rgb_camera_topics(*, world: str, model: str, airframe: str) -> tuple[str, str]:
-    camera_link = "camera_link"
-    prefix = f"/world/{world}/model/{model}/link/{camera_link}/sensor/camera"
-    return f"{prefix}/image", f"{prefix}/camera_info"
+    topics = _camera_sensor_topics(world=world, model=model, airframe=airframe)
+    return topics["image"], topics["camera_info"]
 
 
 def _frame_age_limit_s(airframe: str) -> float:
@@ -782,12 +811,11 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
             ),
         ]
     )
+    sensor_topics = _camera_sensor_topics(world=world, model=model, airframe=plan.airframe)
     if plan.segmentation:
-        command.extend(["--segmentation"])
+        command.extend(["--segmentation", "--segmentation-topic", sensor_topics["segmentation"]])
     if depth is not None:
-        depth_topic = (
-            f"/world/{world}/model/{model}/link/depth_camera_link/sensor/depth_camera/depth_image"
-        )
+        depth_topic = sensor_topics["depth_image"]
         depth_document = {
             "sensor_id": depth.get("sensor_id", "downward-depth"),
             "source_topic": depth_topic,
