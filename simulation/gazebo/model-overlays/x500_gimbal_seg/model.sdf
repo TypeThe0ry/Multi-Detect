@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdf version="1.9">
+  <!--
+    Repository-owned composition for PX4's x500_gimbal model.
+
+    The upstream x500_gimbal composition is expanded here from its two PX4
+    components so this overlay can shadow the same model name without a
+    recursive model://x500_gimbal include.  Keep the segmentation sensor on
+    the gimbal camera link so its labels follow the gimbal rather than the
+    vehicle body.
+  -->
+  <model name="x500_gimbal">
+    <include merge="true">
+      <uri>model://x500</uri>
+    </include>
+    <include merge="true">
+      <uri>model://gimbal</uri>
+      <pose>0 0 0.26 0 0 3.14</pose>
+    </include>
+    <joint name="GimbalAttachJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>cgo3_mount_link</child>
+    </joint>
+    <link name="depth_camera_link">
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+      <inertial>
+        <mass>0.000001</mass>
+        <inertia>
+          <ixx>0.000000001</ixx>
+          <iyy>0.000000001</iyy>
+          <izz>0.000000001</izz>
+        </inertia>
+      </inertial>
+      <sensor name="depth_camera" type="depth_camera">
+        <gz_frame_id>depth_camera_link</gz_frame_id>
+        <pose>-0.0412 0 -0.162 0 0 3.14</pose>
+        <camera>
+          <horizontal_fov>2.0</horizontal_fov>
+          <image>
+            <width>1280</width>
+            <height>720</height>
+            <format>R_FLOAT32</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>15000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>true</visualize>
+      </sensor>
+      <gravity>false</gravity>
+      <velocity_decay />
+    </link>
+    <joint name="DepthCameraJoint" type="fixed">
+      <parent>camera_link</parent>
+      <child>depth_camera_link</child>
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+    </joint>
+    <link name="segmentation_camera_link">
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+      <inertial>
+        <mass>0.000001</mass>
+        <inertia>
+          <ixx>0.000000001</ixx>
+          <iyy>0.000000001</iyy>
+          <izz>0.000000001</izz>
+        </inertia>
+      </inertial>
+      <sensor name="segmentation_camera" type="segmentation">
+        <gz_frame_id>segmentation_camera_link</gz_frame_id>
+        <topic>/multidetect/teacher/segmentation</topic>
+        <pose>-0.0412 0 -0.162 0 0 3.14</pose>
+        <camera>
+          <segmentation_type>instance</segmentation_type>
+          <horizontal_fov>2.0</horizontal_fov>
+          <image>
+            <width>1280</width>
+            <height>720</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>15000</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>false</visualize>
+      </sensor>
+      <gravity>false</gravity>
+      <velocity_decay />
+    </link>
+    <joint name="SegmentationCameraJoint" type="fixed">
+      <parent>camera_link</parent>
+      <child>segmentation_camera_link</child>
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+    </joint>
+  </model>
+</sdf>
