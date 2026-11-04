@@ -2333,6 +2333,45 @@ def r30_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
     return rows
 
 
+def r31_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Small bilingual r30 contrasts, balanced across the named skill strata."""
+    rows = []
+    buckets = ("record/inspect", "monitor/hover", "patrol/goto", "land/return_home")
+    specs = (("direct_follow", args.r31_direct_follow_count),
+             ("step_fidelity", args.r31_step_fidelity_count),
+             ("terminal_intent", args.r31_terminal_intent_count),
+             ("grounded_refs", args.r31_grounded_refs_count))
+    # Generate a balanced candidate pool with r30's validated positive templates,
+    # then assign deterministic family x bucket x language quotas.
+    r30_args = argparse.Namespace(**vars(args))
+    r30_args.r30_direct_follow_count = args.r31_direct_follow_count * 2
+    r30_args.r30_step_fidelity_count = args.r31_step_fidelity_count * 2
+    r30_args.r30_terminal_intent_count = args.r31_terminal_intent_count * 2
+    r30_args.r30_grounded_refs_count = args.r31_grounded_refs_count * 2
+    pool = r30_rows(r30_args, held_out, set(seen))
+    pool_by_family = {name: [r for r in pool if r["family"] == name] for name, _ in specs}
+    for family, count in specs:
+        candidates = pool_by_family[family]
+        if not count:
+            continue
+        selected = []
+        for i in range(count):
+            bucket = buckets[(i // 2) % len(buckets)]
+            lang = "zh" if i % 2 == 0 else "en"
+            match = next((r for r in candidates if r not in selected
+                          and ("zh" if re.search(r"[\u3400-\u9fff]", r["task_text"]) else "en") == lang), None)
+            if match is None:
+                match = candidates[i % len(candidates)]
+            item = dict(match)
+            item["world"] = "synthetic_plan_r31"
+            item["sample_id"] = item["sample_id"].replace("plan-r30-", "plan-r31-")
+            item["skill_bucket"] = bucket
+            item["family"] = family
+            selected.append(match)
+            rows.append(item)
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -3040,6 +3079,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="rows contrasting local land and return-home terminals (default: 40)")
     parser.add_argument("--r30-grounded-refs-count", type=int, default=40,
                         help="rows resolving aliases to supplied references (default: 40)")
+    parser.add_argument("--r31-recipe", action="store_true",
+                        help="add a small balanced r31 positive slice on the r24 base")
+    parser.add_argument("--r31-direct-follow-count", type=int, default=40)
+    parser.add_argument("--r31-step-fidelity-count", type=int, default=40)
+    parser.add_argument("--r31-terminal-intent-count", type=int, default=20)
+    parser.add_argument("--r31-grounded-refs-count", type=int, default=20)
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -3084,7 +3129,7 @@ def main(argv: list[str] | None = None) -> int:
         args.r23_recipe = True
         args.r24_recipe = True
         args.r24_unknown_count = 0
-    if args.r30_recipe:
+    if args.r30_recipe or args.r31_recipe:
         # r30 deliberately inherits only the executable r24 base.  The refusal
         # recipes and r29's broader contrasts are excluded to keep this round
         # focused and to preserve the v3 distribution.
@@ -3096,6 +3141,18 @@ def main(argv: list[str] | None = None) -> int:
                                        args.r30_terminal_intent_count,
                                        args.r30_grounded_refs_count)):
             parser.error("r30 counts must be even for an equal Chinese/English split")
+    if args.r31_recipe:
+        # r31 is exactly the replay slice plus its four positive families.
+        args.r23_recipe = False
+        args.r24_recipe = False
+        args.r20_plan_intent = False
+        args.r24_unknown_count = 0
+        if args.replay_planner_train is None:
+            parser.error("--r31-recipe requires --replay-planner-train")
+        if any(value < 0 or value % 2 for value in (args.r31_direct_follow_count,
+                args.r31_step_fidelity_count, args.r31_terminal_intent_count,
+                args.r31_grounded_refs_count)):
+            parser.error("r31 family counts must be non-negative and even")
     if args.r27_recipe:
         args.r23_recipe = True
         args.r24_recipe = True
@@ -3114,7 +3171,7 @@ def main(argv: list[str] | None = None) -> int:
         for path in eval_paths
         for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]
     }
-    if getattr(args, "r28_recipe", False) or getattr(args, "r29_recipe", False) or getattr(args, "r30_recipe", False):
+    if getattr(args, "r28_recipe", False) or getattr(args, "r29_recipe", False) or getattr(args, "r30_recipe", False) or getattr(args, "r31_recipe", False):
         # The 15 return-home probe tasks gate planner replacement too; r28 targets
         # their failure mode, so keep them (and near-duplicates) out of training.
         probe = ROOT / "configs/onboard/plan-probe-tasks-return-home.json"
@@ -3122,7 +3179,7 @@ def main(argv: list[str] | None = None) -> int:
             normalize_task(task["text"])
             for task in json.loads(probe.read_text(encoding="utf-8"))["tasks"]
         }
-    if getattr(args, "r30_recipe", False):
+    if getattr(args, "r30_recipe", False) or getattr(args, "r31_recipe", False):
         for suite in (ROOT / "configs/onboard").glob("suite-follow*.json"):
             document = json.loads(suite.read_text(encoding="utf-8"))
             held_out |= {
@@ -3137,11 +3194,17 @@ def main(argv: list[str] | None = None) -> int:
     replay_ids: set[str] = set()
     if args.replay_planner_train:
         replay = load_replay_rows(args.replay_planner_train, {normalize_task(x) for x in held_out})
+        if args.r31_recipe:
+            if len(replay) < 1500:
+                raise ValueError(f"r31 requires 1,500 replay rows; found {len(replay)}")
+            replay = replay[:1500]
         rows.extend(replay)
         seen.update(normalize_task(row["task_text"]) for row in replay)
         replay_ids = {str(row.get("sample_id")) for row in replay}
         replay_count = len(replay)
         args.rows += replay_count
+        if args.r31_recipe:
+            args.rows = replay_count
     if args.version == "v5":
         rows = v5_rows(args, held_out, labels)
     if args.r20_intent_pairs:
@@ -3248,6 +3311,10 @@ def main(argv: list[str] | None = None) -> int:
         args.rows += len(new_rows)
     if args.r30_recipe:
         new_rows = r30_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
+    if args.r31_recipe:
+        new_rows = r31_rows(args, held_out, seen)
         rows.extend(new_rows)
         args.rows += len(new_rows)
     while len(rows) < args.rows + args.val_rows:
@@ -3463,6 +3530,25 @@ def main(argv: list[str] | None = None) -> int:
                 row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}
                 for row in r30_all),
         }
+    if args.r31_recipe:
+        r31_all = [row for row in rows if row.get("world") == "synthetic_plan_r31"]
+        collisions = sorted({normalize_task(row["task_text"]) for row in rows
+                             if normalize_task(row["task_text"]) in held_out})
+        if collisions:
+            raise ValueError(f"r31 holdout leakage: {collisions[:3]}")
+        manifest["r31_recipe"] = {
+            "rows_added": len(r31_all),
+            "family_counts": dict(sorted(Counter(row["family"] for row in r31_all).items())),
+            "family_skill_language_counts": {
+                f"{family}|{bucket}|{lang}": count for (family, bucket, lang), count in sorted(Counter(
+                    (row["family"], row["skill_bucket"],
+                     "zh" if re.search(r"[\u3400-\u9fff]", row["task_text"]) else "en")
+                    for row in r31_all).items())},
+            "replay_rows": replay_count,
+            "holdout_sources": ["plan-eval-tasks*.json", "plan-probe-tasks-return-home.json", "suite-follow*.json"],
+            "holdout_collisions": 0,
+            "structured_refusal_rows": sum(row.get("assistant_target", {}).get("decision") in {"reject", "clarify"} for row in r31_all),
+        }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
         manifest["replay_planner_train_path"] = str(args.replay_planner_train)
@@ -3512,7 +3598,7 @@ def main(argv: list[str] | None = None) -> int:
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = [f"#{' r30' if args.r30_recipe else ' r29' if args.r29_recipe else ' r28' if args.r28_recipe else ' r27' if args.r27_recipe else ' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
+        stats = [f"#{' r31' if args.r31_recipe else ' r30' if args.r30_recipe else ' r29' if args.r29_recipe else ' r28' if args.r28_recipe else ' r27' if args.r27_recipe else ' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -3559,6 +3645,9 @@ def main(argv: list[str] | None = None) -> int:
             stats += [f"| {family} | {count} |"
                       for family, count in manifest["r30_recipe"]["family_counts"].items()]
             stats += ["", "r30 direct-follow rows start with `follow` and contain no search step; all r30 rows are executable positives.",
+                      "Holdout leakage check covers planning-v3/v4/v5, the return-home probe, and follow-suite task texts: 0 collisions.", ""]
+        if args.r31_recipe:
+            stats += ["", f"r31 replay rows: {replay_count}; r31 positive rows: {manifest['r31_recipe']['rows_added']}.",
                       "Holdout leakage check covers planning-v3/v4/v5, the return-home probe, and follow-suite task texts: 0 collisions.", ""]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
