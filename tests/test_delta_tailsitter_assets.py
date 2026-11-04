@@ -221,8 +221,8 @@ def test_c11_camera_depth_and_projection_matrix_use_the_same_mount(directory):
     depth = model.find("link[@name='depth_camera_link']/sensor[@name='depth_camera']")
     for sensor in (rgb, depth):
         assert sensor.findtext("camera/image/width") == "1280"
-        assert sensor.findtext("camera/image/height") == "720"
-        assert float(sensor.findtext("camera/horizontal_fov")) == 2.0
+        assert sensor.findtext("camera/image/height") == "960"
+        assert float(sensor.findtext("camera/horizontal_fov")) == 1.74
     assert depth.findtext("camera/image/format") == "R_FLOAT32"
     assert model.findtext("joint[@name='DepthCameraJoint']/parent") == "camera_link"
     profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
