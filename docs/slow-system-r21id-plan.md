@@ -776,3 +776,28 @@ SUV→postbox 的 7 条 additions 仅 6 条来自新 `r5_w0001`、1 条来自旧
 按 r6 离线配方读取 `r21id-r4d+r4e+r4g+r5a` episodes、`runs/src-r21r5t/configs/scenarios/generated-r21id-r4r5/index.json` 和只读 proposal cache `artifacts/r21id-r5/pipeline/yoloe-v3-cache.jsonl`，关闭 `--task-text-variants`，未写入 `artifacts/`。`.tmp/r21id-r6-sft-final/manifest.json` 的 `conflicting_decision_groups=0`；train/val 为 6,951/2,741 行，`dropped_confusable_task_equivalent=1,015`，`walking_person->person` 与 `hatchback->car` 错拒均为 0。`max-upsample=1` 时没有重复副本，merge 前有效 view balance 计数为通用 strata 3,549、hard-negative strata 212。
 
 以完整 r3 replay 在 `.tmp/r21id-r6-merged-final/` 离线合并后，冲突门禁通过；train 29,629 行，其中为清理历史冲突删除 80 条冗余 alias 正例，平衡副本 0。merged train 的实际行视角计数 front/oblique/edge_truncated/recovery/missing 为 5,766/4,420/6,721/4,050/8,672；显式 confusable-negative hard-pair 行为 645（对应五视角 161/81/207/85/111）。该结果只证明数据构建门禁和计数逻辑通过，尚未启动训练、GPU、SITL 或评测。
+
+### r21id-r7 worlds（只生成，未采集）
+
+r5/r5b 的结果显示 SUV→postbox、car→postbox 仍有固定集误收，person→jersey_barrier 只部分改善。r7 用 `scripts/generate_r15_worlds.py --profile r21id-r7` 重做三类 hard-reject 世界，沿用 r4/r5 的四视角、场景平移净空和 teacher view visibility 机制；本轮只写入 train/val，不触碰 r3 冻结 test，也没有运行 SITL、Docker、GPU 或真实采集。
+
+| 世界编号 | split | 目标资产 | 配对干扰物 | 目标短边档位 | 外观/遮挡变化 |
+|---|---|---|---|---|---|
+| `gen_r21id_r7_w0000..w0004` | train×4、val×1 | `suv` | `postbox` | 8-12、12-16、16-24、24-32、12-16 px | noon/overcast/morning/haze/evening；building、guardrail、pipe_line、none |
+| `gen_r21id_r7_w0005..w0009` | train×4、val×1 | `hatchback`、`hatchback_blue`、`hatchback_red` | `mailbox` | 8-12、12-16、16-24、24-32、12-16 px | 同上；包含蓝/红车身变体 |
+| `gen_r21id_r7_w0010..w0014` | train×4、val×1 | `walking_person`、`male_visitor` | `jersey_barrier` | 8-12、12-16、16-24、24-32、12-16 px | 同上；行人模型变体与不同隔离墩姿态/遮挡布局 |
+
+索引文件为 `configs/scenarios/generated-r21id-r7/index.json`，每个世界都有 `.scenario.json`、`.runtime_input.json`、`.truth.json`、`.expectations.json` 和 `.teacher_intent.json`；SDF 位于 `simulation/gazebo/worlds/`，地图和地形 sidecar 位于 `simulation/maps/`、`simulation/terrain/`。目录中的 `postbox` 与 `mailbox` 是资产目录现有的两个邮筒模型；屏障目录只有 `jersey_barrier`，因此屏障族通过目标行人模型、姿态、背景、光照和 building/guardrail/pipe_line/none 遮挡布局增加变化。
+
+后续排队采集时只使用该 train/val index，并显式声明 SITL 槽位。例如 4 个 worker 使用 4 个全局槽位：
+
+```bash
+export MULTIDETECT_SITL_SLOTS=4
+PYTHONPATH=src:. PYTHONUTF8=1 python scripts/run_r15_round.py --stage collect \
+  --scenarios configs/scenarios/generated-r21id-r7 \
+  --r15-index configs/scenarios/generated-r21id-r7/index.json \
+  --out artifacts/r21id-r7 --episodes artifacts/r21id-r7/episodes \
+  --workers 4 --episodes-per-world 4
+```
+
+采集前仍需按四视角门槛检查每个位至少 8 帧、观察高度误差不超过 3 m、目标地面距离相对设计值不超过 25%，并审计每个方向的有效拒绝帧和同帧真目标正例；本轮不执行上述命令。
