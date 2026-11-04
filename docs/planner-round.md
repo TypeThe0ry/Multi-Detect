@@ -546,3 +546,38 @@ r29 = r24 基础数据（不变）+ 针对“r24 + 预检”剩余失分的正�
 | 返航探测 | 15/15 | 14/15 |
 
 结论：**不替换**。v5 小幅提升（query_grounding 8→11），但 v3 降 9 个点、探测掉 1 题。从 r25 到 r29 连续五轮，凡是在 r24 上追加训练数据，v3 都会下降，说明在当前 2B 模型和数据规模下，规划模型已接近这条路线的上限；现役维持 **r24 + 主机预检**（v3 0.80、v5 93/126、探测 15/15）。规划这条线暂停新训练轮次，后续更值得做的是：用 Linux SITL 任务套件验证现役组合的闭环表现、在真实任务文本上核对预检，以及把剩余错误类型（否定查询、否定降落）优先考虑用主机侧意图检查兜底而不是加训练数据。
+
+## r30 数据准备（离线）
+
+nightly ext-2 的 `follow-red-person-return` 暴露了新的可执行错误：r24 在已经明确
+目标的 follow 任务前插入 `area_search`，耗尽 180 步预算，套件期望的
+`follow -> return_home` 没有开始。对 r24 + 主机预检的 planning-v5 缓存逐题复核后，
+33 个模型失分归为“禁止范围额外动作”11、“漏掉中间动作”11、“技能替换”6、
+“未落地引用”3、“终步混淆”1 和“额外导航步骤”1；预检正确处理的能力/未知地点题
+不作为训练错误。逐题归类和 follow 证据见 [`docs/r30-planning-errors.md`](r30-planning-errors.md)。
+
+`--r30-recipe` 只在 r24 基础上增加四族可执行正例，默认新增 240 行：
+`direct_follow` 80、`step_fidelity` 80、`terminal_intent` 40、`grounded_refs` 40，
+各族中英文各半。direct-follow 行的首步固定为 `follow`，不含 `area_search`；其余族
+分别保留显式中间动作、区分 `land`/`return_home` 终步和解析已给引用。r30 不继承
+r25-r29 的结构化拒绝或拒绝候选，避免把 host pregate 逻辑重新教给模型。
+
+只生成数据的命令如下（不训练、不评测）：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch-r30
+python scripts/run_planner_round.py --stage data --force-stage data \
+  --out .tmp/r30-data --eval-root .tmp/r30-eval \
+  --rows 2000 --val-rows 100 --intent-count 80 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl \
+  --negative-target-mode rejected_candidate --r30-recipe \
+  --r30-direct-follow-count 80 \
+  --r30-step-fidelity-count 80 \
+  --r30-terminal-intent-count 40 \
+  --r30-grounded-refs-count 40
+```
+
+holdout 同时覆盖 v3/v4/v5、15 条返航 probe 和 follow suite 文本；生成器会在 manifest
+记录 family、首技能、语言和碰撞数，`dataset/r23-data-stats.md` 会写出四族计数及泄漏
+检查。r30 数据构造仍使用 CPU 准入检查，不启动 SITL、Docker、llama-server 或 GPU。
