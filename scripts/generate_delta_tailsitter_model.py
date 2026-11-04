@@ -40,6 +40,13 @@ def _element(parent: ET.Element, tag: str, text: object | None = None, **attrs) 
     return result
 
 
+
+def _odometry_publisher(model: ET.Element) -> None:
+    """采集器的帧服务要 /model/<name>/odometry_with_covariance，每个相机包装都必须带。"""
+    plugin = _element(model, "plugin", filename="gz-sim-odometry-publisher-system", name="gz::sim::systems::OdometryPublisher")
+    _element(plugin, "dimensions", 3)
+    _element(plugin, "odom_publish_frequency", 50)
+
 def _vector(values) -> str:
     return " ".join(f"{value:.12g}" for value in values)
 
@@ -239,6 +246,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
             wrapped_model.append(item)
     for item in camera_plugins:
         wrapped_model.append(item)
+    _odometry_publisher(wrapped_model)
     ET.indent(wrapper, space="  ")
     gimbal_dir = model_dir.parent / "delta_tailsitter_gimbal_cam"
     gimbal_dir.mkdir(parents=True, exist_ok=True)
@@ -306,6 +314,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     _element(joint, "parent", "camera_link")
     _element(joint, "child", "depth_camera_link")
     _element(joint, "pose", "0 0 0 0 0 0", relative_to="camera_link")
+    _odometry_publisher(fixed_model)
     ET.indent(fixed_root, space="  ")
     fixed_dir = model_dir.parent / "delta_tailsitter_mono_cam"
     fixed_dir.mkdir(parents=True, exist_ok=True)
@@ -343,9 +352,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
         _element(joint, "parent", "camera_link")
         _element(joint, "child", "segmentation_camera_link")
         _element(joint, "pose", "0 0 0 0 0 0", relative_to="camera_link")
-        plugin = _element(overlay_model, "plugin", filename="gz-sim-odometry-publisher-system", name="gz::sim::systems::OdometryPublisher")
-        _element(plugin, "dimensions", 3)
-        _element(plugin, "odom_publish_frequency", 50)
+        # 里程计插件随包装模型一起复制过来，这里不再重复添加。
         overlay_dir = model_dir.parent / ".." / "model-overlays" / f"{model_name}_seg"
         overlay_dir.mkdir(parents=True, exist_ok=True)
         ET.indent(overlay_root, space="  ")

@@ -447,6 +447,10 @@ def main(argv: list[str] | None = None) -> int:
     if plan["takeoff_method"] in {"hand", "catapult"}:
         command.extend(["--takeoff-method", plan["takeoff_method"]])
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    # 结果里只留尾部；完整采集器输出落盘，PX4 控制台刷屏时仍能找到帧服务等诊断。
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "collector.stdout.log").write_text(completed.stdout or "", encoding="utf-8")
+    (args.out / "collector.stderr.log").write_text(completed.stderr or "", encoding="utf-8")
     result = dict(plan)
     result["status"] = "pass" if completed.returncode == 0 else "fail"
     result["collector_returncode"] = completed.returncode

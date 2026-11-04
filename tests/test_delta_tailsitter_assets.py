@@ -408,3 +408,12 @@ def test_generated_ai_scenarios_can_be_derived_for_this_vtol(tmp_path):
     assert runtime["vehicle"]["spawn_pose"]["z_up_m"] == 0.411
     manifest = json.loads((tmp_path / SCENARIO.name).read_text("utf-8"))
     assert manifest["channels"]["runtime_input"]["sha256"] == canonical_sha256(runtime)
+
+
+@pytest.mark.parametrize("model_name", ["delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"])
+def test_camera_wrappers_and_overlays_publish_odometry_once(model_name: str) -> None:
+    # 帧服务按 /model/<name>/odometry_with_covariance 配帧；缺了它采集器一帧都拿不到。
+    root = Path(__file__).resolve().parents[1] / "simulation" / "gazebo"
+    for path in (root / "models" / model_name / "model.sdf", root / "model-overlays" / f"{model_name}_seg" / "model.sdf"):
+        plugins = ET.parse(path).getroot().findall(".//plugin[@name='gz::sim::systems::OdometryPublisher']")
+        assert len(plugins) == 1, path
