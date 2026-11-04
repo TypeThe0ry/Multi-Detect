@@ -1553,12 +1553,18 @@ def _build_environment(
         "quadtailsitter_mono_cam": "4018",
         "tiltrotor_mono_cam": "4020",
     }.get(model_name)
+    gimbal_profile = runtime.vehicle.airframe_profile_id.lower() in {
+        "x500_gimbal",
+        "px4_x500_gimbal",
+    }
+    if gimbal_profile:
+        autostart = "4019"
     if autostart is None:
         raise SimulatorStackError(f"unsupported simulator model for PX4 autostart: {model_name}")
     environment = {
         "HEADLESS": "1" if headless else "0",
         "PX4_SYS_AUTOSTART": autostart,
-        "PX4_SIM_MODEL": f"gz_{model_name}",
+        "PX4_SIM_MODEL": "gz_x500_gimbal" if gimbal_profile else f"gz_{model_name}",
         "PX4_GZ_WORLD": "default",
         "PX4_GZ_MODELS": str(model_root),
         "GZ_SIM_RESOURCE_PATH": f"{model_root}{os.pathsep}{world_root}",

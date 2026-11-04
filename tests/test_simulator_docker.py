@@ -38,6 +38,8 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
     assert plan.no_new_privileges is True
     assert plan.container_security_gate_passed is True
     assert "--publish" in plan.command
+
+
     assert plan.command[plan.command.index("--add-host") + 1] == (
         "host.docker.internal:host-gateway"
     )
@@ -78,6 +80,19 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
         ["docker", "stop", "--timeout", "2", "multidetect-sim"],
         ["docker", "rm", "multidetect-sim"],
     ]
+
+
+def test_gimbal_airframe_uses_px4_gimbal_model_without_starting_docker(tmp_path: Path) -> None:
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "gimbal",
+        airframe_profile_id="x500_gimbal",
+    )
+    env = dict(plan.environment)
+    assert env["PX4_SYS_AUTOSTART"] == "4019"
+    assert env["PX4_SIM_MODEL"] == "gz_x500_gimbal"
+    assert env["PX4_GZ_MODELS"] == "/opt/px4-gazebo/share/gz/models"
 
 
 @pytest.mark.parametrize(

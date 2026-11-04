@@ -1,0 +1,50 @@
+{
+  "defaults": {
+    "gguf": "artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf",
+    "planning_model": "artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf",
+    "mission": "from_text",
+    "plan_sorted_keys": true,
+    "confirm_max_range_m": 40,
+    "step_budget": 180,
+    "size_aware_search": true,
+    "fast_identity": true
+  },
+  "missions": [
+    {
+      "id": "gimbal-inspect-postbox",
+      "airframe": "x500_gimbal",
+      "task_text": "Find the postbox, inspect it from four sides, and return home.",
+      "index": "configs/scenarios/generated-v2/index.json",
+      "world": "gen_v2_w0038",
+      "refs": {},
+      "ref_labels": {},
+      "expect": {"skills": ["area_search", "inspect", "return_home"], "min_inspect_match_fraction": 0.75},
+      "steps": 140,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "gimbal-survey-site-overlap",
+      "airframe": "x500_gimbal",
+      "task_text": "Survey the site with seventy percent photo overlap and return home.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0002",
+      "refs": {"zone:site": [0, 0, 55]},
+      "ref_labels": {"zone:site": "the site"},
+      "expect": {"skills": ["survey", "return_home"], "min_survey_coverage": 0.7},
+      "steps": 180,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "gimbal-count-cones",
+      "airframe": "x500_gimbal",
+      "task_text": "Count the orange traffic cones in the site and report their positions.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0000",
+      "refs": {"zone:site": [0, 0, 55]},
+      "ref_labels": {"zone:site": "the site"},
+      "expect": {"skills": ["count", "return_home"], "min_count_exact": 1},
+      "steps": 150,
+      "max_episode_s": 5400
+    }
+  ]
+}

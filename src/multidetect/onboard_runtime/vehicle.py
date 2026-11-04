@@ -253,6 +253,7 @@ class PymavlinkVehicle:
         connection: Any = None,
         target_system: int | None = None,
         target_component: int | None = None,
+        request_gimbal_attitude_stream: bool = False,
         write_timeout_s: float = 0.05,
         clock: Callable[[], float] = _precise_monotonic,
     ) -> None:
@@ -267,11 +268,14 @@ class PymavlinkVehicle:
                 raise ValueError("target MAVLink IDs must be in 1..255")
         if not math.isfinite(write_timeout_s) or write_timeout_s <= 0:
             raise ValueError("write_timeout_s must be positive and finite")
+        if not isinstance(request_gimbal_attitude_stream, bool):
+            raise ValueError("request_gimbal_attitude_stream must be boolean")
         self.endpoint = endpoint
         self.baud = baud
         self.connection = connection
         self.target_system = target_system
         self.target_component = target_component
+        self.request_gimbal_attitude_stream = request_gimbal_attitude_stream
         self._clock = clock
         self._write_timeout_s = write_timeout_s
         self._state = VehicleState()
@@ -728,6 +732,8 @@ class PymavlinkVehicle:
     def _request_streams(self) -> None:
         self._streams_requested = True
         for message_id, interval_us in self._INTERVALS:
+            if message_id == 285 and self.request_gimbal_attitude_stream:
+                interval_us = 50_000
             self._command(511, float(message_id), float(interval_us))
         if not self._autopilot_version_requested:
             self._autopilot_version_requested = True
