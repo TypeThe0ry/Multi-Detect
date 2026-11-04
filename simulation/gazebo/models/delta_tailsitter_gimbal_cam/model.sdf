@@ -120,6 +120,12 @@
           </clip>
         </camera>
       </sensor>
+      <sensor name="camera_imu" type="imu">
+        <gz_frame_id>camera_link</gz_frame_id>
+        <always_on>1</always_on>
+        <update_rate>250</update_rate>
+        <pose>-0.0412 0 -0.08 0 0 3.141592653589793</pose>
+      </sensor>
     </link>
     <link name="depth_camera_link">
       <inertial>
@@ -246,6 +252,10 @@
       <i_min>0</i_min>
       <cmd_max>0.3</cmd_max>
       <cmd_min>-0.3</cmd_min>
+    </plugin>
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <dimensions>3</dimensions>
+      <odom_publish_frequency>50</odom_publish_frequency>
     </plugin>
   </model>
 </sdf>

@@ -462,6 +462,10 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         signal.signal(signal.SIGTERM, previous_term)
         signal.signal(signal.SIGINT, previous_int)
+    # 结果里只留尾部；完整采集器输出落盘，PX4 控制台刷屏时仍能找到帧服务等诊断。
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "collector.stdout.log").write_text(completed.stdout or "", encoding="utf-8")
+    (args.out / "collector.stderr.log").write_text(completed.stderr or "", encoding="utf-8")
     result = dict(plan)
     result["status"] = "pass" if completed.returncode == 0 else "fail"
     result["collector_returncode"] = completed.returncode

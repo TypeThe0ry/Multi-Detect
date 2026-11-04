@@ -634,6 +634,14 @@ def build_docker_simulator_plan(
             _mount(custom_airframe,
                    f"/opt/px4-gazebo/etc/init.d-posix/airframes/{custom_airframe.name}"),
         )
+        if model_name == "delta_tailsitter_gimbal_cam":
+            # 4051 在 rcS 里 source 4050 的飞行参数，基础脚本也要一并挂入。
+            base_airframe = root / "simulation/px4/airframes/4050_gz_delta_tailsitter"
+            extra_mounts += (
+                "--mount",
+                _mount(base_airframe,
+                       f"/opt/px4-gazebo/etc/init.d-posix/airframes/{base_airframe.name}"),
+            )
         custom_airframe_sha256 = hashlib.sha256(custom_airframe.read_bytes()).hexdigest()
         selected = select_visual_mesh(model_root / "delta_tailsitter")
         if selected is not None:
