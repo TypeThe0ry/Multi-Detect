@@ -483,6 +483,13 @@ def _aero(model):
     rho, ar, efficiency = 1.15, 1.250**2 / area, 0.8
     k = 1 / (math.pi * efficiency * ar)
     alpha_trim = ASSEMBLY_MASS_KG * 9.80665 / (0.5 * rho * 15**2 * area * 2.82)
+    # Equivalent reflex camber: bias the central and outer-panel zero-lift
+    # angles in opposite directions.  The biases are solved at 15 m/s and
+    # alpha_trim so the total lift is unchanged while Cm0 cancels the
+    # nose-down moment from the 3.5% static margin.  This keeps dCm/dalpha
+    # unchanged and avoids asking the motor rows to provide cruise trim.
+    central_a0 = math.radians(1.4684166027)
+    outer_a0 = math.radians(-3.4387003075)
     # 简单 LiftDrag 只有 |cda*alpha|，没有 CD0 或二次诱导阻力。
     # 在 15 m/s 配平迎角处线性化 k*CL²；前飞之外只是近似。
     cda = k * 2.82**2 * alpha_trim * area / (central + outer * cos_d)
@@ -494,7 +501,9 @@ def _aero(model):
         f"      ρ=1.15，AR=1.25²/0.607={ar:.6g}，e=0.8；k={k:.6g}。\n"
         f"      15 m/s 配平 α={alpha_trim:.6g}，诱导阻力 cda={cda:.6g}。\n"
         "      CLmax 取 0.8：整体失速 α=0.8/2.82；失速后斜率暂取 -1/rad。\n"
-        "      Cm0/cma=0：没有报告可验证的反弯力矩，静稳定仅来自 CP。"
+        f"      反弯等效：central a0={math.degrees(central_a0):.4f}°，"
+        f"outer a0={math.degrees(outer_a0):.4f}°；15 m/s、"
+        f"alpha={math.degrees(alpha_trim):.4f}° 时总升力守恒且 My≈0。"
     )
     model.append(ET.Comment(comment))
 
@@ -522,7 +531,16 @@ def _aero(model):
         ):
             _element(plugin, key, value)
 
-    surface("central_wing", central, cad_to_base_m((0, 612, 0)), (-1, 0, 0), cla, cda, 0.8 / 2.82)
+    surface(
+        "central_wing",
+        central,
+        cad_to_base_m((0, 612, 0)),
+        (-1, 0, 0),
+        cla,
+        cda,
+        0.8 / 2.82,
+        a0=central_a0,
+    )
     for side in (-1, 1):
         for tier in (-1, 1):
             # CAD 外翼向外、向上/下展开；法向 CAD (-side*tier*sinδ,0,cosδ)。
@@ -535,6 +553,7 @@ def _aero(model):
                 cla,
                 cda,
                 math.atan(math.tan(0.8 / 2.82) * cos_d),
+                a0=outer_a0,
             )
     model.append(
         ET.Comment(

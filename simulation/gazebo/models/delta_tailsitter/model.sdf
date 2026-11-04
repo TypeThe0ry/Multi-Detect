@@ -482,10 +482,10 @@
       ρ=1.15，AR=1.25²/0.607=2.57414，e=0.8；k=0.154571。
       15 m/s 配平 α=0.129704，诱导阻力 cda=0.169966。
       CLmax 取 0.8：整体失速 α=0.8/2.82；失速后斜率暂取 -1/rad。
-      Cm0/cma=0：没有报告可验证的反弯力矩，静稳定仅来自 CP。-->
+      反弯等效：central a0=1.4684°，outer a0=-3.4387°；15 m/s、alpha=7.4315° 时总升力守恒且 My≈0。-->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <!--central_wing-->
-      <a0>0</a0>
+      <a0>0.025628704508064457</a0>
       <cla>3.1783049526713416</cla>
       <cda>0.16996622352671675</cda>
       <cma>0</cma>
@@ -503,7 +503,7 @@
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <!--outer_wing_-1_-1-->
-      <a0>0</a0>
+      <a0>-0.06001664235521646</a0>
       <cla>3.1783049526713416</cla>
       <cda>0.16996622352671675</cda>
       <cma>0</cma>
@@ -521,7 +521,7 @@
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <!--outer_wing_-1_1-->
-      <a0>0</a0>
+      <a0>-0.06001664235521646</a0>
       <cla>3.1783049526713416</cla>
       <cda>0.16996622352671675</cda>
       <cma>0</cma>
@@ -539,7 +539,7 @@
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <!--outer_wing_1_-1-->
-      <a0>0</a0>
+      <a0>-0.06001664235521646</a0>
       <cla>3.1783049526713416</cla>
       <cda>0.16996622352671675</cda>
       <cma>0</cma>
@@ -557,7 +557,7 @@
     </plugin>
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <!--outer_wing_1_1-->
-      <a0>0</a0>
+      <a0>-0.06001664235521646</a0>
       <cla>3.1783049526713416</cla>
       <cda>0.16996622352671675</cda>
       <cma>0</cma>

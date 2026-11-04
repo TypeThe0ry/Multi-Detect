@@ -197,6 +197,11 @@ MAV_CMD_DO_LAND_START = 189
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
 EPISODE_PROGRESS_STALL_TIMEOUT_S = 180.0
+# The delta tailsitter Gazebo model currently runs at about 0.17x real time.
+# Keep its normal vehicle-clock episode budget, with a generous host fallback;
+# other airframes retain the established 900 s ceiling for a 300 s episode.
+DELTA_TAILSITTER_WALL_CEILING_FACTOR = 8.0
+DELTA_TAILSITTER_MIN_WALL_CEILING_S = 3600.0
 GCS_SOURCE_SYSTEM = 255
 GCS_SOURCE_COMPONENT = 190
 # The only collector-specific SITL setting is the GCS/RC input mode used by
@@ -3366,6 +3371,20 @@ def _episode_budget(started: float, maximum_s: float, cap_s: float) -> float:
     return min(float(cap_s), remaining)
 
 
+def _episode_wall_ceiling_s(airframe: str, maximum_s: float) -> float:
+    normalized = str(airframe).strip().lower().replace("-", "_")
+    if normalized in {
+        "delta_tailsitter",
+        "delta_tailsitter_mono_cam",
+        "delta_tailsitter_gimbal_cam",
+    }:
+        return max(
+            DELTA_TAILSITTER_MIN_WALL_CEILING_S,
+            float(maximum_s) * DELTA_TAILSITTER_WALL_CEILING_FACTOR,
+        )
+    return float(maximum_s) + max(float(maximum_s), 600.0)
+
+
 class _EpisodeProgressWatchdog:
     """Bound an episode by vehicle-clock progress after the nominal wall budget."""
 
@@ -3376,14 +3395,21 @@ class _EpisodeProgressWatchdog:
         reader: Any,
         *,
         stall_timeout_s: float = EPISODE_PROGRESS_STALL_TIMEOUT_S,
+        wall_ceiling_s: float | None = None,
         clock: callable = time.monotonic,
     ) -> None:
         self.started = float(started)
         self.maximum_s = float(maximum_s)
         self.reader = reader
         self.stall_timeout_s = max(1.0, float(stall_timeout_s))
+        self.wall_ceiling_s = (
+            float(wall_ceiling_s)
+            if wall_ceiling_s is not None
+            else self.maximum_s + max(self.maximum_s, 600.0)
+        )
         self.clock = clock
         self.last_vehicle_ms: int | None = None
+        self.sim_started_ms: int | None = None
         self.last_message_count = int(getattr(reader.state, "count", 0))
         self.last_progress_wall = self.clock()
 
@@ -3399,20 +3425,33 @@ class _EpisodeProgressWatchdog:
         if vehicle_ms is not None and (
             self.last_vehicle_ms is None or vehicle_ms > self.last_vehicle_ms
         ):
+            if self.sim_started_ms is None:
+                self.sim_started_ms = vehicle_ms
             self.last_vehicle_ms = vehicle_ms
             self.last_progress_wall = now
         elif vehicle_ms is None and message_progress:
             self.last_progress_wall = now
         self.last_message_count = message_count
+        if (
+            self.sim_started_ms is not None
+            and vehicle_ms is not None
+            and vehicle_ms - self.sim_started_ms >= self.maximum_s * 1000.0
+        ):
+            raise TimeoutError(
+                "episode exceeded its simulation-time budget "
+                f"({self.maximum_s:.0f}s; vehicle_time_boot_ms={vehicle_ms})"
+            )
         if now - self.started <= self.maximum_s:
             return
         if now - self.last_progress_wall <= self.stall_timeout_s:
             # Progress only extends the budget up to a hard ceiling: a vehicle that
             # keeps streaming telemetry while stuck in one phase must still end.
-            ceiling = self.maximum_s + max(self.maximum_s, 600.0)
-            if now - self.started <= ceiling:
+            if now - self.started <= self.wall_ceiling_s:
                 return
-            raise TimeoutError(f"episode exceeded its hard wall-clock ceiling ({ceiling:.0f}s)")
+            raise TimeoutError(
+                "episode exceeded its hard wall-clock ceiling "
+                f"({self.wall_ceiling_s:.0f}s)"
+            )
         raise TimeoutError(
             "episode telemetry stalled after wall-clock budget "
             f"(vehicle_time_boot_ms={vehicle_ms}, message_count={message_count}, "
@@ -3794,7 +3833,12 @@ def run_episode(
                 recorder.record_mavlink(row)
 
             mav_reader = MavlinkReader(telemetry_connection, on_message=_record_mavlink).start()
-            episode_watchdog = _EpisodeProgressWatchdog(started, plan.max_episode_s, mav_reader)
+            episode_watchdog = _EpisodeProgressWatchdog(
+                started,
+                plan.max_episode_s,
+                mav_reader,
+                wall_ceiling_s=_episode_wall_ceiling_s(plan.airframe, plan.max_episode_s),
+            )
             _progress("mavlink_reader_started", telemetry_port=plan.telemetry_port)
             _wait_for(
                 lambda: (

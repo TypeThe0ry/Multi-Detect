@@ -57,7 +57,8 @@ param set-default MPC_THR_HOVER 0.44
 param set-default BAT1_N_CELLS 4
 param set-default BAT1_CAPACITY 5000
 
-# 控制增益沿用 4018，只是初值，未针对本机大展向/小俯仰力臂整定。
+# 控制增益沿用 4018 的 tailsitter 约定；气动模型已在 15 m/s、7.43° 做反弯等效配平，
+# 新一轮冒烟再据实检查长周期响应后调整，避免离线模型替闭环整定背书。
 param set-default FD_FAIL_R 70
 param set-default FW_P_TC 0.6
 param set-default FW_PR_I 0.3
@@ -69,7 +70,7 @@ param set-default FW_RR_P 0.2
 param set-default FW_YR_FF 0
 param set-default FW_YR_I 0
 # 15 m/s 估计阻力约 4 N（满推力 64.8 N 的 6%）；初值 10% 给差动配平余量。
-# 无舵面且 SM 仅 3.5%，零升力力矩未知，最终必须由 SITL/实测重新整定。
+# 无舵面且 SM 约 3.5%；FW_PSP_OFF=2 保持 4018 tailsitter 偏置约定，最终闭环增益仍需 SITL/实测整定。
 param set-default FW_THR_TRIM 0.35
 param set-default FW_THR_MAX 0.8
 param set-default FW_THR_MIN 0.05

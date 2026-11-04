@@ -21,6 +21,10 @@ class Surface:
     cp: tuple[float, float, float]
 
 
+TRIM_SPEEDS_MPS = (12.0, 15.0, 19.0, 25.0)
+TRIM_ALPHA_DEG = tuple(float(value) for value in range(-5, 21))
+
+
 def surfaces_from_sdf(path: str | Path) -> tuple[Surface, ...]:
     root = ET.parse(path).getroot()
     result = []
@@ -84,17 +88,67 @@ def aerodynamic_force_moment(
     return tuple(force), tuple(moment)
 
 
+def pitching_moment_slope(
+    surfaces: tuple[Surface, ...], speed_mps: float, alpha_rad: float, *, rho: float = 1.15
+) -> float:
+    """Return dMy/dalpha using a symmetric finite difference in radian units."""
+    delta = 1e-5
+    lower = aerodynamic_force_moment(surfaces, speed_mps, alpha_rad - delta, rho=rho)[1][1]
+    upper = aerodynamic_force_moment(surfaces, speed_mps, alpha_rad + delta, rho=rho)[1][1]
+    return (upper - lower) / (2.0 * delta)
+
+
+def trim_scan(
+    surfaces: tuple[Surface, ...],
+    *,
+    speeds_mps: tuple[float, ...] = TRIM_SPEEDS_MPS,
+    alpha_deg: tuple[float, ...] = TRIM_ALPHA_DEG,
+) -> tuple[dict[str, float], ...]:
+    """Build the requested speed/angle force and pitch-moment table."""
+    rows: list[dict[str, float]] = []
+    for speed in speeds_mps:
+        for angle in alpha_deg:
+            force, moment = aerodynamic_force_moment(surfaces, speed, math.radians(angle))
+            rows.append(
+                {
+                    "speed_mps": float(speed),
+                    "alpha_deg": float(angle),
+                    "lift_n": float(force[0]),
+                    "drag_n": float(-force[2]),
+                    "pitch_moment_nm": float(moment[1]),
+                    "pitch_moment_slope_nm_per_rad": pitching_moment_slope(
+                        surfaces, speed, math.radians(angle)
+                    ),
+                }
+            )
+    return tuple(rows)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sdf", type=Path)
     parser.add_argument("--speed", type=float, default=15.0)
     parser.add_argument("--alpha-deg", type=float, default=7.4314663815)
+    parser.add_argument(
+        "--scan",
+        action="store_true",
+        help="print the 12/15/19/25 m/s by -5..20 deg trim table",
+    )
     args = parser.parse_args(argv)
     surfaces = surfaces_from_sdf(args.sdf)
     lift, drag = aerodynamic_force(surfaces, args.speed, math.radians(args.alpha_deg))
     force, moment = aerodynamic_force_moment(surfaces, args.speed, math.radians(args.alpha_deg))
     print(f"lift_n={lift:.6f} drag_n={drag:.6f} ld={lift / drag if drag else float('inf'):.6f}")
     print(f"force_n={force} moment_nm={moment}")
+    if args.scan:
+        print("speed_mps alpha_deg lift_n drag_n pitch_moment_nm dMy_dalpha_nm_per_rad")
+        for row in trim_scan(surfaces):
+            print(
+                f"{row['speed_mps']:.0f} {row['alpha_deg']:.0f} "
+                f"{row['lift_n']:.6f} {row['drag_n']:.6f} "
+                f"{row['pitch_moment_nm']:.6f} "
+                f"{row['pitch_moment_slope_nm_per_rad']:.6f}"
+            )
     return 0
 
 

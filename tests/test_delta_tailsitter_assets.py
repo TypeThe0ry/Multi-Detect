@@ -18,8 +18,14 @@ from multidetect.simulator.delta_tailsitter import cad_to_base_m, select_visual_
 from scripts import collect_sim_teacher_episodes as collector
 from scripts import run_simulator_docker as docker
 from scripts import smoke_airframe_flight as smoke
+from scripts.check_delta_tailsitter_aero import (
+    aerodynamic_force,
+    aerodynamic_force_moment,
+    pitching_moment_slope,
+    surfaces_from_sdf,
+    trim_scan,
+)
 from scripts.generate_delta_tailsitter_model import generate
-from scripts.check_delta_tailsitter_aero import aerodynamic_force, aerodynamic_force_moment, surfaces_from_sdf
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_DIR = ROOT / "simulation/gazebo/models/delta_tailsitter"
@@ -226,10 +232,30 @@ def test_offline_aero_force_is_trimmed_bounded_and_finite():
     assert 6.0 <= lift / drag <= 8.0
     assert all(math.isfinite(value) for value in (*force, *moment))
     assert abs(moment[0]) < 1.0 and abs(moment[2]) < 1.0
+    assert abs(moment[1]) < 0.1
+    assert pitching_moment_slope(surfaces, 15.0, alpha) < 0.0
     assert aerodynamic_force(surfaces, 0.0, 10.0) == (0.0, 0.0)
     stalled_lift, stalled_drag = aerodynamic_force(surfaces, 80.0, math.radians(89.0))
     assert math.isfinite(stalled_lift) and math.isfinite(stalled_drag)
     assert stalled_lift <= 0.5 * 1.15 * 80.0**2 * 0.607 * 0.8 * 1.01
+
+
+def test_aero_trim_scan_preserves_cruise_lift_and_static_stability():
+    surfaces = surfaces_from_sdf(MODEL_DIR / "model.sdf")
+    rows = trim_scan(surfaces)
+    assert len(rows) == 4 * 26
+    cruise = [row for row in rows if row["alpha_deg"] == 7.0 or row["alpha_deg"] == 8.0]
+    assert all(row["pitch_moment_slope_nm_per_rad"] < 0.0 for row in cruise)
+    for speed in (12.0, 15.0, 19.0, 25.0):
+        row = min(
+            (item for item in rows if item["speed_mps"] == speed),
+            key=lambda item: abs(item["alpha_deg"] - 7.5),
+        )
+        assert 7.0 <= row["alpha_deg"] <= 8.0
+        assert abs(row["pitch_moment_nm"]) < 0.2
+        assert abs(row["pitch_moment_nm"]) / 3.9 < 0.05
+    baseline = aerodynamic_force(surfaces, 15.0, math.radians(7.4314663815))[0]
+    assert baseline == pytest.approx(2.929 * 9.80665, rel=0.06)
 
 
 def test_articulated_payload_links_have_solver_safe_mass_and_inertia():
