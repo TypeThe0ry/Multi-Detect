@@ -153,13 +153,16 @@ def _gimbal(model, meshes: Path):
     _element(yaw_link, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(yaw_link, GIMBAL_YAW_MASS, GIMBAL_CHILD_INERTIA)
     _visual(yaw_link, "yaw_arm", (0, 0, -0.045), "box", {"size": "0.02 0.02 0.09"}, "0.12 0.12 0.12 1")
-    _revolute_joint(model, "c11_yaw_joint", "c11_mount_link", "c11_yaw_link", "0 0 1", lower=-2 * math.pi, upper=2 * math.pi)
+    # PX4 gz-gimbal uses the upstream yaw/roll axis signs.  The command topics
+    # carry positive MAVLink angles; keeping these signs aligned avoids a
+    # fixed 180-degree mirror in the reported device attitude.
+    _revolute_joint(model, "c11_yaw_joint", "c11_mount_link", "c11_yaw_link", "0 0 -1", lower=-2 * math.pi, upper=2 * math.pi)
 
     roll_link = _element(model, "link", name="c11_roll_link")
     _element(roll_link, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(roll_link, GIMBAL_ROLL_MASS, GIMBAL_CHILD_INERTIA)
     _visual(roll_link, "roll_arm", (0, 0, -0.08), "box", {"size": "0.08 0.02 0.02"}, "0.12 0.12 0.12 1")
-    _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "1 0 0", pose="0 0 -0.08 0 0 0", lower=-0.785398, upper=0.785398)
+    _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "-1 0 0", pose="0 0 -0.08 0 0 0", lower=-0.785398, upper=0.785398)
 
     camera = _element(model, "link", name="camera_link")
     _inertial(
@@ -266,7 +269,10 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     _element(imu, "gz_frame_id", "camera_link")
     _element(imu, "always_on", 1)
     _element(imu, "update_rate", 250)
-    _element(imu, "pose", camera_sensor.findtext("pose"))
+    # The IMU is already attached to camera_link.  Reusing the optical sensor
+    # pose here translated it a second time and made the PX4 gimbal bridge
+    # report a frame that was not the articulated camera frame.
+    _element(imu, "pose", "0 0 0 0 0 3.141592653589793")
     _odometry_publisher(wrapped_model)
     ET.indent(wrapper, space="  ")
     gimbal_dir = model_dir.parent / "delta_tailsitter_gimbal_cam"

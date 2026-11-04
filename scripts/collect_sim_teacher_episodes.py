@@ -2449,8 +2449,10 @@ def _plain_record(value: Any) -> Any:
     return {"type": type(value).__name__, **{k: _plain_record(v) for k, v in attrs.items()}}
 
 
-def _gimbal_attitude_angles_deg(status: Any) -> dict[str, float] | None:
-    """Decode GIMBAL_DEVICE_ATTITUDE_STATUS quaternion into yaw/roll/pitch degrees."""
+def _gimbal_attitude_angles_deg(
+    status: Any, *, vehicle_yaw_deg: float | None = None
+) -> dict[str, float] | None:
+    """Decode the device quaternion, converting earth-frame yaw to body yaw."""
     q = _field(status, "q", None)
     if not isinstance(q, (list, tuple)) or len(q) < 4:
         return None
@@ -2462,11 +2464,19 @@ def _gimbal_attitude_angles_deg(status: Any) -> dict[str, float] | None:
     roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
     pitch = math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))
     yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    return {"yaw": math.degrees(yaw), "roll": math.degrees(roll), "pitch": math.degrees(pitch)}
+    yaw_deg = math.degrees(yaw)
+    # MAVLink GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME is bit 6.  PX4 uses this
+    # flag for the tailsitter bridge while roll/pitch remain device axes.
+    flags = int(_field(status, "flags", 0) or 0)
+    if vehicle_yaw_deg is not None and flags & 64:
+        yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
+    return {"yaw": yaw_deg, "roll": math.degrees(roll), "pitch": math.degrees(pitch)}
 
 
-def _gimbal_attitude_error_deg(status: Any, target: Mapping[str, float]) -> dict[str, float] | None:
-    actual = _gimbal_attitude_angles_deg(status)
+def _gimbal_attitude_error_deg(
+    status: Any, target: Mapping[str, float], *, vehicle_yaw_deg: float | None = None
+) -> dict[str, float] | None:
+    actual = _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw_deg)
     if actual is None:
         return None
     return {
@@ -2509,15 +2519,19 @@ def _command_and_wait_gimbal(
             if isinstance(reader.state, dict)
             else getattr(reader.state, "received_monotonic_ns", {})
         )
+        attitude = reader.state.get("ATTITUDE")
+        vehicle_yaw_deg = (
+            math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
+        )
         error = (
-            _gimbal_attitude_error_deg(status, target)
+            _gimbal_attitude_error_deg(status, target, vehicle_yaw_deg=vehicle_yaw_deg)
             if received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns
             else None
         )
         if error is not None:
             last_error = error
             if max(error.values()) <= tolerance_deg:
-                return {"status": "reached", "target_deg": dict(target), "actual_deg": _gimbal_attitude_angles_deg(status), "error_deg": error, "tolerance_deg": tolerance_deg}
+                return {"status": "reached", "target_deg": dict(target), "actual_deg": _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw_deg), "error_deg": error, "tolerance_deg": tolerance_deg}
         time.sleep(0.05)
     return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error, "tolerance_deg": tolerance_deg}
 

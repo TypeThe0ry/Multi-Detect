@@ -140,6 +140,10 @@ def test_motor_geometry_directions_and_thrust_match_control_allocation():
     assert params["VT_FW_DIFTHR_EN"] == 7
     assert params["VT_FW_DIFTHR_S_R"] == params["VT_FW_DIFTHR_S_P"] == params["VT_FW_DIFTHR_S_Y"] == 1
     assert params["FW_THR_TRIM"] == pytest.approx(0.35)
+    assert params["FW_THR_MIN"] == pytest.approx(0.0)
+    assert params["VT_F_TRANS_THR"] == pytest.approx(0.25)
+    assert params["VT_F_TRANS_DUR"] == pytest.approx(5.0)
+    assert params["VT_B_TRANS_DUR"] == pytest.approx(10.0)
     assert params["THR_MDL_FAC"] == 1 and params["MPC_THR_HOVER"] == 0.44
     assert sorted(int(plugin.findtext("motorNumber")) for plugin in motors) == [0, 1, 2, 3]
     for motor in motors:
@@ -266,6 +270,14 @@ def test_articulated_payload_links_have_solver_safe_mass_and_inertia():
         assert float(link.findtext("inertial/mass")) >= 0.001
         for field in ("ixx", "iyy", "izz"):
             assert float(link.findtext(f"inertial/inertia/{field}")) >= 1e-8
+
+
+def test_gimbal_axes_and_imu_use_px4_frame_contract():
+    model = _model(GIMBAL_WRAPPER_DIR)
+    assert _numbers(model.findtext("joint[@name='c11_yaw_joint']/axis/xyz")) == (0, 0, -1)
+    assert _numbers(model.findtext("joint[@name='c11_roll_joint']/axis/xyz")) == (-1, 0, 0)
+    assert _numbers(model.findtext("joint[@name='c11_pitch_joint']/axis/xyz")) == (0, 1, 0)
+    assert _numbers(model.findtext("link[@name='camera_link']/sensor[@name='camera_imu']/pose")) == pytest.approx((0, 0, 0, 0, 0, math.pi), abs=1e-9)
 
 
 @pytest.mark.parametrize("directory", [WRAPPER_DIR, OVERLAY_DIR])

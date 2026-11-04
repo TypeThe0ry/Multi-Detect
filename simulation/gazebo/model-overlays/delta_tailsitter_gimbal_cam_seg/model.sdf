@@ -124,7 +124,7 @@
         <gz_frame_id>camera_link</gz_frame_id>
         <always_on>1</always_on>
         <update_rate>250</update_rate>
-        <pose>-0.0412 0 -0.08 0 0 3.141592653589793</pose>
+        <pose>0 0 0 0 0 3.141592653589793</pose>
       </sensor>
     </link>
     <link name="depth_camera_link">
@@ -166,7 +166,7 @@
       <child>c11_yaw_link</child>
       <pose>0 0 0 0 0 0</pose>
       <axis>
-        <xyz>0 0 1</xyz>
+        <xyz>0 0 -1</xyz>
         <initial_position>0.0</initial_position>
         <limit>
           <lower>-6.283185307179586</lower>
@@ -184,7 +184,7 @@
       <child>c11_roll_link</child>
       <pose>0 0 -0.08 0 0 0</pose>
       <axis>
-        <xyz>1 0 0</xyz>
+        <xyz>-1 0 0</xyz>
         <initial_position>0.0</initial_position>
         <limit>
           <lower>-0.785398</lower>

@@ -32,21 +32,21 @@
     "mc_to_fw_param1": 4.0,
     "fw_to_mc_param1": 3.0,
     "minimum_height_m": 30.0,
-    "minimum_airspeed_mps": 13.0,
+    "minimum_airspeed_mps": 15.0,
     "timeout_s": 20.0,
     "parameters": {
       "airspeed": {
-        "value": 13.0,
+        "value": 15.0,
         "px4_name": "VT_ARSP_TRANS",
         "unverified": true
       },
       "front_duration": {
-        "value": 2.5,
+        "value": 5.0,
         "px4_name": "VT_F_TRANS_DUR",
         "unverified": true
       },
       "back_duration": {
-        "value": 5.0,
+        "value": 10.0,
         "px4_name": "VT_B_TRANS_DUR",
         "unverified": true
       }

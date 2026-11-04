@@ -66,6 +66,13 @@ def test_gimbal_attitude_judgement_decodes_device_quaternion(angles):
     assert error == pytest.approx({"yaw": 0, "roll": 0, "pitch": 0}, abs=1e-6)
 
 
+def test_gimbal_earth_frame_yaw_is_compared_in_vehicle_frame():
+    q = (math.cos(math.radians(40) / 2), 0.0, 0.0, math.sin(math.radians(40) / 2))
+    status = {"q": q, "flags": 64}
+    actual = collector._gimbal_attitude_angles_deg(status, vehicle_yaw_deg=40.0)
+    assert actual == pytest.approx({"yaw": 0.0, "roll": 0.0, "pitch": 0.0}, abs=1e-6)
+
+
 def test_gimbal_command_wait_uses_fresh_fake_device_telemetry(monkeypatch):
     import time
 
