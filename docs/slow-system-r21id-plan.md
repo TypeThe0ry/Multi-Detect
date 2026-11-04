@@ -768,3 +768,11 @@ SUV→postbox 的 7 条 additions 仅 6 条来自新 `r5_w0001`、1 条来自旧
 **期望效果与判读顺序。** 先等 r5c 用同一报告完成评测，再与 r5b 对齐：若 person/car 小目标召回与 v3 拒绝改善，支持交换行有害的解释；若无改善，仍不能把已证实的冲突保留为正确训练标签，且应把主要精力放在有效 postbox 难例覆盖和未见 world 泛化。r6 预期通过清除互相矛盾的身份监督改善小目标召回，通过补齐 SUV/car→postbox 的真正四视角数据降低这些固定集回归，同时保留 stop sign 修复和 r5b 四视角误收收益；这是待验证假设，不承诺具体增益。
 
 验收门槛保持不变：v1/v3 拒绝率分别 ≥0.973197/0.98，v3 `<12 px` recall ≥0.726757，四视角一致率 ≥0.833、真目标误拒 ≤0.042、干扰物误收 ≤0.075，并继续报告绝对门槛 0.90/0.08/0.026。固定集必须同时给出全量新增误收及旧错误修复清单；新增独立 world 的留出评测另报，不能用固定集或同 world 新帧代替。未全部满足前保留 r3，不因 r5c 正在训练而提前切换。语义冲突门、r6 数据构建与后续训练/评测均是待执行工作，本节不宣称它们已经完成。
+
+### r6 数据修复离线验证（2026-11-04）
+
+已在当前工作树修改 `scripts/build_slow_system_sft.py` 与 `scripts/run_r15_round.py`。confusable 生成现在调用已有的 `task_equivalent` 语义判断：`walking_person→person`、`hatchback→car` 等子类型不再生成错误 reject；同一模型输入的不同决策在构建和 merge 后均执行冲突门禁。历史 r3 replay 中 80 组已存在的 `confusable_positive` 与原始真目标/反事实正例冲突，在 merge 时删除旧的冗余 `confusable_positive`，其余未解决冲突仍使构建失败。
+
+按 r6 离线配方读取 `r21id-r4d+r4e+r4g+r5a` episodes、`runs/src-r21r5t/configs/scenarios/generated-r21id-r4r5/index.json` 和只读 proposal cache `artifacts/r21id-r5/pipeline/yoloe-v3-cache.jsonl`，关闭 `--task-text-variants`，未写入 `artifacts/`。`.tmp/r21id-r6-sft-final/manifest.json` 的 `conflicting_decision_groups=0`；train/val 为 6,951/2,741 行，`dropped_confusable_task_equivalent=1,015`，`walking_person->person` 与 `hatchback->car` 错拒均为 0。`max-upsample=1` 时没有重复副本，merge 前有效 view balance 计数为通用 strata 3,549、hard-negative strata 212。
+
+以完整 r3 replay 在 `.tmp/r21id-r6-merged-final/` 离线合并后，冲突门禁通过；train 29,629 行，其中为清理历史冲突删除 80 条冗余 alias 正例，平衡副本 0。merged train 的实际行视角计数 front/oblique/edge_truncated/recovery/missing 为 5,766/4,420/6,721/4,050/8,672；显式 confusable-negative hard-pair 行为 645（对应五视角 161/81/207/85/111）。该结果只证明数据构建门禁和计数逻辑通过，尚未启动训练、GPU、SITL 或评测。

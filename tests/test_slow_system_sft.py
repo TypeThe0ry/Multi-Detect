@@ -41,6 +41,31 @@ def test_confusable_negative_table_covers_identity_regressions():
     assert builder._confusable_task("pickup", 0) == "Find the pickup and record its position."
 
 
+def test_semantic_aliases_are_equivalent_for_confusable_rejects():
+    walking_person = {
+        "class": "person",
+        "category_words": ["person", "pedestrian", "walking person"],
+    }
+    hatchback = {"class": "car", "category_words": ["car", "hatchback"]}
+    assert builder._category_task_equivalent("walking_person", walking_person)
+    assert builder._category_task_equivalent("hatchback", hatchback)
+    assert not builder._category_task_equivalent("pickup", {"class": "suv", "category_words": ["car", "suv"]})
+
+
+def test_conflicting_decisions_for_same_model_input_fail():
+    row = {
+        "image_path": "frame.png",
+        "task_text": "Find the person.",
+        "focus_track_id": "track-1",
+        "candidates": [{"track_id": "track-1", "box_xyxy_normalized": [0.1, 0.1, 0.2, 0.2]}],
+        "assistant_target": {"decision": "confirm_target"},
+    }
+    conflict = {**row, "assistant_target": {"decision": "reject_track"}}
+    import pytest
+    with pytest.raises(ValueError, match="conflicting decisions"):
+        builder._validate_no_conflicting_decisions([row, conflict])
+
+
 def test_identity_view_balance_upsamples_sparse_views_without_touching_other_rows():
     def row(sample_id, category, view, decision):
         return {

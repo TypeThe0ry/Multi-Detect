@@ -769,6 +769,45 @@ def test_merge_gate_still_fails_when_true_positives_alone_tilt_the_mix(tmp_path:
         merge_cli(_merge_args(tmp_path))
 
 
+def test_merge_preserves_explicit_balance_copies_and_reports_effective_rows(tmp_path: Path):
+    import json
+    from scripts.run_r15_round import merge_cli
+
+    _r12_dataset(tmp_path)
+    add = tmp_path / "add"
+    add.mkdir()
+    original = _identity("copy-source", "reject_track", "distractor")
+    copy = {**original, "sample_id": "copy-source~view-balance-1", "balance_copy_index": 1}
+    _write_jsonl(add / "train.jsonl", [original, copy])
+    for split in ("val", "test"):
+        _write_jsonl(add / f"{split}.jsonl", [])
+
+    merge_cli(_merge_args(tmp_path))
+    rows = [json.loads(line) for line in (tmp_path / "merged" / "train.jsonl").read_text().splitlines()]
+    assert sum(row.get("balance_copy_index") == 1 for row in rows) == 1
+    manifest = json.loads((tmp_path / "merged" / "manifest.json").read_text())
+    assert manifest["counts"]["train"]["effective_rows"] == len(rows)
+    assert manifest["counts"]["train"]["balance_copy_rows"] == 1
+
+
+def test_merge_rejects_conflicting_decisions_for_same_model_input(tmp_path: Path):
+    import pytest
+    from scripts.run_r15_round import merge_cli
+
+    _r12_dataset(tmp_path)
+    add = tmp_path / "add"
+    add.mkdir()
+    base = _identity("same", "confirm_target", "true_target", image="same.png", task="Find the person.")
+    reject = {**base, "sample_id": "same-reject", "assistant_target": {"decision": "reject_track"}}
+    _write_jsonl(add / "train.jsonl", [reject])
+    for split in ("val", "test"):
+        _write_jsonl(add / f"{split}.jsonl", [])
+    # Put the accepting row in the base dataset so the post-merge gate sees both.
+    _write_jsonl(tmp_path / "r12" / "train.jsonl", [_identity(f"r12-p{i}", "confirm_target", "true_target") for i in range(40)] + [base] + [_identity(f"r12-n{i}", "reject_track", "distractor") for i in range(60)])
+    with pytest.raises(ValueError, match="conflicting decisions"):
+        merge_cli(_merge_args(tmp_path))
+
+
 def test_collect_plans_the_configured_episodes_per_world(tmp_path):
     import os
     import subprocess
