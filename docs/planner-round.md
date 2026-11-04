@@ -607,4 +607,28 @@ follow mission check：`configs/onboard/suite-follow-r21idr3-r24plan.json` 期�
 
 ### r31 配方
 
+只生成 r31 数据（离线，不训练）：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch-r31
+python scripts/run_planner_round.py --stage data --force-stage data \
+  --out .tmp/r31-data --eval-root .tmp/r31-eval \
+  --rows 2000 --val-rows 100 --intent-count 80 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl \
+  --negative-target-mode rejected_candidate --r31-recipe \
+  --r31-direct-follow-count 40 --r31-step-fidelity-count 40 \
+  --r31-terminal-intent-count 20 --r31-grounded-refs-count 20
+```
+
+训练/评测命令（r24 adapter 热启动、r24 baseline、host pregate、planning-v5）：
+
+```bash
+python scripts/run_planner_round.py --stage all --out .tmp/r31 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl --r31-recipe \
+  --init-adapter artifacts/models/slow-system-lora-v2-r24-planner/adapter \
+  --baseline-gguf artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf \
+  --baseline-label r24 --plan-pregate --include-planning-v5 --epochs 1 --learning-rate 2.5e-5
+```
+
 先保护 r24 的通用 v3 分布，再做小规模验证：保留 1,500 条 r24 replay，把四族缩小为 120 条（`direct_follow` 40、`step_fidelity` 40、`terminal_intent` 20、`grounded_refs` 20），中英文各半；按 `record/inspect`、`monitor/hover`、`patrol/goto`、`land/return_home` 分层，并使用与 holdout 不同的句式模板。不要加入新的拒绝目标，继续由 host pregate/validator 处理 `query_ungrounded` 和未知引用；按 family×skill×language 分桶采样，避免短模板挤压多步骤 v3 数据。r24 热启动、1 epoch、学习率不高于 `2.5e-5`。评测除 v3/v4/v5 和 15 条 probe 外，必须补跑 follow suite 的 planner-only 检查，断言首步为 `follow` 且计划不含 `area_search`；若 v3 仍低于 0.80 或 probe 低于 15/15，停止替换尝试。
