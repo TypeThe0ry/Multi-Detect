@@ -511,10 +511,14 @@ class CameraMountProfile:
         if self.type == "fixed":
             return CameraMount.fixed()
         limits = self.limits
+        # Airframe JSON follows MAVLink's convention (positive pitch is up),
+        # while CameraMount uses positive pitch toward NED down.  Convert the
+        # interval at this boundary so every internal consumer shares one sign.
+        mav_pitch_min, mav_pitch_max = limits.get("pitch", (-math.pi, math.pi))
         return CameraMount.gimbal(
             limits=GimbalLimits(
-                pitch_min_rad=limits.get("pitch", (-math.pi, math.pi))[0],
-                pitch_max_rad=limits.get("pitch", (-math.pi, math.pi))[1],
+                pitch_min_rad=-mav_pitch_max,
+                pitch_max_rad=-mav_pitch_min,
                 yaw_min_rad=limits.get("yaw", (-math.pi, math.pi))[0],
                 yaw_max_rad=limits.get("yaw", (-math.pi, math.pi))[1],
                 roll_min_rad=limits.get("roll", (-math.pi, math.pi))[0],

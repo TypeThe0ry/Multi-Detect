@@ -14,6 +14,7 @@ from typing import Literal
 
 MountKind = Literal["fixed", "gimbal"]
 StabilizationMode = Literal["follow-body", "lock-horizon", "follow-yaw"]
+RotationFrame = Literal["body", "world"]
 
 
 def _finite(value: float, name: str) -> float:
@@ -66,7 +67,7 @@ def rpy_rotation(*, roll_rad: float, pitch_rad: float, yaw_rad: float) -> tuple[
 
 
 def _mount_rotation(*, roll_rad: float, pitch_rad: float, yaw_rad: float) -> tuple[float, ...]:
-    """Mount RPY uses positive pitch as optical-axis pitch down."""
+    """Return optical-to-frame rotation; mount pitch is positive toward NED down."""
     return rpy_rotation(roll_rad=roll_rad, pitch_rad=-pitch_rad, yaw_rad=yaw_rad)
 
 
@@ -95,6 +96,11 @@ class GimbalLimits:
 @dataclass(frozen=True, slots=True)
 class CameraMount:
     """Camera mount state and the policy used to compose its orientation.
+
+    The single internal angle convention is: ``pitch_rad > 0`` means the
+    optical axis points toward NED ``+Z`` (down).  MAVLink feedback/commands and
+    airframe profile limits use positive-up pitch and are converted at their
+    boundaries before reaching this class.
 
     ``pitch_rad/yaw_rad/roll_rad`` describe the mount relative to the body for
     ``fixed`` and ``follow-body``.  For stabilized modes they describe the
@@ -221,22 +227,40 @@ def compose_camera_pose(
     vehicle_pitch_rad: float,
     vehicle_yaw_rad: float,
     mount: CameraMount,
+    rotation_override: tuple[float, ...] | None = None,
+    rotation_frame: RotationFrame = "body",
 ) -> ComposedCameraPose:
-    """Compose ``vehicle attitude x gimbal attitude x mount offset``."""
+    """Compose ``vehicle attitude x gimbal attitude x mount offset``.
+
+    ``rotation_override`` is used for a feedback quaternion.  It is an optical
+    frame rotation expressed in either the vehicle body or world frame and lets
+    callers preserve the physical attitude when Euler decomposition wraps at
+    nadir.
+    """
     if len(vehicle_position_ned) != 3:
         raise ValueError("vehicle_position_ned must contain three values")
     position = tuple(_finite(value, "vehicle_position_ned[]") for value in vehicle_position_ned)
+    if rotation_frame not in {"body", "world"}:
+        raise ValueError("rotation_frame must be body or world")
+    if rotation_override is not None and len(rotation_override) != 9:
+        raise ValueError("rotation_override must contain nine values")
     body_world = rpy_rotation(
         roll_rad=vehicle_roll_rad, pitch_rad=vehicle_pitch_rad, yaw_rad=vehicle_yaw_rad
     )
     offset_world = _mat_vec(body_world, mount.offset_body_ned_m)
     center = tuple(position[index] + offset_world[index] for index in range(3))
-    relative = mount.optical_to_body_rotation(
-        vehicle_roll_rad=vehicle_roll_rad,
-        vehicle_pitch_rad=vehicle_pitch_rad,
-        vehicle_yaw_rad=vehicle_yaw_rad,
-    )
-    return ComposedCameraPose(center_ned=center, optical_to_world=_mat_mul(body_world, relative))
+    if rotation_override is None:
+        relative = mount.optical_to_body_rotation(
+            vehicle_roll_rad=vehicle_roll_rad,
+            vehicle_pitch_rad=vehicle_pitch_rad,
+            vehicle_yaw_rad=vehicle_yaw_rad,
+        )
+        optical_to_world = _mat_mul(body_world, relative)
+    elif rotation_frame == "body":
+        optical_to_world = _mat_mul(body_world, tuple(float(v) for v in rotation_override))
+    else:
+        optical_to_world = tuple(float(v) for v in rotation_override)
+    return ComposedCameraPose(center_ned=center, optical_to_world=optical_to_world)
 
 
 __all__ = [

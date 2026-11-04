@@ -98,7 +98,7 @@ def aligned_rows(roots: list[Path], *, max_rows: int | None = None) -> list[dict
                         continue
                     height, width = bgr.shape[:2]
                     objects: list[dict[str, Any]] = []
-                    pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}}
+                    pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}, **({"camera_pose": obs["camera_pose"]} if obs.get("camera_pose") else {})}
                     for target in truth["targets"]:
                         if not isinstance(target, dict):
                             continue

@@ -70,3 +70,20 @@ def test_lock_horizon_ground_intersection_uses_composed_camera_pose() -> None:
     )
     assert point is not None
     assert math.isfinite(point[0]) and math.isfinite(point[1])
+
+
+def test_recorded_composed_camera_pose_drives_projection_without_mount_argument() -> None:
+    pose = {
+        **_pose(),
+        "camera_pose": {
+            "center_ned": [0.0, 0.0, -10.0],
+            "optical_to_world": [0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        },
+    }
+    result = pixel_camera_ray(
+        640.0, 480.0, pose=pose, camera_info=_camera(), image_size=(1280, 960)
+    )
+    assert result is not None
+    center, ray = result
+    assert center == pytest.approx((0.0, 0.0, -10.0))
+    assert ray == pytest.approx((0.0, 1.0, 0.0))

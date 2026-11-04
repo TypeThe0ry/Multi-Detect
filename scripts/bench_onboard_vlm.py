@@ -99,7 +99,7 @@ def _candidate_rows(roots: list[Path]) -> list[dict[str, Any]]:
                     frame = episode / Path(obs["rgb_path"].replace("\\", "/"))
                     if not frame.is_file():
                         continue
-                    pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}}
+                    pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}, **({"camera_pose": obs["camera_pose"]} if obs.get("camera_pose") else {})}
                     for target in targets:
                         if not isinstance(target, dict):
                             continue

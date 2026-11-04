@@ -73,3 +73,11 @@
 6. 设计并版本化新的 recorded-data sidecar（例如 `camera_mount_state`：timestamp、source、quaternion、Euler 展开、rates、flags、freshness）；完成旧数据读取兼容后再更新 schemas、生成器和证据文件。
 7. 最后才更新 `camera_info`/pose 语义文档、回归闸门和实机/SITL 验证。当前任务明确不修改这些数据格式，也不运行 SITL、Docker 或 GPU。
 
+## 第三步实现（teacher FOV 与录制相机姿态）
+
+本步完成 teacher 与录制/标注链路的最小接入，保持旧数据和固定安装几何不变：
+
+* `target_in_fov` 和 expert observation view 支持可选 `CameraMount`。固定安装继续使用原有逐步投影；gimbal 安装根据目标生成云台 pitch/yaw，并用 composed optical-to-world pose 做 FOV 判断。gimbal 观察站不再仅因目标方位转动车体，标签中附带可选 `gimbal_command`。
+* recorded step 的 `obs_before`/`obs_after` 在有 `GIMBAL_DEVICE_ATTITUDE_STATUS` 时附加 `gimbal_state`；若调用方提供 mount，则同时附加 `camera_pose`（中心、optical-to-world 矩阵、来源和云台时间）。字段均为可选，旧 reader 忽略即可。
+* `camera_projection`、SIM detector label 和 replay/autolabel 路径优先使用 observation 中的 `camera_pose`；缺少该字段时继续走原固定相机路径。没有修改 schema、版本或证据文件。
+

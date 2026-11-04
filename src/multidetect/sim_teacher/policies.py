@@ -6,9 +6,11 @@ import math
 import random
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+
+from multidetect.camera_mount import CameraMount, compose_camera_pose
 
 from .primitives import ActionPrimitive
 
@@ -279,6 +281,9 @@ def target_in_fov(
     image_size: tuple[int, int],
     max_range_m: float | None = None,
     camera_pitch_rad: float = 0.0,
+    camera_mount: CameraMount | None = None,
+    camera_pose: Mapping[str, Any] | None = None,
+    require_camera_feedback: bool = False,
 ) -> tuple[bool, float, float]:
     """Return (in_fov, bearing_deg, range_m) for a nadir-ish forward camera."""
     dn, de, dd = (target_ned[i] - pose_ned[i] for i in range(3))
@@ -292,6 +297,45 @@ def target_in_fov(
         float(intrinsics.get("cx", image_size[0] / 2)),
         float(intrinsics.get("cy", image_size[1] / 2)),
     )
+    if require_camera_feedback and camera_mount is not None and camera_mount.kind == "gimbal" and camera_pose is None:
+        return False, bearing, rng
+    if camera_pose is not None:
+        try:
+            center = tuple(float(value) for value in camera_pose["center_ned"])
+            rotation = tuple(float(value) for value in camera_pose["optical_to_world"])
+            if len(center) != 3 or len(rotation) != 9:
+                raise ValueError
+            vector = tuple(target_ned[i] - center[i] for i in range(3))
+            x, y, z = tuple(
+                sum(rotation[row * 3 + col] * vector[row] for row in range(3))
+                for col in range(3)
+            )
+            if x <= 0:
+                return False, bearing, rng
+            px, py = cx + fx * y / x, cy + fy * z / x
+            inside = 0 <= px < image_size[0] and 0 <= py < image_size[1]
+            return inside and (max_range_m is None or rng <= max_range_m), bearing, rng
+        except (KeyError, TypeError, ValueError):
+            return False, bearing, rng
+    if camera_mount is not None and camera_mount.kind == "gimbal":
+        composed = compose_camera_pose(
+            pose_ned,
+            vehicle_roll_rad=0.0,
+            vehicle_pitch_rad=0.0,
+            vehicle_yaw_rad=math.radians(yaw_deg),
+            mount=camera_mount,
+        )
+        vector = tuple(target_ned[i] - composed.center_ned[i] for i in range(3))
+        rotation = composed.optical_to_world
+        x, y, z = (
+            sum(rotation[row * 3 + col] * vector[row] for row in range(3))
+            for col in range(3)
+        )
+        if x <= 0:
+            return False, bearing, rng
+        px, py = cx + fx * y / x, cy + fy * z / x
+        inside = 0 <= px < image_size[0] and 0 <= py < image_size[1]
+        return inside and (max_range_m is None or rng <= max_range_m), bearing, rng
     # rotate N/E into body frame and project as x forward, z down.
     yaw = math.radians(yaw_deg)
     x = dn * math.cos(yaw) + de * math.sin(yaw)
@@ -336,6 +380,7 @@ class ExpertSearchPolicy:
     altitude_m: float = 5.0
     obstacles: tuple[SDFObstacle, ...] = ()
     camera_pitch_rad: float = 0.18
+    camera_mount: CameraMount | None = None
     # Route used for target-blind bounded searches.  ``current`` preserves the
     # historical expanding-square behaviour; alternate routes are useful for
     # zone search/count experiments and remain target independent.
@@ -461,6 +506,7 @@ class ExpertSearchPolicy:
                 self.image_size,
                 max_range_m=self.max_detection_range_m,
                 camera_pitch_rad=self.camera_pitch_rad,
+                camera_mount=self._camera_mount_for_target((north, east, down)),
             )
             if visible:
                 adjusted.append((north, east, down))
@@ -485,6 +531,7 @@ class ExpertSearchPolicy:
                     self.image_size,
                     max_range_m=self.max_detection_range_m,
                     camera_pitch_rad=self.camera_pitch_rad,
+                    camera_mount=self._camera_mount_for_target(candidate),
                 )
                 if visible:
                     break
@@ -492,6 +539,19 @@ class ExpertSearchPolicy:
                 candidate = (north, east, down)
             adjusted.append(candidate)
         return tuple(adjusted)
+
+    def _camera_mount_for_target(self, pose_ned: tuple[float, float, float]) -> CameraMount | None:
+        mount = self.camera_mount
+        if mount is None or mount.kind != "gimbal":
+            return None
+        dn = self.target_ned[0] - pose_ned[0]
+        de = self.target_ned[1] - pose_ned[1]
+        down = self.target_ned[2] - pose_ned[2]
+        yaw = math.atan2(de, dn)
+        pitch = math.atan2(down, math.hypot(dn, de))
+        yaw = min(mount.limits.yaw_max_rad, max(mount.limits.yaw_min_rad, yaw))
+        pitch = min(mount.limits.pitch_max_rad, max(mount.limits.pitch_min_rad, pitch))
+        return replace(mount, pitch_rad=pitch, yaw_rad=yaw, roll_rad=0.0)
 
     def _coverage_radius_m(self, phase: str) -> float:
         from multidetect.search_coverage import CoverageCamera
@@ -894,7 +954,13 @@ class ExpertSearchPolicy:
         )
         return max(self.standoff_m, geometry)
 
-    def next_action(self, *, pose_ned, yaw_deg: float = 0.0) -> ActionPrimitive:
+    def next_action(
+        self,
+        *,
+        pose_ned,
+        yaw_deg: float = 0.0,
+        camera_pose: Mapping[str, Any] | None = None,
+    ) -> ActionPrimitive:
         self._observation_sample_index = None
         self._observation_sample_count = None
         point = (float(pose_ned[0]), float(pose_ned[1]))
@@ -910,6 +976,13 @@ class ExpertSearchPolicy:
             self.image_size,
             max_range_m=self.max_detection_range_m,
             camera_pitch_rad=self.camera_pitch_rad,
+            camera_mount=self._camera_mount_for_target(tuple(pose_ned)),
+            camera_pose=(
+                camera_pose
+                if self.camera_mount is not None and self.camera_mount.kind == "gimbal"
+                else None
+            ),
+            require_camera_feedback=self.camera_mount is not None and self.camera_mount.kind == "gimbal",
         )
         self._last_inside = inside
         if self.observation_frames > 0 and self.observation_waypoints:
@@ -947,7 +1020,11 @@ class ExpertSearchPolicy:
                     ),
                     yaw_deg,
                 )
-            if self.fixed_wing_orbit_radius_m is None:
+            if self.fixed_wing_orbit_radius_m is None and (
+                self.camera_mount is None
+                or self.camera_mount.kind != "gimbal"
+                or camera_pose is None
+            ):
                 target_bearing = math.degrees(math.atan2(self.target_ned[1] - pose_ned[1], self.target_ned[0] - pose_ned[0]))
                 turn = self._wrap(target_bearing - yaw_deg)
                 if abs(turn) > 4.0:
@@ -1066,7 +1143,13 @@ class ExpertSearchPolicy:
             waypoint = waypoints[self._waypoint_index]
         return self._search_leg_action(pose_ned, waypoint, yaw_deg)
 
-    def labels(self, *, pose_ned, yaw_deg: float = 0.0) -> dict[str, Any]:
+    def labels(
+        self,
+        *,
+        pose_ned,
+        yaw_deg: float = 0.0,
+        camera_pose: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         inside, bearing, rng = target_in_fov(
             self.target_ned,
             pose_ned,
@@ -1075,12 +1158,29 @@ class ExpertSearchPolicy:
             self.image_size,
             max_range_m=self.max_detection_range_m,
             camera_pitch_rad=self.camera_pitch_rad,
+            camera_mount=self._camera_mount_for_target(tuple(pose_ned)),
+            camera_pose=(
+                camera_pose
+                if self.camera_mount is not None and self.camera_mount.kind == "gimbal"
+                else None
+            ),
+            require_camera_feedback=self.camera_mount is not None and self.camera_mount.kind == "gimbal",
         )
+        commanded_mount = self._camera_mount_for_target(tuple(pose_ned))
         return {
             "phase": "observe" if self._observation_sample_index is not None else self.state,
             "target_in_fov": inside,
             "target_bearing_deg": bearing,
             "target_range_m": rng,
+            **(
+                {"gimbal_command": {
+                    "pitch_down_rad": commanded_mount.pitch_rad,
+                    "yaw_world_rad": commanded_mount.yaw_rad,
+                    "mode": commanded_mount.stabilization,
+                }}
+                if commanded_mount is not None
+                else {}
+            ),
             "approach_replanned": self._approach_replanned,
             "safety_replanned": self._safety_replanned,
             "standoff_m": self.effective_standoff_m,
