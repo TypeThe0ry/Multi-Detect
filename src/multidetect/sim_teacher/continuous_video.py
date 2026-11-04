@@ -83,6 +83,8 @@ class ContinuousVideoWriter:
             "depth_path": depth_path.relative_to(self.root).as_posix() if depth_path else None,
             "depth_encoding": "FLOAT32_M",
             "camera_info": observation.get("camera_info"),
+            "gimbal_state": observation.get("gimbal_state"),
+            "camera_pose": observation.get("camera_pose"),
             "pose": observation.get("pose"),
             "attitude": observation.get("attitude"),
             "velocity": observation.get("velocity"),

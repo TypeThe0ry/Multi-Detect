@@ -36,13 +36,14 @@ if __package__ in {None, ""}:
 
 from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
-from multidetect.provenance import build_provenance, model_paths_from_config, snapshot_config  # noqa: E402
-from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
+from multidetect.gimbal_controller import Px4GimbalController  # noqa: E402
+from multidetect.provenance import build_provenance, model_paths_from_config, snapshot_config  # noqa: E402
 from multidetect.px4_mission import (  # noqa: E402
     MAV_CMD_NAV_LAND,
     MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
 )
+from multidetect.sim_network import sim_udpin_endpoint  # noqa: E402
 from multidetect.sim_teacher import (  # noqa: E402
     ActionPrimitive,
     EpisodeRecorder,
@@ -54,7 +55,6 @@ from multidetect.sim_teacher import (  # noqa: E402
     SetpointStreamer,
     primitive_to_ned,
 )
-from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context  # noqa: E402
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
@@ -70,8 +70,8 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     SensorStreamReader,
     build_observation,
 )
+from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
-from multidetect.sim_network import sim_udpin_endpoint  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_IMAGE_MODEL_ROOT,
@@ -80,6 +80,7 @@ from scripts.run_simulator_docker import (  # noqa: E402
     _split_gpu_list,
     build_docker_simulator_plan,
 )
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context  # noqa: E402
 
 PINNED_IMAGE = (
     "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
@@ -1767,7 +1768,13 @@ def _apply_motion_wait_result(executed: Any, motion_wait: Mapping[str, Any]) -> 
     )
 
 
-def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
+def _policy_for(
+    plan: CollectionPlan,
+    truth_path: Path,
+    seed: int,
+    *,
+    airframe_profile: AirframeProfile | None = None,
+):
     if plan.teacher == "explore":
         return ExplorePolicy(seed=seed, bounds=ExploreBounds())
     target, label = _truth_target(
@@ -1834,11 +1841,18 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
             observation_view_names.append(str(row.get("view", len(observation_view_names))))
     elif home_ned is not None:
         observation_waypoints.append((home_ned[0], home_ned[1], -altitude_m))
+    profile = airframe_profile or _airframe_profile(plan.airframe, plan.takeoff_method)
+    camera_mount = (
+        profile.camera_mount.to_camera_mount()
+        if profile is not None and profile.camera_mount is not None
+        else None
+    )
     return ExpertSearchPolicy(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
         altitude_m=altitude_m,
         camera_pitch_rad=camera_pitch,
+        camera_mount=camera_mount,
         max_detection_range_m=max_detection_range,
         **({"home_ned": home_ned} if home_ned is not None else {}),
         obstacles=obstacles,
@@ -1846,9 +1860,8 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         observation_waypoints=tuple(observation_waypoints),
         observation_view_names=tuple(observation_view_names),
         fixed_wing_orbit_radius_m=(
-            _airframe_profile(plan.airframe, plan.takeoff_method).orbit_radius(80.0)
-            if _airframe_profile(plan.airframe, plan.takeoff_method)
-            and _airframe_profile(plan.airframe, plan.takeoff_method).category == "fixed_wing"
+            profile.orbit_radius(80.0)
+            if profile is not None and profile.category == "fixed_wing"
             else None
         ),
     ), label
@@ -2502,6 +2515,30 @@ def _plain_record(value: Any) -> Any:
             k: getattr(value, k) for k in ("status", "ok", "result", "detail") if hasattr(value, k)
         }
     return {"type": type(value).__name__, **{k: _plain_record(v) for k, v in attrs.items()}}
+
+
+def _dispatch_teacher_gimbal_command(
+    controller: Any,
+    labels: Mapping[str, Any],
+    *,
+    vehicle_yaw_deg: float,
+    default_mode: str = "lock-horizon",
+) -> bool:
+    """Actuate a teacher gimbal command and mark it only after dispatch."""
+    command = labels.get("gimbal_command")
+    if not isinstance(command, Mapping):
+        return False
+    if controller is None:
+        return False
+    if "pitch_down_rad" not in command or "yaw_world_rad" not in command:
+        return False
+    controller.command_pitch_yaw(
+        float(command["pitch_down_rad"]),
+        float(command["yaw_world_rad"]),
+        mode=str(command.get("mode", default_mode)),
+        vehicle_yaw_rad=math.radians(float(vehicle_yaw_deg)),
+    )
+    return True
 
 
 class _ReaderAckLink:
@@ -3655,6 +3692,13 @@ def run_episode(
     free_space_fn: Any = free_space_bytes,
 ) -> Path:
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
+    # Resolve the airframe mount once per episode; observation packing reuses it.
+    airframe_profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    camera_mount = (
+        airframe_profile.camera_mount.to_camera_mount()
+        if airframe_profile is not None and airframe_profile.camera_mount is not None
+        else None
+    )
     initial_reason = disk_space_abort_reason(
         plan.out, plan.min_free_gb, free_space_fn=free_space_fn
     )
@@ -3674,7 +3718,9 @@ def run_episode(
         task_text = plan.task_text or _index_task_text(truth_path) or "找到目标并记录位置"
         policy = _onboard_policy(plan, task_text, Path(plan.out) / f"{episode_id}-onboard-frames")
     elif plan.teacher == "expert_search":
-        policy, target_label = _policy_for(plan, truth_path, plan.seed + episode_index)
+        policy, target_label = _policy_for(
+            plan, truth_path, plan.seed + episode_index, airframe_profile=airframe_profile
+        )
         task_text = _index_task_text(truth_path) or (
             "\u627e\u5230" + str(target_label) + "\u5e76\u8bb0\u5f55\u4f4d\u7f6e"
         )
@@ -3682,7 +3728,9 @@ def run_episode(
         policy = _hover_policy(plan, truth_path)
         task_text = "Hover above the moving target path and record observations."
     else:
-        policy = _policy_for(plan, truth_path, plan.seed + episode_index)
+        policy, _ = _policy_for(
+            plan, truth_path, plan.seed + episode_index, airframe_profile=airframe_profile
+        )
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
     recorder = EpisodeRecorder(
         plan.out,
@@ -3741,6 +3789,7 @@ def run_episode(
     sensor_reader = mav_reader = None
     launch_status_texts: list[str] = []
     setpoint_streamer = None
+    gimbal_controller = None
     mover_driver = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
     try:
@@ -3773,6 +3822,20 @@ def run_episode(
                 source_component=GCS_SOURCE_COMPONENT,
                 autoreconnect=False,
             )
+            if camera_mount is not None and camera_mount.kind == "gimbal":
+                def _send_gimbal_command(command: int, params: tuple[float, ...]) -> None:
+                    sender = getattr(getattr(telemetry_connection, "mav", None), "command_long_send", None)
+                    if not callable(sender):
+                        raise RuntimeError("MAVLink connection cannot send gimbal command")
+                    sender(
+                        int(getattr(telemetry_connection, "target_system", 1) or 1),
+                        int(getattr(telemetry_connection, "target_component", 1) or 1),
+                        int(command),
+                        0,
+                        *params,
+                    )
+
+                gimbal_controller = Px4GimbalController(camera_mount, _send_gimbal_command)
             recorder.begin_mavlink_stream()
 
             def _record_mavlink(row: dict[str, Any]) -> None:
@@ -4214,14 +4277,30 @@ def run_episode(
                         "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
                         "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
                     },
+                    camera_mount=camera_mount,
                 )
                 before = _png_observation(before)
                 timing["observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 pose = tuple(before["pose"]["local_ned_m"])
                 yaw = float(before["attitude"]["yaw_deg"])
                 if plan.teacher == "expert_search":
-                    action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
-                    labels = policy.labels(pose_ned=pose, yaw_deg=yaw)
+                    action = policy.next_action(
+                        pose_ned=pose,
+                        yaw_deg=yaw,
+                        camera_pose=before.get("camera_pose"),
+                    )
+                    labels = policy.labels(
+                        pose_ned=pose,
+                        yaw_deg=yaw,
+                        camera_pose=before.get("camera_pose"),
+                    )
+                    if _dispatch_teacher_gimbal_command(
+                        gimbal_controller,
+                        labels,
+                        vehicle_yaw_deg=yaw,
+                        default_mode=camera_mount.stabilization if camera_mount is not None else "lock-horizon",
+                    ):
+                        labels["gimbal_dispatched"] = True
                 elif plan.teacher == "onboard":
                     t = time.perf_counter_ns()
                     action, labels = policy.act(before, pose_ned=pose, yaw_deg=yaw)
@@ -4343,6 +4422,7 @@ def run_episode(
                                             * plan.rgb_size[1]
                                             / 960.0,
                                         },
+                                        camera_mount=camera_mount,
                                     )
                                 )
                                 video_obs["flight_stage"] = "action"
@@ -4395,6 +4475,7 @@ def run_episode(
                                         "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
                                         "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
                                     },
+                                        camera_mount=camera_mount,
                                 )
                             )
                             final_obs["flight_stage"] = "action_end"
@@ -4440,6 +4521,7 @@ def run_episode(
                         "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
                         "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
                     },
+                    camera_mount=camera_mount,
                 )
                 after = _png_observation(after)
                 timing["after_observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)

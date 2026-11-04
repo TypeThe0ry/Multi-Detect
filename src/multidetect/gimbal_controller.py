@@ -3,22 +3,29 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from multidetect.camera_mount import CameraMount
 
 MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW = 1000
 MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS = 285
 GIMBAL_DEVICE_ATTITUDE_STATUS = MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS
+GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME = 1
+GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME = 2
 
 
 @dataclass(frozen=True, slots=True)
 class GimbalState:
+    """Feedback in the CameraMount convention: pitch positive toward NED down."""
+
     pitch_rad: float
     yaw_rad: float
     roll_rad: float = 0.0
     timestamp_us: int | None = None
+    rotation: tuple[float, ...] | None = None
+    yaw_frame: str = "unknown"
 
 
 class GimbalController(Protocol):
@@ -121,7 +128,12 @@ class Px4GimbalController(SimGimbalController):
 
 
 def parse_gimbal_device_attitude_status(message: Any) -> GimbalState | None:
-    """Parse MAVLink GIMBAL_DEVICE_ATTITUDE_STATUS quaternion feedback."""
+    """Parse MAVLink feedback into CameraMount's positive-down convention.
+
+    MAVLink's Euler pitch is positive up.  Keep the quaternion rotation matrix
+    as the source of truth so a nadir crossing cannot lose orientation through
+    the standard [-90, 90] Euler pitch representation.
+    """
     getter = message.get if isinstance(message, dict) else lambda key, default=None: getattr(message, key, default)
     try:
         q = tuple(float(getter(f"q{index}")) for index in range(4))
@@ -139,16 +151,47 @@ def parse_gimbal_device_attitude_status(message: Any) -> GimbalState | None:
     if norm <= 1e-9:
         return None
     w, x, y, z = (value / norm for value in q)
+    rotation = (
+        1.0 - 2.0 * (y * y + z * z),
+        2.0 * (x * y - z * w),
+        2.0 * (x * z + y * w),
+        2.0 * (x * y + z * w),
+        1.0 - 2.0 * (x * x + z * z),
+        2.0 * (y * z - x * w),
+        2.0 * (x * z - y * w),
+        2.0 * (y * z + x * w),
+        1.0 - 2.0 * (x * x + y * y),
+    )
     roll = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
-    pitch = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x))))
+    pitch_mavlink = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x))))
     yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     stamp = getter("time_boot_ms")
-    return GimbalState(pitch, yaw, roll, int(stamp) * 1000 if isinstance(stamp, (int, float)) else None)
+    flags = getter("flags", getter("device_flags", 0))
+    try:
+        flags = int(flags or 0)
+    except (TypeError, ValueError):
+        flags = 0
+    if flags & GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME:
+        yaw_frame = "world"
+    elif flags & GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME:
+        yaw_frame = "body"
+    else:
+        yaw_frame = "unknown"
+    return GimbalState(
+        -pitch_mavlink,
+        yaw,
+        roll,
+        int(stamp) * 1000 if isinstance(stamp, (int, float)) else None,
+        rotation,
+        yaw_frame,
+    )
 
 
 __all__ = [
     "FixedGimbalController",
     "GIMBAL_DEVICE_ATTITUDE_STATUS",
+    "GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME",
+    "GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME",
     "GimbalController",
     "GimbalState",
     "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",

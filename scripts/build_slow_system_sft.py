@@ -268,7 +268,7 @@ def _normalized(box: tuple[float, float, float, float], width: int, height: int)
 
 def _project(obs: dict, targets: list[dict], sizes: dict[str, tuple[float, float, float]], width: int, height: int, obstacles=(), min_visible_fraction: float = 0.3, stats: Counter | None = None) -> list[dict]:
     projected = []
-    pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}}
+    pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}, **({"camera_pose": obs["camera_pose"]} if obs.get("camera_pose") else {})}
     for target in targets:
         metric = target.get("pose") or {}
         cls = _target_class(target)

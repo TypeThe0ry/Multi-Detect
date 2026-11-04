@@ -4,20 +4,22 @@ import math
 
 import pytest
 
-from multidetect.camera_mount import CameraMount, GimbalLimits
+from multidetect.autonomy.airframe_profile import load_airframe_profile
+from multidetect.autonomy.mission_executor import MissionExecutor
+from multidetect.autonomy.mission_plan import validate_mission_plan
+from multidetect.autonomy.onboard_loop import CameraModel, LoopConfig, OnboardLoop
+from multidetect.camera_mount import CameraMount, GimbalLimits, compose_camera_pose
 from multidetect.gimbal_controller import (
+    GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME,
+    GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME,
     MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
     FixedGimbalController,
     Px4GimbalController,
     SimGimbalController,
     parse_gimbal_device_attitude_status,
 )
-from multidetect.autonomy.airframe_profile import load_airframe_profile
-from multidetect.autonomy.mission_executor import MissionExecutor
-from multidetect.autonomy.onboard_loop import CameraModel, LoopConfig, OnboardLoop
-from multidetect.autonomy.mission_plan import validate_mission_plan
-from multidetect.sim_teacher.primitives import ActionPrimitive
 from multidetect.onboard_runtime.vehicle import PymavlinkVehicle
+from multidetect.sim_teacher.primitives import ActionPrimitive
 
 
 def test_fixed_controller_is_noop() -> None:
@@ -49,6 +51,65 @@ def test_gimbal_attitude_feedback_parses_quaternion() -> None:
     state = parse_gimbal_device_attitude_status({"q": [math.cos(math.pi / 4), 0.0, 0.0, math.sin(math.pi / 4)]})
     assert state is not None
     assert state.yaw_rad == pytest.approx(math.pi / 2)
+
+
+def test_gimbal_feedback_preserves_yaw_frame_flags() -> None:
+    earth = parse_gimbal_device_attitude_status(
+        {"q": [1.0, 0.0, 0.0, 0.0], "flags": GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME}
+    )
+    vehicle = parse_gimbal_device_attitude_status(
+        {"q": [1.0, 0.0, 0.0, 0.0], "flags": GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME}
+    )
+    assert earth is not None and earth.yaw_frame == "world"
+    assert vehicle is not None and vehicle.yaw_frame == "body"
+
+
+@pytest.mark.parametrize("down_deg", (45.0, 90.0))
+def test_gimbal_feedback_pitch_is_positive_down_and_rotation_points_down(down_deg: float) -> None:
+    # MAVLink quaternion for a nose-down attitude has standard Euler pitch
+    # negative; CameraMount intentionally exposes the opposite, positive-down
+    # convention.  The matrix check catches the nadir sign error that Euler-only
+    # tests miss.
+    pitch_mavlink = -math.radians(down_deg)
+    state = parse_gimbal_device_attitude_status(
+        {
+            "q": [math.cos(pitch_mavlink / 2.0), 0.0, math.sin(pitch_mavlink / 2.0), 0.0]
+        }
+    )
+    assert state is not None
+    assert state.pitch_rad == pytest.approx(math.radians(down_deg))
+    assert state.rotation is not None
+    optical_axis_down = state.rotation[6]
+    assert optical_axis_down == pytest.approx(math.sin(math.radians(down_deg)), abs=1e-6)
+
+
+def test_composed_nonidentity_vehicle_and_gimbal_pose_keeps_downward_axis() -> None:
+    pitch_mavlink = -math.pi / 4.0
+    state = parse_gimbal_device_attitude_status(
+        {
+            "q": [math.cos(pitch_mavlink / 2.0), 0.0, math.sin(pitch_mavlink / 2.0), 0.0],
+            "flags": GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME,
+        }
+    )
+    assert state is not None and state.rotation is not None
+    pose = compose_camera_pose(
+        (0.0, 0.0, -10.0),
+        vehicle_roll_rad=math.radians(10.0),
+        vehicle_pitch_rad=math.radians(-8.0),
+        vehicle_yaw_rad=math.radians(45.0),
+        mount=CameraMount.gimbal(),
+        rotation_override=state.rotation,
+        rotation_frame="body",
+    )
+    assert pose.optical_to_world[6] > 0.0
+
+
+def test_x500_profile_limits_are_converted_to_camera_mount_positive_down() -> None:
+    profile = load_airframe_profile("configs/airframes/x500_gimbal.json")
+    assert profile.camera_mount is not None
+    mount = profile.camera_mount.to_camera_mount()
+    assert mount.limits.pitch_min_rad == pytest.approx(-math.radians(45.0))
+    assert mount.limits.pitch_max_rad == pytest.approx(math.radians(135.0))
 
 
 def test_airframe_camera_mount_profile_is_optional_and_selectable() -> None:

@@ -11,6 +11,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, BinaryIO
 
+from multidetect.camera_mount import CameraMount, compose_camera_pose
+from multidetect.gimbal_controller import parse_gimbal_device_attitude_status
+
+GIMBAL_FEEDBACK_MAX_AGE_S = 1.0
+
 
 class LatestWinsBuffer:
     """Thread-safe one-slot buffer for high-bandwidth sensor frames.
@@ -403,6 +408,7 @@ class MavlinkReader:
             "WIND_COV",
             "HEALTH_REPORT",
             "STATUSTEXT",
+            "GIMBAL_DEVICE_ATTITUDE_STATUS",
         }
     )
 
@@ -793,6 +799,7 @@ def build_observation(
     *,
     camera_info: Mapping[str, object] | None = None,
     ground_agl_max_age_s: float | None = None,
+    camera_mount: CameraMount | None = None,
 ) -> dict[str, Any]:
     local, attitude, global_pos, gps = (
         mavlink.get(name)
@@ -945,6 +952,80 @@ def build_observation(
         "pose_received_monotonic_ns": pose_stamp,
         "frame_pose_skew_ns": sensor.received_monotonic_ns - pose_stamp,
     }
+    # Gimbal telemetry is meaningful only for an airframe that declares a
+    # gimbal.  Keep fixed-mount observations byte-identical even if PX4 happens
+    # to publish a device-status message on the same link.
+    gimbal = (
+        mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+        if camera_mount is not None and camera_mount.kind == "gimbal"
+        else None
+    )
+    gimbal_state = parse_gimbal_device_attitude_status(gimbal) if gimbal is not None else None
+    gimbal_received_ns = mavlink.received_monotonic_ns.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_age_s = (
+        None
+        if gimbal_received_ns is None
+        else (sensor.received_monotonic_ns - gimbal_received_ns) / 1e9
+    )
+    gimbal_fresh = gimbal_state is not None and (
+        gimbal_age_s is None or 0.0 <= gimbal_age_s <= GIMBAL_FEEDBACK_MAX_AGE_S
+    )
+    if gimbal_state is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+        within_limits = all(
+            lower <= value <= upper
+            for value, lower, upper in (
+                (
+                    gimbal_state.pitch_rad,
+                    camera_mount.limits.pitch_min_rad,
+                    camera_mount.limits.pitch_max_rad,
+                ),
+                (
+                    gimbal_state.yaw_rad,
+                    camera_mount.limits.yaw_min_rad,
+                    camera_mount.limits.yaw_max_rad,
+                ),
+                (
+                    gimbal_state.roll_rad,
+                    camera_mount.limits.roll_min_rad,
+                    camera_mount.limits.roll_max_rad,
+                ),
+            )
+        )
+        result["gimbal_state"] = {
+            "pitch_rad": gimbal_state.pitch_rad,
+            "yaw_rad": gimbal_state.yaw_rad,
+            "roll_rad": gimbal_state.roll_rad,
+            "timestamp_us": gimbal_state.timestamp_us,
+            "yaw_frame": gimbal_state.yaw_frame,
+            "age_s": gimbal_age_s,
+            "fresh": gimbal_fresh,
+            "within_limits": within_limits,
+            "out_of_limits": not within_limits,
+            "source": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+        }
+        if gimbal_fresh:
+            rotation_frame = (
+                gimbal_state.yaw_frame
+                if gimbal_state.yaw_frame in {"body", "world"}
+                else ("world" if camera_mount.stabilization == "lock-horizon" else "body")
+            )
+            composed = compose_camera_pose(
+                tuple(ned),
+                vehicle_roll_rad=math.radians(result["attitude"]["roll_deg"]),
+                vehicle_pitch_rad=math.radians(result["attitude"]["pitch_deg"]),
+                vehicle_yaw_rad=math.radians(result["attitude"]["yaw_deg"]),
+                mount=camera_mount,
+                rotation_override=gimbal_state.rotation,
+                rotation_frame=rotation_frame,
+            )
+            result["camera_pose"] = {
+                "center_ned": list(composed.center_ned),
+                "optical_to_world": list(composed.optical_to_world),
+                "source": "composed",
+                "gimbal_timestamp_us": gimbal_state.timestamp_us,
+                "gimbal_feedback_fresh": True,
+                "gimbal_feedback_out_of_limits": not within_limits,
+            }
     if sensor.segmentation is not None:
         result["segmentation"] = sensor.segmentation
         result["segmentation_info"] = sensor.segmentation_info

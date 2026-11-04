@@ -95,6 +95,21 @@ def _pose_values(pose: Mapping[str, Any]) -> tuple[float, float, float, float, f
     return north, east, down, roll, pitch, yaw
 
 
+def _recorded_camera_pose(pose: Mapping[str, Any]) -> tuple[tuple[float, float, float], tuple[float, ...]] | None:
+    camera = pose.get("camera_pose")
+    if not isinstance(camera, Mapping):
+        return None
+    center, rotation = camera.get("center_ned"), camera.get("optical_to_world")
+    if not isinstance(center, Sequence) or isinstance(center, (str, bytes)) or len(center) != 3:
+        return None
+    if not isinstance(rotation, Sequence) or isinstance(rotation, (str, bytes)) or len(rotation) != 9:
+        return None
+    values = tuple(_finite(value) for value in (*center, *rotation))
+    if any(value is None for value in values):
+        return None
+    return tuple(float(value) for value in center), tuple(float(value) for value in rotation)
+
+
 def _world_to_body_ned(
     vector_ned: tuple[float, float, float], *, roll_rad: float, pitch_rad: float, yaw_rad: float
 ) -> tuple[float, float, float]:
@@ -132,6 +147,9 @@ def camera_center_ned_up(
     pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None
 ) -> tuple[float, float, float] | None:
     """Return camera centre as ``(north_m, east_m, up_m)`` for a recorded pose."""
+    recorded = _recorded_camera_pose(pose)
+    if recorded is not None:
+        return recorded[0][0], recorded[0][1], -recorded[0][2]
     values = _pose_values(pose)
     if values is None:
         return None
@@ -166,6 +184,13 @@ def _pixel_camera_ray_raw(
     camera_mount: CameraMount | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Shared inverse projection; retain the legacy unnormalized ground ray."""
+    recorded = _recorded_camera_pose(pose)
+    if recorded is not None:
+        fx, fy, cx, cy = _intrinsics(camera_info, image_size)
+        x, y, z = 1.0, (u - cx) / fx, (v - cy) / fy
+        center, rotation = recorded
+        ray = tuple(rotation[row * 3] * x + rotation[row * 3 + 1] * y + rotation[row * 3 + 2] * z for row in range(3))
+        return (center[0], center[1], -center[2]), ray
     values = _pose_values(pose)
     centre = camera_center_ned_up(pose, camera_mount=camera_mount)
     if values is None or centre is None:
@@ -377,6 +402,7 @@ def project_target_bbox(
     if values is None:
         return None
     pn, pe, p_down, roll_deg, pitch_deg, yaw_deg = values
+    recorded = _recorded_camera_pose(pose)
     target_north, target_east, target_up = target_ned
     if not all(
         math.isfinite(float(value))
@@ -418,7 +444,13 @@ def project_target_bbox(
                     float(target_east) + offset_east,
                     -(centre_up + dz),
                 )
-                if composed is None:
+                if recorded is not None:
+                    vector_ned = tuple(world_point[index] - recorded[0][index] for index in range(3))
+                    optical_to_world = recorded[1]
+                    cam_x = sum(optical_to_world[3 * row] * vector_ned[row] for row in range(3))
+                    cam_y = sum(optical_to_world[3 * row + 1] * vector_ned[row] for row in range(3))
+                    cam_z = sum(optical_to_world[3 * row + 2] * vector_ned[row] for row in range(3))
+                elif composed is None:
                     vector_ned = (
                         world_point[0] - pn,
                         world_point[1] - pe,
