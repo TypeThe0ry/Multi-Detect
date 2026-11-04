@@ -20,6 +20,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from multidetect.sim_teacher.executor import SetpointStreamer
 from multidetect.sim_teacher.streams import MavlinkReader
+from multidetect.gimbal_controller import parse_gimbal_device_attitude_status
 
 from .fw_vtol_commands import (
     CommandSpec,
@@ -113,6 +114,7 @@ class VehicleState:
     landed_state: int | None = None
     nav_state: str | None = None
     time_boot_ms: int | None = None
+    gimbal_attitude_rad: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,7 +242,7 @@ class PymavlinkVehicle:
     encode_custom_mode = staticmethod(encode_custom_mode)
     parse_custom_mode = staticmethod(parse_custom_mode)
     _INTERVALS = ((32, 50_000), (30, 50_000), (33, 200_000),
-                  (242, 1_000_000), (245, 200_000), (1, 1_000_000),
+                  (242, 1_000_000), (245, 200_000), (285, 200_000), (1, 1_000_000),
                   (147, 1_000_000), (230, 200_000))
 
     def __init__(
@@ -397,6 +399,14 @@ class PymavlinkVehicle:
                                    attitude_monotonic=stamp)
                 if message.get("time_boot_ms") is not None:
                     updates["time_boot_ms"] = int(message["time_boot_ms"])
+            elif kind == "GIMBAL_DEVICE_ATTITUDE_STATUS":
+                gimbal = parse_gimbal_device_attitude_status(message)
+                if gimbal is not None:
+                    updates["gimbal_attitude_rad"] = (
+                        gimbal.roll_rad,
+                        gimbal.pitch_rad,
+                        gimbal.yaw_rad,
+                    )
             elif kind == "HOME_POSITION":
                 home = _vector(message, ("latitude", "longitude", "altitude"))
                 if state.home_monotonic is None or stamp >= state.home_monotonic:
@@ -686,6 +696,34 @@ class PymavlinkVehicle:
 
     def request_home_position(self) -> None:
         self._command(512, 242.0)
+
+    def send_gimbal_pitch_yaw(
+        self,
+        pitch_down_rad: float,
+        yaw_world_rad: float,
+        *,
+        mode: str = "lock-horizon",
+        vehicle_yaw_rad: float = 0.0,
+    ) -> None:
+        """Point the gimbal in earth frame using MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW."""
+        if not all(math.isfinite(value) for value in (pitch_down_rad, yaw_world_rad, vehicle_yaw_rad)):
+            raise ValueError("gimbal angles must be finite")
+        if mode not in {"follow-body", "lock-horizon", "follow-yaw"}:
+            raise ValueError("unsupported gimbal mode")
+        yaw_command_rad = (
+            yaw_world_rad - vehicle_yaw_rad if mode == "follow-yaw" else yaw_world_rad
+        )
+        flags = 24.0 if mode == "lock-horizon" else 8.0 if mode == "follow-yaw" else 0.0
+        self._command(
+            1000,
+            -math.degrees(pitch_down_rad),
+            math.degrees(yaw_command_rad),
+            math.nan,
+            math.nan,
+            flags,
+            0.0,
+            0.0,
+        )
 
     def _request_streams(self) -> None:
         self._streams_requested = True

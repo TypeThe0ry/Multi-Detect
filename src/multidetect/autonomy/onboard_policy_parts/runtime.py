@@ -14,6 +14,7 @@ from multidetect.autonomy.capability_contract import (
     effective_capabilities,
     normalize_capabilities,
 )
+from multidetect.autonomy.airframe_profile import CameraMountProfile
 from multidetect.autonomy.energy_estimator import EnergyConfig
 from multidetect.autonomy.mission_executor import MissionExecutor
 from multidetect.autonomy.mission_package import (
@@ -440,6 +441,12 @@ def prepare_runtime_operator_package(
             step, package.document.get("task_text", plan.goal)
         ),
         airframe_adapter=self.motion_adapter,
+        camera_mount=(
+            CameraMountProfile.from_mapping(self.config["camera_mount"]).to_camera_mount()
+            if self.config.get("camera_mount") is not None
+            else None
+        ),
+        gimbal_controller=self.config.get("gimbal_controller"),
     )
     executor.home = self.executor.home
     executor.cruise_altitude_m = self.executor.cruise_altitude_m

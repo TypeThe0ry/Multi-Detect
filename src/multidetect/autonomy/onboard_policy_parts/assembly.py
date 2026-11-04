@@ -23,6 +23,7 @@ from multidetect.autonomy.mission_package import check_plan_against_package
 from multidetect.autonomy.mission_plan import MissionPlan, PlanDecision
 from multidetect.autonomy.mission_supervisor import MissionSupervisor
 from multidetect.autonomy.motion_intent import profile_mount_pitch_down_rad
+from multidetect.autonomy.airframe_profile import CameraMountProfile
 from multidetect.autonomy.obstacle_source import CompositeSource, StaticMapSource
 from multidetect.autonomy.onboard_loop import CameraModel, LoopConfig, OnboardLoop
 from multidetect.autonomy.onboard_mission_log import DownlinkQueue, OnboardMissionLog
@@ -918,6 +919,12 @@ def assemble_runtime_executor(
             ),
             config=executor_config,
             airframe_adapter=self.motion_adapter,
+            camera_mount=(
+                CameraMountProfile.from_mapping(options["camera_mount"]).to_camera_mount()
+                if options.get("camera_mount") is not None
+                else None
+            ),
+            gimbal_controller=options.get("gimbal_controller"),
         )
         # When no package is loaded, use the executor's configured home if
         # it provides one; never infer home from the first observed pose.

@@ -1,6 +1,6 @@
 # 云台相机支持审计与实施计划
 
-本文记录当前系统对“相机姿态 = 机体姿态 + 固定俯角”的依赖，并定义后续把相机云台纳入仿真、感知和规划的接口。本文对应的第一步只引入纯数学抽象和投影接入点；现有记录文件、MAVLink 录制格式和 Gazebo 世界不变。
+本文记录当前系统对“相机姿态 = 机体姿态 + 固定俯角”的依赖，并定义把固定挂载和可控云台同时纳入仿真、感知、规划和机载执行的接口。固定挂载保持原有路径；云台配置通过 `camera_mount` 选择并由执行器主动下发角度。
 
 ## 当前审计
 
@@ -22,7 +22,7 @@
 | onboard 相机运行时 | `CameraCalibration.extrinsics` 只承载静态 mount pitch/yaw/roll 和杆臂，`CameraFrame` 只带图像、采集时间和 calibration。 | `src/multidetect/onboard_runtime/camera.py:14-67` |
 | runtime projection/calibration | onboard projection 读取 `mount_pitch_down_deg` 等静态 extrinsics；标定和姿态运动模块也把 pitch/yaw/roll 当作一次性安装测量。 | `src/multidetect/onboard_runtime/projection.py:20-35`; `src/multidetect/camera_calibration.py:300-312,413-479`; `src/multidetect/attitude_camera_motion.py:120-135` |
 | MAVLink telemetry | 观察器白名单和解析器处理 `ATTITUDE`、`ATTITUDE_QUATERNION`、`LOCAL_POSITION_NED`、`GLOBAL_POSITION_INT`、`ODOMETRY`，没有 `GIMBAL_DEVICE_ATTITUDE_STATUS` 或 `MOUNT_ORIENTATION`。 | `src/multidetect/mavlink_sensor_observer.py:24-40,161-218` |
-| Airframe profile | profile 已允许 `camera.mount = gimbal`，并有 tailsitter 的 MC/FW `attitude_rotations`；这些是静态机体到相机旋转，不是动态云台状态、限位或速率。 | `src/multidetect/autonomy/airframe_profile.py:28,405-445,620-632` |
+| Airframe profile | 旧 profile 继续使用 `camera.mount` 和固定旋转；新增可选顶层 `camera_mount`，声明 `type`、`axes`、`limits`、`rates`、`default_mode`，可按机体选择 fixed 或 gimbal。 | `src/multidetect/autonomy/airframe_profile.py` |
 | 机型/仿真模型 | x500 mono camera 是 `base_link` 的 fixed joint，pose 为 `0.18 0 -0.12 0 0.18 0`；尾座模型同样是 fixed camera，FW 方向另写死在 SDF。 | `simulation/gazebo/models/x500_mono_cam/model.sdf:10-29`; `simulation/gazebo/models/quadtailsitter_mono_cam/model.sdf:3-10` |
 | world 生成 | `scripts/generate_r15_worlds.py` 使用相机内参进行目标尺寸/距离估算，但不生成云台关节、角度或云台标签。 | `scripts/generate_r15_worlds.py:15-28,97-103,208-225` |
 | world teacher intent 生成 | r15 生成器把每个场景的 pitch 写入 `camera_pitch_rad`，生成的 JSON 只有标量俯角，没有云台状态。 | `scripts/generate_r15_worlds.py:474-506,521-544` |
@@ -36,6 +36,8 @@
 * `CameraMount(kind="fixed" | "gimbal")` 保存 pitch/yaw/roll、机体系杆臂、角度限位、最大角速度和稳定模式。
 * 稳定模式为 `follow-body`、`lock-horizon`、`follow-yaw`。云台 pitch 的正方向是光轴向 NED `+Z`（向下），与现有 `camera_pitch_rad` 一致。
 * `compose_camera_pose` 明确执行 `vehicle attitude × gimbal attitude × mount offset`，输出相机中心和 optical-to-world 旋转。`lock-horizon` 在世界坐标构造目标光学姿态，再乘机体旋转的转置，因此机体俯仰 90° 时光轴仍保持水平。
+* `GimbalController` 统一 SIM 和 PX4 下发；`FixedGimbalController` 是 no-op，`SimGimbalController` 转发受限 joint 命令，`Px4GimbalController` 映射 `DO_GIMBAL_MANAGER_PITCHYAW`。PX4 vehicle 解析 `GIMBAL_DEVICE_ATTITUDE_STATUS` 并把反馈放入 `VehicleState.gimbal_attitude_rad`。
+* MissionExecutor 在 inspect 指向目标、survey 使用 nadir、count/search/follow 追踪可见目标；gimbal 路径返回 `gimbal_command` 并跳过不必要的机体转向。fixed 或未配置云台时，原有 vehicle-yaw/pitch 行为和动作序列保持不变。
 * `src/multidetect/simulator/camera_projection.py` 的 `camera_mount` 参数是可选的。未传参时保留旧的逐步三角函数路径；固定安装调用和旧 x500 几何在测试容差内一致，目标框投影也保持相同结果。`pixel_camera_ray`、`pixel_ground_point`、`project_target_bbox` 共用同一 composed pose，避免投影和地面交会各自实现一套姿态组合。
 
 单测位于 `tests/test_camera_mount.py`，覆盖固定安装回归、固定安装目标框结果和尾座机体俯仰 90° 的锁地平线射线/地面交会。
@@ -61,13 +63,13 @@
 
 教师的 observation view 应从“站位 + 机体 yaw”扩展为“站位 + 相机世界姿态/云台目标”；`target_in_fov`、coverage footprint 和 standoff 统一调用 composed pose。飞行器转场时，tailsitter 应在 MC/FW 机体 profile 与云台稳定模式之间明确优先级，不能继续把 FW 机体姿态直接当作相机姿态。
 
-## 后续步骤
+## 已实现与后续步骤
 
 1. 扩展 airframe/camera profile（不改变现有必填字段）：加入 mount kind、限位、速率、稳定模式和杆臂；把现有 tailsitter `attitude_rotations` 迁移为固定 mount 或 mode-specific body transform。
-2. 扩展 MAVLink observer/recorder：解析两种云台遥测，保存原始消息、来源、时间、状态质量和 freshness；更新 onboard runtime pose alignment gate。
+2. 已完成控制器、PX4 command sender、`GIMBAL_DEVICE_ATTITUDE_STATUS` 快照解析和 MissionExecutor 技能接入；后续可把 raw gimbal telemetry 纳入更严格的图像 freshness gate。
 3. 扩展 Gazebo x500/尾座资产：引入 2/3 轴 gimbal joint、joint-state topic、控制插件、相机 frame 和 propeller rotation visual；更新 world/collector 的 topic 绑定。
 4. 让 `target_in_fov`、教师 view stations、coverage、目标框真值投影和 onboard triangulation 接受 `CameraMount`/composed pose；加入转场中相机姿态的回放测试。
-5. 规划器和教师新增 gimbal command intent，并在 MAVLink 执行器中发 `DO_GIMBAL_MANAGER_PITCHYAW`，验证限位、速率、ACK、状态收敛和失联降级。
+5. 规划器/教师仍可进一步把角度作为显式训练 intent；当前 executor 已产生统一 gimbal command，PX4 sender 已实现限位、锁定 flags 和角度下发，ACK/状态收敛策略可在实机联调阶段补充。
 6. 设计并版本化新的 recorded-data sidecar（例如 `camera_mount_state`：timestamp、source、quaternion、Euler 展开、rates、flags、freshness）；完成旧数据读取兼容后再更新 schemas、生成器和证据文件。
 7. 最后才更新 `camera_info`/pose 语义文档、回归闸门和实机/SITL 验证。当前任务明确不修改这些数据格式，也不运行 SITL、Docker 或 GPU。
 
