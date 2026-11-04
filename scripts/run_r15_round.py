@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from multidetect.autonomy.airframe_profile import airframe_profile_category
 from multidetect.simulator.cpu import resolve_cpu_isolation
 from multidetect.sim_network import sim_network_mode
 from scripts.platform_paths import default_llama_server
@@ -1125,18 +1126,7 @@ class Round:
         for scenario in scenarios:
             try:
                 airframe, takeoff, _ = self._collection_airframe(scenario)
-                from scripts.collect_sim_teacher_episodes import _airframe_profile
-
-                profile = _airframe_profile(airframe, takeoff)
-                category = str(getattr(profile, "category", ""))
-                if not category:
-                    normalized_airframe = airframe.lower().replace("-", "_")
-                    category = (
-                        "multirotor" if normalized_airframe in {"x500", "x500_mono_cam", "multirotor"}
-                        else "fixed_wing" if normalized_airframe in {"fixed_wing", "fw"}
-                        else "vtol" if normalized_airframe == "vtol"
-                        else ""
-                    )
+                category = airframe_profile_category(airframe, takeoff, base_dir=ROOT)
                 if category not in {"multirotor", "fixed_wing", "vtol"}:
                     raise ValueError(f"airframe {airframe!r} has unsupported category {category!r}")
                 collection_options[scenario] = (airframe, takeoff, category)

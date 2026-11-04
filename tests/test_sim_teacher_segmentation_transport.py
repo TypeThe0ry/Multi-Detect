@@ -160,6 +160,9 @@ def test_collector_overlay_and_channel_are_opt_in(tmp_path, monkeypatch):
     assert command[command.index("--segmentation-topic") + 1] == (
         "/multidetect/teacher/segmentation/labels_map"
     )
+    assert collector._has_registered_depth_camera("x500_gimbal")
+    assert "--depth-contract-json" in command
+    assert not collector._has_registered_depth_camera("x500_mono_cam")
 
 
 def test_gimbal_segmentation_overlay_targets_image_model_root(tmp_path):

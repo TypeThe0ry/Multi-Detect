@@ -907,6 +907,82 @@ def load_airframe_profile(path: str | Path) -> AirframeProfile:
     return AirframeProfile.from_json(path)
 
 
+def resolve_airframe_profile(
+    value: str | Path | AirframeProfile | None,
+    takeoff_method: str | None = None,
+    *,
+    base_dir: str | Path | None = None,
+) -> AirframeProfile | None:
+    """Resolve the collector airframe id using its canonical aliases.
+
+    ``None`` is intentional for legacy family aliases whose collector branch
+    predates an explicit profile (``x500``, ``multirotor``, ``vtol`` and the
+    fixed-wing aliases).  Category and executor selection both build on this
+    resolver rather than maintaining another profile alias table.
+    """
+    if isinstance(value, AirframeProfile):
+        return value
+    normalized = "" if value is None else str(value).strip().lower().replace("-", "_")
+    root = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[3]
+    profiles = root / "configs" / "airframes"
+    if normalized == "x500_gimbal":
+        return load_airframe_profile(profiles / "x500_gimbal.json")
+    if normalized in {"x500", "x500_mono_cam", "multirotor", "fixed_wing", "fw", "vtol"}:
+        return None
+
+    selected = normalized
+    if normalized == "rc_cessna_mono_cam" and takeoff_method in {"hand", "catapult"}:
+        selected = f"rc_cessna_{takeoff_method}"
+    aliases = {
+        "rc_cessna_mono_cam": "rc_cessna_runway",
+        "advanced_plane_mono_cam": "advanced_plane",
+        "quadtailsitter_mono_cam": "quadtailsitter",
+        "tiltrotor_mono_cam": "tiltrotor",
+        "standard_vtol_mono_cam": "standard_vtol",
+    }
+    candidates = [profiles / f"{selected}.json"]
+    if selected == normalized and normalized in aliases:
+        candidates.insert(0, profiles / f"{aliases[normalized]}.json")
+    for path in candidates:
+        if path.is_file():
+            return load_airframe_profile(path)
+    raise ValueError(f"unknown airframe profile: {value}")
+
+
+def airframe_profile_category(
+    value: str | Path | AirframeProfile | None,
+    takeoff_method: str | None = None,
+    *,
+    base_dir: str | Path | None = None,
+) -> str:
+    """Resolve an airframe id/path to its capability category."""
+    if isinstance(value, AirframeProfile):
+        return value.category
+    normalized = "" if value is None else str(value).strip().lower().replace("-", "_")
+    profile = resolve_airframe_profile(value, takeoff_method, base_dir=base_dir)
+    if profile is not None:
+        return profile.category
+    if normalized in {"x500", "x500_mono_cam", "multirotor"}:
+        return "multirotor"
+    if normalized == "vtol":
+        return "vtol"
+    return "fixed_wing"
+
+
+def airframe_uses_multirotor_executor(
+    value: str | Path | AirframeProfile | None,
+    takeoff_method: str | None = None,
+    *,
+    base_dir: str | Path | None = None,
+) -> bool:
+    """Return the collector's historical multirotor executor selection."""
+    if isinstance(value, AirframeProfile):
+        return value.id in {"x500_mono_cam", "x500_gimbal"}
+    normalized = "" if value is None else str(value).strip().lower().replace("-", "_")
+    profile = resolve_airframe_profile(value, takeoff_method, base_dir=base_dir)
+    return normalized == "x500_mono_cam" or bool(profile and profile.id == "x500_gimbal")
+
+
 def save_airframe_profile(profile: AirframeProfile, path: str | Path) -> None:
     if not isinstance(profile, AirframeProfile):
         raise TypeError("profile 必须是 AirframeProfile")
@@ -925,6 +1001,9 @@ __all__ = [
     "ParameterRef",
     "TakeoffProfile",
     "TransitionProfile",
+    "airframe_profile_category",
+    "airframe_uses_multirotor_executor",
     "load_airframe_profile",
+    "resolve_airframe_profile",
     "save_airframe_profile",
 ]
