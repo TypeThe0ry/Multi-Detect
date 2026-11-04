@@ -125,6 +125,65 @@ def content_digest(row: dict) -> str:
     ).hexdigest()
 
 
+def decision_conflict_key(row: dict) -> str:
+    candidates = row.get("candidates") or []
+    focus = row.get("focus_track_id")
+    focused = next(
+        (candidate for candidate in candidates if candidate.get("track_id") == focus),
+        candidates[0] if candidates else None,
+    )
+    return json.dumps(
+        [row.get("image_path"), row.get("task_text"), focused],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def validate_no_conflicting_decisions(rows: list[dict]) -> int:
+    decisions: dict[str, str] = {}
+    conflicts = 0
+    for row in rows:
+        key = decision_conflict_key(row)
+        decision = str((row.get("assistant_target") or {}).get("decision", "unknown"))
+        previous = decisions.get(key)
+        if previous is not None and previous != decision:
+            conflicts += 1
+        else:
+            decisions[key] = decision
+    if conflicts:
+        raise ValueError(f"conflicting decisions for identical model input ({conflicts} groups)")
+    return conflicts
+
+
+def drop_legacy_conflicting_confusable_positives(rows: list[dict]) -> tuple[list[dict], int]:
+    """Remove historical alias positives superseded by an original label.
+
+    Older replay sets contain ``confusable_positive`` rows for a task/candidate
+    that already has a true-target or counterfactual label.  They are semantic
+    duplicates, so retaining both would make the new post-merge conflict gate
+    reject an otherwise clean r6 additions set.
+    """
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        groups.setdefault(decision_conflict_key(row), []).append(row)
+    kept: list[dict] = []
+    dropped = 0
+    protected_labels = {"true_target", "proposal_true", "counterfactual", "proposal_counterfactual"}
+    for group in groups.values():
+        labels = {str(row.get("label_type")) for row in group}
+        decisions = {str((row.get("assistant_target") or {}).get("decision")) for row in group}
+        if len(decisions) > 1 and "confusable_positive" in labels and labels & protected_labels:
+            for row in group:
+                if row.get("label_type") == "confusable_positive":
+                    dropped += 1
+                else:
+                    kept.append(row)
+        else:
+            kept.extend(group)
+    return kept, dropped
+
+
 def merge_without_copies(base: list[dict], additions: list[dict]) -> list[dict]:
     """Append unique rows, rejecting duplicate content even under a new ID."""
     ids = {row_key(row) for row in base}
@@ -161,6 +220,25 @@ def distribution(rows: list[dict]) -> dict:
         )
         stats[(cls, size, polarity)] += 1
     return {"|".join(key): value for key, value in sorted(stats.items())}
+
+
+def effective_view_counts(rows: list[dict]) -> dict:
+    identity: Counter = Counter()
+    hard_pairs: Counter = Counter()
+    positive = {"confirm_target", "approach_track"}
+    for row in rows:
+        view = str(row.get("view") or "missing")
+        decision = str((row.get("assistant_target") or {}).get("decision", "unknown"))
+        polarity = "positive" if decision in positive else "negative" if decision == "reject_track" else "other"
+        category = str(row.get("task_category") or row.get("target_class") or "unknown")
+        identity[(category, polarity, view)] += 1
+        pair = row.get("confusable_pair_type")
+        if pair and row.get("label_type") == "confusable_negative" and decision == "reject_track":
+            hard_pairs[(str(pair), view)] += 1
+    return {
+        "task_category_polarity_view": {"|".join(key): value for key, value in sorted(identity.items())},
+        "confusable_negative_pair_view": {"|".join(key): value for key, value in sorted(hard_pairs.items())},
+    }
 
 
 def r21id_r2_breakdown(rows: list[dict]) -> dict:
@@ -1744,6 +1822,8 @@ def merge_cli(args):
                 rows, {row_key(row) for row in full}, target_ratio, seed=args.seed
             )
             trim_report["r12_negative_top_up"] = top_up_count
+        rows, legacy_conflicts_dropped = drop_legacy_conflicting_confusable_positives(rows)
+        validate_no_conflicting_decisions(rows)
         (out / f"{split}.jsonl").write_text(
             "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows),
             encoding="utf-8",
@@ -1754,6 +1834,10 @@ def merge_cli(args):
             "r15_additions": len(added),
             "merged": len(rows),
             "classes_size_polarity": distribution(rows),
+            "effective_rows": len(rows),
+            "balance_copy_rows": sum(1 for row in rows if row.get("balance_copy_index") is not None),
+            "legacy_conflicting_confusable_positives_dropped": legacy_conflicts_dropped,
+            "effective_view_counts": effective_view_counts(rows),
         }
         if addition_filter is not None:
             stats[split]["r21id_r2_filter"] = addition_filter
