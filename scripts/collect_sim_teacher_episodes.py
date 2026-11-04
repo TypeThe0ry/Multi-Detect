@@ -474,11 +474,24 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             if plan.airframe == "x500_gimbal"
             else CONTAINER_MODEL_ROOT
         )
-        overlay_mount = (
+        overlay_mounts = [
             "--mount",
             f"type=bind,source={overlay.resolve()},"
             f"target={overlay_target_root}/{target_model_name},readonly",
-        )
+        ]
+        if plan.airframe == "x500_gimbal":
+            # The RGB sensor is nested in model://gimbal; mount only its SDF
+            # file so the image-provided meshes remain available beside it.
+            gimbal_model_overlay = overlay / "gimbal" / "model.sdf"
+            if not gimbal_model_overlay.is_file():
+                raise FileNotFoundError(gimbal_model_overlay)
+            overlay_mounts.extend(
+                (
+                    "--mount",
+                    f"type=bind,source={gimbal_model_overlay.resolve()},"
+                    f"target={CONTAINER_IMAGE_MODEL_ROOT}/gimbal/model.sdf,readonly",
+                )
+            )
         parent_mount = next(
             (
                 index
@@ -488,7 +501,7 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             ),
             command.index("run"),
         )
-        command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
+        command[parent_mount + 1 : parent_mount + 1] = overlay_mounts
     if plan.camera_noise_overlay:
         # mono_cam comes from the image's model dir; the repo model root is a
         # read-only bind without a mono_cam directory, so Docker cannot create the

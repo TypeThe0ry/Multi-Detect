@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 
+from multidetect.camera_defaults import DEFAULT_CAMERA_INFO
+from scripts.gazebo_sensor_stream import CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX
 from scripts.collect_sim_teacher_episodes import _airframe_profile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,9 +71,6 @@ def test_x500_gimbal_segmentation_camera_follows_gimbal_camera_link() -> None:
     assert depth_sensor is not None and depth_sensor.attrib.get("type") == "depth_camera"
     assert depth_sensor.findtext("gz_frame_id") == "depth_camera_link"
     assert depth_sensor.findtext("pose") == "-0.0412 0 -0.162 0 0 3.14"
-    assert depth_sensor.findtext("camera/horizontal_fov") == "2.0"
-    assert depth_sensor.findtext("camera/image/width") == "1280"
-    assert depth_sensor.findtext("camera/image/height") == "720"
     assert depth_sensor.findtext("camera/image/format") == "R_FLOAT32"
 
     link = model.find("link[@name='segmentation_camera_link']")
@@ -82,14 +82,114 @@ def test_x500_gimbal_segmentation_camera_follows_gimbal_camera_link() -> None:
     assert sensor.findtext("topic") == "/multidetect/teacher/segmentation"
     assert sensor.findtext("camera/segmentation_type") == "instance"
     assert sensor.findtext("pose") == "-0.0412 0 -0.162 0 0 3.14"
-    assert sensor.findtext("camera/horizontal_fov") == "2.0"
-    assert sensor.findtext("camera/image/width") == "1280"
-    assert sensor.findtext("camera/image/height") == "720"
-    assert sensor.findtext("camera/clip/near") == "0.05"
-    assert sensor.findtext("camera/clip/far") == "15000"
 
     joint = model.find("joint[@name='SegmentationCameraJoint']")
     assert joint is not None and joint.attrib.get("type") == "fixed"
     assert joint.findtext("parent") == "camera_link"
     assert joint.findtext("child") == "segmentation_camera_link"
     assert joint.find("pose").attrib == {"relative_to": "camera_link"}
+
+
+def test_gimbal_rgb_depth_and_segmentation_match_standard_camera_calibration() -> None:
+    standard_model = ET.parse(
+        ROOT / "simulation/gazebo/models/x500_mono_cam/model.sdf"
+    ).getroot().find("model")
+    assert standard_model is not None
+    standard_depth = standard_model.find(
+        "link[@name='depth_camera_link']/sensor[@name='depth_camera']"
+    )
+    assert standard_depth is not None
+    standard_camera = standard_depth.find("camera")
+    assert standard_camera is not None
+    standard_geometry = {
+        "horizontal_fov": float(standard_camera.findtext("horizontal_fov", "nan")),
+        "width": int(standard_camera.findtext("image/width", "-1")),
+        "height": int(standard_camera.findtext("image/height", "-1")),
+        "near": float(standard_camera.findtext("clip/near", "nan")),
+        "far": float(standard_camera.findtext("clip/far", "nan")),
+        "update_rate": float(standard_depth.findtext("update_rate", "nan")),
+    }
+    assert standard_geometry["width"] == DEFAULT_CAMERA_INFO["width"]
+    assert standard_geometry["height"] == DEFAULT_CAMERA_INFO["height"]
+    standard_fx = standard_geometry["width"] / (
+        2.0 * math.tan(standard_geometry["horizontal_fov"] / 2.0)
+    )
+    assert math.isclose(
+        standard_fx,
+        DEFAULT_CAMERA_INFO["fx"],
+        rel_tol=0.0,
+        abs_tol=CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX,
+    )
+
+    rgb_root = ET.parse(
+        OVERLAY_ROOT / "x500_gimbal_seg/gimbal/model.sdf"
+    ).getroot()
+    rgb_model = rgb_root.find("model")
+    assert rgb_model is not None and rgb_model.attrib == {"name": "gimbal"}
+    rgb = rgb_model.find("link[@name='camera_link']/sensor[@name='camera']")
+    assert rgb is not None and rgb.attrib.get("type") == "camera"
+    assert rgb.findtext("gz_frame_id") == "camera_link"
+
+    overlay_root = ET.parse(
+        OVERLAY_ROOT / "x500_gimbal_seg/model.sdf"
+    ).getroot()
+    overlay_model = overlay_root.find("model")
+    assert overlay_model is not None
+    depth = overlay_model.find(
+        "link[@name='depth_camera_link']/sensor[@name='depth_camera']"
+    )
+    segmentation = overlay_model.find(
+        "link[@name='segmentation_camera_link']/sensor[@name='segmentation_camera']"
+    )
+    assert depth is not None and segmentation is not None
+    for sensor in (rgb, depth, segmentation):
+        camera = sensor.find("camera")
+        assert camera is not None
+        actual_geometry = {
+            "horizontal_fov": float(camera.findtext("horizontal_fov", "nan")),
+            "width": int(camera.findtext("image/width", "-1")),
+            "height": int(camera.findtext("image/height", "-1")),
+            "near": float(camera.findtext("clip/near", "nan")),
+            "far": float(camera.findtext("clip/far", "nan")),
+            "update_rate": float(sensor.findtext("update_rate", "nan")),
+        }
+        assert actual_geometry == standard_geometry
+        assert actual_geometry["width"] == DEFAULT_CAMERA_INFO["width"]
+        assert actual_geometry["height"] == DEFAULT_CAMERA_INFO["height"]
+        fx_from_sdf = actual_geometry["width"] / (
+            2.0 * math.tan(actual_geometry["horizontal_fov"] / 2.0)
+        )
+        assert math.isclose(
+            fx_from_sdf,
+            DEFAULT_CAMERA_INFO["fx"],
+            rel_tol=0.0,
+            abs_tol=CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX,
+        )
+        fy_from_sdf = actual_geometry["height"] / (
+            2.0
+            * math.tan(
+                math.atan(
+                    math.tan(actual_geometry["horizontal_fov"] / 2.0)
+                    * actual_geometry["height"]
+                    / actual_geometry["width"]
+                )
+            )
+        )
+        assert math.isclose(
+            fy_from_sdf,
+            DEFAULT_CAMERA_INFO["fy"],
+            rel_tol=0.0,
+            abs_tol=CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX,
+        )
+        assert math.isclose(
+            DEFAULT_CAMERA_INFO["cx"],
+            actual_geometry["width"] / 2.0,
+            rel_tol=0.0,
+            abs_tol=CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX,
+        )
+        assert math.isclose(
+            DEFAULT_CAMERA_INFO["cy"],
+            actual_geometry["height"] / 2.0,
+            rel_tol=0.0,
+            abs_tol=CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX,
+        )
