@@ -107,6 +107,52 @@ def test_recorded_gimbal_state_drives_projection_when_camera_pose_is_absent() ->
     assert ray == pytest.approx((0.0, 1.0, 0.0), abs=1e-12)
 
 
+def test_stale_recorded_gimbal_feedback_does_not_project_a_count_position() -> None:
+    # Recorded joint2 step 105: camera_pose was omitted because the feedback
+    # was 1.3146 s old. A fresh Gazebo joint sidecar is metadata, not a frame
+    # camera pose; composing the stale MAVLink angles made a usable-looking hit.
+    pose = {
+        "pose": {"local_ned_m": [-6.805428218841553, 30.794056701660157, -8.008367156982422]},
+        "attitude": {
+            "roll_deg": 0.0015934283551134291,
+            "pitch_deg": 0.7036840278611189,
+            "yaw_deg": -167.5563647639039,
+        },
+        "gimbal_state": {
+            "pitch_rad": -0.017267586932486898,
+            "yaw_rad": -2.9248098863305474,
+            "roll_rad": -0.0024389902679352207,
+            "timestamp_us": 343200000,
+            "yaw_frame": "unknown",
+            "age_s": 1.314569954,
+            "fresh": False,
+            "source": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+        },
+        "gimbal_joint_state": {
+            "timestamp_ns": 343336000000,
+            "position_rad": {
+                "pitch": 3.742145675907657e-05,
+                "roll": 1.018644536386115e-05,
+                "yaw": -5.50382506293972e-05,
+            },
+            "source": "gazebo_joint_state",
+            "fresh": True,
+        },
+    }
+    camera = {
+        "width": 1280,
+        "height": 960,
+        "fx": 539.93636802453,
+        "fy": 539.93636802453,
+        "cx": 640.0,
+        "cy": 480.0,
+    }
+    args = {"pose": pose, "camera_info": camera, "image_size": (1280, 960)}
+
+    assert pixel_camera_ray(599.7, 784.7, **args) is None
+    assert pixel_ground_point(599.7, 784.7, **args) is None
+
+
 def test_recorded_joint_state_positions_drive_projection_without_camera_pose() -> None:
     vehicle_pose = _pose()
     pose = {

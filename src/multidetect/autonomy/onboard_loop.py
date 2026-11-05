@@ -3328,9 +3328,12 @@ class OnboardLoop:
         """Counting mode: keep the confirmation (unless already counted) and search on."""
         self._end_fw_pass()
         position = record["position_estimate_ne"]
-        duplicate = position is not None and self._counted_at(
-            track, position, record.get("position_sigma_m")
-        )
+        if position is None:
+            info["count_blocked"] = "position_unavailable"
+            self.state, self._focus = "searching", None
+            self._approach_sizes.clear()
+            return self._search_step(pose_ned, yaw_deg), info
+        duplicate = self._counted_at(track, position, record.get("position_sigma_m"))
         if track.needs_fresh_verdict:
             info["count_blocked"] = "fresh_verdict_required"
             self.state, self._focus = "searching", None

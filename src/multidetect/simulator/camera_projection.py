@@ -96,15 +96,42 @@ def _pose_values(pose: Mapping[str, Any]) -> tuple[float, float, float, float, f
     return north, east, down, roll, pitch, yaw
 
 
+def _gimbal_pose_is_stale(pose: Mapping[str, Any]) -> bool:
+    """Whether this frame explicitly says its gimbal orientation is stale."""
+    camera = pose.get("camera_pose")
+    if isinstance(camera, Mapping):
+        if camera.get("gimbal_feedback_fresh") is False:
+            return True
+        center, rotation = camera.get("center_ned"), camera.get("optical_to_world")
+        if (
+            isinstance(center, Sequence)
+            and not isinstance(center, (str, bytes))
+            and len(center) == 3
+            and isinstance(rotation, Sequence)
+            and not isinstance(rotation, (str, bytes))
+            and len(rotation) == 9
+        ):
+            return False
+    state = pose.get("gimbal_state")
+    if isinstance(state, Mapping) and state.get("fresh") is False:
+        return True
+    joint = pose.get("gimbal_joint_state")
+    return (
+        isinstance(joint, Mapping)
+        and joint.get("source") not in {None, "fixed_mount", "unavailable"}
+        and joint.get("fresh") is False
+    )
+
+
 def _recorded_camera_pose(
     pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None
 ) -> tuple[tuple[float, float, float], tuple[float, ...]] | None:
     """Return a frame camera pose, composing legacy gimbal feedback when needed.
 
     Recorded ``camera_pose`` is authoritative.  Older gimbal recordings may
-    contain only ``gimbal_state`` (or its joint-state spelling), so compose the
-    feedback against the measured vehicle pose before falling back to the
-    historical fixed-camera geometry.
+    contain only fresh ``gimbal_state`` (or its joint-state spelling), so compose
+    it against the measured vehicle pose before falling back to the historical
+    fixed-camera geometry.
     """
     camera = pose.get("camera_pose")
     if not isinstance(camera, Mapping):
@@ -231,6 +258,8 @@ def camera_center_ned_up(
     pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None
 ) -> tuple[float, float, float] | None:
     """Return camera centre as ``(north_m, east_m, up_m)`` for a recorded pose."""
+    if _gimbal_pose_is_stale(pose):
+        return None
     recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
     if recorded is not None:
         return recorded[0][0], recorded[0][1], -recorded[0][2]
@@ -268,6 +297,8 @@ def _pixel_camera_ray_raw(
     camera_mount: CameraMount | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Shared inverse projection; retain the legacy unnormalized ground ray."""
+    if _gimbal_pose_is_stale(pose):
+        return None
     recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
     if recorded is not None:
         fx, fy, cx, cy = _intrinsics(camera_info, image_size)
@@ -482,6 +513,8 @@ def project_target_bbox(
         raise ValueError("target_size_m must contain three finite positive dimensions")
     if len(image_size) != 2 or image_size[0] <= 0 or image_size[1] <= 0:
         raise ValueError("image_size must be positive (width, height)")
+    if _gimbal_pose_is_stale(pose):
+        return None
     values = _pose_values(pose)
     if values is None:
         return None
