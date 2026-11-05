@@ -33,8 +33,8 @@ episode `episode.json` 的 provenance 标明采集源码 worktree 为 `/data/pro
 
 ## 修复与验证
 
-执行器与运行时现在把“发出一次落地命令”和“任务终止”分开：新增 `land` primitive 表示一次落地请求，新增 `continue` primitive 表示保持当前位置并继续采集。land 步骤首次进入时返回 `land`；运行时只发送一次 `vehicle.land()`，随后每帧保持 setpoint 并继续调用策略，直到遥测 `landed=True`。确认后执行器以 `landed` 成功，运行时才收到普通 `stop` 并执行既有 `completion_action`。`landed=False` 或遥测未知时，执行器按 `landing_timeout_steps` 等待；到限后分别记录 `landing_timeout` 或 `landing_timeout_no_telemetry` 失败，绝不把发令成功记作落地成功。其他 stop 路径（无 land 步骤、已完成任务、既有 completion_action）保持原语义。
+执行器与运行时把“发出一次落地命令”和“任务终止”分开：新增 `land` primitive 表示一次落地请求，新增 `continue` primitive 表示保持当前位置并继续采集。land 步骤首次进入时返回 `land`；运行时只发送一次落地命令，随后保持 setpoint 并继续调用策略，直到遥测确认已落地。PX4 `landed_state=4`（landing）仍为进行中，只有 `landed_state=1` 才算成功。等待期限由起始高度、配置下降速度和时间余量计算，不再按继续步数计时；到期分别记录 `landing_timeout` 或 `landing_timeout_no_telemetry` 失败，绝不把发令成功记作落地成功。
 
-episode 外层仍由 `OnboardRuntime.run(duration_s)` 的 duration 结束；运行时默认单次策略 worker 上限为 `autonomy_timeout_s=15s`，单个动作上限为 `action_timeout_s=20s`。land 等待使用零时长的 `land`/`continue` tick，不占用动作等待上限；采集器必须给 duration 留出 `landing_timeout_steps + 1` 个观测周期，才能记录最终 landed 或超时结果。`scripts/onboard_main.py` 和 campaign loop 没有把 `mission_complete` 当作提前退出条件。
+episode 外层仍由 `OnboardRuntime.run(duration_s)` 的 duration 结束；运行时默认单次策略 worker 上限为 `autonomy_timeout_s=15s`，单个动作上限为 `action_timeout_s=20s`。land 等待使用一次 `land` 命令和每次 0.5 仿真秒的 `continue`，超时按起始高度、配置下降速度、2 倍余量计算，并受 90 秒硬上限保护；采集器必须给 duration 留出这段仿真时间，才能记录最终 landed 或超时结果。`scripts/onboard_main.py` 和 campaign loop 没有把 `mission_complete` 当作提前退出条件。
 
-回归测试覆盖：空中发令后收到 landed、空中持续到 `landing_timeout`、开始时已 landed；另验证未知 landed telemetry 的显式超时原因。未运行 SITL；已运行相关 pytest，onboard gate 待本次修改完成后运行。
+回归测试覆盖：记录到的 `landed_state` 序列 `2, 4, 4, ..., 1`、下降中的继续状态、空中持续到仿真时间超时、未知 landed telemetry 的显式超时原因和 continue primitive 的仿真时长。未运行 SITL。

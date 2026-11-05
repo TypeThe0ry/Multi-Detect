@@ -1074,7 +1074,7 @@ class OnboardRuntime:
                 else:
                     complete = (
                         now - started >= action.seconds
-                        if action.kind == "hold"
+                        if action.kind in {"hold", "continue"}
                         else self._arrived(state, self.pump.target)
                     )
                 if not complete:

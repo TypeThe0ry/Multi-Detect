@@ -50,6 +50,10 @@ Pose = tuple[float, float, float]
 _TRACKING_SKILLS = frozenset({"patrol", "monitor", "follow"})
 PERCEPTION_SKILLS = frozenset({"area_search", "count", "inspect"}) | _TRACKING_SKILLS
 _DETOUR_TIMEOUT = object()
+LAND_CONTINUE_SECONDS = 0.5
+LAND_TIMEOUT_MARGIN = 2.0
+LAND_TIMEOUT_GRACE_S = 5.0
+LAND_TIMEOUT_MAX_S = 90.0
 
 
 def _wrap(degrees: float) -> float:
@@ -118,10 +122,8 @@ class ExecutorConfig:
     # backpack, 0.3 m apart, raised two SITL alerts); only co-visibility can
     # still prove two objects.  0 keeps the appearance check at any distance.
     alert_same_place_m: float = 1.5
-    # A commanded landing remains pending while the host reports that the
-    # vehicle is still airborne.  The bound prevents a stale telemetry stream
-    # from leaving a mission in an unbounded terminal state.
-    landing_timeout_steps: int = 15
+    # Landing timeout is derived from altitude and this expected vertical rate.
+    landing_descent_speed_mps: float = 1.0
     deliver_min_altitude_m: float = 1.0
     deliver_max_altitude_m: float = 5.0
     deliver_altitude_m: float = 2.0
@@ -199,6 +201,13 @@ class ExecutorConfig:
             value = getattr(self, name)
             if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
+        if (
+            isinstance(self.landing_descent_speed_mps, bool)
+            or not isinstance(self.landing_descent_speed_mps, (int, float))
+            or not math.isfinite(self.landing_descent_speed_mps)
+            or self.landing_descent_speed_mps <= 0
+        ):
+            raise ValueError("landing_descent_speed_mps must be finite and positive")
         ratio = self.alert_grown_reask_ratio
         if ratio is not None and (
             isinstance(ratio, bool) or not math.isfinite(ratio) or ratio <= 1.0
@@ -360,6 +369,7 @@ class _StepRun:
     landing_target_logged: bool = False
     # Number of control cycles for which landing has remained unconfirmed.
     landing_wait_steps: int = 0
+    landing_start_altitude_m: float | None = None
     fresh_ground_tracks: set[str] = field(default_factory=set)
     last_ground_s: float | None = None
     follow_blocked_attempts: int = 0
@@ -1336,7 +1346,7 @@ class MissionExecutor:
             return math.sqrt(action.forward_m**2 + action.right_m**2 + action.up_m**2) / 5.0
         if action.kind == "turn":
             return abs(action.yaw_delta_deg) / 90.0
-        return action.seconds if action.kind == "hold" else 0.0
+        return action.seconds if action.kind in {"hold", "continue"} else 0.0
 
     def estimated_seconds(self, action: ActionPrimitive, pose_ned: Pose | None = None) -> float:
         """Estimate action duration from the selected profile.
@@ -1412,7 +1422,7 @@ class MissionExecutor:
 
     def _budget(self, step: MissionStep, run: _StepRun | None = None) -> int:
         if step.skill == "land":
-            return max(1, self.config.landing_timeout_steps + 1)
+            return math.ceil(LAND_TIMEOUT_MAX_S / LAND_CONTINUE_SECONDS) + 2
         if step.skill == "hover":
             return max(self.config.step_budget, int(float(step.params["duration_s"])) + 2)
         if step.skill in {"patrol", "monitor"}:
@@ -3703,27 +3713,43 @@ class MissionExecutor:
             if not run.landing_commanded:
                 run.landing_commanded = True
                 run.landing_wait_steps = 0
+                run.landing_start_altitude_m = max(0.0, -float(pose[2]))
                 return ActionPrimitive.land(), {"phase": "landing_commanded"}
             run.landing_wait_steps += 1
-            if run.landing_wait_steps >= self.config.landing_timeout_steps:
+            if self._landing_timed_out(run):
                 self._finish("failed", "landing_timeout_no_telemetry")
                 return None
             return ActionPrimitive.continue_running(), {
                 "phase": "landing_pending",
                 "landing_wait_steps": run.landing_wait_steps,
+                "landing_elapsed_s": run.elapsed_s,
             }
         if not run.landing_commanded:
             run.landing_commanded = True
             run.landing_wait_steps = 0
+            run.landing_start_altitude_m = max(0.0, -float(pose[2]))
             return ActionPrimitive.land(), {"phase": "landing_commanded"}
         run.landing_wait_steps += 1
-        if run.landing_wait_steps >= self.config.landing_timeout_steps:
+        if self._landing_timed_out(run):
             self._finish("failed", "landing_timeout")
             return None
         return ActionPrimitive.continue_running(), {
             "phase": "landing_pending",
             "landing_wait_steps": run.landing_wait_steps,
+            "landing_elapsed_s": run.elapsed_s,
         }
+
+    def _landing_timed_out(self, run: _StepRun) -> bool:
+        altitude = max(0.0, float(run.landing_start_altitude_m or 0.0))
+        timeout_s = min(
+            LAND_TIMEOUT_MAX_S,
+            max(
+                LAND_CONTINUE_SECONDS,
+                altitude / self.config.landing_descent_speed_mps * LAND_TIMEOUT_MARGIN
+                + LAND_TIMEOUT_GRACE_S,
+            ),
+        )
+        return run.elapsed_s >= timeout_s
 
     def _record(self, run, pose, yaw, ground_point, frame_id):
         if frame_id:

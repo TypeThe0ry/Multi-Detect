@@ -316,7 +316,7 @@ def test_goto_poi_and_unknown_ref_and_hover_duration():
     sim = Sim()
     holds = 0.0
     last = None
-    for _ in range(60):
+    for _ in range(120):
         action, _info = _cycle(executor, sim)
         if action.kind == "hold":
             holds += action.seconds
@@ -1609,11 +1609,11 @@ def test_land_requires_host_confirmation_or_records_unknown_state():
     assert confirmed.history[-1]["reason"] == "landed"
 
     unknown = MissionExecutor(
-        _land_only_plan(), loop_factory=_factory(), config=ExecutorConfig(landing_timeout_steps=2)
+        _land_only_plan(), loop_factory=_factory(), config=ExecutorConfig(landing_descent_speed_mps=1.0)
     )
-    first, first_info = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None)
-    second, second_info = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None)
-    third, _ = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None)
+    first, first_info = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None, timestamp_s=0.0)
+    second, second_info = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None, timestamp_s=30.0)
+    third, _ = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None, timestamp_s=46.0)
     assert first.kind == "land" and first_info["phase"] == "landing_commanded"
     assert second.kind == "continue" and second_info["phase"] == "landing_pending"
     assert third.kind == "stop" and unknown.history[-1]["reason"] == "landing_timeout_no_telemetry"
@@ -1621,14 +1621,40 @@ def test_land_requires_host_confirmation_or_records_unknown_state():
     airborne = MissionExecutor(
         _land_only_plan(),
         loop_factory=_factory(),
-        config=ExecutorConfig(landing_timeout_steps=2),
+        config=ExecutorConfig(landing_descent_speed_mps=1.0),
     )
-    for _ in range(4):
-        action, _ = airborne.next_action(pose_ned=pose, yaw_deg=0.0, landed=False)
+    for timestamp in (0.0, 10.0, 20.0, 30.0, 40.0, 46.0):
+        action, _ = airborne.next_action(
+            pose_ned=pose, yaw_deg=0.0, landed=False, timestamp_s=timestamp
+        )
         if airborne.done:
             break
     assert action.kind == "stop"
     assert airborne.history[-1]["reason"] == "landing_timeout"
+
+
+def test_land_accepts_px4_landing_state_sequence_while_altitude_descends():
+    executor = MissionExecutor(
+        _land_only_plan(), loop_factory=_factory(), config=ExecutorConfig(step_budget=220)
+    )
+    states = [2, *([4] * 14), 1]
+    altitudes = [7.424, 7.448, 7.237, 6.872, 6.533, 6.284, 5.913, 5.686,
+                 5.436, 5.184, 4.942, 4.701, 4.430, 4.241, 4.048, 3.759]
+    timestamps = [39.536, 39.832, 40.428, 40.756, 41.152, 41.484, 41.912, 42.176,
+                  42.540, 42.904, 43.200, 43.496, 43.860, 44.156, 44.452, 44.784]
+    actions = []
+    for state, altitude, timestamp in zip(states, altitudes, timestamps, strict=True):
+        action, _ = executor.next_action(
+            pose_ned=(0.0, 0.0, -altitude),
+            yaw_deg=0.0,
+            landed=state == 1,
+            timestamp_s=timestamp,
+        )
+        actions.append(action.kind)
+    assert actions[0] == "land"
+    assert actions[1:-1] == ["continue"] * 14
+    assert actions[-1] == "stop"
+    assert executor.history[-1]["reason"] == "landed"
 
 
 def test_land_target_home_returns_home_before_landing():

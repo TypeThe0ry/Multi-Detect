@@ -310,7 +310,18 @@ class PymavlinkPrimitiveExecutor:
                 ack["wall_timeout"] = True
             return ExecutionResult(status, held, ack=ack)
         if action.kind == "continue":
-            return ExecutionResult("success", self._clock() - start_time, ack={"continue": True})
+            while True:
+                now = self._clock()
+                if now - start_time >= action.seconds or not wall_progress_ok(now):
+                    break
+                self._send_setpoint(*start_pos, start_yaw)
+                self._sleep(1.0 / self.stream_hz)
+            held = self._clock() - start_time
+            status = "success" if held >= action.seconds else "timeout"
+            ack = {"continue": True}
+            if wall_timeout_hit:
+                ack["wall_timeout"] = True
+            return ExecutionResult(status, held, ack=ack)
         if action.kind == "land":
             set_mode = getattr(self.vehicle, "set_mode", None)
             if not callable(set_mode):
