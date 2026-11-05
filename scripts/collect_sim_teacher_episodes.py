@@ -5148,6 +5148,23 @@ def run_episode(
                     return False
 
                 executor._wait_for_state = _wait_fw_state
+                # Confirm the ARM command on the same telemetry socket before
+                # sending NAV_VTOL_TAKEOFF.  A raw pymavlink ``arducopter_arm``
+                # only transmits and returns immediately; on the gimbal model
+                # PX4 can transiently answer TEMPORARILY_REJECTED just after
+                # SYS_STATUS becomes healthy.  The bounded helper retries and
+                # waits for the armed heartbeat, avoiding a false takeoff
+                # timeout while preserving PX4's pre-arm checks.
+                if isinstance(executor, FixedWingVtolExecutor):
+                    confirmed_arm = _arm(
+                        telemetry_connection,
+                        mav_reader,
+                        mavutil,
+                        _episode_budget(started, plan.max_episode_s, 30.0),
+                        heartbeat_connection=telemetry_connection,
+                    )
+                    executor._armed = bool(confirmed_arm.get("armed"))
+                    _progress("fixed_wing_arm_confirmed", ack=confirmed_arm)
                 arm_ack = executor.arm_and_takeoff(altitude_m)
                 if arm_ack.status != "success":
                     raise RuntimeError(f"fixed-wing takeoff failed: {arm_ack.ack}")

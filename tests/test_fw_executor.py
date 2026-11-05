@@ -70,6 +70,32 @@ def test_sync_commanded_state_rebases_translation_on_latest_pose_and_heading() -
     assert fake.calls[-1][1][0] == pytest.approx((3.0, 75.0))
 
 
+def test_vtol_fw_translation_rebases_without_caller_side_sync() -> None:
+    fake = FakeVehicle()
+    measured = [(3.0, 40.0, -39.0)]
+    executor = FixedWingVtolExecutor(
+        fake,
+        airframe="vtol",
+        position=lambda: measured[0],
+        yaw_deg=lambda: 90.0,
+    )
+    executor.mode = "FW"
+    executor.execute(ActionPrimitive.translate(35.0, 0.0))
+
+    assert fake.calls[-1][1][0] == pytest.approx((3.0, 75.0))
+
+
+def test_vtol_takeoff_does_not_repeat_arm_after_collector_confirmation() -> None:
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(fake, airframe="vtol")
+    executor._armed = True
+
+    result = executor.arm_and_takeoff()
+
+    assert result.status == "success"
+    assert [call[0] for call in fake.calls].count("arm") == 0
+
+
 def test_vtol_takeoff_and_landing_transition_sequence() -> None:
     fake = FakeVehicle()
     executor = FixedWingVtolExecutor(fake, airframe="vtol")

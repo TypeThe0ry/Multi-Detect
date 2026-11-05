@@ -410,13 +410,19 @@ class FixedWingVtolExecutor:
         started = self._clock()
         altitude = self.altitude_m if altitude_m is None else float(altitude_m)
         try:
-            arm = getattr(self.vehicle, "arm", None) or getattr(
-                self.vehicle, "arducopter_arm", None
-            )
-            if callable(arm):
-                arm_result = arm()
-                if not self._ok(arm_result):
-                    return self._failure(started, phase="arm", result=arm_result)
+            # The collector confirms arming through its bounded ARM/heartbeat
+            # helper before entering this executor.  Do not send a second raw
+            # ARM command in that case: on a slow lockstep run PX4 can still
+            # report the first command as temporarily rejected even though
+            # SYS_STATUS has just become healthy.
+            if not self._armed:
+                arm = getattr(self.vehicle, "arm", None) or getattr(
+                    self.vehicle, "arducopter_arm", None
+                )
+                if callable(arm):
+                    arm_result = arm()
+                    if not self._ok(arm_result):
+                        return self._failure(started, phase="arm", result=arm_result)
             method = "vtol" if self.airframe == "vtol" else self.takeoff_method
             if self.airframe == "vtol" and not self.transition_after_takeoff:
                 # PX4's NAV_VTOL_TAKEOFF transitions to FW on its own after the
@@ -513,6 +519,20 @@ class FixedWingVtolExecutor:
                 return ExecutionResult(
                     "success", self._clock() - started, ack={"reposition": result}
                 )
+            if self.airframe == "vtol" and self.mode == "FW":
+                # A tailsitter can move substantially during the MC→FW
+                # transition.  Rebase every relative translation on the
+                # measured FW pose at dispatch time so a cached takeoff pose
+                # cannot become the next guided waypoint.
+                commanded_down = self._commanded[2]
+                measured = self.sync_commanded_state()
+                # Preserve the commanded cruise altitude.  Transition
+                # dynamics can momentarily overshoot it; the guided waypoint
+                # should rebase its horizontal origin and heading without
+                # turning that transient into a new altitude command.
+                self._commanded = (measured[0], measured[1], commanded_down)
+                origin = self._commanded
+                yaw = self._commanded_yaw
             north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw)
             target = (origin[0] + north, origin[1] + east, origin[2] + down)
             result = self._invoke(
