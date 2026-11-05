@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sys
 import xml.etree.ElementTree as ET
@@ -16,11 +17,12 @@ if str(ROOT) not in sys.path:
 
 from multidetect.simulator.px4_image import PINNED_IMAGE
 
-CONTRACT = "multidetect.px4-x500-gimbal-source-assets-v2"
+CONTRACT = "multidetect.px4-x500-gimbal-source-assets-v3"
 FILES = {
     "x500_gimbal_model.sdf": "share/gz/models/x500_gimbal/model.sdf",
     "gimbal_model.sdf": "share/gz/models/gimbal/model.sdf",
     "4019_gz_x500_gimbal": "etc/init.d-posix/airframes/4019_gz_x500_gimbal",
+    "4001_gz_x500": "etc/init.d-posix/airframes/4001_gz_x500",
 }
 
 
@@ -55,8 +57,10 @@ def extract_assets(image_root: Path, output: Path, image_ref: str) -> dict[str, 
     if "camera_link" not in gimbal_links or "cgo3_mount_link" not in gimbal_links:
         raise ValueError("PX4 gimbal model is missing camera_link or cgo3_mount_link")
     startup = sources["4019_gz_x500_gimbal"].read_text(encoding="utf-8")
-    if "4019" not in startup or "gz_x500_gimbal" not in startup:
-        raise ValueError("PX4 airframe file does not identify autostart 4019/gz_x500_gimbal")
+    if not re.search(r"(?m)^PX4_SIM_MODEL=\$\{PX4_SIM_MODEL:=x500_gimbal\}\s*$", startup):
+        raise ValueError("PX4 4019 airframe does not default PX4_SIM_MODEL to x500_gimbal")
+    if not re.search(r"(?m)^\. \$\{R\}etc/init\.d-posix/airframes/4001_gz_x500\s*$", startup):
+        raise ValueError("PX4 4019 airframe does not source 4001_gz_x500")
 
     target.mkdir(parents=True)
     records: dict[str, object] = {}

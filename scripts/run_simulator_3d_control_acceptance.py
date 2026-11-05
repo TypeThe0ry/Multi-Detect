@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -157,20 +158,26 @@ def _validate_3d_assets(
         if not source_contract_path.is_file():
             raise FileNotFoundError(
                 "PX4 x500_gimbal source asset contract is missing; extract camera, gimbal, "
-                "and 4019 startup assets from one pinned image revision"
+                "and 4019/4001 startup assets from one pinned image revision"
             )
         source_contract = json.loads(source_contract_path.read_text(encoding="utf-8"))
-        expected_names = {"x500_gimbal_model.sdf", "gimbal_model.sdf", "4019_gz_x500_gimbal"}
+        expected_names = {
+            "x500_gimbal_model.sdf",
+            "gimbal_model.sdf",
+            "4019_gz_x500_gimbal",
+            "4001_gz_x500",
+        }
         expected_image_paths = {
             "x500_gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf",
             "gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/gimbal/model.sdf",
             "4019_gz_x500_gimbal": "/opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal",
+            "4001_gz_x500": "/opt/px4-gazebo/etc/init.d-posix/airframes/4001_gz_x500",
         }
         assets = source_contract.get("assets")
         if (
             source_contract.get("schema_version") != 1
             or source_contract.get("contract")
-            != "multidetect.px4-x500-gimbal-source-assets-v2"
+            != "multidetect.px4-x500-gimbal-source-assets-v3"
             or source_contract.get("image") != PINNED_IMAGE
             or source_contract.get("image_revision") != source_contract.get("image")
             or not isinstance(assets, dict)
@@ -198,8 +205,13 @@ def _validate_3d_assets(
         gimbal_links = {link.attrib.get("name") for link in gimbal_root.findall(".//link")}
         if not {"camera_link", "cgo3_mount_link"}.issubset(gimbal_links):
             raise ValueError("PX4 gimbal source does not expose camera_link and cgo3_mount_link")
-        if "4019" not in startup_source or "gz_x500_gimbal" not in startup_source:
-            raise ValueError("PX4 4019 startup asset does not match x500_gimbal")
+        if not re.search(r"(?m)^PX4_SIM_MODEL=\$\{PX4_SIM_MODEL:=x500_gimbal\}\s*$", startup_source):
+            raise ValueError("PX4 4019 startup asset does not default to x500_gimbal")
+        if not re.search(
+            r"(?m)^\. \$\{R\}etc/init\.d-posix/airframes/4001_gz_x500\s*$",
+            startup_source,
+        ):
+            raise ValueError("PX4 4019 startup asset does not source 4001_gz_x500")
     # World files are self-contained: no network or Fuel resources, and model://
     # only for models this repository ships under simulation/gazebo/models.
     world_text = profile.world.read_text(encoding="utf-8")

@@ -21,6 +21,7 @@ from scripts.run_simulator_3d_control_acceptance import main, run_acceptance
 from scripts.verify_simulator_3d_control_evidence import main as verify_3d_main
 
 ROOT = Path(__file__).resolve().parents[1]
+REAL_GIMBAL_SOURCE_ASSETS = ROOT / "simulation/gazebo/source-assets/x500_gimbal"
 VTOL_MANIFEST = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
 FIXED_WING_MANIFEST = ROOT / "configs/scenarios/coastal_patrol_fixed_wing_001.scenario.json"
 MULTIROTOR_MANIFEST = ROOT / "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
@@ -175,7 +176,12 @@ def test_simulator_3d_control_gate_selects_independent_x500_gimbal_profile(
             '<sdf><model name="gimbal"><link name="cgo3_mount_link"/>'
             '<link name="camera_link"/></model></sdf>'
         ),
-        GIMBAL_SOURCE_FILES["4019_gz_x500_gimbal"]: "PX4_SIM_MODEL=gz_x500_gimbal\n# 4019\n",
+        GIMBAL_SOURCE_FILES["4019_gz_x500_gimbal"]: (
+            REAL_GIMBAL_SOURCE_ASSETS / "4019_gz_x500_gimbal"
+        ).read_text(encoding="utf-8"),
+        GIMBAL_SOURCE_FILES["4001_gz_x500"]: (
+            REAL_GIMBAL_SOURCE_ASSETS / "4001_gz_x500"
+        ).read_text(encoding="utf-8"),
     }
     for relative, content in source_contents.items():
         source = image_root / relative
