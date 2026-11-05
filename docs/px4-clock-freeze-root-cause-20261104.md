@@ -1,6 +1,6 @@
 # Linux SITL PX4 仿真时钟冻结：根因调查
 
-调查日期：2026-11-04。只读检查指定 benchmark 产物、campaign 日志及仓库中的
+调查日期：2026-11-05。只读检查指定 benchmark 产物、campaign 日志及仓库中的
 PX4/Gazebo 启动与 collector 代码；没有启动 SITL、Docker、llama-server、GPU 训练或
 网络下载，也没有修改 `artifacts/`。
 
@@ -26,6 +26,13 @@ cpuset 隔离（样本中分别为 6 和 10 CPUs），因此单纯“未 pin CPU
 不能排除调度/配额/内部锁问题。campaign 失败时抓到的容器日志尾部主要是重复的
 `pxh>` 提示符，没有线程栈或 bridge 诊断。
 
+本轮把主机资源证据与 ULog 墙钟窗口对齐后，结论需要再收窄：冻结时主机 load/run
+queue 确实很高，但同一套配置下的健康任务也在高负载中完成；冻结窗口没有 kernel OOM、
+memory cgroup OOM、hung task 或 GPU Xid 事件。保留的产物没有逐时刻 `cpu.stat`、
+`memory.events`、`memory.pressure`、容器 RSS 或 GPU/container 绑定快照，因此不能把
+高 load 写成已证实的 CPU starvation，也不能证明历史上没有短时 cgroup PSI 或 throttling。
+本次证据不足以支持新的具体代码修复，故只更新本调查文档。
+
 ## 运行证据
 
 | 运行/任务 | PX4 停止点与其他推进证据 | 资源/任务上下文 |
@@ -41,13 +48,27 @@ cpuset 隔离（样本中分别为 6 和 10 CPUs），因此单纯“未 pin CPU
 
 ## ULog 覆盖与分析
 
-使用仓库 `scripts/analyze_px4_ulog.py` 对指定 runs 中每一份保留 `.ulg` 逐个分析，
-阈值为 1 秒，输出仅放在工作树临时目录。覆盖为：r24plan-7 **0** 份、r24plan-8
-**5** 份、ext-1 **4** 份、r24plan-17 **14** 份，共 **23** 份；r24plan-7 的目标
-count episode 没有 ULog，只能用 MAVLink/steps/episode 元数据。所有日志均由 analyzer
-处理，包含正常任务日志及失败任务日志；其最后 topic 样本、间隙、PX4 cpuload/RAM、
-估计器 flags、failsafe 与 console 均纳入复查。诊断脚本不能从 ULog 恢复容器 stdout，
-也不能观测 PX4 未记录的线程状态或 Gazebo transport queue。
+共享 artifacts 当前可见 59 份 kept `.ulg`：r24plan-16 为 14 份健康日志，r24plan-17
+为 14 份（含本次冻结的 `survey-site-overlap`），ext-1 和 ext-2 各 4 份；其余 gimbal
+产物主要是模型、Docker 或 sensor stream 启动失败，不作为 clock-freeze 对照。本轮用
+同一命令、`--gap-seconds 1.0` 重新分析四份代表性日志，报告写入工作树 `.tmp/`：
+r24plan-17 的冻结 `survey-site-overlap`、健康 `count-fire-hydrants`，以及 ext-1
+冻结 Follow、ext-2 健康 Follow。r24plan-7 的目标 count episode 没有 ULog，只能用
+MAVLink/steps/episode 元数据。诊断脚本不能从 ULog 恢复容器 stdout，也不能观测 PX4
+未记录的线程状态或 Gazebo transport queue。
+
+四份报告的关键末端值如下；topic 的最大间隙是 PX4 仿真时间间隙，不是冻结期间的墙钟
+停滞时长。
+
+| 样本 | `sensor_combined` / `vehicle_attitude` / `vehicle_local_position` 最后时间（s） | 代表 topic 最大间隙（s） | 末端 PX4 `cpuload` / `ram_usage` | 末端状态 |
+| --- | --- | ---: | --- | --- |
+| r24plan-17 `survey-site-overlap`（冻结） | 330.620 / 330.624 / 330.620 | 0.040 / 0.032 / 0.036 | 1.0545 / 0.5731 | estimator fault changes=0，failsafe=0；末端附近无 console 消息 |
+| r24plan-17 `count-fire-hydrants`（健康） | 430.096 / 430.096 / 430.096 | 0.052 / 0.036 / 0.040 | 1.0971 / 0.2629 | 429.100 s 已 `Landing detected` 并 `Disarmed by landing`，failsafe=0 |
+| ext-1 Follow（冻结） | 392.840 / 392.844 / 392.844 | 0.048 / 0.036 / 0.040 | 0.9192 / 0.5373 | estimator fault changes=0，failsafe=0；末端附近无 console 消息 |
+| ext-2 Follow（健康） | 621.556 / 621.572 / 621.572 | 0.052 / 0.032 / 0.036 | 1.0670 / 0.1939 | 620.920 s 已 `Disarmed by landing`，failsafe=0 |
+
+冻结日志在停止前的高频 topic 仍然连续，且没有 estimator/failsafe 先行报警；这支持
+“PX4 更新链路整体停住”，但不能从 analyzer 单独定位到 bridge、PX4 线程或调度器。
 
 运行配置检查发现：`scripts/run_simulator_docker.py` 在 `--gpu-render` 下将容器绑到所选
 GPU，导出 `GZ_SIM_HEADLESS_RENDERING=1` 和 `GZ_SIM_RENDER_ENGINE=ogre2`，并包装启动
@@ -57,6 +78,41 @@ GPU，导出 `GZ_SIM_HEADLESS_RENDERING=1` 和 `GZ_SIM_RENDER_ENGINE=ogre2`，�
 到达。Docker command 配有 cpuset/cpu shares，但没有固定 memory limit，因此没有证据
 支持本次是显式 cgroup memory cap 造成；内存压力仍因缺少 cgroup 计数而未排除。
 
+## 新增资源关联证据
+
+episode 的墙钟窗口和实际 cpuset 如下。时间为新加坡时间（UTC+08）。
+
+| 样本 | 墙钟窗口 | cpuset | sysstat 对齐观察 |
+| --- | --- | --- | --- |
+| r24plan-17 `count-fire-hydrants`（健康） | 2026-11-04 10:08:55–10:39:39 | 86–95（10 CPUs） | 10:10–10:40 的 load1 为 121.23–127.36，run queue 121–127；10:40 可用内存约 307.9 GB |
+| r24plan-17 `survey-site-overlap`（冻结） | 2026-11-04 11:19:33–11:48:53 | 76–85（10 CPUs） | 11:10/11:20 的 load1 为 216.77/181.95，run queue 206/152；可用内存约 279.9/254.3 GB，swap used 约 2.96 GB 且 swap in/out 很低 |
+| ext-1 Follow（冻结） | 2026-11-03 16:59:23–17:41:51 | 84–89（6 CPUs） | 17:00/17:10/17:20 的 load1 为 228.27/162.47/181.36，run queue 301/88/120；可用内存约 202.0/166.0/204.9 GB |
+| ext-2 Follow（健康） | 2026-11-03 21:00:38–21:51:27 | 76–85（10 CPUs） | 21:00–21:40 的 load1 为 143.19、116.22、114.86、119.13、86.70；可用内存约 324.2–329.9 GB |
+
+这说明冻结时存在明显的 host-wide CPU contention 候选条件，但它不是充分条件：r24plan-17
+健康 count 也在 load1 约 127 的窗口内完成，ext-2 健康 Follow 也在 load1 超过 100 的
+窗口内完成。`sar` 只反映整机，不是容器 cgroup；不能把这些值直接解释为某个 PX4
+进程被 quota 限制。ext-1 窗口虽有 16:50 的 swap-in 峰值，但可用内存仍超过 166 GB，
+不能据此认定 memory pressure 是冻结根因。
+
+### 内核日志与 cgroup 证据边界
+
+- `journalctl -k` 在 r24plan-17 冻结窗口（11:19–11:49）和 ext-1 冻结窗口（16:59–17:42）
+  未见 OOM、memory cgroup OOM、hung task、GPU Xid 或其他相关内核事件；11:12:45 的
+  `containerd` dead-shim 清理告警早于 survey 冻结，不能作为因果证据。
+- 2026-11-04 10:38:11 的 GPU0（`0000:01:00`）Xid 13/31 发生在健康的
+  r24plan-17 `count-fire-hydrants` 仍运行时（10:08:55–10:39:39），该任务随后完成；
+  它与 11:19:33 的 survey 冻结不重合，也没有产物证明 GPU PCI 地址与冻结容器绑定，
+  所以只能列为同机干扰线索，不能写成冻结根因。2026-11-03 13:26 的 GPU `0000:81:00`
+  Xid 31 也早于 ext-1 Follow 冻结。
+- 2026-11-04 17:19:20–17:19:38 的全局 OOM（约 131 GB RSS，task memcg 为
+  `sunshine-desktop.service`）发生在调查样本之后；不能归因于 survey 或 ext-1。
+- artifacts 没有保存上述 episode 的 cgroup 时间序列。当前工作树服务 cgroup 的
+  `cpu.stat` 累计 `nr_throttled=0`、`throttled_usec=0`，当前 `memory.pressure` 有值，
+  但这些是调查结束时的累计/瞬时状态，不能回溯冻结时刻，也不能证明历史上没有短时
+  PSI、throttling 或 memory reclaim。故“没有记录到 kernel OOM”不等于“已经证明没有
+  memory cgroup pressure”。
+
 ## 假设排序
 
 1. **PX4/Gazebo lockstep bridge 或 PX4 仿真调度路径停止：最符合证据。** PX4 全局仿真
@@ -65,9 +121,10 @@ GPU，导出 `GZ_SIM_HEADLESS_RENDERING=1` 和 `GZ_SIM_RENDER_ENGINE=ogre2`，�
    迹象，但冻结本身可能让 PX4 无法再写出诊断；缺少任务/线程快照。
 3. **GPU render/backpressure：可能是负载触发器，证据较弱。** 故障运行启用 GPU
    headless render，但相机帧仍持续输出；没有 GPU 指标，也没有可用的 off-GPU 对照。
-4. **容器 CPU/memory cgroup throttling：未证实。** cpuset 隔离下仍复现；没有
-   `cpu.stat`、`memory.events`、RSS/oom 或 host pressure 数据。PX4 ULog `ram_usage`
-   不能代替这些计数。
+4. **主机 CPU contention / 容器 CPU 或 memory cgroup pressure：候选但未证实。** 冻结
+   窗口的 host load/run queue 很高，但健康任务也在高负载下完成；缺少冻结时的
+   `cpu.stat`、`memory.events`、RSS/oom、PSI 和 GPU/container 绑定快照。PX4 ULog
+   `cpuload`/`ram_usage` 不能代替这些计数。
 
 ## 低风险缓解
 
@@ -90,5 +147,7 @@ lockstep 不受总墙钟 cap 影响。Windows 保持 180 秒既有行为。
 - `tests/test_sim_teacher_parallel_timing.py`
 - `tests/test_sim_teacher_landing.py`
 - `tests/test_sim_teacher_fw_landing.py`
+- `tests/test_analyze_px4_ulog.py`：3 passed（本轮复核）
 
-共 61 项通过。未运行完整 `scripts/run_onboard_gate.py`，也未运行 SITL、Docker 或 GPU。
+此前低风险缓解对应的定点回归为 61 项通过；本轮 analyzer 测试为 3 项通过。未运行完整
+`scripts/run_onboard_gate.py`，也未运行 SITL、Docker 或 GPU。
