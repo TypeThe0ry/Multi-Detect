@@ -147,6 +147,11 @@ def build_runtime_loop_factory(
             max_search_calls=100,
             return_reserve_calls=40,
             coverage_enabled=True,
+            camera_intrinsics=camera_info,
+            camera_image_size=image_size,
+            camera_is_gimballed=(
+                profile.camera_mount is not None and profile.camera_mount.type == "gimbal"
+            ),
         )
 
     def build_search(text: str) -> None:
@@ -373,11 +378,18 @@ def build_runtime_loop_factory(
                     else {}
                 ),
             )
+        def search_action(pose, yaw):
+            policy = self._active_search(search, search_mc)
+            if isinstance(policy, FixedWingSearch) and policy.camera_is_gimballed:
+                return policy.next_action(
+                    pose_ned=pose, yaw_deg=yaw, camera_pose=self._search_camera_pose
+                )
+            # Fixed mounts retain the legacy coverage geometry and actions.
+            return policy.next_action(pose_ned=pose, yaw_deg=yaw)
+
         loop = OnboardLoop(
             camera=camera,
-            search_action=lambda pose, yaw: self._active_search(search, search_mc).next_action(
-                pose_ned=pose, yaw_deg=yaw
-            ),
+            search_action=search_action,
             search_outcome=lambda: getattr(
                 self._active_search(search, search_mc), "search_outcome", None
             ),
