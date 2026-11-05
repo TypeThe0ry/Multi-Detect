@@ -28,11 +28,16 @@ from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
 from multidetect.simulator.delta_tailsitter_smoke import (  # noqa: E402
     tailsitter_flight_angles_deg,
 )
+from multidetect.simulator.fixed_wing_reposition import (  # noqa: E402
+    DEFAULT_NAV_LOITER_RAD_M,
+    reposition_ring_metrics,
+)
 
 DELTA_TAILSITTER_PROFILE_IDS = frozenset(
     {"delta_tailsitter", "delta_tailsitter_gimbal"}
 )
-FW_ARRIVAL_TOLERANCE_M = 8.0
+FW_REPOSITION_RING_TOLERANCE_M = 8.0
+FW_REPOSITION_RING_DEFAULT_RADIUS_M = DEFAULT_NAV_LOITER_RAD_M
 FW_SATURATION_LOW = 5
 FW_SATURATION_HIGH = 1095
 FW_SATURATION_MAX_FRACTION = 0.15
@@ -462,18 +467,54 @@ def _delta_fw_metrics(
         for row in steps
         if isinstance((row.get("ack") or {}).get("smoke_reposition_wait"), dict)
     ]
-    reached_relocations = [
-        row
-        for row in relocations
-        if row.get("waited") == "arrived"
-        and float(row.get("distance_m", math.inf)) <= FW_ARRIVAL_TOLERANCE_M
-    ]
-    relocation = reached_relocations[0] if reached_relocations else (relocations[0] if relocations else None)
-    metrics["fw_reposition_success"] = bool(reached_relocations)
+    relocation = relocations[0] if relocations else None
+    target_ned = relocation.get("target_ned_m") if relocation else None
+    ring = {"fw_reposition_ring_error_p95_m": None, "fw_reposition_dwell_s": 0.0,
+            "fw_reposition_swept_deg": 0.0, "fw_reposition_success": False}
+    if isinstance(target_ned, (list, tuple)) and len(target_ned) >= 2:
+        radius = FW_REPOSITION_RING_DEFAULT_RADIUS_M
+        for row in mavlink:
+            if str(_mav_value(row, "param_id", "")).strip("\x00 ") == "NAV_LOITER_RAD":
+                try:
+                    candidate = float(_mav_value(row, "param_value"))
+                    if math.isfinite(candidate) and candidate > 0:
+                        radius = candidate
+                        break
+                except (TypeError, ValueError):
+                    pass
+        fw_state: int | None = None
+        observations = []
+        for row in mavlink:
+            kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
+            if kind == "EXTENDED_SYS_STATE":
+                try:
+                    fw_state = int(_mav_value(row, "vtol_state"))
+                except (TypeError, ValueError):
+                    fw_state = None
+            elif kind == "LOCAL_POSITION_NED":
+                time_s = _row_sim_time_s(row)
+                try:
+                    if time_s is not None:
+                        observations.append({
+                            "sim_time_s": time_s,
+                            "x": float(_mav_value(row, "x")),
+                            "y": float(_mav_value(row, "y")),
+                            "fw_active": fw_state == 4,
+                        })
+                except (TypeError, ValueError):
+                    pass
+        ring = reposition_ring_metrics(
+            observations,
+            target_ned=target_ned,
+            radius_m=radius,
+            tolerance_m=FW_REPOSITION_RING_TOLERANCE_M,
+        )
+    metrics.update(ring)
     metrics["fw_reposition_distance_m"] = (
         relocation.get("distance_m") if relocation else None
     )
-    metrics["fw_reposition_tolerance_m"] = FW_ARRIVAL_TOLERANCE_M
+    metrics["fw_reposition_tolerance_m"] = FW_REPOSITION_RING_TOLERANCE_M
+    metrics["fw_reposition_radius_m"] = radius if isinstance(target_ned, (list, tuple)) and len(target_ned) >= 2 else FW_REPOSITION_RING_DEFAULT_RADIUS_M
     post_transition = next(
         (row for row in mavlink if row.get("message_type") == "delta_smoke_post_transition_end"),
         None,

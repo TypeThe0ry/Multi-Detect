@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -372,16 +373,19 @@ def test_delta_smoke_reposition_waits_for_measured_arrival_in_sim_time(monkeypat
     def advance_sim(_seconds):
         position = reader.state.messages["LOCAL_POSITION_NED"]
         position["time_boot_ms"] += 1000
-        position["x"] = min(35.0, position["x"] + 7.0)
+        angle = math.radians(position["time_boot_ms"] / 1000 * 15.0)
+        position["x"] = 35.0 + 80.0 * math.cos(angle)
+        position["y"] = 80.0 * math.sin(angle)
 
     monkeypatch.setattr(collector.time, "sleep", advance_sim)
     result = collector._wait_smoke_reposition(
-        (35.0, 0.0, -5.0), reader, category="vtol", timeout_s=5.0
+        (35.0, 0.0, -5.0), reader, category="vtol", timeout_s=35.0
     )
 
     assert result["waited"] == "arrived"
-    assert result["distance_m"] <= collector.MOTION_ARRIVAL_TOLERANCE_M
-    assert result["sim_elapsed_s"] == 4.0
+    assert result["fw_reposition_dwell_s"] >= 30.0
+    assert result["fw_reposition_swept_deg"] >= 360.0
+    assert result["sim_elapsed_s"] >= 30.0
     assert result["sim_clock_available"] is True
 
 
@@ -434,8 +438,8 @@ def _write_delta_fw_judgement_fixture(episode_dir: Path, saturated_indices=()):
                 {
                     "message_type": "LOCAL_POSITION_NED",
                     "time_boot_ms": time_ms,
-                    "x": 0.0,
-                    "y": 0.0,
+                    "x": 80.0 * math.cos(math.radians(index * 48.0)),
+                    "y": 80.0 * math.sin(math.radians(index * 48.0)),
                     "z": -5.0,
                 },
                 {
@@ -450,6 +454,16 @@ def _write_delta_fw_judgement_fixture(episode_dir: Path, saturated_indices=()):
                 },
             ]
         )
+        for substep in range(1, 8):
+            sample_time = time_ms / 1000.0 + substep * 0.5
+            angle = math.radians(sample_time * 12.0)
+            rows.append({
+                "message_type": "LOCAL_POSITION_NED",
+                "time_boot_ms": int(sample_time * 1000),
+                "x": 80.0 * math.cos(angle),
+                "y": 80.0 * math.sin(angle),
+                "z": -5.0,
+            })
     rows.extend(
         [
             {"message_type": "delta_smoke_fw_sustain_end", "sim_time_s": 132.0,
@@ -481,7 +495,8 @@ def _write_delta_fw_judgement_fixture(episode_dir: Path, saturated_indices=()):
                 "ack": {
                     "smoke_reposition_wait": {
                         "waited": "arrived",
-                        "distance_m": 7.0,
+                        "distance_m": 80.0,
+                        "target_ned_m": [0.0, 0.0, -5.0],
                     }
                 },
                 "obs_after": {

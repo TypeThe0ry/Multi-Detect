@@ -85,6 +85,10 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     gimbal_angles_from_status,
 )
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
+from multidetect.simulator.fixed_wing_reposition import (  # noqa: E402
+    DEFAULT_NAV_LOITER_RAD_M,
+    reposition_ring_metrics,
+)
 from multidetect.sim_network import sim_udpin_endpoint  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
@@ -200,7 +204,7 @@ MOTION_ALONG_TRACK_DONE_M = 5.0
 # bearing tens of metres away while circling.  Bound the cross-track error by
 # the same tolerance used for a direct arrival.
 MOTION_CROSS_TRACK_DONE_M = MOTION_ARRIVAL_TOLERANCE_M
-FIXED_WING_LOITER_CAPTURE_M = 80.0
+FIXED_WING_LOITER_CAPTURE_M = DEFAULT_NAV_LOITER_RAD_M
 MOTION_REPOSITION_TIMEOUT_S = 120.0
 MOTION_LOITER_MAX_WAIT_S = 60.0
 # Hover-mode (MC) VTOL legs settle on their target and heading before the next frame.
@@ -1964,22 +1968,24 @@ def _wait_smoke_reposition(
     category: str,
     timeout_s: float = DELTA_SMOKE_REPOSITION_TIMEOUT_S,
 ) -> dict[str, Any]:
-    """Require a smoke-flight relocation to enter the configured arrival sphere."""
+    """Require sustained capture of the active PX4 fixed-wing loiter ring."""
     started_wall = time.monotonic()
     started_sim_ns = _pose_sim_stamp_ns(reader.state)
     if started_sim_ns is None:
         return {
             "waited": "timeout",
             "distance_m": None,
-            "tolerance_m": MOTION_ARRIVAL_TOLERANCE_M,
+            "tolerance_m": 8.0,
             "sim_elapsed_s": None,
             "sim_clock_available": False,
             "elapsed_s": 0.0,
             "target_ned_m": list(target_ned),
+            **reposition_ring_metrics([], target_ned=target_ned, radius_m=FIXED_WING_LOITER_CAPTURE_M),
         }
     wall_ceiling = max(180.0, float(timeout_s) * 10.0)
     distance = float("inf")
     sim_elapsed_s = 0.0
+    observations: list[dict[str, Any]] = []
     while time.monotonic() - started_wall < wall_ceiling:
         reader.raise_if_failed()
         current_sim_ns = _pose_sim_stamp_ns(reader.state)
@@ -1991,15 +1997,27 @@ def _wait_smoke_reposition(
         )
         state = _flight_state_snapshot(reader.state)["vtol_state"]
         fw_active = category == "fixed_wing" or state == 4
-        if fw_active and distance <= MOTION_ARRIVAL_TOLERANCE_M:
+        observations.append({
+            "sim_time_s": sim_elapsed_s,
+            "x": position[0],
+            "y": position[1],
+            "fw_active": fw_active,
+        })
+        ring = reposition_ring_metrics(
+            observations,
+            target_ned=target_ned,
+            radius_m=FIXED_WING_LOITER_CAPTURE_M,
+        )
+        if ring["fw_reposition_success"]:
             return {
                 "waited": "arrived",
                 "distance_m": distance,
-                "tolerance_m": MOTION_ARRIVAL_TOLERANCE_M,
+                "tolerance_m": 8.0,
                 "sim_elapsed_s": sim_elapsed_s if current_sim_ns is not None else None,
                 "sim_clock_available": current_sim_ns is not None,
                 "elapsed_s": time.monotonic() - started_wall,
                 "target_ned_m": list(target_ned),
+                **ring,
             }
         if (
             current_sim_ns is not None
@@ -2010,11 +2028,16 @@ def _wait_smoke_reposition(
     return {
         "waited": "timeout",
         "distance_m": distance,
-        "tolerance_m": MOTION_ARRIVAL_TOLERANCE_M,
+        "tolerance_m": 8.0,
         "sim_elapsed_s": sim_elapsed_s,
         "sim_clock_available": True,
         "elapsed_s": time.monotonic() - started_wall,
         "target_ned_m": list(target_ned),
+        **reposition_ring_metrics(
+            observations,
+            target_ned=target_ned,
+            radius_m=FIXED_WING_LOITER_CAPTURE_M,
+        ),
     }
 
 
