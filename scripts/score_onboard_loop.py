@@ -149,9 +149,16 @@ def _nearest_object(
 
 def _count_metrics(rows: list[dict[str, Any]], members: list[dict[str, Any]], radius_m: float):
     """Reported count and findings matched one-to-one to distinct counted objects."""
-    mission = {}
+    # MissionExecutor uses the same ``mission`` label for its terminal status
+    # (for example ``"done"``) when the executor has no report to attach.
+    # Keep the latest structured report instead of replacing it with that
+    # status string.  This is especially important when a return-home or
+    # health-recovery step emits the final row after the count report.
+    mission: dict[str, Any] = {}
     for row in rows:
-        mission = ((row.get("labels") or {}).get("onboard") or {}).get("mission") or mission
+        candidate = ((row.get("labels") or {}).get("onboard") or {}).get("mission")
+        if isinstance(candidate, dict):
+            mission = candidate
     counts = mission.get("counts") or {}
     reported = sum(int(v) for v in counts.values()) if counts else None
     positions = [tuple(float(v) for v in p.split(",")) for p in mission.get("positions", [])]
