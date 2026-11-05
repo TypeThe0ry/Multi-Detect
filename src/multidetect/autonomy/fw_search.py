@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
-from .fw_geometry import lawnmower_search
+from .fw_geometry import camera_ground_footprint, lawnmower_search
 
 
 def camera_footprint_width_m(
@@ -31,6 +31,20 @@ def camera_footprint_width_m(
     look_down = max(float(pitch_down_rad), math.radians(10.0))
     slant = float(altitude_m) / math.sin(look_down)
     return 2.0 * slant * math.tan(half_fov)
+
+
+def _inside_camera_footprint(
+    point: tuple[float, float], corners: Sequence[tuple[float, float]]
+) -> bool:
+    north, east = point
+    inside = False
+    for index, (n1, e1) in enumerate(corners):
+        n2, e2 = corners[(index + 1) % len(corners)]
+        if (e1 > east) != (e2 > east):
+            crossing_north = n1 + (east - e1) * (n2 - n1) / (e2 - e1)
+            if north < crossing_north:
+                inside = not inside
+    return inside
 
 
 class FixedWingSearch:
@@ -58,6 +72,10 @@ class FixedWingSearch:
         min_coverage_calls: int = 2,
         camera_pitch_rad: float = math.radians(10.0),
         coverage_enabled: bool = False,
+        camera_intrinsics: Mapping[str, float] | None = None,
+        camera_image_size: tuple[int, int] = (1280, 960),
+        camera_pose: Mapping[str, object] | None = None,
+        camera_is_gimballed: bool = False,
     ) -> None:
         if max_leg_m <= 0 or radius_m <= 0:
             raise ValueError("search radius and leg length must be positive")
@@ -111,6 +129,10 @@ class FixedWingSearch:
         self.min_coverage_calls = max(1, int(min_coverage_calls))
         self.camera_pitch_rad = max(math.radians(10.0), float(camera_pitch_rad))
         self.coverage_enabled = bool(coverage_enabled)
+        self.camera_intrinsics = dict(camera_intrinsics) if camera_intrinsics is not None else None
+        self.camera_image_size = tuple(camera_image_size)
+        self.camera_pose = camera_pose
+        self.camera_is_gimballed = bool(camera_is_gimballed)
         self._bounds = (north - radius_m, north + radius_m, east - radius_m, east + radius_m)
         self._grid = self._make_grid()
         self._last_pose: tuple[float, float] | None = None
@@ -131,9 +153,35 @@ class FixedWingSearch:
     def coverage_fraction(self) -> float:
         return sum(self._grid.values()) / max(1, len(self._grid))
 
-    def _record_camera_coverage(self, pose: Sequence[float], yaw_deg: float) -> None:
+    def _record_camera_coverage(
+        self,
+        pose: Sequence[float],
+        yaw_deg: float,
+        camera_pose: Mapping[str, object] | None = None,
+    ) -> None:
         north, east = float(pose[0]), float(pose[1])
         altitude = max(1.0, -float(pose[2]))
+        composed = camera_pose or self.camera_pose
+        if composed is not None and self.camera_intrinsics is not None:
+            fresh = composed.get("gimbal_feedback_fresh", True) is True
+            corners = (
+                camera_ground_footprint(composed, self.camera_intrinsics, self.camera_image_size)
+                if fresh
+                else None
+            )
+            if corners is not None:
+                n0, _, e0, _ = self._bounds
+                for cell in self._grid:
+                    cn = n0 + (cell[0] + 0.5) * self.grid_cell_m
+                    ce = e0 + (cell[1] + 0.5) * self.grid_cell_m
+                    if _inside_camera_footprint((cn, ce), corners):
+                        self._grid[cell] = True
+                self._last_pose = (north, east)
+                return
+            if self.camera_is_gimballed:
+                return
+        elif self.camera_is_gimballed:
+            return
         look_down = self.camera_pitch_rad
         along = altitude / math.tan(look_down)
         heading = math.radians(float(yaw_deg))
@@ -157,7 +205,10 @@ class FixedWingSearch:
             for index in range(1, samples):
                 t = index / samples
                 sample = (start[0] + t * (end[0] - start[0]), start[1] + t * (end[1] - start[1]))
-                shifted = (sample[0] + along * math.cos(heading), sample[1] + along * math.sin(heading))
+                shifted = (
+                    sample[0] + along * math.cos(heading),
+                    sample[1] + along * math.sin(heading),
+                )
                 for cell in self._grid:
                     cn = n0 + (cell[0] + 0.5) * self.grid_cell_m
                     ce = e0 + (cell[1] + 0.5) * self.grid_cell_m
@@ -204,10 +255,16 @@ class FixedWingSearch:
         if self._index >= len(self.waypoints):
             self._index, self.passes = 0, self.passes + 1
 
-    def next_action(self, *, pose_ned: Sequence[float], yaw_deg: float = 0.0) -> ActionPrimitive:
+    def next_action(
+        self,
+        *,
+        pose_ned: Sequence[float],
+        yaw_deg: float = 0.0,
+        camera_pose: Mapping[str, object] | None = None,
+    ) -> ActionPrimitive:
         north, east = float(pose_ned[0]), float(pose_ned[1])
         if self.coverage_enabled:
-            self._record_camera_coverage(pose_ned, yaw_deg)
+            self._record_camera_coverage(pose_ned, yaw_deg, camera_pose)
             self.search_calls += 1
             if (
                 self.search_calls >= self.min_coverage_calls

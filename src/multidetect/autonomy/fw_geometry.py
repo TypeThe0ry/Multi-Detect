@@ -9,7 +9,7 @@ inputs: non-finite values are rejected, while zero-length paths return a finite 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 EPS = 1e-9
@@ -36,6 +36,68 @@ def _wrap(angle: float) -> float:
 
 def _mod(angle: float) -> float:
     return angle % PI2
+
+
+def camera_ground_footprint(
+    camera_pose: Mapping[str, object],
+    intrinsics: Mapping[str, float],
+    image_size: tuple[int, int],
+    *,
+    ground_down_m: float = 0.0,
+) -> tuple[tuple[float, float], ...] | None:
+    """Project image corners using a recorded composed optical-to-world pose.
+
+    The accepted pose is the ``camera_pose`` record emitted by onboard
+    observations: a NED centre and row-major optical-to-world rotation. Optical
+    axes are +X forward, +Y image-right and +Z image-down.
+    """
+    center, rotation = camera_pose.get("center_ned"), camera_pose.get("optical_to_world")
+    if (
+        not isinstance(center, Sequence)
+        or isinstance(center, (str, bytes))
+        or len(center) != 3
+        or not isinstance(rotation, Sequence)
+        or isinstance(rotation, (str, bytes))
+        or len(rotation) != 9
+    ):
+        return None
+    values = tuple(_f(value, math.nan) for value in (*center, *rotation))
+    if not all(math.isfinite(value) for value in values):
+        return None
+    north, east, down = values[:3]
+    matrix = values[3:]
+    width, height = image_size
+    try:
+        fx, fy = float(intrinsics["fx"]), float(intrinsics["fy"])
+        cx = float(intrinsics.get("cx", width / 2))
+        cy = float(intrinsics.get("cy", height / 2))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if width <= 0 or height <= 0 or fx <= 0 or fy <= 0 or not all(
+        math.isfinite(value) for value in (fx, fy, cx, cy, ground_down_m)
+    ):
+        return None
+    points = []
+    image_corners = (
+        (0.0, 0.0),
+        (float(width), 0.0),
+        (float(width), float(height)),
+        (0.0, float(height)),
+    )
+    for u, v in image_corners:
+        x, y = 1.0, (u - cx) / fx
+        z = (v - cy) / fy
+        ray = tuple(
+            matrix[row * 3] * x + matrix[row * 3 + 1] * y + matrix[row * 3 + 2] * z
+            for row in range(3)
+        )
+        if ray[2] <= EPS:
+            return None
+        distance = (ground_down_m - down) / ray[2]
+        if distance <= 0.0 or not math.isfinite(distance):
+            return None
+        points.append((north + ray[0] * distance, east + ray[1] * distance))
+    return tuple(points)
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,8 +415,17 @@ def lawnmower_search(
     *,
     sample_step_m: float = 2.0,
     start_from_low_east: bool = True,
+    camera_pose: Mapping[str, object] | None = None,
+    camera_intrinsics: Mapping[str, float] | None = None,
+    camera_image_size: tuple[int, int] = (1280, 960),
 ) -> SearchPath:
     """Plan alternating fixed-wing survey lanes and rounded end turns."""
+    if camera_pose is not None and camera_intrinsics is not None:
+        corners = camera_ground_footprint(camera_pose, camera_intrinsics, camera_image_size)
+        if corners is not None:
+            footprint_width_m = max(
+                abs(max(point[1] for point in corners) - min(point[1] for point in corners)), EPS
+            )
     n0, n1, e0, e1 = _bounds(bounds)
     width, r = max(abs(_f(footprint_width_m)), EPS), max(abs(_f(min_turn_radius_m)), EPS)
     overlap = min(0.99, max(0.0, _f(overlap)))
