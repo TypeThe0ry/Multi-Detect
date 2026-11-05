@@ -1046,6 +1046,23 @@ def _observe(loop: OnboardLoop, step: int, boxes: dict) -> list:
     )
 
 
+def test_count_does_not_add_a_second_result_without_a_fresh_position():
+    loop = _loop(stop_on_confirm=False)
+    (track,) = _observe(loop, 0, {_box(640, 700, 20): (-22.9813591813, 28.9331661776)})
+    first = _count(loop, track, (-22.9813591813, 28.9331661776))
+    assert "counted" in first
+
+    # joint2 step 105 logged this same cone at (-16.9495, 29.4145),
+    # 6.05 m from the prior point and outside the configured 4 m radius.
+    # The frame had no fresh camera_pose, so the projection must be absent;
+    # an invalid stale-pose point must not become another count.
+    stale_record = {"track_id": track.track_id, "position_estimate_ne": None}
+    _, info = loop._count_confirmation(track, stale_record, (0.0, 0.0, -8.0), 0.0, {})
+    assert info["count_blocked"] == "position_unavailable"
+    assert len(loop.confirmations) == 1
+    assert loop.config.count_dedupe_m == 4.0
+
+
 def test_count_dedupe_ignores_co_visibility_after_a_track_migrates_onto_a_counted_object():
     # 2026-10-19 SIM count (gen_cnt2_w0000): t2 (another object, 6 m away) and
     # t3 (a cone) shared step 0; t3 was counted, then t2 re-associated onto the
