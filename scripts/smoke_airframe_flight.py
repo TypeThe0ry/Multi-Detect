@@ -155,11 +155,17 @@ def evaluate_episode(
         local_altitudes and max(local_altitudes) >= max(0.5, target_altitude_m * 0.8)
     )
     if profile.category == "vtol":
-        transition_success = 4 in vtol_states or 5 in vtol_states
+        # A pre-takeoff MC sample is always present.  Count the complete VTOL
+        # route only when FW was observed before a later return to MC.
+        fw_state_index = next(
+            (index for index, state in enumerate(vtol_states) if state in {4, 5}),
+            None,
+        )
+        transition_success = fw_state_index is not None and any(
+            state in {3, 6} for state in vtol_states[fw_state_index + 1 :]
+        )
     else:
         transition_success = True
-    if profile.category == "vtol" and transition_success:
-        transition_success = transition_success and any(s in {3, 6} for s in vtol_states)
     takeoff_method = str(episode.get("takeoff_method", profile.takeoff.methods[0]))
     launch_texts = [
         str(_mav_value(row, "text", ""))

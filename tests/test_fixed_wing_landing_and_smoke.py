@@ -182,6 +182,25 @@ def test_smoke_takeoff_uses_measured_altitude_not_commanded_altitude(tmp_path: P
     assert evaluate_episode(tmp_path, profile, 5.0)["takeoff_success"] is False
 
 
+def test_vtol_transition_requires_fw_then_later_mc(tmp_path: Path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/delta_tailsitter.json"))
+
+    def judge(states):
+        rows = [
+            {"message_type": "EXTENDED_SYS_STATE", "vtol_state": state, "landed_state": 2}
+            for state in states
+        ]
+        (tmp_path / "episode.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "mavlink.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
+        )
+        (tmp_path / "steps.jsonl").write_text("", encoding="utf-8")
+        return evaluate_episode(tmp_path, profile, 5.0)["transition_success"]
+
+    assert judge([3, 4]) is False
+    assert judge([3, 4, 2, 3]) is True
+
+
 def test_smoke_reposition_must_meet_plan_tolerance(tmp_path: Path):
     profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
     (tmp_path / "steps.jsonl").write_text(
