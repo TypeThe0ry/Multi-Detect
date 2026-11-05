@@ -11,6 +11,7 @@ MAVLink 遥测和相机帧仍按 PX4 仿真时间对齐。
 | `standard_vtol_mono_cam` | 4004 | VTOL | MC -> FW，再 FW -> MC | VTOL |
 | `quadtailsitter_mono_cam` | 4018 | VTOL | MC -> FW，再 FW -> MC | VTOL |
 | `delta_tailsitter_mono_cam` | 4050（自定义） | VTOL | MC -> FW，再 FW -> MC；尚未飞行验证 | VTOL |
+| `delta_tailsitter_gimbal_cam` | 4051（自定义） | VTOL | MC -> FW，再 FW -> MC；尚未飞行验证 | VTOL |
 | `tiltrotor_mono_cam` | 4020 | VTOL | MC -> FW，再 FW -> MC | VTOL |
 
 ## 降落流程
@@ -210,7 +211,14 @@ server.config 的结构如果变了，容器启动会直接报错退出，不会
 
 ## eVTOL 有目标闭环：悬停作业（2026-10-19/20）
 
-目标：让 `standard_vtol`（4+1 复合翼）和 `quadtailsitter`（尾座式）在有目标的生成世界里跑通机上闭环“找目标 → 确认 → 返航降落”，与多旋翼/固定翼同一套机上 AI。场景用 `scripts/derive_fixed_wing_scenario.py --airframe standard_vtol|quadtailsitter` 从固定翼版 w0031（消防车，离 home 45 m）和 w0016（救护车，离 home 102 m）派生（`configs/scenarios/vtol-v2/<机型>/`，世界、真值、任务不变，只换飞机，在 home 垂直起飞）。
+目标：让 `standard_vtol`（4+1 复合翼）、`quadtailsitter` 和两个 `delta_tailsitter` 变体在有目标的生成世界里跑通机上闭环“找目标 → 确认 → 返航降落”，与多旋翼/固定翼同一套机上 AI。场景用 `scripts/derive_fixed_wing_scenario.py --airframe ...` 从固定翼版 w0031（消防车，离 home 45 m）和 w0016（救护车，离 home 102 m）派生（`configs/scenarios/vtol-v2/<机型>/`，世界、真值、任务不变，只换飞机，在 home 垂直起飞）。本轮没有启动 SITL；只完成离线场景接入和动作/观测链路。
+
+云台变体把 `gimbal_control` 暴露给策略和规划器，轴与范围来自机型档案。AI 可以发出
+`MotionIntent.gimbal(pitch_deg=-45, yaw_deg=20, roll_deg=0)`，执行器会用
+`MAV_CMD_DO_MOUNT_CONTROL` 下发，等待 `GIMBAL_DEVICE_ATTITUDE_STATUS` 的新样本并按角度误差
+确认完成；固定相机 profile 会返回 `gimbal_capability_required`。观测中的
+`observation["gimbal"]["angles_deg"]` 会被实时传给相机外参计算，因此云台动作后的地面射线
+使用实际角度。
 
 ## SIM 回归套件
 

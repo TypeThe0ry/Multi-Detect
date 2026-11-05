@@ -1211,6 +1211,11 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                 ),
                 profile=self.airframe_profile,
                 mode=self.motion_adapter.mode,
+                gimbal_angles_deg=(
+                    observation.get("gimbal", {}).get("angles_deg")
+                    if isinstance(observation.get("gimbal"), Mapping)
+                    else None
+                ),
             )
             return base[0], direction
 

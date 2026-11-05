@@ -70,6 +70,7 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     MavlinkState,
     SensorStreamReader,
     build_observation,
+    gimbal_angles_from_status,
 )
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.sim_network import sim_udpin_endpoint  # noqa: E402
@@ -1894,6 +1895,7 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
     if gimbal is not None or gimbal_manager is not None:
         gimbal_status = {
             "device": MavlinkReader._mapping(gimbal) if gimbal is not None else None,
+            "angles_deg": gimbal_angles_from_status(gimbal) if gimbal is not None else None,
             "manager": MavlinkReader._mapping(gimbal_manager) if gimbal_manager is not None else None,
         }
     return {
@@ -4130,6 +4132,8 @@ def run_episode(
                         else None
                     ),
                     transition_after_takeoff=not hover_mission,
+                    airframe_profile=profile,
+                    telemetry_reader=mav_reader,
                     # Fixed-wing/VTOL command durations follow PX4's lockstep
                     # clock; a separate wall ceiling is enforced by callbacks
                     # below so a stalled simulator still terminates.

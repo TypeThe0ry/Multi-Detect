@@ -17,7 +17,15 @@ SKILL_REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 KNOWN_CAPABILITIES = frozenset(
-    {"payload_drop", "winch", "spotlight", "speaker", "landing_on_target", "hover"}
+    {
+        "payload_drop",
+        "winch",
+        "spotlight",
+        "speaker",
+        "landing_on_target",
+        "hover",
+        "gimbal_control",
+    }
 )
 
 
@@ -47,6 +55,9 @@ def capabilities_for_airframe(profile: Any, configured: Any = ()) -> frozenset[s
         method in {"multirotor", "vtol"} for method in landing
     ):
         result.add("landing_on_target")
+    gimbal = getattr(getattr(profile, "camera", None), "gimbal", {})
+    if isinstance(gimbal, Mapping) and bool(gimbal.get("enabled")):
+        result.add("gimbal_control")
     return frozenset(result)
 
 

@@ -8,6 +8,10 @@ import pytest
 
 from multidetect.autonomy.airframe_profile import AirframeProfile
 from multidetect.autonomy.motion_intent import camera_ray_from_profile
+from multidetect.autonomy.capability_contract import capabilities_for_airframe
+from multidetect.autonomy.motion_intent import AirframeMotionAdapter, MotionIntent
+from multidetect.sim_teacher import ActionPrimitive, execute_gimbal_action
+from multidetect.sim_teacher.streams import MavlinkState, SensorSample, build_observation
 from multidetect.simulator.camera_projection import pixel_camera_ray
 from scripts import collect_sim_teacher_episodes as collector
 
@@ -128,3 +132,149 @@ def test_sim_projection_accepts_runtime_camera_extrinsics():
     centre, ray = result
     assert centre == pytest.approx((0.2, 0.0, -10.3))
     assert ray == pytest.approx((1.0, 0.0, 0.0))
+
+
+def test_gimbal_action_rejects_fixed_camera_before_sending():
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
+
+    class Mav:
+        def __init__(self):
+            self.calls = []
+
+        def command_long_send(self, *args):
+            self.calls.append(args)
+
+    class Vehicle:
+        target_system = 1
+        target_component = 1
+
+        def __init__(self):
+            self.mav = Mav()
+
+    vehicle = Vehicle()
+    result = execute_gimbal_action(
+        vehicle,
+        ActionPrimitive.gimbal(pitch_deg=-20),
+        profile=profile,
+        reader=object(),
+        timeout_s=0.01,
+    )
+    assert result.status == "rejected"
+    assert result.ack["reason"] == "gimbal_capability_required"
+    assert vehicle.mav.calls == []
+
+
+def test_gimbal_action_sends_and_reads_fresh_attitude():
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    state = MavlinkState()
+
+    class Mav:
+        def command_long_send(self, *args):
+            assert args[:4] == (1, 1, 205, 0)
+            pitch = math.radians(float(args[4]))
+            state.command_acks[205] = ({"result": 0}, __import__("time").monotonic_ns())
+            state.messages["GIMBAL_DEVICE_ATTITUDE_STATUS"] = {
+                "q": (math.cos(pitch / 2), 0.0, math.sin(pitch / 2), 0.0)
+            }
+            state.received_monotonic_ns["GIMBAL_DEVICE_ATTITUDE_STATUS"] = __import__("time").monotonic_ns()
+
+    class Vehicle:
+        target_system = 1
+        target_component = 1
+        mav = Mav()
+
+    class Reader:
+        def __init__(self):
+            self.state = state
+
+    result = execute_gimbal_action(
+        Vehicle(),
+        ActionPrimitive.gimbal(pitch_deg=-45),
+        profile=profile,
+        reader=Reader(),
+        timeout_s=0.2,
+    )
+    assert result.status == "success"
+    assert result.ack["actual_deg"]["pitch"] == pytest.approx(-45.0, abs=1e-5)
+
+
+def test_gimbal_action_rejects_profile_range_and_non_numeric_intent():
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    result = execute_gimbal_action(
+        object(),
+        ActionPrimitive.gimbal(pitch_deg=60),
+        profile=profile,
+        reader=object(),
+    )
+    assert result.status == "rejected"
+    assert result.ack["reason"] == "gimbal_angle_out_of_range"
+    assert result.ack["axis"] == "pitch"
+
+    with pytest.raises(ValueError, match="finite numbers"):
+        MotionIntent.gimbal(pitch_deg="-45")
+
+
+def test_gimbal_intent_and_capability_description_are_typed():
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    assert "gimbal_control" in capabilities_for_airframe(profile)
+    description = profile.thinking_behavior()["gimbal"]
+    assert description["axes"] == ["yaw", "roll", "pitch"]
+    command = AirframeMotionAdapter(profile).intent_to_command(
+        MotionIntent.gimbal(pitch_deg=-45, yaw_deg=20), pose_ned=(0, 0, -30)
+    )
+    assert command.kind == "gimbal"
+    assert command.action is not None and command.action.kind == "gimbal"
+
+
+def test_onboard_dispatch_rejects_gimbal_without_profile_capability():
+    from multidetect.onboard_runtime.runtime import OnboardRuntime
+
+    runtime = object.__new__(OnboardRuntime)
+    runtime.vehicle = object()
+    runtime.motion_adapter = AirframeMotionAdapter(
+        AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
+    )
+    command = runtime.motion_adapter.intent_to_command(
+        MotionIntent.gimbal(pitch_deg=-20), pose_ned=(0, 0, -30)
+    )
+    with pytest.raises(RuntimeError, match="gimbal_capability_required"):
+        runtime._dispatch_motion_command(command, object())
+
+    runtime.motion_adapter = AirframeMotionAdapter(
+        AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    )
+    command = runtime.motion_adapter.intent_to_command(
+        MotionIntent.gimbal(pitch_deg=60), pose_ned=(0, 0, -30)
+    )
+    with pytest.raises(RuntimeError, match="gimbal_angle_out_of_range"):
+        runtime._dispatch_motion_command(command, object())
+
+
+def test_observation_exposes_live_gimbal_angles():
+    sensor = SensorSample(
+        rgb=b"",
+        width=1,
+        height=1,
+        depth=None,
+        camera_info={},
+        pose={},
+        velocity=[],
+        sensor_stamp_ns=1,
+        received_monotonic_ns=10,
+        received_wall_time=0.0,
+    )
+    state = MavlinkState(
+        messages={
+            "LOCAL_POSITION_NED": {"x": 0, "y": 0, "z": -10},
+            "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+            "GLOBAL_POSITION_INT": {"lat": 0, "lon": 0, "relative_alt": 10000},
+            "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10, "eph": 100},
+            "GIMBAL_DEVICE_ATTITUDE_STATUS": {"q": (1, 0, 0, 0)},
+        },
+        received_monotonic_ns={"LOCAL_POSITION_NED": 10, "GIMBAL_DEVICE_ATTITUDE_STATUS": 20},
+    )
+    observation = build_observation(sensor, state)
+    assert observation["gimbal"]["available"] is True
+    assert observation["gimbal"]["angles_deg"] == pytest.approx(
+        {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}
+    )

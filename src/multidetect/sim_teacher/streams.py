@@ -373,6 +373,26 @@ def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
     return sorted(samples, key=lambda sample: sample["received_monotonic_s"])
 
 
+def gimbal_angles_from_status(status: Any) -> dict[str, float] | None:
+    """Decode MAVLink gimbal-device quaternion into yaw/roll/pitch degrees."""
+    q = status.get("q") if isinstance(status, Mapping) else _field(status, "q", None)
+    if not isinstance(q, (list, tuple)) or len(q) < 4:
+        return None
+    try:
+        w, x, y, z = (float(value) for value in q[:4])
+        norm = math.sqrt(w * w + x * x + y * y + z * z)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(norm) or norm <= 1e-9:
+        return None
+    w, x, y, z = (value / norm for value in (w, x, y, z))
+    return {
+        "roll": math.degrees(math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
+        "pitch": math.degrees(math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))),
+        "yaw": math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))),
+    }
+
+
 class MavlinkReader:
     POSE_TYPES = frozenset({"LOCAL_POSITION_NED", "ATTITUDE", "GLOBAL_POSITION_INT"})
     # PX4 streams pose at tens of Hz of its own clock; a second of that clock
@@ -816,6 +836,9 @@ def build_observation(
     extended_state = mavlink.get("EXTENDED_SYS_STATE")
     landed_state = _field(extended_state, "landed_state", None)
     vtol_state = _field(extended_state, "vtol_state", None)
+    gimbal_status = mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_observed_ns = mavlink.received_monotonic_ns.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_angles = gimbal_angles_from_status(gimbal_status)
     landed = (
         landed_state == 1
         if isinstance(landed_state, int)
@@ -930,6 +953,14 @@ def build_observation(
             "vtol_state": vtol_state,
             "landed_state": landed_state,
             "airspeed_mps": airspeed_mps,
+            "gimbal_status": (
+                MavlinkReader._mapping(gimbal_status) if gimbal_status is not None else None
+            ),
+        },
+        "gimbal": {
+            "available": gimbal_status is not None,
+            "angles_deg": gimbal_angles,
+            "observed_at_ns": gimbal_observed_ns,
         },
         "airspeed_mps": airspeed_mps,
         "sensor_status": "live",
@@ -965,4 +996,5 @@ __all__ = [
     "MavlinkReader",
     "simulation_stamp_skew_ms",
     "build_observation",
+    "gimbal_angles_from_status",
 ]
