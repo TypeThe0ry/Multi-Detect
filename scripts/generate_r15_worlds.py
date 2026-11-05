@@ -133,6 +133,32 @@ def r21id_r7_templates():
     return rows
 
 
+def r21id_r8_templates():
+    """Replacement and focused hard-reject worlds selected after the r7 audit."""
+    rows = []
+    specs = (
+        ("male_visitor", "jersey_barrier", 8.0, "12-16", 13, "morning_low_sun", "person->jersey_barrier"),
+        ("hatchback", "mailbox", 20.0, "12-16", 14, "overcast_flat", "car->mailbox"),
+        ("suv", "postbox", 24.0, "16-24", 19, "haze", "suv->postbox"),
+    )
+    for target, confuser, height, band, px, appearance, direction in specs:
+        rows.append({
+            "case": "identity_multiview",
+            "target": target,
+            "confusers": [confuser],
+            "forced_distractors": ["electrical_box"],
+            "appearance": appearance,
+            "height_m": height,
+            "target_short_side_px": band,
+            "target_short_side_px_value": px,
+            "split": "train",
+            "r8_family": direction,
+            "occlusion": "none",
+            "geometry_reference": None,
+        })
+    return rows
+
+
 def projected_short_edge_px(asset, ground_distance_m, altitude_m, *, visible_face: bool = False):
     dimensions = [float(value) for value in asset["measured_size_m"]]
     # The r5 stop-sign face is bounded by X/Z; preserve the historical X/Y
@@ -277,7 +303,7 @@ def main(argv=None):
     )
     p.add_argument(
         "--profile",
-        choices=("default", "r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"),
+        choices=("default", "r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"),
         default="default",
         help="optional hard-case profile; default preserves the r15 config",
     )
@@ -302,7 +328,7 @@ def main(argv=None):
         except ValueError as exc:
             p.error(str(exc))
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
-    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"):
+    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
         # Four deterministic hard-case families. All true-target slugs are
         # outside generated-v2's frozen holdout. Cone/barrier is the primary
         # paired hard case; hatchbacks provide non-held-out vehicle lookalikes.
@@ -383,6 +409,8 @@ def main(argv=None):
             templates = tuple(r21id_r5_templates())
         elif a.profile == "r21id-r7":
             templates = tuple(r21id_r7_templates())
+        elif a.profile == "r21id-r8":
+            templates = tuple(r21id_r8_templates())
         elif a.profile == "r21id-r3":
             # Six independently seeded worlds per identity class. The final ten
             # entries are held-out combinations from the frozen identity set.
@@ -421,10 +449,10 @@ def main(argv=None):
                 template["split"] = "test" if i in test_indices else ("val" if i in val_indices else "train")
         cfg.update(
             {
-                "world_prefix": "gen_r21id_r7_w" if a.profile == "r21id-r7" else ("gen_r21id_r5_w" if a.profile == "r21id-r5" else ("gen_r21id_r4_w" if a.profile == "r21id-r4" else ("gen_r21id_r3_w" if a.profile == "r21id-r3" else ("gen_r21id_w" if a.profile == "r21-identity" else "gen_r20_w")))),
-                "seed": 20261107 if a.profile == "r21id-r7" else (20261102 if a.profile == "r21id-r5" else (20261031 if a.profile == "r21id-r4" else (20261028 if a.profile == "r21id-r3" else (20261025 if a.profile == "r21-identity" else 20261024)))),
+                "world_prefix": "gen_r21id_r8_w" if a.profile == "r21id-r8" else ("gen_r21id_r7_w" if a.profile == "r21id-r7" else ("gen_r21id_r5_w" if a.profile == "r21id-r5" else ("gen_r21id_r4_w" if a.profile == "r21id-r4" else ("gen_r21id_r3_w" if a.profile == "r21id-r3" else ("gen_r21id_w" if a.profile == "r21-identity" else "gen_r20_w"))))),
+                "seed": 20261122 if a.profile == "r21id-r8" else (20261107 if a.profile == "r21id-r7" else (20261102 if a.profile == "r21id-r5" else (20261031 if a.profile == "r21id-r4" else (20261028 if a.profile == "r21id-r3" else (20261025 if a.profile == "r21-identity" else 20261024))))),
                 "count": len(templates),
-                "split_ratios": [12 / 15, 3 / 15, 0.0] if a.profile == "r21id-r7" else ([8 / 12, 4 / 12, 0.0] if a.profile == "r21id-r5" else ([18 / 24, 6 / 24, 0.0] if a.profile == "r21id-r4" else ([56 / 72, 4 / 72, 12 / 72] if a.profile == "r21id-r3" else ([0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0])))),
+                "split_ratios": [1.0, 0.0, 0.0] if a.profile == "r21id-r8" else ([12 / 15, 3 / 15, 0.0] if a.profile == "r21id-r7" else ([8 / 12, 4 / 12, 0.0] if a.profile == "r21id-r5" else ([18 / 24, 6 / 24, 0.0] if a.profile == "r21id-r4" else ([56 / 72, 4 / 72, 12 / 72] if a.profile == "r21id-r3" else ([0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0]))))),
                 "spread_m": [80.0, 120.0],
                 "count_copies": 1,
                 "confuser_copies": 1,
@@ -493,16 +521,16 @@ def main(argv=None):
         forced_distractors=forced,
         actuator_state=actuator_state,
     )
-    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"):
+    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
         doc["profile"] = a.profile
         for entry, world in zip(doc["worlds"], cfg["worlds"], strict=True):
             entry["split"] = world.get("split", entry.get("split", "train"))
             entry["hard_case_profile"] = world["case"]
             entry["paired_confusers"] = list(world.get("confusers", ()))
             entry["view_geometry"] = {"paired_same_world": True}
-            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"):
+            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
                 entry["hard_case_profile"] = "identity_multiview"
-                if a.profile not in ("r21id-r4", "r21id-r5", "r21id-r7"):
+                if a.profile not in ("r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
                     entry["view_geometry"].update({
                     "camera_altitude_m": world["height_m"], "ground_distance_m": world["distance_m"],
                     "target_short_side_px": world["target_short_side_px"],
@@ -524,7 +552,7 @@ def main(argv=None):
             # Place the target in a controlled camera-relative position and write
             # the same pose into SDF and truth, preserving asset and label identity.
             case = entry["hard_case_profile"]
-            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7"):
+            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
                 catalog = json.loads((a.catalog or ROOT / cfg["catalog"]).read_text(encoding="utf-8"))
                 asset = next(x for x in catalog["assets"] if x["slug"] == target["asset_slug"])
                 dimensions = [float(value) for value in asset["measured_size_m"]]
@@ -532,7 +560,7 @@ def main(argv=None):
                 altitude = float(world["height_m"])
                 slant = DEFAULT_CAMERA_INFO["fx"] * short_edge / float(world["target_short_side_px_value"])
                 tx, ty, tz, angle = math.sqrt(max(1.0, slant * slant - altitude * altitude)), 0.0, 0.0, -0.42
-                if a.profile in ("r21id-r5", "r21id-r7"):
+                if a.profile in ("r21id-r5", "r21id-r7", "r21id-r8"):
                     # Point each teacher station at the ground target centre;
                     # r4's fixed pitch is too steep for the larger r5 standoffs.
                     angle = -math.atan2(altitude, max(tx, 1e-6))
@@ -545,7 +573,7 @@ def main(argv=None):
                     projected_short_edge_px(
                         asset, tx, altitude,
                         visible_face=(
-                            a.profile in ("r21id-r5", "r21id-r7")
+                            a.profile in ("r21id-r5", "r21id-r7", "r21id-r8")
                             and target["asset_slug"] == "stop_sign"
                         ),
                     ), 2
@@ -639,7 +667,7 @@ def main(argv=None):
                     "z_up_m": 0.0,
                 }
                 observation_intent["ground_distance_m"] = 80.0
-            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"):
+            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
                 target_radius = math.hypot(tx, ty)
                 radial = (tx / target_radius, ty / target_radius) if target_radius else (1.0, 0.0)
                 perpendicular = (-radial[1], radial[0])
@@ -660,7 +688,7 @@ def main(argv=None):
                     })
                 observation_intent["observation_frames"] = 8
                 if (
-                    a.profile in ("r21id-r5", "r21id-r7")
+                    a.profile in ("r21id-r5", "r21id-r7", "r21id-r8")
                     or target["asset_slug"] in {"pickup", "suv"}
                     and world["target_short_side_px"] in {"8-12", "12-16"}
                 ):
@@ -670,7 +698,7 @@ def main(argv=None):
                         math.hypot(tx, altitude) + 5.0, 3
                     )
                 observation_intent["views"] = views
-            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7"):
+            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
                 runtime["vehicle"]["spawn_pose"].update({
                     "x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.2,
                     "roll_rad": 0.0, "pitch_rad": 0.0, "yaw_rad": 0.0,
@@ -686,7 +714,7 @@ def main(argv=None):
                         {"requested_category": slug, "task_text": texts[slug][0], "task_text_en": texts[slug][1]}
                         for slug in (requested, other)
                     ]
-                if a.profile in ("r21id-r5", "r21id-r7"):
+                if a.profile in ("r21id-r5", "r21id-r7", "r21id-r8"):
                     confuser_slug = world["confusers"][0]
                     confuser = next(
                         item for item in truth["targets"]
@@ -726,6 +754,9 @@ def main(argv=None):
                 if a.profile == "r21id-r7":
                     entry["r7_family"] = world["r7_family"]
                     entry["occlusion_profile"] = world["occlusion"]
+                if a.profile == "r21id-r8":
+                    entry["r8_family"] = world["r8_family"]
+                    entry["occlusion_profile"] = world["occlusion"]
             teacher_intent = {
                 "kind": "find_and_observe",
                 "observation": observation_intent,
@@ -749,7 +780,7 @@ def main(argv=None):
             model.find(
                 "pose"
             ).text = f"{tx:.3f} {ty:.3f} {tz + float(target['size_m'][2]) / 2:.3f} 0 0 0"
-            if a.profile in ("r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7") and world.get("confusers"):
+            if a.profile in ("r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8") and world.get("confusers"):
                 pair_slug = world.get("confusers", [None])[0]
                 pair = next((row for row in truth["targets"] if row.get("confuser") and row["asset_slug"] == pair_slug), None)
                 if pair is not None:
@@ -787,7 +818,7 @@ def main(argv=None):
                 pair_model.find("pose").text = (
                     f"{tx + 3.5:.3f} {ty:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
                 )
-            if case == "hydrant_building_occlusion_truncation" or a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"):
+            if case == "hydrant_building_occlusion_truncation" or a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
                 # Keep the occluder on the target ray while placing its nearest
                 # footprint edge outside the multirotor takeoff clearance ring.
                 # The old midpoint (tx/2, ty/2) put the 12x8 m building over
@@ -798,13 +829,13 @@ def main(argv=None):
                 # waypoint; keep its near footprint beyond every view's 15 m
                 # clearance ring while remaining on the target ray.
                 target_radius = math.hypot(tx, ty)
-                if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"):
+                if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
                     building_radius = 2.0 * target_radius + 24.0
                     scale = building_radius / max(target_radius, 1e-6)
                 else:
                     scale = 2.0
                 building_x, building_y = (scale * tx, scale * ty)
-                occlusion = world.get("occlusion", "building") if a.profile == "r21id-r7" else "building"
+                occlusion = world.get("occlusion", "building") if a.profile in ("r21id-r7", "r21id-r8") else "building"
                 if occlusion == "none":
                     occluder_xml = ""
                 elif occlusion == "guardrail":
@@ -840,7 +871,7 @@ def main(argv=None):
             with sdf_path.open("w", encoding="utf-8", newline="\n") as stream:
                 stream.write(ET.tostring(root.getroot(), encoding="unicode") + "\n")
             scene_shift_m = 0.0
-            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7"):
+            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8"):
                 target_radius = math.hypot(tx, ty)
                 radial_east = tx / target_radius
                 radial_north = ty / target_radius
