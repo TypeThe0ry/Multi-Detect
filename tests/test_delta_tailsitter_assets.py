@@ -487,18 +487,19 @@ def test_docker_plan_mounts_custom_airframe_readonly_and_records_its_hash(tmp_pa
     assert mount["readonly"] is True
     assert mount["sha256"] == hashlib.sha256(AIRFRAME.read_bytes()).hexdigest()
     assert f"type=bind,source={AIRFRAME},target={mount['container']},readonly" in plan.command
-    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "poll"
+    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "off"
     startup = plan.command[-1]
-    assert "rc.logging" in startup
-    assert "-p 100" in startup
+    assert "rc.logging" not in startup
+    assert dict(plan.environment)["SDLOG_BACKEND"] == "0"
 
     gimbal = docker.build_docker_simulator_plan(
         SCENARIO_DIR / "delta_tailsitter_gimbal_cam_001.scenario.json",
         job_dir=tmp_path / "gimbal",
         gpu_render=False,
     )
-    assert dict(gimbal.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "poll"
-    assert "-p 100" in gimbal.command[-1]
+    assert dict(gimbal.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "off"
+    assert dict(gimbal.environment)["SDLOG_BACKEND"] == "0"
+    assert "rc.logging" not in gimbal.command[-1]
 
     monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", "default")
     explicit_default = docker.build_docker_simulator_plan(
@@ -535,10 +536,10 @@ def test_px4_logger_mode_override_and_default_preserve_other_airframes(tmp_path,
 @pytest.mark.parametrize(
     ("airframe", "expected"),
     [
-        ("delta_tailsitter", "poll"),
-        ("delta_tailsitter_mono_cam", "poll"),
-        ("delta_tailsitter_gimbal", "poll"),
-        ("delta_tailsitter_gimbal_cam", "poll"),
+        ("delta_tailsitter", "off"),
+        ("delta_tailsitter_mono_cam", "off"),
+        ("delta_tailsitter_gimbal", "off"),
+        ("delta_tailsitter_gimbal_cam", "off"),
         ("advanced_plane", "default"),
     ],
 )

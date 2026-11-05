@@ -429,10 +429,10 @@ def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> Airfr
 
 
 def _default_px4_logger_mode(airframe: str) -> str:
-    """Select the logger workaround from the resolved profile, not the CLI string."""
+    """Disable PX4 ULog for delta tailsitters; preserve other airframe defaults."""
     profile = _airframe_profile(airframe)
     return (
-        "poll"
+        "off"
         if profile is not None and profile.id in DELTA_TAILSITTER_SMOKE_PROFILES
         else "default"
     )
@@ -1018,13 +1018,16 @@ class DockerSimEnvironment:
                 check=False,
             )
             output = result.stdout or ""
-            pid_pattern = re.compile(rf"\bpx4(?:-gazebo)?\[{re.escape(str(pid))}\]:", re.I)
+            pid_pattern = re.compile(
+                rf"\bpx4(?:-gazebo)?\[{re.escape(str(pid))}\](?:\s|:)", re.I
+            )
             matching = [line for line in output.splitlines() if pid_pattern.search(line)]
             content = "\n".join(matching) + ("\n" if matching else "")
             path = self.evidence_dir / "kernel-segfault.log"
             path.write_text(content or (result.stderr or "No matching PX4 PID kernel lines.\n"), encoding="utf-8")
             logger_signature = any(
-                re.search(r"0x2885a[89]|logger", line, re.I) for line in matching
+                re.search(r"0x2885a[89]|\blogger(?:\[\d+\])?\b", line, re.I)
+                for line in matching
             )
             info = {
                 "file": path.name,

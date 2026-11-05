@@ -160,7 +160,8 @@ export MULTIDETECT_SIM_GPU=off  # CPU 渲染；已有 GPU 镜像可改用 GPU1/2
   --control-port 14572 --telemetry-port 14573
 ```
 
-若要保留 ULog 或使用 GPU，可直接执行同一采集器的冒烟路径：
+若要在其他默认启用记录的机型上复制 ULog，或只更换 GPU 渲染设置，可执行同一采集器的冒烟路径。
+delta tailsitter 的默认 `off` 不生成 ULog；`--keep-px4-ulog` 只复制实际生成的文件，FW 判定直接读取 MAVLink：
 
 ```bash
 "$PY" scripts/collect_sim_teacher_episodes.py \
@@ -630,11 +631,10 @@ SIGSEGV 根因未定位，以及云台版锁步遥测静默。两变体的返航
 `logger start -b ${LOGGER_BUF} -t ${LOGGER_ARGS}` 使用默认定时模式；这里 `-t` 用于按时间组织
 日志目录，崩溃栈落在等待定时信号量的路径。
 
-Docker 启动器现提供 `MULTIDETECT_PX4_LOGGER_MODE=default|poll|off`。仅两个 delta tailsitter
-变体默认使用 `poll`，通过临时改写容器内 `rc.logging` 把默认的定时模式改为 `-p 100`（100 ms
-数值轮询间隔）。PX4 logger 的 `-p` 参数是轮询间隔，不是 uORB 话题名；此前误传
-`vehicle_attitude` 不能作为有效参数，已修正。`off` 设置 `SDLOG_BACKEND=0`，显式 `default`
-恢复原模式；其他机型仍为 default。生效模式记录在 episode 元数据，未在全项目统一切换。
+Docker 启动器提供 `MULTIDETECT_PX4_LOGGER_MODE=default|poll|off`。第 19–21 轮两个 delta tailsitter
+变体曾默认使用 `poll`；第 22 轮起默认改为 `off`，并设置 `SDLOG_BACKEND=0`。`poll` 曾通过临时改写
+容器内 `rc.logging` 使用 `-p 100`（100 ms 数值轮询间隔）；显式 `default` 恢复原模式，其他机型仍为
+`default`。生效模式记录在 episode 元数据，未在全项目统一切换。
 
 第 19 轮固定版另有一类故障：MAVLink 与 ULog 均在仿真约 66 s 停止，容器仍运行且 Gazebo
 时钟继续推进，超过 50 s 静默阈值。该情形归类为 `px4_hang`，不与 logger 段错误混为一类；
@@ -694,3 +694,33 @@ Docker 启动器现提供 `MULTIDETECT_PX4_LOGGER_MODE=default|poll|off`。仅�
 改为 `-p 100`（100 ms 轮询），保留默认 `default` 和显式 `off` 行为；新增测试锁定数值参数。
 本轮未重新启动 SITL/Docker，下一轮必须验证两变体至少连续两次完整通过，再评估 FW 空速、姿态和
 电机饱和指标。
+
+## 第二十二轮关闭 ULog 与 FW 重定位根因
+
+2026-11-05 第 22 轮固定版和云台版都完整运行到返航、后转换与着陆；容器退出码为 0，清理前仍在运行，
+`OOMKilled=false`。两份 `mavlink.jsonl` 分别有 117,185 和 122,158 条记录；episode 元数据显示
+`px4_logger_mode=off`，容器证据中 `ulog_files=[]`、`ulog_analysis=[]` 且 `errors={}`。采集器在没有
+ULog 时仍正常保存证据并从 MAVLink 计算 FW 指标。
+
+两版共同失败项仅为严格 FW 重定位：固定版到目标距离 81.169 m，云台版 80.368 m，门限仍为 8 m。
+重定位命令前的帧状态与命令目标显示，航点沿用起飞前缓存的位置：固定版实测位置为
+`(0.0416, 40.8034)` m、目标为 `(-0.2736, 34.9876)` m；云台版实测位置为
+`(-0.0693, 44.4749)` m、目标为 `(0.1952, 34.9727)` m。两目标均在机体当前航向后方，且分别只有
+约 5.82 m、9.51 m 的水平差，不是从转换后的实测位置前进 35 m。之后飞机绕目标以约 80 m 半径盘旋，
+因此检查器在命令后没有观察到 8 m 内的到达。修正是在完成起飞/前转换后用实测位置和航向同步
+执行器基准，再生成第一段相对重定位；判定门限和检查条件没有变化。
+
+120 s FW 持续段的 MAVLink 指标均通过既有门限：
+
+- 固定版 120.004 s、轨迹角 2751.90°；空速 p5/p95 为 15.278/17.784 m/s，绝对坡度 p95 为
+  35.879°，抬头角 p5/p95 为 4.182°/7.045°，高度误差 p95 为 2.751 m；任一电机饱和样本占
+  8.675%，四路输出饱和样本占 2.244%。
+- 云台版 120.024 s、轨迹角 2745.60°；空速 p5/p95 为 15.313/17.902 m/s，绝对坡度 p95 为
+  35.862°，抬头角 p5/p95 为 3.636°/6.880°，高度误差 p95 为 2.919 m；任一电机饱和样本占
+  9.916%，四路输出饱和样本占 2.558%。云台三轴回读误差为 yaw 0.240°、roll 0.347°、pitch 3.479°，
+  均小于 4°。
+
+因此本轮没有依据调整气动或机架参数，也没有改变判定标准；已修复飞控引导航点对起飞前缓存状态的
+依赖，并把 delta tailsitter 的 logger 默认值改为 `off`。logger 线程识别同时接受 PX4 PID 后以空格
+分隔线程名的内核行。尚未在修复后重新运行 SITL，所以本轮结果不代表两变体已通过；仍需按原门限
+验证重定位，并按间歇故障要求确认连续两次完整通过。

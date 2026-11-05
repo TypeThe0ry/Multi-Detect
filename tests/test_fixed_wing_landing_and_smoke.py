@@ -147,6 +147,48 @@ def test_vtol_transition_to_mc_uses_command_and_land_state():
     assert calls == [("transition", "MC"), ("land", "vtol")]
 
 
+def test_vtol_takeoff_syncs_guided_translation_origin_to_measured_fw_state():
+    from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    state = {"position": (0.0, 0.0, 0.0), "yaw": 0.0}
+    reposition_calls = []
+
+    class Vehicle:
+        def arm(self):
+            return SimpleNamespace(status="success", ok=True)
+
+        def fw_takeoff(self, *_args, **_kwargs):
+            state.update(position=(2.0, 3.0, -20.0), yaw=5.0)
+            return SimpleNamespace(status="accepted", ok=True)
+
+        def vtol_transition(self, _target, **_kwargs):
+            state.update(position=(12.0, 23.0, -42.0), yaw=90.0)
+            return SimpleNamespace(status="accepted", ok=True)
+
+        def reposition(self, point, altitude, speed, **_kwargs):
+            reposition_calls.append((point, altitude, speed))
+            return SimpleNamespace(status="accepted", ok=True)
+
+    executor = FixedWingVtolExecutor(
+        Vehicle(),
+        airframe="vtol",
+        position=lambda: state["position"],
+        yaw_deg=lambda: state["yaw"],
+        wait_for_state=lambda _phase, _timeout: True,
+    )
+
+    assert executor.arm_and_takeoff(40.0).status == "success"
+    assert executor._commanded == pytest.approx((12.0, 23.0, -40.0))
+    assert executor._commanded_yaw == pytest.approx(90.0)
+
+    result = executor.execute(ActionPrimitive.translate(35.0, 0.0))
+
+    assert result.status == "success"
+    assert reposition_calls[0][0] == pytest.approx((12.0, 58.0))
+    assert reposition_calls[0][1] == pytest.approx(40.0)
+
+
 def test_smoke_evaluation_reads_recorded_artifacts(tmp_path: Path):
     profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
     (tmp_path / "episode.json").write_text(json.dumps({"status": "complete"}), encoding="utf-8")

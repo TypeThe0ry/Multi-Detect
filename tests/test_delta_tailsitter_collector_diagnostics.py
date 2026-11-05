@@ -216,6 +216,37 @@ def test_evidence_records_container_state_before_cleanup_and_exit_source(tmp_pat
     assert calls[-1] == ["docker-test", "rm", "--force", environment.name]
 
 
+def test_container_evidence_capture_accepts_no_ulog_files(tmp_path, monkeypatch):
+    plan = collector.CollectionPlan(
+        "scenario", "runtime", "truth", "explore", 1, 1, 0, str(tmp_path)
+    )
+    environment = collector.DockerSimEnvironment(plan, "episode", tmp_path / "episode")
+    environment.evidence_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        environment,
+        "inspect_state",
+        lambda: {"Running": True, "ExitCode": 0, "OOMKilled": False},
+    )
+    monkeypatch.setattr(
+        environment,
+        "_capture_container_path",
+        lambda _remote, destination, _errors: (destination.mkdir(parents=True, exist_ok=True) or True),
+    )
+    monkeypatch.setattr(collector, "_docker_executable", lambda _plan: "docker-test")
+    monkeypatch.setattr(
+        collector.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    result = environment._capture_evidence()
+
+    assert result["copied_paths"]["/opt/px4-gazebo/log"] is True
+    assert result["ulog_files"] == []
+    assert result["ulog_analysis"] == []
+    assert result["errors"] == {}
+
+
 def test_logger_crash_kernel_capture_is_best_effort_and_records_matching_pid(tmp_path, monkeypatch):
     calls = []
 
@@ -239,6 +270,30 @@ def test_logger_crash_kernel_capture_is_best_effort_and_records_matching_pid(tmp
     assert result["failure_class"] == "px4_logger_segfault"
     assert calls[0][:4] == ["journalctl", "-k", "--since", "2026-11-05T09:38:00Z"]
     assert "px4[1234]" in (environment.evidence_dir / "kernel-segfault.log").read_text()
+
+
+def test_logger_thread_name_before_colon_is_classified_as_logger_segfault(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        collector.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="Nov 05 kernel: px4[1234] logger: segfault at 0x123456\n",
+            stderr="",
+        ),
+    )
+    plan = collector.CollectionPlan(
+        "scenario", "runtime", "truth", "explore", 1, 1, 0, str(tmp_path)
+    )
+    environment = collector.DockerSimEnvironment(plan, "episode", tmp_path / "episode")
+    environment.evidence_dir.mkdir(parents=True)
+
+    result = environment._capture_kernel_segfault(
+        {"ExitCode": 139, "Pid": 1234, "StartedAt": "2026-11-05T09:38:00Z"}
+    )
+
+    assert result["matching_lines"] == 1
+    assert result["failure_class"] == "px4_logger_segfault"
 
 
 def test_px4_hang_collects_gdb_and_proc_threads_before_cleanup(tmp_path, monkeypatch):

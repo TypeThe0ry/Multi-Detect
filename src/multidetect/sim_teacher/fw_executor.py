@@ -436,7 +436,13 @@ class FixedWingVtolExecutor:
                         started, phase="transition_fw_state", result=state, reason="timeout"
                     )
             self._armed = True
-            self._commanded = (self._commanded[0], self._commanded[1], -altitude)
+            # Takeoff and transition can carry a tailsitter far from the
+            # preflight position before the first guided translation.  Start
+            # subsequent local-NED legs from the measured FW position/heading,
+            # rather than the stale position captured in __init__.
+            current_position = tuple(float(value) for value in self._position())
+            self._commanded = (current_position[0], current_position[1], -altitude)
+            self._commanded_yaw = float(self._yaw())
             return ExecutionResult("success", self._clock() - started, ack={"takeoff": result})
         except (RuntimeError, OSError, ValueError, TypeError) as exc:
             return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})

@@ -692,7 +692,7 @@ def build_docker_simulator_plan(
     }
     requested_logger_mode = os.environ.get("MULTIDETECT_PX4_LOGGER_MODE")
     default_logger_mode = (
-        "poll"
+        "off"
         if model_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}
         else "default"
     )
