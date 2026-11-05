@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import numpy as np
+import pytest
 
-from multidetect.camera_mount import CameraMount
+from multidetect.camera_mount import CameraMount, compose_camera_pose, rpy_rotation
 from multidetect.sim_teacher.recording import EpisodeRecorder
 from multidetect.sim_teacher.streams import (
     MavlinkState,
@@ -14,7 +17,9 @@ from multidetect.sim_teacher.streams import (
     build_observation,
 )
 from multidetect.simulator.camera_projection import _pixel_camera_ray_raw
-from scripts.render_onboard_sdf_blender_dataset import camera_samples
+from scripts.render_onboard_sdf_blender_dataset import apply_propeller_state, camera_samples
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _mavlink() -> MavlinkState:
@@ -115,6 +120,86 @@ def test_offline_renderer_records_input_propeller_spin_and_gimbal_angle() -> Non
     assert samples[1]["propeller_angle_rad"] == 4.0
     assert samples[0]["propeller_spin_rad_s"] == 6.0
     assert samples[0]["gimbal_angle_rad"] == [0.1, 0.2, 0.3]
+
+
+def test_offline_renderer_replays_per_rotor_recorded_angles() -> None:
+    world = type(
+        "World",
+        (),
+        {
+            "sources": (("world.sdf", "a" * 64),),
+            "relative_path": "world.sdf",
+            "target_center": (0.0, 0.0, 0.0),
+        },
+    )()
+    samples = camera_samples(
+        world,
+        "train",
+        1,
+        1,
+        propeller_joint_state={
+            "timestamp_ns": 100,
+            "joint_names": [f"rotor_{index}_joint" for index in range(4)],
+            "angles_rad": [0.1, 0.2, 0.3, 0.4],
+            "spin_rad_s": [10.0, -11.0, 12.0, -13.0],
+        },
+    )
+    assert samples[0]["propeller_angles_rad"] == [0.1, 0.2, 0.3, 0.4]
+    assert samples[0]["propeller_spin_rad_s_by_rotor"] == [10.0, -11.0, 12.0, -13.0]
+    assert samples[0]["propeller_state_source"] == "recorded_gazebo_joint_state"
+
+
+def test_renderer_applies_recorded_joint_angles_without_guessing_turn_direction() -> None:
+    class Obj:
+        def __init__(self, index: int) -> None:
+            self.name = f"rotor_{index}"
+            self.rotation_euler = type("Euler", (), {"z": None})()
+            self.props = {}
+
+        def get(self, key: str):
+            return self.props.get(key)
+
+        def __setitem__(self, key: str, value: object) -> None:
+            self.props[key] = value
+
+    objects = [Obj(index) for index in range(4)]
+    assert apply_propeller_state(
+        objects,
+        {
+            "propeller_angles_rad": [0.1, 0.2, 0.3, 0.4],
+            "propeller_spin_rad_s_by_rotor": [10.0, -11.0, 12.0, -13.0],
+        },
+    )
+    assert [obj.rotation_euler.z for obj in objects] == [0.1, 0.2, 0.3, 0.4]
+
+
+def test_gimbal_sdf_axes_and_composed_pose_are_numerically_explicit() -> None:
+    sdf = ET.parse(ROOT / "simulation/gazebo/source-assets/x500_gimbal/gimbal_model.sdf").getroot()
+    axes = {
+        joint.get("name"): tuple(float(value) for value in joint.findtext("axis/xyz").split())
+        for joint in sdf.findall(".//joint")
+    }
+    # x500_gimbal_model.sdf attaches the gimbal with a fixed pi yaw. Rotate
+    # the raw joint axes into the vehicle frame before comparing conventions.
+    fixed = rpy_rotation(roll_rad=0.0, pitch_rad=0.0, yaw_rad=math.pi)
+    def apply(matrix, vector):
+        return tuple(
+            sum(matrix[row * 3 + col] * vector[col] for col in range(3))
+            for row in range(3)
+        )
+    assert apply(fixed, axes["cgo3_camera_joint"]) == pytest.approx((0.0, -1.0, 0.0))
+    assert apply(fixed, axes["cgo3_vertical_arm_joint"]) == pytest.approx((0.0, 0.0, -1.0))
+    assert apply(fixed, axes["cgo3_horizontal_arm_joint"]) == pytest.approx((1.0, 0.0, 0.0))
+
+    pose = compose_camera_pose(
+        (0.0, 0.0, 0.0),
+        vehicle_roll_rad=0.0,
+        vehicle_pitch_rad=0.0,
+        vehicle_yaw_rad=0.0,
+        mount=CameraMount.gimbal(pitch_rad=0.2, yaw_rad=0.3, roll_rad=0.1),
+    )
+    expected = rpy_rotation(roll_rad=0.1, pitch_rad=-0.2, yaw_rad=0.3)
+    assert pose.optical_to_world == pytest.approx(expected)
 
 
 def test_offline_renderer_accepts_composed_camera_pose() -> None:

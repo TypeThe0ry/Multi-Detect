@@ -305,6 +305,7 @@ def camera_samples(
     camera_pose: Mapping[str, Any] | None = None,
     vehicle_pose: Mapping[str, Any] | None = None,
     camera_mount: CameraMount | None = None,
+    propeller_joint_state: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Create samples; gimbal angles are recorded in (pitch, yaw, roll) order."""
     values = (float(propeller_angle_rad), float(propeller_spin_rad_s), float(sample_period_s))
@@ -312,6 +313,32 @@ def camera_samples(
         raise SdfRenderError(
             "propeller inputs and sample period must be finite; period must be positive"
         )
+    recorded_propeller_angles: tuple[float, ...] | None = None
+    recorded_propeller_spin: tuple[float, ...] | None = None
+    recorded_propeller_state: dict[str, Any] | None = None
+    if propeller_joint_state is not None:
+        if not isinstance(propeller_joint_state, Mapping):
+            raise SdfRenderError("propeller_joint_state must be an object")
+        try:
+            angles = propeller_joint_state["angles_rad"]
+            spins = propeller_joint_state.get("spin_rad_s", (0.0,) * len(angles))
+        except (KeyError, TypeError):
+            raise SdfRenderError("propeller_joint_state requires angles_rad") from None
+        if (
+            not isinstance(angles, (list, tuple))
+            or not isinstance(spins, (list, tuple))
+            or len(angles) != 4
+            or len(spins) != 4
+        ):
+            raise SdfRenderError("propeller_joint_state angles/spin must contain four values")
+        try:
+            recorded_propeller_angles = tuple(float(value) for value in angles)
+            recorded_propeller_spin = tuple(float(value) for value in spins)
+        except (TypeError, ValueError) as exc:
+            raise SdfRenderError("propeller_joint_state angles/spin must be finite") from exc
+        if not all(math.isfinite(value) for value in (*recorded_propeller_angles, *recorded_propeller_spin)):
+            raise SdfRenderError("propeller_joint_state angles/spin must be finite")
+        recorded_propeller_state = dict(propeller_joint_state)
     selected_gimbal = (
         camera_pose.get("gimbal_angle_rad", gimbal_angle_rad)
         if camera_pose is not None
@@ -398,6 +425,16 @@ def camera_samples(
             world.target_center[2] + vertical_jitter,
         ]
         angle = propeller_angle_rad + index * sample_period_s * propeller_spin_rad_s
+        sample_angles = (
+            list(recorded_propeller_angles)
+            if recorded_propeller_angles is not None
+            else [angle] * 4
+        )
+        sample_spin = (
+            list(recorded_propeller_spin)
+            if recorded_propeller_spin is not None
+            else [float(propeller_spin_rad_s)] * 4
+        )
         samples.append(
             {
                 "index": index,
@@ -425,9 +462,16 @@ def camera_samples(
                 "camera_pose_source": (
                     "recorded_composed_pose" if pose_matrix_world else "random_target_framing"
                 ),
-                "propeller_angle_rad": angle,
-                "propeller_spin_rad_s": float(propeller_spin_rad_s),
-                "propeller_state_source": "renderer_input",
+                "propeller_angle_rad": sample_angles[0],
+                "propeller_spin_rad_s": sample_spin[0],
+                "propeller_angles_rad": sample_angles,
+                "propeller_spin_rad_s_by_rotor": sample_spin,
+                "propeller_joint_state": recorded_propeller_state,
+                "propeller_state_source": (
+                    "recorded_gazebo_joint_state"
+                    if recorded_propeller_state is not None
+                    else "renderer_input"
+                ),
             }
         )
     return samples
@@ -439,8 +483,16 @@ def apply_propeller_state(objects: Sequence[Any], camera: Mapping[str, Any]) -> 
     Current SDF worlds may not contain aircraft visuals; in that case this is
     a no-op while the same state is still sealed in the frame manifest.
     """
-    angle = float(camera.get("propeller_angle_rad", 0.0))
-    spin = float(camera.get("propeller_spin_rad_s", 0.0))
+    angles = camera.get("propeller_angles_rad")
+    spins = camera.get("propeller_spin_rad_s_by_rotor")
+    if isinstance(angles, (list, tuple)) and len(angles) == 4:
+        angle_values = [float(value) for value in angles]
+    else:
+        angle_values = [float(camera.get("propeller_angle_rad", 0.0))] * 4
+    if isinstance(spins, (list, tuple)) and len(spins) == 4:
+        spin_values = [float(value) for value in spins]
+    else:
+        spin_values = [float(camera.get("propeller_spin_rad_s", 0.0))] * 4
     applied = False
     for index, obj in enumerate(objects):
         rotor_index = obj.get("propeller_index") if hasattr(obj, "get") else None
@@ -451,7 +503,10 @@ def apply_propeller_state(objects: Sequence[Any], camera: Mapping[str, Any]) -> 
             rotor_index = int(rotor_index if rotor_index is not None else index)
         except (TypeError, ValueError):
             rotor_index = index
-        direction = -1.0 if rotor_index % 2 else 1.0
+        recorded = isinstance(angles, (list, tuple)) and len(angles) == 4
+        angle = angle_values[rotor_index] if 0 <= rotor_index < 4 else angle_values[0]
+        spin = spin_values[rotor_index] if 0 <= rotor_index < 4 else spin_values[0]
+        direction = 1.0 if recorded else (-1.0 if rotor_index % 2 else 1.0)
         obj.rotation_euler.z = direction * angle
         obj["propeller_angle_rad"] = angle
         obj["propeller_spin_rad_s"] = spin
@@ -734,6 +789,7 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
     root = args.repo_root.resolve()
     worlds = {split: load_world(root, relative) for split, relative in WORLD_PATHS.items()}
     camera_pose = None
+    propeller_joint_state = None
     if args.camera_pose_json is not None:
         try:
             raw_pose = json.loads(args.camera_pose_json.read_text(encoding="utf-8"))
@@ -771,6 +827,11 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
         else:
             camera_pose = raw_pose
             camera_mount_input = None
+        raw_propeller = raw_pose.get("propeller_joint_state")
+        if raw_propeller is not None:
+            if not isinstance(raw_propeller, dict):
+                raise SdfRenderError("propeller_joint_state must be an object")
+            propeller_joint_state = raw_propeller
     else:
         camera_mount_input = None
     # Import only after stdlib parsing; tests and --help do not require Blender.
@@ -799,6 +860,7 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
             camera_pose=camera_pose,
             vehicle_pose=(camera_mount_input[0] if camera_mount_input else None),
             camera_mount=(camera_mount_input[1] if camera_mount_input else None),
+            propeller_joint_state=propeller_joint_state,
         )
         for camera in samples:
             frame_id = f"{split}-{camera['index']:05d}"
@@ -839,6 +901,8 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
                     "propeller_state": {
                         "angle_rad": camera["propeller_angle_rad"],
                         "spin_rad_s": camera["propeller_spin_rad_s"],
+                        "angles_rad": camera["propeller_angles_rad"],
+                        "spin_rad_s_by_rotor": camera["propeller_spin_rad_s_by_rotor"],
                         "source": camera["propeller_state_source"],
                         "applied": bool(camera.get("propeller_state_applied", False)),
                     },
@@ -890,6 +954,10 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
             "propeller_angle_rad": args.propeller_angle_rad,
             "propeller_spin_rad_s": args.propeller_spin_rad_s,
             "sample_period_s": args.sample_period_s,
+            "propeller_render_policy": (
+                "frozen_recorded_angle_per_frame; recorded spin is metadata only; "
+                "motion_blur_disabled_to_avoid_rotor_aliasing"
+            ),
             "gimbal_angle_rad": [
                 args.gimbal_pitch_rad,
                 args.gimbal_yaw_rad,
