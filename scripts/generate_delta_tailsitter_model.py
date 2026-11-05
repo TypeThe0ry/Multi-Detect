@@ -172,7 +172,7 @@ def _gimbal(model, meshes: Path):
         position=(0, 0, 0),
     )
     _visual(camera, "camera_body", (-0.04, 0, -0.08), "box", {"size": "0.08 0.06 0.05"}, "0.08 0.08 0.08 1")
-    _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 1 0", pose="-0.04 0 -0.08 0 0 0", lower=-2.35619, upper=0.7854, initial=-0.785398)
+    _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 1 0", pose="-0.04 0 -0.08 0 0 0", lower=-2.35619, upper=0.7854)
     camera_pose = "-0.0412 0 -0.08 0 0 3.141592653589793"
     sensor = _element(camera, "sensor", name="camera", type="camera")
     _element(sensor, "gz_frame_id", "camera_link")
@@ -537,16 +537,20 @@ def _aero(model):
         ):
             _element(plugin, key, value)
 
-    surface(
-        "central_wing",
-        central,
-        cad_to_base_m((0, 612, 0)),
-        (-1, 0, 0),
-        cla,
-        cda,
-        0.8 / 2.82,
-        a0=central_a0,
-    )
+    # The shared central panel had its CP at y=0, so the LiftDrag system had
+    # no spanwise arm for roll damping. Keep its area and coefficients while
+    # assigning each half its own local flow sample and CP.
+    for side in (-1, 1):
+        surface(
+            f"central_wing_{side}",
+            central / 2,
+            cad_to_base_m((side * 262, 612, 0)),
+            (-1, 0, 0),
+            cla,
+            cda,
+            0.8 / 2.82,
+            a0=central_a0,
+        )
     for side in (-1, 1):
         for tier in (-1, 1):
             # CAD 外翼向外、向上/下展开；法向 CAD (-side*tier*sinδ,0,cosδ)。
@@ -576,6 +580,28 @@ def _aero(model):
             (-1, 0, 0),
             0,
             0.064,
+            math.pi / 2,
+            a0=sign * 0.5,
+        )
+    # gz-sim-multicopter-motor-model has no forward-flight advance-ratio
+    # input. Approximate the lost 10x4.7 prop thrust with extra q-scaled drag:
+    # CD0=0.108 in addition to the airframe's 0.032. At 24 m/s this contributes
+    # about 22 N; it is a speed-limiting proxy, not a propeller map.
+    model.append(
+        ET.Comment(
+            "桨前进比损失近似：电机插件只有 kT*ω²，无空速/桨距速度输入；"
+            "额外阻力面等效 ΔCD0=0.108，24 m/s 时约 22 N。"
+            "这是限速代理，不是 10×4.7 桨的实测推力曲线。"
+        )
+    )
+    for sign in (-1, 1):
+        surface(
+            f"propeller_advance_drag_{sign}",
+            area / 2,
+            (0, 0, 0),
+            (-1, 0, 0),
+            0,
+            0.216,
             math.pi / 2,
             a0=sign * 0.5,
         )

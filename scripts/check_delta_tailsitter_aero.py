@@ -12,6 +12,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Surface:
+    name: str
     area: float
     a0: float
     cla: float
@@ -26,12 +27,15 @@ TRIM_ALPHA_DEG = tuple(float(value) for value in range(-5, 21))
 
 
 def surfaces_from_sdf(path: str | Path) -> tuple[Surface, ...]:
-    root = ET.parse(path).getroot()
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    root = ET.parse(path, parser=parser).getroot()
     result = []
     for plugin in root.findall(".//plugin[@name='gz::sim::systems::LiftDrag']"):
         upward = tuple(float(x) for x in plugin.findtext("upward", "0 0 0").split())
+        comment = next((child.text for child in plugin if child.tag is ET.Comment), "")
         result.append(
             Surface(
+                name=comment,
                 area=float(plugin.findtext("area", "0")),
                 a0=float(plugin.findtext("a0", "0")),
                 cla=float(plugin.findtext("cla", "0")),
@@ -45,7 +49,12 @@ def surfaces_from_sdf(path: str | Path) -> tuple[Surface, ...]:
 
 
 def aerodynamic_force(
-    surfaces: tuple[Surface, ...], speed_mps: float, alpha_rad: float, *, rho: float = 1.15
+    surfaces: tuple[Surface, ...],
+    speed_mps: float,
+    alpha_rad: float,
+    *,
+    rho: float = 1.15,
+    include_advance_drag: bool = False,
 ) -> tuple[float, float]:
     """Return lift and drag magnitudes with finite zero speed and stall bounds."""
     if speed_mps <= 1e-6:
@@ -53,18 +62,26 @@ def aerodynamic_force(
     q = 0.5 * rho * speed_mps * speed_mps
     lift = drag = 0.0
     for surface in surfaces:
+        if not include_advance_drag and surface.name.startswith("propeller_advance_drag_"):
+            continue
         alpha = alpha_rad + surface.a0
         cl = surface.cla * alpha
         if surface.cla:
             cl = max(-0.8, min(0.8, cl))
         cd = abs(surface.cda * alpha)
-        lift += q * surface.area * cl * surface.upward_x * -1.0
+        lift += q * surface.area * cl * -surface.upward_x
         drag += q * surface.area * cd
     return lift, drag
 
 
 def aerodynamic_force_moment(
-    surfaces: tuple[Surface, ...], speed_mps: float, alpha_rad: float, *, rho: float = 1.15
+    surfaces: tuple[Surface, ...],
+    speed_mps: float,
+    alpha_rad: float,
+    *,
+    rho: float = 1.15,
+    roll_rate_z_rad_s: float = 0.0,
+    include_advance_drag: bool = False,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     """Return the summed force and r×F moment in base_link coordinates."""
     if speed_mps <= 1e-6:
@@ -73,13 +90,29 @@ def aerodynamic_force_moment(
     force = [0.0, 0.0, 0.0]
     moment = [0.0, 0.0, 0.0]
     for surface in surfaces:
-        alpha = alpha_rad + surface.a0
+        if not include_advance_drag and surface.name.startswith("propeller_advance_drag_"):
+            continue
+        # LiftDrag samples velocity at each CP: v_cp = v_link + omega x r_cp.
+        # In forward flight (+Z), a positive z roll rate gives the +y panel
+        # negative x flow and therefore a lower local angle of attack.
+        flow_alpha = alpha_rad - math.atan2(
+            roll_rate_z_rad_s * surface.cp[1], speed_mps
+        )
+        alpha = flow_alpha + surface.a0
         cl = max(-0.8, min(0.8, surface.cla * alpha)) if surface.cla else 0.0
         cd = abs(surface.cda * alpha)
         lift = q * surface.area * cl
         drag = q * surface.area * cd
-        vector = [-(surface.upward[i] * lift) for i in range(3)]
-        vector[2] -= drag
+        forward = (0.0, 0.0, 1.0)
+        lift_direction = tuple(
+            surface.upward[i] * math.cos(flow_alpha) + forward[i] * math.sin(flow_alpha)
+            for i in range(3)
+        )
+        drag_direction = tuple(
+            -(forward[i] * math.cos(flow_alpha) - surface.upward[i] * math.sin(flow_alpha))
+            for i in range(3)
+        )
+        vector = [lift_direction[i] * lift + drag_direction[i] * drag for i in range(3)]
         for i in range(3):
             force[i] += vector[i]
         moment[0] += surface.cp[1] * vector[2] - surface.cp[2] * vector[1]

@@ -137,6 +137,14 @@ def test_motor_geometry_directions_and_thrust_match_control_allocation():
     assert len(motors) == params["CA_ROTOR_COUNT"] == 4
     assert params["CA_SV_CS_COUNT"] == 0
     assert params["CA_AIRFRAME"] == 4 and params["VT_TYPE"] == 0
+    assert params["FW_PR_P"] == pytest.approx(0.5 * (0.097 / 0.03020833333))
+    assert params["FW_PR_I"] == pytest.approx(0.3 * (0.097 / 0.03020833333))
+    roll_authority_ratio = (0.373 / 0.08354166667) * (0.05 / 0.025)
+    assert params["FW_RR_P"] == pytest.approx(0.2 * roll_authority_ratio)
+    assert params["FW_RR_I"] == pytest.approx(0.1 * roll_authority_ratio)
+    assert params["FW_RR_FF"] == pytest.approx(0.1 * roll_authority_ratio)
+    yaw_authority_ratio = (0.431 / 0.1133333333) * (0.23 / 0.6)
+    assert params["FW_YR_P"] == pytest.approx(0.2 * yaw_authority_ratio)
     assert params["VT_FW_DIFTHR_EN"] == 7
     assert params["VT_FW_DIFTHR_S_R"] == params["VT_FW_DIFTHR_S_P"] == params["VT_FW_DIFTHR_S_Y"] == 1
     assert params["FW_THR_TRIM"] == pytest.approx(0.35)
@@ -200,7 +208,7 @@ def test_four_feet_touch_before_body_and_support_the_cg():
 def test_aerodynamic_area_lift_slope_static_margin_and_parasitic_drag():
     surfaces = _model(MODEL_DIR).findall("plugin[@name='gz::sim::systems::LiftDrag']")
     wings = [s for s in surfaces if float(s.findtext("cla")) > 0]
-    assert len(wings) == 5
+    assert len(wings) == 6
     assert sum(float(s.findtext("area")) for s in wings) == pytest.approx(0.607)
     weights = [
         float(s.findtext("area"))
@@ -214,13 +222,16 @@ def test_aerodynamic_area_lift_slope_static_margin_and_parasitic_drag():
     ) / sum(weights)
     assert -neutral_z / 0.569 == pytest.approx(0.020 / 0.569, abs=1e-10)
     parasitic = [s for s in surfaces if float(s.findtext("cla")) == 0]
-    assert len(parasitic) == 2
+    airframe_drag = [s for s in parasitic if float(s.findtext("cda")) == pytest.approx(0.064)]
+    propeller_drag = [s for s in parasitic if float(s.findtext("cda")) == pytest.approx(0.216)]
+    assert len(airframe_drag) == 2
+    assert len(propeller_drag) == 2
     for alpha in (-0.3, -0.1, 0, 0.1, 0.3):
         cd = (
             sum(
                 float(s.findtext("area"))
                 * abs(float(s.findtext("cda")) * (alpha + float(s.findtext("a0"))))
-                for s in parasitic
+                for s in airframe_drag
             )
             / 0.607
         )
@@ -237,11 +248,34 @@ def test_offline_aero_force_is_trimmed_bounded_and_finite():
     assert all(math.isfinite(value) for value in (*force, *moment))
     assert abs(moment[0]) < 1.0 and abs(moment[2]) < 1.0
     assert abs(moment[1]) < 0.1
-    assert pitching_moment_slope(surfaces, 15.0, alpha) < 0.0
+    # The LiftDrag angle sign is opposite conventional fixed-wing AoA in this
+    # MC-FLU basis, so positive dMy/d(alpha_plugin) represents static stability.
+    assert pitching_moment_slope(surfaces, 15.0, alpha) > 0.0
     assert aerodynamic_force(surfaces, 0.0, 10.0) == (0.0, 0.0)
     stalled_lift, stalled_drag = aerodynamic_force(surfaces, 80.0, math.radians(89.0))
     assert math.isfinite(stalled_lift) and math.isfinite(stalled_drag)
     assert stalled_lift <= 0.5 * 1.15 * 80.0**2 * 0.607 * 0.8 * 1.01
+
+
+def test_split_wings_produce_damping_sign_roll_moment_and_advance_drag_is_sized():
+    surfaces = surfaces_from_sdf(MODEL_DIR / "model.sdf")
+    central = [surface for surface in surfaces if surface.name.startswith("central_wing_")]
+    assert len(central) == 2
+    assert sum(surface.area for surface in central) == pytest.approx(0.399)
+    assert sorted(surface.cp[1] for surface in central) == pytest.approx([-0.262, 0.262])
+    _, moment = aerodynamic_force_moment(
+        surfaces, 15.0, math.radians(7.4314663815), roll_rate_z_rad_s=1.0
+    )
+    assert moment[2] < 0.0
+    assert 1.0 <= abs(moment[2]) <= 30.0
+
+    clean_drag = aerodynamic_force(surfaces, 24.0, math.radians(7.4))[1]
+    total_drag = aerodynamic_force(
+        surfaces, 24.0, math.radians(7.4), include_advance_drag=True
+    )[1]
+    assert total_drag - clean_drag == pytest.approx(
+        0.5 * 1.15 * 24.0**2 * 0.607 * 0.108, rel=0.02
+    )
 
 
 def test_aero_trim_scan_preserves_cruise_lift_and_static_stability():
@@ -249,7 +283,7 @@ def test_aero_trim_scan_preserves_cruise_lift_and_static_stability():
     rows = trim_scan(surfaces)
     assert len(rows) == 4 * 26
     cruise = [row for row in rows if row["alpha_deg"] == 7.0 or row["alpha_deg"] == 8.0]
-    assert all(row["pitch_moment_slope_nm_per_rad"] < 0.0 for row in cruise)
+    assert all(row["pitch_moment_slope_nm_per_rad"] > 0.0 for row in cruise)
     for speed in (12.0, 15.0, 19.0, 25.0):
         row = min(
             (item for item in rows if item["speed_mps"] == speed),
@@ -277,6 +311,7 @@ def test_gimbal_axes_and_imu_use_px4_frame_contract():
     assert _numbers(model.findtext("joint[@name='c11_yaw_joint']/axis/xyz")) == (0, 0, -1)
     assert _numbers(model.findtext("joint[@name='c11_roll_joint']/axis/xyz")) == (-1, 0, 0)
     assert _numbers(model.findtext("joint[@name='c11_pitch_joint']/axis/xyz")) == (0, 1, 0)
+    assert float(model.findtext("joint[@name='c11_pitch_joint']/axis/initial_position")) == 0.0
     assert _numbers(model.findtext("link[@name='camera_link']/sensor[@name='camera_imu']/pose")) == pytest.approx((0, 0, 0, 0, 0, math.pi), abs=1e-9)
 
 

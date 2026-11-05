@@ -484,7 +484,7 @@
       CLmax 取 0.8：整体失速 α=0.8/2.82；失速后斜率暂取 -1/rad。
       反弯等效：central a0=1.4684°，outer a0=-3.4387°；15 m/s、alpha=7.4315° 时总升力守恒且 My≈0。-->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
-      <!--central_wing-->
+      <!--central_wing_-1-->
       <a0>0.025628704508064457</a0>
       <cla>3.1783049526713416</cla>
       <cda>0.16996622352671675</cda>
@@ -493,9 +493,27 @@
       <cla_stall>-1</cla_stall>
       <cda_stall>1</cda_stall>
       <cma_stall>0</cma_stall>
-      <area>0.399</area>
+      <area>0.1995</area>
       <air_density>1.15</air_density>
-      <cp>-0.009 0 0.034</cp>
+      <cp>-0.009 -0.262 0.034</cp>
+      <forward>0 0 1</forward>
+      <upward>-1 0 0</upward>
+      <link_name>base_link</link_name>
+      <radial_symmetry>false</radial_symmetry>
+    </plugin>
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <!--central_wing_1-->
+      <a0>0.025628704508064457</a0>
+      <cla>3.1783049526713416</cla>
+      <cda>0.16996622352671675</cda>
+      <cma>0</cma>
+      <alpha_stall>0.28368794326241137</alpha_stall>
+      <cla_stall>-1</cla_stall>
+      <cda_stall>1</cda_stall>
+      <cma_stall>0</cma_stall>
+      <area>0.1995</area>
+      <air_density>1.15</air_density>
+      <cp>-0.009 0.262 0.034</cp>
       <forward>0 0 1</forward>
       <upward>-1 0 0</upward>
       <link_name>base_link</link_name>
@@ -603,6 +621,43 @@
       <alpha_stall>1.5707963267948966</alpha_stall>
       <cla_stall>0</cla_stall>
       <cda_stall>0.064</cda_stall>
+      <cma_stall>0</cma_stall>
+      <area>0.3035</area>
+      <air_density>1.15</air_density>
+      <cp>0 0 0</cp>
+      <forward>0 0 1</forward>
+      <upward>-1 0 0</upward>
+      <link_name>base_link</link_name>
+      <radial_symmetry>false</radial_symmetry>
+    </plugin>
+    <!--桨前进比损失近似：电机插件只有 kT*ω²，无空速/桨距速度输入；额外阻力面等效 ΔCD0=0.108，24 m/s 时约 22 N。这是限速代理，不是 10×4.7 桨的实测推力曲线。-->
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <!--propeller_advance_drag_-1-->
+      <a0>-0.5</a0>
+      <cla>0</cla>
+      <cda>0.216</cda>
+      <cma>0</cma>
+      <alpha_stall>1.5707963267948966</alpha_stall>
+      <cla_stall>0</cla_stall>
+      <cda_stall>0.216</cda_stall>
+      <cma_stall>0</cma_stall>
+      <area>0.3035</area>
+      <air_density>1.15</air_density>
+      <cp>0 0 0</cp>
+      <forward>0 0 1</forward>
+      <upward>-1 0 0</upward>
+      <link_name>base_link</link_name>
+      <radial_symmetry>false</radial_symmetry>
+    </plugin>
+    <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
+      <!--propeller_advance_drag_1-->
+      <a0>0.5</a0>
+      <cla>0</cla>
+      <cda>0.216</cda>
+      <cma>0</cma>
+      <alpha_stall>1.5707963267948966</alpha_stall>
+      <cla_stall>0</cla_stall>
+      <cda_stall>0.216</cda_stall>
       <cma_stall>0</cma_stall>
       <area>0.3035</area>
       <air_density>1.15</air_density>

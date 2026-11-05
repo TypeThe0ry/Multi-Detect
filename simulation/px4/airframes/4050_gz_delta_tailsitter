@@ -57,18 +57,20 @@ param set-default MPC_THR_HOVER 0.44
 param set-default BAT1_N_CELLS 4
 param set-default BAT1_CAPACITY 5000
 
-# 控制增益沿用 4018 的 tailsitter 约定；气动模型已在 15 m/s、7.43° 做反弯等效配平，
-# 新一轮冒烟再据实检查长周期响应后调整，避免离线模型替闭环整定背书。
+# 以 4018 为基准按本机惯量/差动控制力臂缩放速率环增益。
+# pitch: (0.097/0.030208)=3.21；roll->MC yaw: (0.373/0.083542)*(0.05/0.025)=8.93；
+# yaw->MC roll: (0.431/0.113333)*(0.23/0.6)=1.46。输出饱和后仍需结合 ULog 整定。
 param set-default FD_FAIL_R 70
 param set-default FW_P_TC 0.6
-param set-default FW_PR_I 0.3
-param set-default FW_PR_P 0.5
+param set-default FW_PR_I 0.963310
+param set-default FW_PR_P 1.605517
 param set-default FW_PSP_OFF 2
-param set-default FW_RR_FF 0.1
-param set-default FW_RR_I 0.1
-param set-default FW_RR_P 0.2
+param set-default FW_RR_FF 0.892968
+param set-default FW_RR_I 0.892968
+param set-default FW_RR_P 1.785935
 param set-default FW_YR_FF 0
 param set-default FW_YR_I 0
+param set-default FW_YR_P 0.291559
 # 15 m/s 估计阻力约 4 N（满推力 64.8 N 的 6%）；初值 10% 给差动配平余量。
 # 无舵面且 SM 约 3.5%；FW_PSP_OFF=2 保持 4018 tailsitter 偏置约定，最终闭环增益仍需 SITL/实测整定。
 param set-default FW_THR_TRIM 0.35
