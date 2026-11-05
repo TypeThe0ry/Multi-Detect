@@ -47,11 +47,13 @@
      `scripts/build_onboard_rendered_3d_dataset.py` 只消费 RGB/depth/telemetry manifest。
      需要在模型/插件、采集 sidecar 和 renderer 三处共同定义角度、角速度与时间语义，避免
      只在标签里增加一个未驱动的字段。
-5. **离线 Blender 相机姿态**
-   * `scripts/render_onboard_sdf_blender_dataset.py` 的 `camera_samples()` 直接随机相机
-     位置并对准目标，没有 vehicle pose、`CameraMount` 或 gimbal command；因此当前渲染不
-     能表达机体转动时固定相机与 lock-horizon/follow-yaw 云台的差异。应让 renderer 接受
-     `CameraMount`/composed pose，并在 manifest 中记录相机世界姿态和云台角度。
+5. **离线 Blender 相机姿态（代码已补，未实际渲染）**
+   * 默认随机采样保持兼容；`--camera-pose-json` 现在可接收 recorded composed pose，或
+     `vehicle_pose`（NED 位置与姿态）加 `camera_mount`（fixed/gimbal 与稳定模式）。后者使用
+     `CameraMount`/`compose_camera_pose()` 合成姿态。相机按完整旋转与中心写入 Blender 世界
+     矩阵，逐帧 manifest 记录相机世界矩阵、输入来源和云台角。CPU 单测覆盖坐标转换、固定
+     相机随机体转动以及 composed pose 精确回放。此环境未运行 Blender，故没有渲染图像或
+     Blender API 集成结果；不能据此声称视觉输出已验证。
 6. **生成 world 与 teacher intent**
    * `src/multidetect/simulator/world_gen.py`、`scripts/generate_r15_worlds.py` 及生成的
      teacher intent 仍以单个 `camera_pitch_rad` 描述多旋翼相机，没有 gimbal yaw/roll、稳定

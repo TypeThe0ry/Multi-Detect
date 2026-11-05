@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
 from types import SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
@@ -108,6 +109,156 @@ def test_camera_sampling_is_seeded_independently_by_world_and_split() -> None:
     assert samples[0]["target_present"] is True
     assert all(sample["look_at"] != list(world.target_center) for sample in samples[1:])
     assert [sample["index"] for sample in samples if not sample["target_present"]] == [4, 9]
+
+
+def test_recorded_composed_pose_is_replayed_exactly_in_blender_world() -> None:
+    world = renderer.load_world(ROOT, renderer.WORLD_PATHS["train"])
+    pose = {
+        "center_ned": [10.0, 20.0, -3.0],
+        # A 90-degree yaw in the optical-to-NED matrix.
+        "optical_to_world": [0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    }
+    samples = renderer.camera_samples(world, "train", 11, 2, camera_pose=pose)
+    assert samples[0]["location"] == [20.0, 10.0, 3.0]
+    assert samples[1]["location"] == [20.0, 10.0, 3.0]
+    expected = [
+        [0.0, 0.0, -1.0, 20.0],
+        [-1.0, 0.0, 0.0, 10.0],
+        [0.0, 1.0, 0.0, 3.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    for actual_row, expected_row in zip(samples[0]["camera_world_matrix"], expected):
+        assert actual_row == pytest.approx(expected_row)
+    assert samples[0]["camera_pose_source"] == "recorded_composed_pose"
+
+
+def test_vehicle_pose_records_gimbal_angles_in_pitch_yaw_roll_order() -> None:
+    from multidetect.camera_mount import CameraMount
+
+    world = renderer.load_world(ROOT, renderer.WORLD_PATHS["train"])
+    mount = CameraMount.gimbal(pitch_rad=0.1, yaw_rad=0.2, roll_rad=0.3)
+    samples = renderer.camera_samples(
+        world,
+        "train",
+        11,
+        1,
+        vehicle_pose={
+            "position_ned": (1.0, 2.0, -5.0),
+            "attitude_rad": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
+        },
+        camera_mount=mount,
+    )
+    assert samples[0]["gimbal_angle_rad"] == [0.1, 0.2, 0.3]
+
+
+def test_look_at_render_composes_tracking_with_gimbal(monkeypatch, tmp_path: Path) -> None:
+    euler_calls = []
+
+    class Quaternion:
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        def __matmul__(self, other):
+            return Quaternion(f"{self.label}@{other.label}")
+
+        def to_euler(self):
+            return (self.label,)
+
+    class Direction:
+        def to_track_quat(self, track, up):
+            assert (track, up) == ("-Z", "Y")
+            return Quaternion("tracking")
+
+    class Location:
+        def __sub__(self, other):
+            return Direction()
+
+    class Euler:
+        def __init__(self, angles, order):
+            self.angles = angles
+            self.order = order
+            euler_calls.append((angles, order))
+
+        def to_quaternion(self):
+            assert self.order == "XYZ"
+            return Quaternion("gimbal")
+
+    class Pixels:
+        def foreach_get(self, target):
+            pass
+
+    image = SimpleNamespace(size=(1, 1), pixels=Pixels())
+    background = SimpleNamespace(inputs={"Color": SimpleNamespace(default_value=(0, 0, 0, 1))})
+    camera_object = SimpleNamespace(location=None, matrix_world=[[1.0] * 4 for _ in range(4)])
+    scene = SimpleNamespace(
+        camera=camera_object,
+        render=SimpleNamespace(image_settings=SimpleNamespace(color_mode=None), filepath=""),
+        world=SimpleNamespace(node_tree=SimpleNamespace(nodes=SimpleNamespace(get=lambda name: background))),
+    )
+    bpy = SimpleNamespace(
+        ops=SimpleNamespace(render=SimpleNamespace(render=lambda **kwargs: None)),
+        data=SimpleNamespace(
+            images=SimpleNamespace(load=lambda *args, **kwargs: image, remove=lambda value: None),
+            materials=SimpleNamespace(remove=lambda value: None),
+        ),
+    )
+    mathutils = SimpleNamespace(
+        Vector=lambda value: Location(),
+        Euler=Euler,
+    )
+    monkeypatch.setattr(renderer, "apply_propeller_state", lambda objects, camera: True)
+    monkeypatch.setattr(renderer, "_material", lambda *args, **kwargs: object())
+
+    camera = {
+        "location": [1.0, 2.0, 3.0],
+        "look_at": [4.0, 5.0, 6.0],
+        "gimbal_angle_rad": [0.1, 0.2, 0.3],
+        "camera_world_matrix": None,
+        "target_present": True,
+    }
+    renderer._render_frame(bpy, mathutils, scene, [], camera, tmp_path / "rgb.png", tmp_path / "mask.png", 1, 1)
+    assert camera_object.rotation_euler == ("tracking@gimbal",)
+    assert euler_calls == [((0.1, 0.2, 0.3), "XYZ")]
+
+
+def test_composed_pose_orientation_changes_with_vehicle_body_for_fixed_mount() -> None:
+    from multidetect.camera_mount import CameraMount, compose_camera_pose
+
+    mount = CameraMount.fixed(pitch_rad=0.2)
+    first = compose_camera_pose(
+        (0.0, 0.0, -5.0), vehicle_roll_rad=0.0, vehicle_pitch_rad=0.0,
+        vehicle_yaw_rad=0.0, mount=mount,
+    )
+    turned = compose_camera_pose(
+        (0.0, 0.0, -5.0), vehicle_roll_rad=0.0, vehicle_pitch_rad=0.0,
+        vehicle_yaw_rad=math.pi / 2.0, mount=mount,
+    )
+    world = renderer.load_world(ROOT, renderer.WORLD_PATHS["train"])
+    first_sample = renderer.camera_samples(
+        world, "train", 11, 1,
+        camera_pose={"center_ned": first.center_ned, "optical_to_world": first.optical_to_world},
+    )[0]
+    turned_sample = renderer.camera_samples(
+        world, "train", 11, 1,
+        camera_pose={"center_ned": turned.center_ned, "optical_to_world": turned.optical_to_world},
+    )[0]
+    assert first_sample["camera_world_matrix"] != turned_sample["camera_world_matrix"]
+
+
+@pytest.mark.parametrize(
+    ("stabilization", "changes_with_yaw"),
+    [("lock-horizon", False), ("follow-yaw", True)],
+)
+def test_gimbal_stabilization_changes_composed_world_orientation(
+    stabilization: str, changes_with_yaw: bool
+) -> None:
+    from multidetect.camera_mount import CameraMount, compose_camera_pose
+
+    mount = CameraMount.gimbal(stabilization=stabilization)
+    kwargs = {"vehicle_roll_rad": 0.0, "vehicle_pitch_rad": 0.0, "mount": mount}
+    initial = compose_camera_pose((0.0, 0.0, -5.0), vehicle_yaw_rad=0.0, **kwargs)
+    rotated = compose_camera_pose((0.0, 0.0, -5.0), vehicle_yaw_rad=math.pi / 2.0, **kwargs)
+    assert (initial.optical_to_world != rotated.optical_to_world) is changes_with_yaw
 
 
 def test_rendered_mask_row_order_and_occluded_holes_define_bbox() -> None:
