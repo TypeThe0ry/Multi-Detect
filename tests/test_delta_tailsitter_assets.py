@@ -490,7 +490,7 @@ def test_docker_plan_mounts_custom_airframe_readonly_and_records_its_hash(tmp_pa
     assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "poll"
     startup = plan.command[-1]
     assert "rc.logging" in startup
-    assert "-p vehicle_attitude" in startup
+    assert "-p 100" in startup
 
     gimbal = docker.build_docker_simulator_plan(
         SCENARIO_DIR / "delta_tailsitter_gimbal_cam_001.scenario.json",
@@ -498,7 +498,7 @@ def test_docker_plan_mounts_custom_airframe_readonly_and_records_its_hash(tmp_pa
         gpu_render=False,
     )
     assert dict(gimbal.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "poll"
-    assert "-p vehicle_attitude" in gimbal.command[-1]
+    assert "-p 100" in gimbal.command[-1]
 
     monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", "default")
     explicit_default = docker.build_docker_simulator_plan(

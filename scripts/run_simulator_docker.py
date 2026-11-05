@@ -761,9 +761,13 @@ def build_docker_simulator_plan(
         logger_rc = "/opt/px4-gazebo/etc/init.d/rc.logging"
         logger_patch = (
             f"LRC={logger_rc}; "
+            # PX4 logger's -p argument is the numeric poll interval (ms),
+            # while -t selects the timer/semaphore path that has been
+            # observed to segfault in this pinned image.  Do not pass a
+            # uORB topic name here: the logger CLI parses -p as an integer.
             "sed -i 's|logger start -b ${LOGGER_BUF} -t ${LOGGER_ARGS}|"
-            "logger start -b ${LOGGER_BUF} -p vehicle_attitude -t ${LOGGER_ARGS}|' \"$LRC\"; "
-            "grep -Fq -- '-p vehicle_attitude' \"$LRC\" || exit 74; "
+            "logger start -b ${LOGGER_BUF} -p 100 ${LOGGER_ARGS}|' \"$LRC\"; "
+            "grep -Fq -- '-p 100' \"$LRC\" || exit 74; "
         )
     gpu_gz_wrapper = ""
     if gpu_render:

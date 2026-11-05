@@ -631,9 +631,10 @@ SIGSEGV 根因未定位，以及云台版锁步遥测静默。两变体的返航
 日志目录，崩溃栈落在等待定时信号量的路径。
 
 Docker 启动器现提供 `MULTIDETECT_PX4_LOGGER_MODE=default|poll|off`。仅两个 delta tailsitter
-变体默认使用 `poll`，通过临时改写容器内 `rc.logging` 增加 `-p vehicle_attitude`；本地 ULog
-分析已确认固件记录该 uORB 话题。`off` 设置 `SDLOG_BACKEND=0`，显式 `default` 恢复原模式；
-其他机型仍为 default。生效模式记录在 episode 元数据，未在全项目统一切换。
+变体默认使用 `poll`，通过临时改写容器内 `rc.logging` 把默认的定时模式改为 `-p 100`（100 ms
+数值轮询间隔）。PX4 logger 的 `-p` 参数是轮询间隔，不是 uORB 话题名；此前误传
+`vehicle_attitude` 不能作为有效参数，已修正。`off` 设置 `SDLOG_BACKEND=0`，显式 `default`
+恢复原模式；其他机型仍为 default。生效模式记录在 episode 元数据，未在全项目统一切换。
 
 第 19 轮固定版另有一类故障：MAVLink 与 ULog 均在仿真约 66 s 停止，容器仍运行且 Gazebo
 时钟继续推进，超过 50 s 静默阈值。该情形归类为 `px4_hang`，不与 logger 段错误混为一类；
@@ -670,3 +671,26 @@ Docker 启动器现提供 `MULTIDETECT_PX4_LOGGER_MODE=default|poll|off`。仅�
 修复后的本次执行尝试在 Docker 可用性预检处停止：当前环境返回 `Docker daemon is not reachable`，
 没有创建容器或产生新 MAVLink 数据。固定版和云台版的 dry-run 均成功生成各自 Docker 计划；完整飞行
 验证仍待 Docker daemon 可用后执行。
+
+## 第二十一轮 logger 参数回归与定量证据
+
+2026-11-05 第 21 轮固定版和云台版都在起飞状态等待期间失败，不能计为飞行判定失败或通过。
+固定版 `mavlink.jsonl` 2,566 条消息，PX4 boot time 从 2.868 s 连续到 10.308 s；其中
+`LOCAL_POSITION_NED` 358、`ATTITUDE_QUATERNION` 323、`SERVO_OUTPUT_RAW` 365。云台版
+1,921 条消息，PX4 boot time 从 3.340 s 连续到 8.716 s；其中 `LOCAL_POSITION_NED` 258、
+`ATTITUDE_QUATERNION` 249、`SERVO_OUTPUT_RAW` 259，并收到 27 条
+`GIMBAL_DEVICE_ATTITUDE_STATUS` 与 27 条 `GIMBAL_DEVICE_SET_ATTITUDE`。两份日志
+`parse_errors=0`、`bad_crc=0`，接收线程和 UDP socket 均存活，说明不是 MAVLink 接收端丢包。
+
+两容器均在 2026-11-05 11:12:34 UTC 前后以 `ExitCode=139` 退出，`OOMKilled=false`，Gazebo
+时钟分别停在 10.332 s 和 8.680 s；ULog 高频 topic 也在同一时刻停止。`SYS_STATUS` 在停止前
+已从 `error_flags=16384`（短暂的 `xy_position_control` 未就绪）恢复到 0，不能把该预检瞬态
+当成终止原因。容器 console 没有 PX4 崩溃栈，按 PID 筛选的内核文件也没有匹配行，所以本轮
+只能确定是 PX4 进程 SIGSEGV，不能把它归因成气动或机架问题。
+
+复核第 20 轮引入的启动补丁后发现具体回归：把 `rc.logging` 的
+`logger start -b ${LOGGER_BUF} -t ${LOGGER_ARGS}` 改成了 `-p vehicle_attitude`。PX4 logger 的
+`-p` 是数值轮询间隔参数，不接受 uORB 话题名；这会把本轮 `poll` 模式变成无效命令行。现在
+改为 `-p 100`（100 ms 轮询），保留默认 `default` 和显式 `off` 行为；新增测试锁定数值参数。
+本轮未重新启动 SITL/Docker，下一轮必须验证两变体至少连续两次完整通过，再评估 FW 空速、姿态和
+电机饱和指标。
