@@ -91,6 +91,7 @@ def test_world_must_be_repository_owned() -> None:
     ("airframe", "world", "model"),
     [
         ("x500", "urban_inspection_multirotor_001.sdf", "px4_multirotor_standard"),
+        ("x500_gimbal", "urban_inspection_multirotor_001.sdf", "px4_multirotor_standard"),
         ("standard_vtol", "river_rescue_vtol_001.sdf", "px4_vtol_standard"),
         ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter_mono_cam"),
         ("tiltrotor", "tiltrotor_mono_cam_001.sdf", "tiltrotor_mono_cam"),
@@ -104,6 +105,15 @@ def test_session_plan_selects_airframe_runtime(airframe: str, world: str, model:
     assert selected_world.name == world
     assert plan.scenario_id
     assert plan.vehicle_model == model
+
+
+def test_gimbal_session_plan_keeps_gimbal_px4_selection() -> None:
+    _, plan, _ = build_session_command(
+        airframe="x500_gimbal", container_name="test-x500-gimbal"
+    )
+    environment = dict(plan.environment)
+    assert environment["PX4_SYS_AUTOSTART"] == "4019"
+    assert environment["PX4_SIM_MODEL"] == "gz_x500_gimbal"
 
 
 @pytest.mark.parametrize(

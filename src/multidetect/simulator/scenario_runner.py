@@ -26,6 +26,7 @@ from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..autonomy.airframe_profile import airframe_profile_category, resolve_airframe_profile
 from ..autonomy.contracts import ContextSnapshot, ExecutableMission
 from ..autonomy.mission_campaign import select_and_compile_task
 from ..autonomy.policy_contract import PolicyAction, PolicyDecision, SharedTaskPolicy
@@ -1207,7 +1208,26 @@ def _repository_root_for_scenario(scenario_path: Path | None) -> Path:
 def _infer_mode(runtime: ScenarioRuntimeInput, override: FlightMode | str | None) -> FlightMode:
     if override is not None:
         return FlightMode.parse(override)
-    haystack = f"{runtime.vehicle.model} {runtime.vehicle.airframe_profile_id}".lower()
+    profile_id = getattr(runtime.vehicle, "airframe_profile_id", None)
+    normalized_profile_id = "" if profile_id is None else str(profile_id).strip().lower().replace("-", "_")
+    known_aliases = {"x500", "x500_mono_cam", "multirotor", "fixed_wing", "fw", "vtol"}
+    try:
+        profile = resolve_airframe_profile(profile_id)
+    except (TypeError, ValueError):
+        profile = None
+    if profile is not None:
+        category = profile.category
+    elif normalized_profile_id in known_aliases:
+        category = airframe_profile_category(profile_id)
+    else:
+        category = None
+    if category == "multirotor":
+        return FlightMode.MULTIROTOR
+    if category == "fixed_wing":
+        return FlightMode.FIXED_WING
+    if category == "vtol":
+        return FlightMode.VTOL
+    haystack = f"{runtime.vehicle.model} {profile_id}".lower()
     if any(
         token in haystack
         for token in ("multirotor", "multi-rotor", "multicopter", "quadcopter", "quad", "x500")
