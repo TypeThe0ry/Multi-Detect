@@ -273,6 +273,11 @@ class SensorStreamReader:
                         .copy()
                     )
                     segmentation_info = dict(segmentation_frame.metadata)
+                joint_state = None
+                if depth_frame is not None:
+                    sidecar = depth_frame.metadata.get("joint_state")
+                    if isinstance(sidecar, Mapping):
+                        joint_state = dict(sidecar)
                 stamp = self.clock()
                 sample = SensorSample(
                     rgb=bytes(payload),
@@ -308,6 +313,7 @@ class SensorStreamReader:
                     depth_frame=depth_frame,
                     segmentation=segmentation,
                     segmentation_info=segmentation_info,
+                    joint_state=joint_state,
                 )
                 self.buffer.put(sample)
                 self.latest = sample

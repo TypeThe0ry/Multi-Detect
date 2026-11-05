@@ -314,6 +314,7 @@ def camera_samples(
         raise SdfRenderError("gimbal_angle_rad must contain three finite values")
     pose_location: list[float] | None = None
     pose_look_at: list[float] | None = None
+    pose_rotation_matrix: list[list[float]] | None = None
     if camera_pose is not None:
         center = camera_pose.get("center_ned", camera_pose.get("center"))
         rotation = camera_pose.get("optical_to_world")
@@ -334,6 +335,26 @@ def camera_samples(
         forward_n, forward_e, forward_d = (
             float(rotation[0]), float(rotation[3]), float(rotation[6])
         )
+        optical_to_ned = [
+            [float(rotation[row * 3 + column]) for column in range(3)]
+            for row in range(3)
+        ]
+
+        def ned_to_enu(vector: Sequence[float]) -> tuple[float, float, float]:
+            return float(vector[1]), float(vector[0]), -float(vector[2])
+
+        optical_columns = [
+            tuple(optical_to_ned[row][column] for row in range(3)) for column in range(3)
+        ]
+        blender_camera_axes = [
+            ned_to_enu(optical_columns[1]),
+            ned_to_enu(tuple(-value for value in optical_columns[2])),
+            ned_to_enu(tuple(-value for value in optical_columns[0])),
+        ]
+        pose_rotation_matrix = [
+            [blender_camera_axes[column][row] for column in range(3)]
+            for row in range(3)
+        ]
         pose_look_at = [
             pose_location[0] + forward_e,
             pose_location[1] + forward_n,
@@ -350,11 +371,26 @@ def camera_samples(
         height = rng.uniform(3.0, 18.0)
         horizontal_jitter = 0.0 if index == 0 else rng.uniform(-0.3, 0.3) * distance
         vertical_jitter = 0.0 if index == 0 else rng.uniform(-0.15, 0.15) * distance
-        look_at = [
-            world.target_center[0] - math.sin(azimuth) * horizontal_jitter,
-            world.target_center[1] + math.cos(azimuth) * horizontal_jitter,
-            world.target_center[2] + vertical_jitter,
-        ]
+        if pose_location is not None:
+            target_dx = pose_location[0] - world.target_center[0]
+            target_dy = pose_location[1] - world.target_center[1]
+            distance = math.hypot(target_dx, target_dy)
+            height = pose_location[2] - world.target_center[2]
+            azimuth = math.atan2(target_dy, target_dx) if distance else 0.0
+            horizontal_jitter = vertical_jitter = 0.0
+            location = list(pose_location)
+            look_at = list(pose_look_at or pose_location)
+        else:
+            look_at = [
+                world.target_center[0] - math.sin(azimuth) * horizontal_jitter,
+                world.target_center[1] + math.cos(azimuth) * horizontal_jitter,
+                world.target_center[2] + vertical_jitter,
+            ]
+            location = [
+                world.target_center[0] + distance * math.cos(azimuth),
+                world.target_center[1] + distance * math.sin(azimuth),
+                world.target_center[2] + height,
+            ]
         angle = propeller_angle_rad + index * sample_period_s * propeller_spin_rad_s
         samples.append(
             {
@@ -363,20 +399,13 @@ def camera_samples(
                 "azimuth_rad": azimuth,
                 "horizontal_distance_m": distance,
                 "height_above_target_center_m": height,
-                "location": (
-                    [
-                        pose_location[0] + distance * math.cos(azimuth),
-                        pose_location[1] + distance * math.sin(azimuth),
-                        pose_location[2] + height,
-                    ]
-                    if pose_location is not None
-                    else [
-                    world.target_center[0] + distance * math.cos(azimuth),
-                    world.target_center[1] + distance * math.sin(azimuth),
-                    world.target_center[2] + height,
-                    ]
+                "location": location,
+                "look_at": look_at,
+                **(
+                    {"rotation_matrix": pose_rotation_matrix}
+                    if pose_rotation_matrix is not None
+                    else {}
                 ),
-                "look_at": pose_look_at or look_at,
                 "target_center": list(world.target_center),
                 "look_at_horizontal_jitter_m": horizontal_jitter,
                 "look_at_vertical_jitter_m": vertical_jitter,
@@ -585,10 +614,13 @@ def _render_frame(
 ) -> tuple[bytes, list[list[float]]]:
     camera["propeller_state_applied"] = apply_propeller_state(objects, camera)
     scene.camera.location = mathutils.Vector(camera["location"])
-    direction = mathutils.Vector(camera["look_at"]) - scene.camera.location
-    tracking = direction.to_track_quat("-Z", "Y")
-    gimbal = mathutils.Euler(tuple(camera["gimbal_angle_rad"]), "XYZ").to_quaternion()
-    scene.camera.rotation_euler = (tracking @ gimbal).to_euler()
+    if "rotation_matrix" in camera:
+        scene.camera.rotation_euler = mathutils.Matrix(camera["rotation_matrix"]).to_euler()
+    else:
+        direction = mathutils.Vector(camera["look_at"]) - scene.camera.location
+        tracking = direction.to_track_quat("-Z", "Y")
+        gimbal = mathutils.Euler(tuple(camera["gimbal_angle_rad"]), "XYZ").to_quaternion()
+        scene.camera.rotation_euler = (tracking @ gimbal).to_euler()
     # Remove the target mesh, not its label, for offline negative examples.
     # The same visibility state is used for both RGB and the 3-D mask pass.
     for obj in objects:

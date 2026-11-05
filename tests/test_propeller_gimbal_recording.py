@@ -132,22 +132,21 @@ def test_offline_renderer_accepts_composed_camera_pose() -> None:
         "test",
         1,
         3,
+        gimbal_angle_rad=(0.2, -0.1, 0.3),
         camera_pose={
             "center_ned": [3.0, 4.0, 5.0],
             "optical_to_world": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         },
     )
     sample = samples[0]
-    assert len({tuple(value["location"]) for value in samples}) == 3
-    distance = sample["horizontal_distance_m"]
-    azimuth = sample["azimuth_rad"]
-    assert sample["location"][:2] != [3.0, 4.0]
-    assert sample["location"] == [
-        4.0 + distance * np.cos(azimuth),
-        3.0 + distance * np.sin(azimuth),
-        -5.0 + sample["height_above_target_center_m"],
-    ]
+    assert len({tuple(value["location"]) for value in samples}) == 1
+    assert sample["location"] == [4.0, 3.0, -5.0]
     assert sample["look_at"] == [4.0, 4.0, -5.0]
+    assert sample["rotation_matrix"] == [
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+        [0.0, 1.0, 0.0],
+    ]
 
 
 def test_fixed_mount_projection_matches_recorded_composed_camera_pose() -> None:
