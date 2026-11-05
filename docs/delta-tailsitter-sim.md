@@ -523,3 +523,27 @@ Gazebo 关节角及其时间戳写入 episode；测量通过后再请求 FW 转�
 −0.4°，而目标为 −45°，误差约 45.15°。因此稳定悬停测量条件已满足，但云台执行链路仍失败；
 当前数据不足以区分 PX4 输入命令路由与安装/关节轴映射问题，不能据此虚构安装角修正。
 本轮没有启动 SITL，固定翼完整往返、着陆和帧对齐也尚未复验。
+
+## 第十六轮冒烟证据与修正
+
+2026-11-05 第 16 轮云台版完整通过：起飞、前后转换、盘旋空速、返航、转回悬停、降落和
+7 帧对齐均满足判定；盘旋空速为 17.068、17.110 m/s，云台回读误差为 yaw 0.968°、
+roll 0.122°、pitch 3.318°，仍使用 4° 门槛。MAVLink 中有 570 条
+`GIMBAL_DEVICE_ATTITUDE_STATUS` 和 `GIMBAL_DEVICE_SET_ATTITUDE`，命令路径为
+gimbal v2；`MAV_CMD_DO_MOUNT_CONTROL` (205) 没有回退。云台设备四元数、flags 和三轴
+关节状态均已写入 episode，说明本轮云台控制链和安装坐标在稳定悬停工况下有效。
+
+固定版不是飞行判定失败，而是 Gazebo 进程崩溃：`mavlink.jsonl` 在 PX4 仿真时钟
+19.516 s 截止，共 5,387 条消息；接收线程仍存活，`parse_errors=0`、`bad_crc=0`，socket
+仍打开，最后消息为 `SERVO_OUTPUT_RAW`。同一 episode 的容器证据显示容器已退出、
+`ExitCode=139`、`OOMKilled=false`；ULog 中 `vehicle_attitude`、`vehicle_local_position`
+和 `actuator_outputs` 均记录到约 19.5 s，Gazebo `server_console.log` 也在相同启动阶段
+结束。因此这次静默不是 pymavlink 线程异常、解析失步或 PX4 自身遥测停止，而是仿真器
+崩溃后的结果。静默诊断新增 `failure_class=container_exit`，保留线程、socket、计数、
+最后消息和容器退出状态，避免把容器崩溃误报为接收端断流。
+
+固定版独有的包装模型把 `camera_link` 写成了相对 `base_link` 的 pose，却没有 fixed joint
+把该 link 接入刚体图；云台包装有 `c11_mount_joint`，所以两者表现不同。已在生成器和生成
+出的固定相机及分割覆盖 SDF 中加入 `CameraMountJoint`（`base_link` → `camera_link`）。这
+不改变质量、质心、惯量、气动或飞控增益，只修复模型拓扑；资产测试现在强制检查该连接。
+本轮没有根据单次崩溃改动气动或飞控参数，也没有放宽任何飞行、帧对齐或云台误差判定。

@@ -65,6 +65,7 @@ def test_telemetry_silence_uses_sim_and_wall_clocks_at_point_one_realtime(tmp_pa
         watchdog.check()
 
     diagnostic = json.loads((recorder.episode_dir / "telemetry-silence.json").read_text())
+    assert diagnostic["failure_class"] == "receiver_thread_exit"
     assert diagnostic["sim_elapsed_since_last_mavlink_s"] == pytest.approx(5.0)
     assert diagnostic["sim_clock_advancing"] is True
     assert diagnostic["container"]["running"] is True
@@ -93,6 +94,26 @@ def test_telemetry_silence_detects_frozen_sim_clock_with_wall_guard(tmp_path):
     diagnostic = json.loads((recorder.episode_dir / "telemetry-silence.json").read_text())
     assert diagnostic["sim_clock_advancing"] is False
     assert diagnostic["sim_time_stalled_wall_s"] == pytest.approx(15.0)
+
+
+def test_telemetry_silence_classifies_container_exit(tmp_path):
+    class ExitedEnvironment(FakeEnvironment):
+        def inspect_state(self):
+            return {"Running": False, "ExitCode": 139, "OOMKilled": False}
+
+    now = [0.0]
+    reader = _reader()
+    environment = ExitedEnvironment()
+    recorder = FakeRecorder(tmp_path / "episode")
+    watchdog = collector.MavlinkTelemetrySilenceWatchdog(
+        reader, environment, recorder, clock=lambda: now[0]
+    )
+    now[0] = 15.0
+    with pytest.raises(TimeoutError, match="MAVLink telemetry silent"):
+        watchdog.check()
+    diagnostic = json.loads((recorder.episode_dir / "telemetry-silence.json").read_text())
+    assert diagnostic["failure_class"] == "container_exit"
+    assert diagnostic["container"]["state"]["ExitCode"] == 139
 
 
 def test_telemetry_silence_allows_point_one_realtime_before_failing(tmp_path):

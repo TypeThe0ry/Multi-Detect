@@ -406,6 +406,14 @@ def test_fixed_and_gimbal_variants_share_base_mass_calibration_and_airframe_para
     assert "param set-default MNT_MODE_OUT 2" in gimbal_script
 
 
+def test_fixed_camera_wrapper_attaches_payload_to_base_link():
+    model = _model(WRAPPER_DIR)
+    joint = model.find("joint[@name='CameraMountJoint']")
+    assert joint is not None and joint.get("type") == "fixed"
+    assert joint.findtext("parent") == "base_link"
+    assert joint.findtext("child") == "camera_link"
+
+
 @pytest.mark.parametrize("stem", ["delta_tailsitter_mono_cam_001", "delta_tailsitter_gimbal_cam_001"])
 def test_variant_scenario_manifest_hashes_match_channel_contents(stem):
     scenario_path = SCENARIO_DIR / f"{stem}.scenario.json"

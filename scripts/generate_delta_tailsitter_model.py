@@ -336,6 +336,14 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     clip = _element(config, "clip")
     _element(clip, "near", 0.05)
     _element(clip, "far", 15000)
+    # A pose relative to base_link does not make the wrapper link part of the
+    # model's rigid-body graph.  Keep the fixed camera payload explicitly
+    # attached; without this joint Gazebo may construct a disconnected link
+    # and the fixed-camera variant can terminate with SIGSEGV during startup.
+    camera_joint = _element(fixed_model, "joint", name="CameraMountJoint", type="fixed")
+    _element(camera_joint, "parent", "base_link")
+    _element(camera_joint, "child", "camera_link")
+    _element(camera_joint, "pose", "0 0 0 0 0 0", relative_to="base_link")
     depth = _element(fixed_model, "link", name="depth_camera_link")
     _element(depth, "pose", "0 0 0 0 0 0", relative_to="camera_link")
     _inertial(depth, DEPTH_CAMERA_MASS, GIMBAL_CHILD_INERTIA)

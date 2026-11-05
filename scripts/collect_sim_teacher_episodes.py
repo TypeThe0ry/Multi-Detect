@@ -2261,8 +2261,19 @@ class MavlinkTelemetrySilenceWatchdog:
 
         self.fired = True
         state_snapshot = self.environment.inspect_state()
+        container_running = state_snapshot.get("Running") if state_snapshot else None
+        reader_stats = self.reader.stats
+        if container_running is False:
+            failure_class = "container_exit"
+        elif reader_stats.get("thread_alive") is False:
+            failure_class = "receiver_thread_exit"
+        elif reader_stats.get("last_exception"):
+            failure_class = "receiver_exception"
+        else:
+            failure_class = "wire_silence"
         diagnostic = {
             "error": "MAVLink telemetry silent",
+            "failure_class": failure_class,
             "wall_silent_s": wall_silent_s,
             "sim_elapsed_since_last_mavlink_s": sim_elapsed_s,
             "sim_time_stalled_wall_s": sim_stalled_s,
@@ -2272,15 +2283,15 @@ class MavlinkTelemetrySilenceWatchdog:
             ),
             "container": {
                 "name": self.environment.name,
-                "running": state_snapshot.get("Running") if state_snapshot else None,
+                "running": container_running,
                 "state": state_snapshot,
             },
-            "mavlink_reader": self.reader.stats,
-            "receiver_thread_alive": self.reader.stats.get("thread_alive"),
-            "receiver_last_exception": self.reader.stats.get("last_exception"),
-            "receiver_message_counts": self.reader.stats.get("message_counts"),
-            "receiver_socket": self.reader.stats.get("socket"),
-            "receiver_recent_messages": self.reader.stats.get("recent_messages"),
+            "mavlink_reader": reader_stats,
+            "receiver_thread_alive": reader_stats.get("thread_alive"),
+            "receiver_last_exception": reader_stats.get("last_exception"),
+            "receiver_message_counts": reader_stats.get("message_counts"),
+            "receiver_socket": reader_stats.get("socket"),
+            "receiver_recent_messages": reader_stats.get("recent_messages"),
             "last_message_type": getattr(self.reader, "last_message_type", None),
             "last_message_monotonic_ns": getattr(self.reader, "last_message_monotonic_ns", None),
             "last_message_vehicle_ms": getattr(self.reader, "last_message_vehicle_ms", None),

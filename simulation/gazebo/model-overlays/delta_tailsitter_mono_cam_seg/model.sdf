@@ -37,6 +37,11 @@
         </camera>
       </sensor>
     </link>
+    <joint name="CameraMountJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>camera_link</child>
+      <pose relative_to="base_link">0 0 0 0 0 0</pose>
+    </joint>
     <link name="depth_camera_link">
       <pose relative_to="camera_link">0 0 0 0 0 0</pose>
       <inertial>
