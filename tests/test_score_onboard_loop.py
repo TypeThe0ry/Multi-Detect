@@ -306,6 +306,40 @@ def test_count_metrics_keeps_structured_report_before_terminal_mission_status() 
     assert metrics["count_exact"] is True
 
 
+def test_campaign_count_summary_ignores_non_count_mission_truth_members() -> None:
+    from scripts.eval_onboard_loop_campaign import _count_summary
+
+    complete = [
+        {
+            "mission_plan_skills": ["survey", "return_home"],
+            "expected_count": 3,
+            "reported_count": None,
+            "count_exact": False,
+        },
+        {
+            "mission_plan_skills": ["monitor", "return_home"],
+            "expected_count": 3,
+            "reported_count": None,
+            "count_exact": False,
+        },
+        {
+            "mission_plan_skills": ["count", "return_home"],
+            "expected_count": 3,
+            "reported_count": 3,
+            "count_exact": True,
+        },
+    ]
+
+    assert _count_summary(complete) == {
+        "count_exact_rate": 1.0,
+        "mean_abs_count_error": 0.0,
+    }
+    assert _count_summary(complete[:2]) == {
+        "count_exact_rate": None,
+        "mean_abs_count_error": None,
+    }
+
+
 def test_mission_metrics_score_alerts_coverage_inspect_and_completion() -> None:
     from scripts.score_onboard_loop import _mission_metrics
 
