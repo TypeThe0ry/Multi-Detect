@@ -36,10 +36,15 @@
      `x500` + `mono_cam`；`scripts/run_simulator_3d_control_acceptance.py` 也只验证
      `x500_mono_cam` 的模型文本。需要把 gimbal 资产作为独立 profile 纳入控制验收，确认
      camera link、gimbal link 和 PX4 4019 启动文件都来自同一 revision。
-3. **Gazebo 传感器录制**
-   * `scripts/gazebo_sensor_stream.py` 的图像、CameraInfo 和机体 odometry 对齐链路没有
-     统一录制 gimbal joint state/角速度，也没有 propeller joint state。应加入独立的
-     gimbal 状态时间戳和 freshness gate；缺少新鲜姿态时不能回退到固定机体相机。
+3. **Gazebo 传感器录制（本次完成 gimbal freshness gate）**
+   * `scripts/gazebo_sensor_stream.py` 对模型名含 `gimbal` 的机型订阅
+     `/world/{world}/model/{model}/joint_state`，使用 sidecar 相同的
+     `cgo3_camera_joint`、`cgo3_vertical_arm_joint`、`cgo3_horizontal_arm_joint` 键和
+     `position_rad`/`velocity_rad_s` 字段。按 Gazebo 仿真时间选取不晚于图像的最近样本，
+     独立保留 joint source timestamp，允许的最大偏差为 100 ms；缺样、未来样本、超时或
+     缺少任一 gimbal 关节时拒绝该帧。通过帧会写入含帧时间、源时间、角度及角速度的
+     `gazebo_sensor_stream_gimbal_frame_state` 诊断事件，不使用固定机体相机姿态回退。
+     固定相机机型不订阅 joint state，原行为不变。propeller joint state 仍待后续单独接入。
 4. **螺旋桨旋转与渲染**
    * `simulation/gazebo/models/x500_mono_cam` 及相关 world/overlay 目前只保证动力学 rotor
      link，数据采集和离线 Blender 渲染没有把每帧 propeller angle/spin 作为输入。
