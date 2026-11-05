@@ -1455,7 +1455,13 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
             if not data:
                 runtime_data = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
                 data = runtime_data.get("task_intent", {}) if isinstance(runtime_data, dict) else {}
-            observation = data.get("observation", {}) if isinstance(data, dict) else {}
+            observation = (
+                data.get("confuser_observation", data.get("observation", {}))
+                if isinstance(data, dict) and plan.teacher_target == "confuser"
+                else data.get("observation", {})
+                if isinstance(data, dict)
+                else {}
+            )
             if isinstance(observation, dict):
                 requested = teacher_intent_clearance_altitude(observation)
             else:
@@ -1500,7 +1506,14 @@ def _validate_spawn_clearance(plan: CollectionPlan) -> dict[str, Any] | None:
     try:
         intent_path = _teacher_intent_path(Path(plan.scenario))
         intent = json.loads(intent_path.read_text(encoding="utf-8")) if intent_path.is_file() else {}
-        observation = intent.get("observation", {}) if isinstance(intent, dict) else {}
+        if isinstance(intent, dict):
+            observation = (
+                intent.get("confuser_observation", intent.get("observation", {}))
+                if plan.teacher_target == "confuser"
+                else intent.get("observation", {})
+            )
+        else:
+            observation = {}
         route_points = teacher_intent_clearance_route_points(observation)
     except (OSError, ValueError, TypeError):
         route_points = []
@@ -1993,7 +2006,14 @@ def _policy_for(
             if intent_path.is_file()
             else json.loads(Path(plan.runtime).read_text(encoding="utf-8")).get("task_intent", {})
         )
-        observation = task_intent.get("observation", {}) if isinstance(task_intent, dict) else {}
+        if isinstance(task_intent, dict):
+            observation = (
+                task_intent.get("confuser_observation", task_intent.get("observation", {}))
+                if plan.teacher_target == "confuser"
+                else task_intent.get("observation", {})
+            )
+        else:
+            observation = {}
         if isinstance(observation, dict):
             intent = observation
     except (OSError, ValueError):
@@ -2052,6 +2072,7 @@ def _policy_for(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
         altitude_m=altitude_m,
+        standoff_m=float(intent.get("standoff_m", min(15.0, max_detection_range * 0.5))),
         camera_pitch_rad=camera_pitch,
         camera_mount=camera_mount,
         max_detection_range_m=max_detection_range,
