@@ -78,6 +78,7 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
 from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
+from scripts.px4_clock_stall_capture import capture_stall as capture_px4_clock_stall  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_IMAGE_MODEL_ROOT,
     CONTAINER_MODEL_ROOT,
@@ -947,7 +948,13 @@ def _failure_class(reason: str, snapshot: dict[str, Any]) -> str:
 class DockerSimEnvironment:
     """Own one simulator container and always remove it on exit."""
 
-    def __init__(self, plan: CollectionPlan, episode_id: str):
+    def __init__(
+        self,
+        plan: CollectionPlan,
+        episode_id: str,
+        *,
+        episode_dir: str | Path | None = None,
+    ):
         self.plan = plan
         self.name = plan.attach_container or f"{plan.container_prefix}-{episode_id}"
         self.attached = bool(plan.attach_container)
@@ -956,6 +963,12 @@ class DockerSimEnvironment:
         self._last_px4_host_pids: list[int] = []
         self.failure_diagnostics: dict[str, Any] | None = None
         self.cleanup_diagnostics: dict[str, Any] | None = None
+        self.episode_dir = (
+            Path(episode_dir)
+            if episode_dir is not None
+            else Path(plan.out) / "episodes" / episode_id
+        )
+        self.stall_capture: dict[str, Any] | None = None
 
     def set_logger(self, logger):
         self._log = logger
@@ -1073,6 +1086,24 @@ class DockerSimEnvironment:
             self.failure_diagnostics["cleanup_state"] = self.cleanup_diagnostics
         return self.cleanup_diagnostics
 
+    def capture_stall_evidence(
+        self, reason: str, *, px4_clock_diagnostics: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Capture clock-stall evidence while the container is still alive."""
+        if self.stall_capture is None:
+            try:
+                self.stall_capture = capture_px4_clock_stall(
+                    self.name,
+                    self.episode_dir,
+                    docker=_docker_executable(self.plan),
+                    host_pids=self._last_px4_host_pids,
+                    px4_clock_diagnostics=px4_clock_diagnostics,
+                    reason=reason,
+                )
+            except BaseException as error:  # evidence must never alter outcome
+                self.stall_capture = {"capture_error": f"{type(error).__name__}: {error}"}
+        return self.stall_capture
+
     def __enter__(self) -> DockerSimEnvironment:
         if self.attached:
             self.wait(self.plan.max_episode_s)
@@ -1138,10 +1169,21 @@ class DockerSimEnvironment:
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         if exc_type is not None:
+            reason = f"{exc_type.__name__}: {exc}"
+            clock_diagnostics = getattr(exc, "px4_clock_diagnostics", None)
             self.capture_failure_diagnostics(
-                f"{exc_type.__name__}: {exc}",
-                px4_clock_diagnostics=getattr(exc, "px4_clock_diagnostics", None),
+                reason,
+                px4_clock_diagnostics=clock_diagnostics,
             )
+            if "clock stalled" in reason.lower():
+                evidence = self.capture_stall_evidence(
+                    reason, px4_clock_diagnostics=clock_diagnostics
+                )
+                if self.failure_diagnostics is not None:
+                    self.failure_diagnostics["stall_capture"] = {
+                        "path": evidence.get("path"),
+                        "samples": len(evidence.get("samples", [])),
+                    }
         if self.started and self.plan.keep_px4_ulog:
             try:
                 self.copy_px4_ulogs()
@@ -4070,7 +4112,7 @@ def run_episode(
     mover_driver = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
 
-    environment = DockerSimEnvironment(plan, episode_id)
+    environment = DockerSimEnvironment(plan, episode_id, episode_dir=recorder.episode_dir)
 
     def record_container_failure(exc: Exception) -> None:
         clock_diagnostics = getattr(exc, "px4_clock_diagnostics", None)
@@ -4082,10 +4124,11 @@ def run_episode(
             environment.capture_cleanup_diagnostics()
         recorder.meta["failure_class"] = diagnostics["failure_class"]
         recorder.meta["container_failure_diagnostics"] = diagnostics
-        if clock_diagnostics is not None:
+        if clock_diagnostics is not None or "clock stalled" in str(exc).lower():
             recorder.meta["failure_record"] = {
                 "kind": "px4_sim_clock_stall",
-                **clock_diagnostics,
+                **(clock_diagnostics or {}),
+                "stall_capture_path": (diagnostics.get("stall_capture") or {}).get("path"),
             }
 
     try:
