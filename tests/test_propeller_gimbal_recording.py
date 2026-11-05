@@ -138,16 +138,11 @@ def test_offline_renderer_accepts_composed_camera_pose() -> None:
         },
     )
     sample = samples[0]
-    assert len({tuple(value["location"]) for value in samples}) == 3
-    distance = sample["horizontal_distance_m"]
-    azimuth = sample["azimuth_rad"]
-    assert sample["location"][:2] != [3.0, 4.0]
-    assert sample["location"] == [
-        4.0 + distance * np.cos(azimuth),
-        3.0 + distance * np.sin(azimuth),
-        -5.0 + sample["height_above_target_center_m"],
-    ]
-    assert sample["look_at"] == [4.0, 4.0, -5.0]
+    assert {tuple(value["location"]) for value in samples} == {(4.0, 3.0, -5.0)}
+    assert sample["camera_pose_source"] == "recorded_composed_pose"
+    assert sample["camera_world_matrix"][0][3:] == [4.0]
+    assert sample["camera_world_matrix"][1][3:] == [3.0]
+    assert sample["camera_world_matrix"][2][3:] == [-5.0]
 
 
 def test_fixed_mount_projection_matches_recorded_composed_camera_pose() -> None:
