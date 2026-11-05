@@ -75,6 +75,7 @@ class SensorSample:
     depth_frame: Any = None
     segmentation: Any = None
     segmentation_info: dict[str, Any] | None = None
+    joint_state: dict[str, Any] | None = None
 
 
 def _import_wire_helpers() -> tuple[Any, Any, Any]:
@@ -264,6 +265,11 @@ class SensorStreamReader:
                         .copy()
                     )
                     segmentation_info = dict(segmentation_frame.metadata)
+                joint_state = None
+                if depth_frame is not None:
+                    sidecar = depth_frame.metadata.get("joint_state")
+                    if isinstance(sidecar, Mapping):
+                        joint_state = dict(sidecar)
                 stamp = self.clock()
                 sample = SensorSample(
                     rgb=bytes(payload),
@@ -299,6 +305,7 @@ class SensorStreamReader:
                     depth_frame=depth_frame,
                     segmentation=segmentation,
                     segmentation_info=segmentation_info,
+                    joint_state=joint_state,
                 )
                 self.buffer.put(sample)
                 self.latest = sample
@@ -446,6 +453,7 @@ class MavlinkReader:
         self._thread = None
         self._vehicle_newest_ms: int | None = None
         self.progress = progress
+        self._health_check: Callable[[], None] | None = None
         self.message_counts: Counter[str] = Counter()
         self.parse_errors = 0
         self.bad_crc = 0
@@ -544,12 +552,18 @@ class MavlinkReader:
 
     def raise_if_failed(self) -> None:
         """Raise a reader failure in the owning episode thread."""
+        if self._health_check is not None:
+            self._health_check()
         if self.error is not None:
             raise RuntimeError(
                 "MAVLink reader failed: "
                 f"{self.error}; messages={self.state.count}; "
                 f"parse_errors={self.parse_errors}; bad_crc={self.bad_crc}"
             ) from self.error
+
+    def set_health_check(self, callback: Callable[[], None] | None) -> None:
+        """Attach an owning-loop health check evaluated at existing poll points."""
+        self._health_check = callback
 
     def start(self) -> MavlinkReader:
         if self._thread is not None:

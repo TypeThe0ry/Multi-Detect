@@ -119,8 +119,9 @@ def _validate_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
         "cx_px",
         "cy_px",
     }
-    unknown = set(metadata) - required
-    if unknown or set(metadata) != required:
+    optional = {"joint_state"}
+    unknown = set(metadata) - required - optional
+    if unknown or not required.issubset(metadata):
         raise GazeboDepthWireError(
             "depth metadata field set mismatch: "
             f"missing={sorted(required - set(metadata))}, unknown={sorted(unknown)}"
@@ -172,6 +173,36 @@ def _validate_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
     normalized["width"] = width
     normalized["height"] = height
     normalized["stride_bytes"] = stride
+    if "joint_state" in normalized:
+        joint_state = normalized["joint_state"]
+        if not isinstance(joint_state, dict) or set(joint_state) != {
+            "timestamp_ns",
+            "source_timestamp_ns",
+            "source_skew_ns",
+            "gimbal_joint_state",
+            "propeller_joint_state",
+        }:
+            raise GazeboDepthWireError("joint_state field set mismatch")
+        joint_stamp = _positive_int(joint_state["timestamp_ns"], "joint_state.timestamp_ns")
+        source_joint_stamp = _positive_int(
+            joint_state["source_timestamp_ns"], "joint_state.source_timestamp_ns"
+        )
+        skew = joint_state["source_skew_ns"]
+        if joint_stamp != rgb_stamp or source_joint_stamp > rgb_stamp:
+            raise GazeboDepthWireError("joint state timestamp is not aligned with RGB")
+        if (
+            isinstance(skew, bool)
+            or not isinstance(skew, int)
+            or skew != rgb_stamp - source_joint_stamp
+            or skew > DEPTH_WIRE_MAX_SKEW_NS
+        ):
+            raise GazeboDepthWireError("joint state source timestamp is stale or inconsistent")
+        for name in ("gimbal_joint_state", "propeller_joint_state"):
+            state = joint_state[name]
+            if state is not None and (
+                not isinstance(state, dict) or state.get("timestamp_ns") != rgb_stamp
+            ):
+                raise GazeboDepthWireError(f"{name} timestamp is not aligned with RGB")
     return normalized
 
 

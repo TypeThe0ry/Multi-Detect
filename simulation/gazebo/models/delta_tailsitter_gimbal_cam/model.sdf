@@ -257,5 +257,11 @@
       <dimensions>3</dimensions>
       <odom_publish_frequency>50</odom_publish_frequency>
     </plugin>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <update_rate>100</update_rate>
+      <joint_name>c11_yaw_joint</joint_name>
+      <joint_name>c11_roll_joint</joint_name>
+      <joint_name>c11_pitch_joint</joint_name>
+    </plugin>
   </model>
 </sdf>

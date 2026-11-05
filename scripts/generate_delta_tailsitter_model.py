@@ -57,6 +57,18 @@ def _odometry_publisher(model: ET.Element) -> None:
     _element(plugin, "dimensions", 3)
     _element(plugin, "odom_publish_frequency", 50)
 
+
+def _gimbal_joint_state_publisher(model: ET.Element) -> None:
+    plugin = _element(
+        model,
+        "plugin",
+        filename="gz-sim-joint-state-publisher-system",
+        name="gz::sim::systems::JointStatePublisher",
+    )
+    _element(plugin, "update_rate", 100)
+    for name in ("c11_yaw_joint", "c11_roll_joint", "c11_pitch_joint"):
+        _element(plugin, "joint_name", name)
+
 def _vector(values) -> str:
     return " ".join(f"{value:.12g}" for value in values)
 
@@ -274,6 +286,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     # report a frame that was not the articulated camera frame.
     _element(imu, "pose", "0 0 0 0 0 3.141592653589793")
     _odometry_publisher(wrapped_model)
+    _gimbal_joint_state_publisher(wrapped_model)
     ET.indent(wrapper, space="  ")
     gimbal_dir = model_dir.parent / "delta_tailsitter_gimbal_cam"
     gimbal_dir.mkdir(parents=True, exist_ok=True)

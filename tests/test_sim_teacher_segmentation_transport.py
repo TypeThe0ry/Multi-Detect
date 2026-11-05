@@ -24,6 +24,7 @@ from scripts.sim_teacher_frame_server import (  # noqa: E402
     LatestCandidate,
     OdometrySamplePolicy,
     ODOMETRY_VELOCITY_BOUND_ERROR,
+    _frame_joint_state,
     encode_candidate,
 )
 
@@ -116,6 +117,32 @@ def test_optional_companion_roundtrip_and_identical_nearest_resize():
     record = encode_candidate(_candidate(), 0, _contract(), (2, 1), (2, 1), "FLOAT32_M")
     reader = SensorStreamReader(io.BytesIO(record), depth_binding=_contract(), max_frames=1).start()
     assert reader.wait_first_frame(2).segmentation is None
+    reader.stop()
+
+
+def test_gimbal_joint_angles_are_timestamp_bound_and_roundtrip_with_depth():
+    sample = {
+        "stamp_ns": 95,
+        "joints": {
+            "c11_yaw_joint": {"position_rad": 0.1, "velocity_rad_s": 0.0},
+            "c11_roll_joint": {"position_rad": -0.2, "velocity_rad_s": 0.0},
+            "c11_pitch_joint": {"position_rad": 0.3, "velocity_rad_s": 0.0},
+        },
+    }
+    joint_state = _frame_joint_state(sample, 100)
+    assert joint_state is not None
+    assert joint_state["source_skew_ns"] == 5
+    assert joint_state["gimbal_joint_state"]["position_rad"] == {
+        "yaw": 0.1,
+        "roll": -0.2,
+        "pitch": 0.3,
+    }
+
+    candidate = replace(_candidate(), joint_state=joint_state)
+    record = encode_candidate(candidate, 0, _contract(), (2, 1), (2, 1), "FLOAT32_M")
+    reader = SensorStreamReader(io.BytesIO(record), depth_binding=_contract(), max_frames=1).start()
+    decoded = reader.wait_first_frame(2)
+    assert decoded.joint_state == joint_state
     reader.stop()
 
 

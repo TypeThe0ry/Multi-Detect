@@ -14,6 +14,7 @@ import io
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import statistics
@@ -203,6 +204,12 @@ EPISODE_PROGRESS_STALL_TIMEOUT_S = 180.0
 # other airframes retain the established 900 s ceiling for a 300 s episode.
 DELTA_TAILSITTER_WALL_CEILING_FACTOR = 8.0
 DELTA_TAILSITTER_MIN_WALL_CEILING_S = 3600.0
+MAVLINK_SILENCE_SIM_TIMEOUT_S = 5.0
+MAVLINK_SILENCE_STALLED_SIM_WALL_S = 15.0
+MAVLINK_SILENCE_WALL_CAP_S = 60.0
+MAVLINK_SILENCE_MIN_WALL_S = 5.0
+GIMBAL_HOVER_STABLE_S = 3.0
+GIMBAL_HOVER_MAX_WALL_S = 300.0
 GCS_SOURCE_SYSTEM = 255
 GCS_SOURCE_COMPONENT = 190
 # The only collector-specific SITL setting is the GCS/RC input mode used by
@@ -832,17 +839,35 @@ def _docker_available() -> bool:
 
 
 class DockerSimEnvironment:
-    """Own one simulator container and always remove it on exit."""
+    """Own one simulator container and retain best-effort episode evidence."""
 
-    def __init__(self, plan: CollectionPlan, episode_id: str):
+    def __init__(self, plan: CollectionPlan, episode_id: str, episode_dir: Path | None = None):
         self.plan = plan
         self.name = plan.attach_container or f"{plan.container_prefix}-{episode_id}"
         self.attached = bool(plan.attach_container)
         self.started = False
+        self.episode_dir = Path(episode_dir) if episode_dir is not None else None
+        self.evidence_dir = (
+            self.episode_dir / "container-evidence" if self.episode_dir is not None else None
+        )
+        self.evidence_index: dict[str, Any] | None = None
+        self.sim_clock_stamp_ns: int | None = None
+        self.sim_clock_progress_wall = time.monotonic()
+        self._sim_clock_lock = threading.Lock()
         self._log = None
 
     def set_logger(self, logger):
         self._log = logger
+
+    def note_sim_clock(self, stamp_ns: int) -> None:
+        with self._sim_clock_lock:
+            if self.sim_clock_stamp_ns is None or stamp_ns > self.sim_clock_stamp_ns:
+                self.sim_clock_stamp_ns = int(stamp_ns)
+                self.sim_clock_progress_wall = time.monotonic()
+
+    def sim_clock_snapshot(self) -> tuple[int | None, float]:
+        with self._sim_clock_lock:
+            return self.sim_clock_stamp_ns, self.sim_clock_progress_wall
 
     def _progress(self, phase: str, **fields: object) -> None:
         payload = {
@@ -874,9 +899,10 @@ class DockerSimEnvironment:
 
     def wait(self, timeout_s: float) -> None:
         deadline = time.monotonic() + timeout_s
+        executable = _docker_executable(self.plan)
         while time.monotonic() < deadline:
             result = subprocess.run(
-                ["docker", "inspect", "--format", "{{.State.Running}}", self.name],
+                [executable, "inspect", "--format", "{{.State.Running}}", self.name],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -889,74 +915,246 @@ class DockerSimEnvironment:
             time.sleep(0.25)
         raise TimeoutError(f"SIM container did not become running within {timeout_s:.1f}s")
 
-    def copy_px4_ulogs(self) -> list[str]:
-        """Copy every PX4 ``.ulg`` in the container into ``<out>/jobs/<name>/px4-ulog``."""
-        executable = _docker_executable(self.plan)
-        listing = subprocess.run(
-            [executable, "exec", self.name, "find", "/", "-xdev", "-name", "*.ulg", "-type", "f"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        destination = Path(self.plan.out) / "jobs" / self.name / "px4-ulog"
-        copied: list[str] = []
-        for remote in sorted(line.strip() for line in listing.stdout.splitlines() if line.strip()):
-            destination.mkdir(parents=True, exist_ok=True)
-            local = destination / remote.strip("/").replace("/", "__")
+    def inspect_state(self) -> dict[str, Any] | None:
+        try:
             result = subprocess.run(
-                [executable, "cp", f"{self.name}:{remote}", str(local)],
+                [
+                    _docker_executable(self.plan),
+                    "inspect",
+                    "--format",
+                    "{{json .State}}",
+                    self.name,
+                ],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=8,
+                check=False,
+            )
+            if result.returncode != 0:
+                return {"inspect_error": (result.stderr or result.stdout).strip()}
+            value = json.loads(result.stdout)
+            return value if isinstance(value, dict) else {"inspect_error": "invalid state"}
+        except Exception as error:
+            return {"inspect_error": f"{type(error).__name__}: {error}"}
+
+    @staticmethod
+    def _console_tail(text: str, *, limit: int = 1200) -> tuple[str, int]:
+        ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+        cleaned = ansi.sub("", text).replace("\r", "\n")
+        rows = []
+        prompts_removed = 0
+        for line in cleaned.splitlines():
+            row = re.sub(r"^\s*pxh>\s?", "", line, flags=re.IGNORECASE)
+            if row != line:
+                prompts_removed += 1
+            if row.strip():
+                rows.append(row.rstrip())
+        return "\n".join(rows[-limit:]) + ("\n" if rows else ""), prompts_removed
+
+    def _capture_container_path(
+        self, remote: str, destination: Path, errors: dict[str, str]
+    ) -> bool:
+        try:
+            destination.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run(
+                [
+                    _docker_executable(self.plan),
+                    "cp",
+                    f"{self.name}:{remote}/.",
+                    str(destination),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=90,
                 check=False,
             )
             if result.returncode == 0:
-                copied.append(str(local))
-        self._progress("px4_ulog_copied", container=self.name, files=copied)
-        return copied
+                return True
+            errors[remote] = (result.stderr or result.stdout or "docker cp failed").strip()[-1000:]
+        except Exception as error:
+            errors[remote] = f"{type(error).__name__}: {error}"
+        return False
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
-        if self.started and self.plan.keep_px4_ulog:
+    def _capture_evidence(self) -> dict[str, Any]:
+        assert self.evidence_dir is not None
+        result: dict[str, Any] = {
+            "container": self.name,
+            "captured_wall_time": time.time(),
+            "running_before_cleanup": None,
+            "state_before_cleanup": None,
+            "sim_clock_stamp_ns_before_cleanup": None,
+            "sim_clock_advancing_before_cleanup": None,
+            "exit_code": None,
+            "oom_killed": None,
+            "errors": {},
+        }
+        errors: dict[str, str] = result["errors"]
+        self.evidence_dir.mkdir(parents=True, exist_ok=True)
+        initial_state = self.inspect_state()
+        result["state_before_cleanup"] = initial_state
+        if initial_state is not None:
+            result["running_before_cleanup"] = initial_state.get("Running")
+        sim_stamp_ns, sim_progress_wall = self.sim_clock_snapshot()
+        result["sim_clock_stamp_ns_before_cleanup"] = sim_stamp_ns
+        result["sim_clock_advancing_before_cleanup"] = (
+            time.monotonic() - sim_progress_wall <= 2.5 if sim_stamp_ns is not None else None
+        )
+        keep_running = bool(
+            self.started
+            and self.plan.keep_container_on_failure
+            and self._exit_error is not None
+            and self._exit_error is not LowDiskSpace
+        )
+        if self.started and not keep_running:
             try:
-                self.copy_px4_ulogs()
-            except (OSError, subprocess.SubprocessError) as error:
-                self._progress("px4_ulog_copy_failed", container=self.name, error=str(error))
-        if self.started and exc_type is not None:
-            # Keep the container's own last words: a PX4 that never sends a
-            # heartbeat leaves nothing else behind once the container is removed.
-            try:
-                logs = subprocess.run(
-                    [_docker_executable(self.plan), "logs", "--tail", "120", self.name],
+                stopped = subprocess.run(
+                    [_docker_executable(self.plan), "stop", "--timeout", "10", self.name],
                     capture_output=True,
                     text=True,
-                    timeout=20,
+                    timeout=15,
                     check=False,
                 )
-                self._progress(
-                    "container_logs_on_failure",
-                    container=self.name,
-                    error=exc_type.__name__,
-                    tail=(logs.stdout + logs.stderr)[-12000:],
-                )
-            except (OSError, subprocess.SubprocessError) as error:
-                self._progress("container_logs_failed", container=self.name, error=str(error))
-        if self.started and not (
-            exc_type is not None
-            and self.plan.keep_container_on_failure
-            and exc_type is not LowDiskSpace
-        ):
-            subprocess.run(
-                ["docker", "rm", "--force", self.name],
+                result["stop_returncode"] = stopped.returncode
+                if stopped.returncode != 0:
+                    errors["docker_stop"] = (stopped.stderr or stopped.stdout).strip()[-1000:]
+            except Exception as error:
+                errors["docker_stop"] = f"{type(error).__name__}: {error}"
+        state = self.inspect_state()
+        result["state_after_cleanup_stop"] = state
+        if isinstance(state, dict):
+            result["exit_code"] = state.get("ExitCode")
+            result["oom_killed"] = state.get("OOMKilled")
+        if initial_state is not None and initial_state.get("Running") is False:
+            result["exit_code_source"] = "container_exit_before_cleanup"
+        elif state is not None and state.get("Running") is False and result.get("stop_returncode") == 0:
+            result["exit_code_source"] = "collector_stop"
+        elif state is not None and state.get("Running") is True:
+            result["exit_code_source"] = "container_still_running"
+        else:
+            result["exit_code_source"] = "state_after_cleanup_stop"
+        try:
+            logs = subprocess.run(
+                [_docker_executable(self.plan), "logs", "--tail", "5000", self.name],
                 capture_output=True,
                 text=True,
-                timeout=15,
+                timeout=30,
                 check=False,
             )
-            self.started = False
-            self._progress("cleanup", container=self.name, removed=True)
-        elif self.started:
-            self._progress("cleanup", container=self.name, removed=False, kept=True)
+            raw_logs = (logs.stdout or "") + (logs.stderr or "")
+            (self.evidence_dir / "container.log").write_text(raw_logs, encoding="utf-8")
+            console_tail, removed = self._console_tail(raw_logs)
+            (self.evidence_dir / "px4-console-tail.log").write_text(
+                console_tail, encoding="utf-8"
+            )
+            result["container_logs"] = {
+                "returncode": logs.returncode,
+                "console_tail_lines": len(console_tail.splitlines()),
+                "pxh_prompt_lines_removed": removed,
+            }
+            if logs.returncode != 0:
+                errors["docker_logs"] = (logs.stderr or "docker logs failed").strip()[-1000:]
+        except Exception as error:
+            errors["docker_logs"] = f"{type(error).__name__}: {error}"
+
+        paths = {
+            "/opt/px4-gazebo/log": self.evidence_dir / "px4-ulog",
+            "/root/.gz/sim/log": self.evidence_dir / "gz-sim-log",
+        }
+        copied = {
+            remote: self._capture_container_path(remote, local, errors)
+            for remote, local in paths.items()
+        }
+        ulogs = sorted((self.evidence_dir / "px4-ulog").rglob("*.ulg"))
+        analyzed: list[str] = []
+        for path in ulogs:
+            try:
+                from scripts.analyze_px4_ulog import parse_ulog, render_markdown
+
+                report = render_markdown(parse_ulog(path))
+                report_path = path.with_suffix(path.suffix + ".analysis.md")
+                report_path.write_text(report, encoding="utf-8")
+                analyzed.append(str(report_path.relative_to(self.episode_dir)))
+            except Exception as error:
+                errors[f"ulog_analysis:{path.name}"] = f"{type(error).__name__}: {error}"
+        server_logs = sorted(
+            path.relative_to(self.evidence_dir).as_posix()
+            for path in (self.evidence_dir / "gz-sim-log").rglob("server_console.log")
+        ) if (self.evidence_dir / "gz-sim-log").is_dir() else []
+        result.update(
+            {
+                "copied_paths": copied,
+                "ulog_files": [str(path.relative_to(self.episode_dir)) for path in ulogs],
+                "ulog_analysis": analyzed,
+                "server_console_logs": server_logs,
+                "sim_clock_stamp_ns": self.sim_clock_snapshot()[0],
+                "evidence_directory": str(self.evidence_dir.relative_to(self.episode_dir)),
+            }
+        )
+        if self.plan.keep_px4_ulog and ulogs:
+            legacy = Path(self.plan.out) / "jobs" / self.name / "px4-ulog"
+            for path in ulogs:
+                try:
+                    legacy.mkdir(parents=True, exist_ok=True)
+                    relative = path.relative_to(self.evidence_dir / "px4-ulog")
+                    shutil.copy2(path, legacy / relative.as_posix().replace("/", "__"))
+                except Exception as error:
+                    errors[f"legacy_ulog_copy:{path.name}"] = f"{type(error).__name__}: {error}"
+        (self.evidence_dir / "index.json").write_text(
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return result
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self._exit_error = exc_type
+        try:
+            if self.evidence_dir is not None:
+                try:
+                    self.evidence_index = self._capture_evidence()
+                    self._progress(
+                        "container_evidence_captured",
+                        container=self.name,
+                        ulog_files=len(self.evidence_index.get("ulog_files", [])),
+                        errors=self.evidence_index.get("errors", {}),
+                    )
+                except Exception as error:
+                    self.evidence_index = {
+                        "container": self.name,
+                        "evidence_directory": str(self.evidence_dir.relative_to(self.episode_dir)),
+                        "capture_error": f"{type(error).__name__}: {error}",
+                    }
+                    try:
+                        self.evidence_dir.mkdir(parents=True, exist_ok=True)
+                        (self.evidence_dir / "capture-error.json").write_text(
+                            json.dumps(self.evidence_index, indent=2, ensure_ascii=False),
+                            encoding="utf-8",
+                        )
+                    except Exception:
+                        pass
+                    self._progress(
+                        "container_evidence_failed", container=self.name,
+                        error=f"{type(error).__name__}: {error}",
+                    )
+        finally:
+            keep_running = bool(
+                exc_type is not None
+                and self.plan.keep_container_on_failure
+                and exc_type is not LowDiskSpace
+            )
+            if self.started and not keep_running:
+                try:
+                    subprocess.run(
+                        [_docker_executable(self.plan), "rm", "--force", self.name],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                        check=False,
+                    )
+                except Exception as error:
+                    self._progress("container_remove_failed", container=self.name, error=str(error))
+                self.started = False
+                self._progress("cleanup", container=self.name, removed=True)
+            elif self.started:
+                self._progress("cleanup", container=self.name, removed=False, kept=True)
         return False
 
 
@@ -1898,10 +2096,18 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
             "angles_deg": gimbal_angles_from_status(gimbal) if gimbal is not None else None,
             "manager": MavlinkReader._mapping(gimbal_manager) if gimbal_manager is not None else None,
         }
+    attitude = state.get("ATTITUDE")
+    attitude_deg = None
+    if attitude is not None:
+        attitude_deg = {
+            axis: math.degrees(float(_field(attitude, source, 0.0)))
+            for axis, source in (("roll", "roll"), ("pitch", "pitch"), ("yaw", "yaw"))
+        }
     return {
         "vtol_state": _field(extended, "vtol_state", None),
         "landed_state": _field(extended, "landed_state", None),
         "airspeed_mps": airspeed,
+        "attitude_deg": attitude_deg,
         "gimbal_status": gimbal_status,
     }
 
@@ -1966,6 +2172,119 @@ def _pose_sim_stamp_ns(state: Any) -> int | None:
     if not math.isfinite(value) or value < 0:
         return None
     return int(value * 1_000_000)
+
+
+class MavlinkTelemetrySilenceWatchdog:
+    """Fail waits when wire silence outlasts both vehicle time and host time."""
+
+    def __init__(
+        self,
+        reader: MavlinkReader,
+        environment: DockerSimEnvironment,
+        recorder: EpisodeRecorder,
+        *,
+        clock: Any = time.monotonic,
+    ) -> None:
+        self.reader = reader
+        self.environment = environment
+        self.recorder = recorder
+        self.clock = clock
+        self.last_count = int(reader.state.count)
+        received = getattr(reader.state, "received_monotonic_ns", {})
+        latest_message_ns = max(received.values(), default=None)
+        self.last_message_wall = (
+            latest_message_ns / 1e9 if latest_message_ns is not None else self.clock()
+        )
+        self.last_vehicle_ms = reader.state.vehicle_time_boot_ms
+        sim_stamp, sim_progress_wall = environment.sim_clock_snapshot()
+        self.last_telemetry_sim_ns = sim_stamp
+        self.last_observed_sim_stamp_ns = sim_stamp
+        self.last_sim_progress_wall = sim_progress_wall
+        self.fired = False
+
+    def check(self) -> None:
+        if self.fired:
+            return
+        now = self.clock()
+        state = self.reader.state
+        if int(state.count) != self.last_count:
+            self.last_count = int(state.count)
+            self.last_message_wall = now
+            self.last_vehicle_ms = getattr(state, "vehicle_time_boot_ms", None)
+            sim_stamp, self.last_sim_progress_wall = self.environment.sim_clock_snapshot()
+            self.last_telemetry_sim_ns = sim_stamp
+            self.last_observed_sim_stamp_ns = sim_stamp
+            return
+
+        sim_stamp_ns, sim_progress_wall = self.environment.sim_clock_snapshot()
+        if sim_stamp_ns is not None and (
+            self.last_observed_sim_stamp_ns is None
+            or sim_stamp_ns > self.last_observed_sim_stamp_ns
+        ):
+            self.last_observed_sim_stamp_ns = sim_stamp_ns
+            self.last_sim_progress_wall = sim_progress_wall
+        wall_silent_s = max(0.0, now - self.last_message_wall)
+        sim_base_ns = self.last_telemetry_sim_ns
+        if sim_base_ns is None and self.last_vehicle_ms is not None:
+            sim_base_ns = int(self.last_vehicle_ms) * 1_000_000
+        sim_elapsed_s = (
+            max(0.0, (sim_stamp_ns - sim_base_ns) / 1e9)
+            if sim_stamp_ns is not None and sim_base_ns is not None
+            else None
+        )
+        sim_stalled_s = max(0.0, now - self.last_sim_progress_wall)
+        failed = wall_silent_s >= MAVLINK_SILENCE_WALL_CAP_S
+        failed = failed or (
+            wall_silent_s >= MAVLINK_SILENCE_MIN_WALL_S
+            and sim_elapsed_s is not None
+            and sim_elapsed_s >= MAVLINK_SILENCE_SIM_TIMEOUT_S
+        )
+        failed = failed or (
+            wall_silent_s >= MAVLINK_SILENCE_MIN_WALL_S
+            and sim_stalled_s >= MAVLINK_SILENCE_STALLED_SIM_WALL_S
+        )
+        if not failed:
+            return
+
+        self.fired = True
+        state_snapshot = self.environment.inspect_state()
+        diagnostic = {
+            "error": "MAVLink telemetry silent",
+            "wall_silent_s": wall_silent_s,
+            "sim_elapsed_since_last_mavlink_s": sim_elapsed_s,
+            "sim_time_stalled_wall_s": sim_stalled_s,
+            "sim_clock_stamp_ns": sim_stamp_ns,
+            "sim_clock_advancing": (
+                now - sim_progress_wall <= 2.5 if sim_stamp_ns is not None else None
+            ),
+            "container": {
+                "name": self.environment.name,
+                "running": state_snapshot.get("Running") if state_snapshot else None,
+                "state": state_snapshot,
+            },
+            "thresholds": {
+                "sim_s": MAVLINK_SILENCE_SIM_TIMEOUT_S,
+                "stalled_sim_wall_s": MAVLINK_SILENCE_STALLED_SIM_WALL_S,
+                "wall_cap_s": MAVLINK_SILENCE_WALL_CAP_S,
+                "minimum_wall_s": MAVLINK_SILENCE_MIN_WALL_S,
+            },
+        }
+        self.recorder.meta["telemetry_silence"] = diagnostic
+        self.recorder.episode_path.write_text(
+            json.dumps(self.recorder.meta, indent=2), encoding="utf-8"
+        )
+        self.recorder.record_mavlink(
+            {"message_type": "collector_telemetry_silence", **diagnostic}
+        )
+        (self.recorder.episode_dir / "telemetry-silence.json").write_text(
+            json.dumps(diagnostic, indent=2), encoding="utf-8"
+        )
+        raise TimeoutError(
+            "MAVLink telemetry silent: "
+            f"wall_s={wall_silent_s:.1f}, sim_elapsed_s={sim_elapsed_s}, "
+            f"sim_time_advancing={diagnostic['sim_clock_advancing']}, "
+            f"container_running={diagnostic['container']['running']}"
+        )
 
 
 def _snapshot_mavlink_state(state: MavlinkState) -> MavlinkState:
@@ -2536,6 +2855,118 @@ def _command_and_wait_gimbal(
                 return {"status": "reached", "target_deg": dict(target), "actual_deg": _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw_deg), "error_deg": error, "tolerance_deg": tolerance_deg}
         time.sleep(0.05)
     return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error, "tolerance_deg": tolerance_deg}
+
+
+def _wait_for_stable_mc_hover(
+    reader: MavlinkReader,
+    *,
+    stable_s: float = GIMBAL_HOVER_STABLE_S,
+    timeout_s: float = 60.0,
+    wall_timeout_s: float = GIMBAL_HOVER_MAX_WALL_S,
+    clock: Any = time.monotonic,
+) -> dict[str, Any]:
+    wall_started = clock()
+    started_boot_ms = reader.state.vehicle_time_boot_ms
+    stable_since_ms: int | None = None
+    sample_count = 0
+    maximum_abs_roll = 0.0
+    maximum_abs_pitch = 0.0
+    last_state: dict[str, Any] = {}
+    while clock() - wall_started < wall_timeout_s:
+        reader.raise_if_failed()
+        attitude = reader.state.get("ATTITUDE")
+        vtol_state = _field(reader.state.get("EXTENDED_SYS_STATE"), "vtol_state", None)
+        boot_ms = _field(attitude, "time_boot_ms", reader.state.vehicle_time_boot_ms)
+        if isinstance(boot_ms, (int, float)) and not isinstance(boot_ms, bool):
+            boot_ms = int(boot_ms)
+        else:
+            boot_ms = None
+        if attitude is not None and boot_ms is not None:
+            roll = math.degrees(float(_field(attitude, "roll", 0.0)))
+            pitch = math.degrees(float(_field(attitude, "pitch", 0.0)))
+            maximum_abs_roll = max(maximum_abs_roll, abs(roll))
+            maximum_abs_pitch = max(maximum_abs_pitch, abs(pitch))
+            last_state = {
+                "vtol_state": vtol_state,
+                "roll_deg": roll,
+                "pitch_deg": pitch,
+                "time_boot_ms": boot_ms,
+            }
+            if vtol_state == 3 and abs(roll) < 5.0 and abs(pitch) < 5.0:
+                stable_since_ms = boot_ms if stable_since_ms is None else stable_since_ms
+                sample_count += 1
+                if boot_ms - stable_since_ms >= int(stable_s * 1000.0):
+                    return {
+                        "status": "stable",
+                        "vtol_state": vtol_state,
+                        "stable_duration_s": (boot_ms - stable_since_ms) / 1000.0,
+                        "sample_count": sample_count,
+                        "maximum_abs_roll_deg": maximum_abs_roll,
+                        "maximum_abs_pitch_deg": maximum_abs_pitch,
+                        "flight_state": _flight_state_snapshot(reader.state),
+                        "elapsed_wall_s": clock() - wall_started,
+                    }
+            else:
+                stable_since_ms = None
+            if (
+                started_boot_ms is not None
+                and boot_ms - int(started_boot_ms) >= int(timeout_s * 1000.0)
+            ):
+                break
+        time.sleep(0.05)
+    raise TimeoutError(
+        "timed out waiting for stable MC hover: "
+        f"stable_s={stable_s:.1f}, timeout_sim_s={timeout_s:.1f}, "
+        f"last_state={last_state}"
+    )
+
+
+def _request_fresh_sensor_sample(
+    sensor_reader: Any,
+    mav_reader: MavlinkReader,
+    *,
+    timeout_s: float = 15.0,
+) -> Any:
+    previous_count = int(sensor_reader.frames_received)
+    minimum_stamp_ns = _pose_sim_stamp_ns(mav_reader.state) or 0
+    sensor_reader.request(minimum_stamp_ns)
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        mav_reader.raise_if_failed()
+        sensor_reader.raise_if_failed()
+        if int(sensor_reader.frames_received) > previous_count:
+            sample = sensor_reader.latest
+            if sample is not None and int(sample.sensor_stamp_ns) >= minimum_stamp_ns:
+                return sample
+        time.sleep(0.02)
+    raise TimeoutError(
+        "timed out waiting for a fresh Gazebo camera/joint-state sample "
+        f"at or after sim_ns={minimum_stamp_ns}"
+    )
+
+
+def _gimbal_measurement_snapshot(reader: MavlinkReader, sensor_sample: Any) -> dict[str, Any]:
+    state = reader.state
+    aligned_state = reader.aligned_state(sensor_sample.sensor_stamp_ns)
+    device = state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    attitude = aligned_state.get("ATTITUDE")
+    received = getattr(state, "received_monotonic_ns", {})
+    sidecar = getattr(sensor_sample, "joint_state", None)
+    gimbal_joints = sidecar.get("gimbal_joint_state") if isinstance(sidecar, dict) else None
+    return {
+        "body_attitude_deg": _flight_state_snapshot(aligned_state)["attitude_deg"],
+        "body_attitude_time_boot_ms": _field(attitude, "time_boot_ms", None),
+        "body_pose_alignment": getattr(aligned_state, "pose_alignment", None),
+        "vtol_state": _flight_state_snapshot(state)["vtol_state"],
+        "gimbal_device_attitude_status": (
+            MavlinkReader._mapping(device) if device is not None else None
+        ),
+        "gimbal_device_receive_monotonic_ns": received.get(
+            "GIMBAL_DEVICE_ATTITUDE_STATUS"
+        ),
+        "gimbal_joint_state": gimbal_joints,
+        "sensor_stamp_ns": int(sensor_sample.sensor_stamp_ns),
+    }
 
 
 class _ReaderAckLink:
@@ -3661,6 +4092,11 @@ def _make_sensor_process(
                     event = {"message": line[:500]}
                 if isinstance(event, dict) and event.get("event") == "gazebo_sensor_stream_started":
                     _progress("sensor_stream_started", details=event)
+                elif isinstance(event, dict) and event.get("event") == "sim_teacher_sim_clock":
+                    try:
+                        environment.note_sim_clock(int(event["stamp_ns"]))
+                    except (KeyError, TypeError, ValueError):
+                        _progress("sensor_sim_clock_invalid", details=event)
                 else:
                     # Surface every other diagnostic so a dying frame server is debuggable.
                     _progress("sensor_stream_stderr", details=event)
@@ -3807,12 +4243,14 @@ def run_episode(
     telemetry_connection = None
     sensor_process = None
     sensor_reader = mav_reader = None
+    telemetry_watchdog = None
+    environment = None
     launch_status_texts: list[str] = []
     setpoint_streamer = None
     mover_driver = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
     try:
-        with DockerSimEnvironment(plan, episode_id) as environment:
+        with DockerSimEnvironment(plan, episode_id, recorder.episode_dir) as environment:
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
             _progress("gz_world_loaded", container=environment.name)
             mover_driver = _start_mover_driver(plan, environment, truth_path)
@@ -3998,6 +4436,10 @@ def run_episode(
             sensor_reader.request(0)
             sensor_reader.wait_first_frame(_episode_budget(started, plan.max_episode_s, 45.0))
             _progress("sensor_stream_first_frame", frames=sensor_reader.frames_received)
+            telemetry_watchdog = MavlinkTelemetrySilenceWatchdog(
+                mav_reader, environment, recorder
+            )
+            mav_reader.set_health_check(telemetry_watchdog.check)
             ekf_required = (
                 "LOCAL_POSITION_NED",
                 "ATTITUDE",
@@ -4145,7 +4587,9 @@ def run_episode(
                         if profile.category == "fixed_wing"
                         else None
                     ),
-                    transition_after_takeoff=not hover_mission,
+                    transition_after_takeoff=(
+                        not hover_mission and profile.camera.mount != "gimbal"
+                    ),
                     airframe_profile=profile,
                     telemetry_reader=mav_reader,
                     # Fixed-wing/VTOL command durations follow PX4's lockstep
@@ -4256,17 +4700,67 @@ def run_episode(
                 )
                 _progress("takeoff_reached", method=takeoff_method)
                 if profile.camera.mount == "gimbal":
+                    hover_stability = _wait_for_stable_mc_hover(mav_reader)
+                    before_sample = _request_fresh_sensor_sample(sensor_reader, mav_reader)
+                    before_measurement = _gimbal_measurement_snapshot(
+                        mav_reader, before_sample
+                    )
+                    if before_measurement["gimbal_joint_state"] is None:
+                        raise RuntimeError(
+                            "Gazebo gimbal joint-state sample is missing one or more axes"
+                        )
+                    recorder.record_mavlink(
+                        {
+                            "message_type": "gimbal_smoke_measurement",
+                            "phase": "before_command",
+                            "stable_hover": hover_stability,
+                            **before_measurement,
+                        }
+                    )
                     gimbal_result = _command_and_wait_gimbal(
                         vehicle,
                         mav_reader,
                         {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
                         tolerance_deg=4.0,
                     )
+                    after_sample = _request_fresh_sensor_sample(sensor_reader, mav_reader)
+                    after_measurement = _gimbal_measurement_snapshot(
+                        mav_reader, after_sample
+                    )
+                    if after_measurement["gimbal_joint_state"] is None:
+                        raise RuntimeError(
+                            "Gazebo gimbal joint-state sample is missing one or more axes"
+                        )
+                    gimbal_result["stable_hover"] = hover_stability
+                    gimbal_result["measurement_before_command"] = before_measurement
+                    gimbal_result["measurement_after_command"] = after_measurement
                     recorder.meta["gimbal_smoke"] = gimbal_result
                     recorder.record_mavlink({"message_type": "gimbal_smoke_result", **gimbal_result})
                     recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
                     if gimbal_result["status"] != "reached":
                         raise RuntimeError(f"gimbal target not reached: {gimbal_result}")
+                    if not hover_mission:
+                        transition = executor._invoke(
+                            "vtol_transition", "FW", timeout_s=executor._timeout()
+                        )
+                        if not executor._ok(transition):
+                            raise RuntimeError(
+                                f"failed to transition to FW after gimbal measurement: "
+                                f"{_plain_record(transition)}"
+                            )
+                        if not _wait_fw_state(
+                            "transition_fw", FixedWingVtolExecutor.STATE_TIMEOUT_S["transition_fw"]
+                        ):
+                            raise TimeoutError(
+                                "timed out transitioning to FW after gimbal measurement"
+                            )
+                        executor.mode = "FW"
+                        recorder.record_mavlink(
+                            {
+                                "message_type": "gimbal_measurement_fw_transition_complete",
+                                "flight_state": _flight_state_snapshot(mav_reader.state),
+                            }
+                        )
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
@@ -4674,6 +5168,9 @@ def run_episode(
             for connection in (telemetry_connection,):
                 if connection is not None:
                     connection.close()
+        if environment is not None and environment.evidence_index is not None:
+            recorder.meta["container_evidence"] = environment.evidence_index
+            recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
     except LowDiskSpace as exc:
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
@@ -4711,6 +5208,8 @@ def run_episode(
                     pass
         if video_writer is not None:
             recorder.meta["video"] = video_writer.close()
+        if environment is not None and environment.evidence_index is not None:
+            recorder.meta["container_evidence"] = environment.evidence_index
         recorder.mark_finished(status="aborted_low_disk", failure=str(exc))
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
@@ -4753,6 +5252,8 @@ def run_episode(
             recorder.close_mavlink_stream()
         if video_writer is not None:
             recorder.meta["video"] = video_writer.close()
+        if environment is not None and environment.evidence_index is not None:
+            recorder.meta["container_evidence"] = environment.evidence_index
         recorder.mark_finished(status="failed", failure=f"{type(exc).__name__}: {exc}")
         raise
     return recorder.episode_dir
@@ -4883,7 +5384,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--keep-px4-ulog",
         action="store_true",
-        help="copy PX4 .ulg flight logs to <out>/jobs/<container>/px4-ulog before cleanup",
+        help=(
+            "also copy episode-retained PX4 .ulg files to the legacy "
+            "<out>/jobs/<container>/px4-ulog path"
+        ),
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--rgb-size", type=_parse_size, default=DEFAULT_RGB_SIZE)

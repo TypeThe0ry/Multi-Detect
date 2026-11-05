@@ -520,3 +520,20 @@ def test_camera_wrappers_and_overlays_publish_odometry_once(model_name: str) -> 
     for path in (root / "models" / model_name / "model.sdf", root / "model-overlays" / f"{model_name}_seg" / "model.sdf"):
         plugins = ET.parse(path).getroot().findall(".//plugin[@name='gz::sim::systems::OdometryPublisher']")
         assert len(plugins) == 1, path
+
+
+def test_gimbal_wrapper_publishes_all_three_joint_angles():
+    root = Path(__file__).resolve().parents[1] / "simulation" / "gazebo"
+    for path in (
+        root / "models/delta_tailsitter_gimbal_cam/model.sdf",
+        root / "model-overlays/delta_tailsitter_gimbal_cam_seg/model.sdf",
+    ):
+        plugins = ET.parse(path).getroot().findall(
+            ".//plugin[@name='gz::sim::systems::JointStatePublisher']"
+        )
+        assert len(plugins) == 1, path
+        assert {item.text for item in plugins[0].findall("joint_name")} == {
+            "c11_yaw_joint",
+            "c11_roll_joint",
+            "c11_pitch_joint",
+        }
