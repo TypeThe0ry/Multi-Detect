@@ -511,13 +511,11 @@ def _aero(model):
     rho, ar, efficiency = 1.15, 1.250**2 / area, 0.8
     k = 1 / (math.pi * efficiency * ar)
     alpha_trim = ASSEMBLY_MASS_KG * 9.80665 / (0.5 * rho * 15**2 * area * 2.82)
-    # Equivalent reflex camber: bias the central and outer-panel zero-lift
-    # angles in opposite directions.  The biases are solved at 15 m/s and
-    # alpha_trim so the total lift is unchanged while Cm0 cancels the
-    # nose-down moment from the 3.5% static margin.  This keeps dCm/dalpha
-    # unchanged and avoids asking the motor rows to provide cruise trim.
-    central_a0 = math.radians(1.4684166027)
-    outer_a0 = math.radians(-3.4387003075)
+    # Equivalent reflex camber: solve the local LiftDrag angles, sweep
+    # projection, drag and r x F terms at the report's 15 m/s level-flight trim.
+    # This keeps the design mass/lift and the 3.5% static margin unchanged.
+    central_a0 = math.radians(1.0647676978297171)
+    outer_a0 = math.radians(-2.2741621307571376)
     # 简单 LiftDrag 只有 |cda*alpha|，没有 CD0 或二次诱导阻力。
     # 在 15 m/s 配平迎角处线性化 k*CL²；前飞之外只是近似。
     cda = k * 2.82**2 * alpha_trim * area / (central + outer * cos_d)
@@ -530,8 +528,8 @@ def _aero(model):
         f"      15 m/s 配平 α={alpha_trim:.6g}，诱导阻力 cda={cda:.6g}。\n"
         "      CLmax 取 0.8：整体失速 α=0.8/2.82；失速后斜率暂取 -1/rad。\n"
         f"      反弯等效：central a0={math.degrees(central_a0):.4f}°，"
-        f"outer a0={math.degrees(outer_a0):.4f}°；15 m/s、"
-        f"alpha={math.degrees(alpha_trim):.4f}° 时总升力守恒且 My≈0。"
+        f"outer a0={math.degrees(outer_a0):.4f}°；以 LiftDrag 局部迎角校准，"
+        f"15 m/s、alpha={math.degrees(alpha_trim):.4f}° 时翼面升力=重力且 My≈0。"
     )
     model.append(ET.Comment(comment))
 

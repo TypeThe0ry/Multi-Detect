@@ -159,6 +159,231 @@ def _percentile(values: list[float], percent: float) -> float | None:
     return ordered[low] + (ordered[high] - ordered[low]) * (rank - low)
 
 
+def _delta_fw_ring_metrics(
+    mavlink: list[dict[str, Any]], steps: list[dict[str, Any]]
+) -> dict[str, Any]:
+    relocations = [
+        (row.get("ack") or {}).get("smoke_reposition_wait")
+        for row in steps
+        if isinstance((row.get("ack") or {}).get("smoke_reposition_wait"), dict)
+    ]
+    relocation = relocations[0] if relocations else None
+    target_ned = relocation.get("target_ned_m") if relocation else None
+    radius = FW_REPOSITION_RING_DEFAULT_RADIUS_M
+    if isinstance(target_ned, (list, tuple)) and len(target_ned) >= 2:
+        for row in mavlink:
+            if str(_mav_value(row, "param_id", "")).strip("\x00 ") != "NAV_LOITER_RAD":
+                continue
+            try:
+                candidate = float(_mav_value(row, "param_value"))
+                if math.isfinite(candidate) and candidate > 0:
+                    radius = candidate
+                    break
+            except (TypeError, ValueError):
+                pass
+        fw_state: int | None = None
+        observations = []
+        for row in mavlink:
+            kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
+            if kind == "EXTENDED_SYS_STATE":
+                try:
+                    fw_state = int(_mav_value(row, "vtol_state"))
+                except (TypeError, ValueError):
+                    fw_state = None
+            elif kind == "LOCAL_POSITION_NED":
+                time_s = _row_sim_time_s(row)
+                try:
+                    if time_s is not None:
+                        observations.append(
+                            {
+                                "sim_time_s": time_s,
+                                "x": float(_mav_value(row, "x")),
+                                "y": float(_mav_value(row, "y")),
+                                "fw_active": fw_state == 4,
+                            }
+                        )
+                except (TypeError, ValueError):
+                    pass
+        ring = reposition_ring_metrics(
+            observations,
+            target_ned=target_ned,
+            radius_m=radius,
+            tolerance_m=FW_REPOSITION_RING_TOLERANCE_M,
+        )
+    else:
+        ring = {
+            "fw_reposition_ring_error_p95_m": None,
+            "fw_reposition_dwell_s": 0.0,
+            "fw_reposition_swept_deg": 0.0,
+            "fw_reposition_success": False,
+        }
+    return {
+        **ring,
+        "fw_reposition_distance_m": relocation.get("distance_m") if relocation else None,
+        "fw_reposition_tolerance_m": FW_REPOSITION_RING_TOLERANCE_M,
+        "fw_reposition_radius_m": radius,
+    }
+
+
+def _delta_fw_overspeed_metrics(mavlink: list[dict[str, Any]]) -> dict[str, Any]:
+    start = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_fw_overspeed_start"),
+        None,
+    )
+    injection_end = next(
+        (
+            row
+            for row in mavlink
+            if row.get("message_type") == "delta_smoke_fw_overspeed_injection_end"
+        ),
+        None,
+    )
+    restored = next(
+        (
+            row
+            for row in mavlink
+            if row.get("message_type") == "delta_smoke_fw_overspeed_parameter_restored"
+        ),
+        None,
+    )
+    end = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_fw_overspeed_end"),
+        None,
+    )
+    start_s = _row_sim_time_s(start) if start else None
+    injection_end_s = _row_sim_time_s(injection_end) if injection_end else None
+    end_s = _row_sim_time_s(end) if end else None
+    aligned_times = _timeline(mavlink)
+    injection_speeds: list[float] = []
+    cycle_speeds: list[float] = []
+    motor_samples = 0
+    motor_saturated_samples = 0
+    motor_counts = [0, 0, 0, 0]
+    motor_saturated_counts = [0, 0, 0, 0]
+    state_updates = []
+    for row, sim_time in zip(mavlink, aligned_times, strict=True):
+        if str(row.get("message_type", "")).upper() != "EXTENDED_SYS_STATE" or sim_time is None:
+            continue
+        try:
+            state_updates.append((sim_time, int(_mav_value(row, "vtol_state"))))
+        except (TypeError, ValueError):
+            pass
+    state_updates.sort()
+    state_times = [item[0] for item in state_updates]
+    if start_s is not None and end_s is not None and end_s >= start_s:
+        for row, sim_time in zip(mavlink, aligned_times, strict=True):
+            if sim_time is None or not start_s <= sim_time <= end_s:
+                continue
+            kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
+            if kind == "VFR_HUD":
+                try:
+                    speed = float(_mav_value(row, "airspeed"))
+                    if math.isfinite(speed):
+                        cycle_speeds.append(speed)
+                        if injection_end_s is None or sim_time <= injection_end_s:
+                            injection_speeds.append(speed)
+                except (TypeError, ValueError):
+                    pass
+            if kind != "SERVO_OUTPUT_RAW":
+                continue
+            state_index = bisect.bisect_right(state_times, sim_time) - 1
+            if state_index < 0 or state_updates[state_index][1] != 4:
+                continue
+            outputs: list[float] = []
+            for index in range(1, 5):
+                try:
+                    outputs.append(float(_mav_value(row, f"servo{index}_raw")))
+                except (TypeError, ValueError):
+                    outputs = []
+                    break
+            if not outputs:
+                continue
+            motor_samples += 1
+            saturated = [
+                value <= FW_SATURATION_LOW or value >= FW_SATURATION_HIGH
+                for value in outputs
+            ]
+            motor_saturated_samples += int(any(saturated))
+            for index, value in enumerate(outputs):
+                motor_counts[index] += 1
+                motor_saturated_counts[index] += int(saturated[index])
+
+    injected_peak = max(injection_speeds, default=None)
+    if injected_peak is None and injection_end is not None:
+        try:
+            injected_peak = float(injection_end.get("peak_airspeed_mps"))
+        except (TypeError, ValueError):
+            pass
+    recovery_s = None
+    if end is not None:
+        try:
+            recovery_s = float(end.get("recovery_s"))
+        except (TypeError, ValueError):
+            pass
+    stable_s = None
+    height_error_p95 = None
+    if end is not None:
+        try:
+            stable_s = float(end.get("stable_s"))
+        except (TypeError, ValueError):
+            pass
+        try:
+            height_error_p95 = float(end.get("height_error_p95_m"))
+        except (TypeError, ValueError):
+            pass
+    injection_success = bool(
+        injection_end
+        and injection_end.get("status") == "reached"
+        and injected_peak is not None
+        and injected_peak >= 22.0
+    )
+    parameter_restored = bool(restored and restored.get("status") == "restored")
+    recovery_success = bool(
+        injection_success
+        and parameter_restored
+        and end
+        and end.get("status") == "complete"
+        and isinstance(recovery_s, (int, float))
+        and 0.0 <= recovery_s <= 40.0
+        and isinstance(stable_s, (int, float))
+        and stable_s >= 15.0
+        and end.get("continuous_fw") is True
+        and isinstance(height_error_p95, (int, float))
+        and height_error_p95 <= 10.0
+    )
+    per_motor = [
+        motor_saturated_counts[index] / count if count else None
+        for index, count in enumerate(motor_counts)
+    ]
+    saturation_fraction = motor_saturated_samples / motor_samples if motor_samples else None
+    saturation_success = bool(
+        motor_samples
+        and saturation_fraction is not None
+        and saturation_fraction <= FW_SATURATION_MAX_FRACTION
+    )
+    return {
+        "fw_overspeed_peak_mps": injected_peak,
+        "fw_overspeed_cycle_peak_mps": max(cycle_speeds, default=None),
+        "fw_overspeed_injection_success": injection_success,
+        "fw_overspeed_injection_status": injection_end.get("status") if injection_end else None,
+        "fw_overspeed_recovery_s": recovery_s,
+        "fw_overspeed_recovery_stable_s": stable_s,
+        "fw_overspeed_recovery_success": recovery_success,
+        "fw_overspeed_parameter_restored": parameter_restored,
+        "fw_overspeed_recovery_height_error_p95_m": height_error_p95,
+        "fw_overspeed_fw_continuous": bool(end and end.get("continuous_fw") is True),
+        "fw_overspeed_failure_reason": end.get("failure_reason") if end else (
+            injection_end.get("failure_reason") if injection_end else "overspeed_step_missing"
+        ),
+        "fw_overspeed_motor_saturation_fraction": (
+            saturation_fraction
+        ),
+        "fw_overspeed_saturation_success": saturation_success,
+        "fw_overspeed_motor_saturation_fraction_by_motor": per_motor,
+        "fw_overspeed_motor_samples": motor_samples,
+    }
+
+
 def _takeoff_sim_time_s(
     mavlink: list[dict[str, Any]], takeoff_altitude_m: float
 ) -> float | None:
@@ -462,59 +687,27 @@ def _delta_fw_metrics(
             for value in motor_saturation_by_motor
         )
     )
-    relocations = [
-        (row.get("ack") or {}).get("smoke_reposition_wait")
-        for row in steps
-        if isinstance((row.get("ack") or {}).get("smoke_reposition_wait"), dict)
-    ]
-    relocation = relocations[0] if relocations else None
-    target_ned = relocation.get("target_ned_m") if relocation else None
-    ring = {"fw_reposition_ring_error_p95_m": None, "fw_reposition_dwell_s": 0.0,
-            "fw_reposition_swept_deg": 0.0, "fw_reposition_success": False}
-    if isinstance(target_ned, (list, tuple)) and len(target_ned) >= 2:
-        radius = FW_REPOSITION_RING_DEFAULT_RADIUS_M
-        for row in mavlink:
-            if str(_mav_value(row, "param_id", "")).strip("\x00 ") == "NAV_LOITER_RAD":
-                try:
-                    candidate = float(_mav_value(row, "param_value"))
-                    if math.isfinite(candidate) and candidate > 0:
-                        radius = candidate
-                        break
-                except (TypeError, ValueError):
-                    pass
-        fw_state: int | None = None
-        observations = []
-        for row in mavlink:
-            kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
-            if kind == "EXTENDED_SYS_STATE":
-                try:
-                    fw_state = int(_mav_value(row, "vtol_state"))
-                except (TypeError, ValueError):
-                    fw_state = None
-            elif kind == "LOCAL_POSITION_NED":
-                time_s = _row_sim_time_s(row)
-                try:
-                    if time_s is not None:
-                        observations.append({
-                            "sim_time_s": time_s,
-                            "x": float(_mav_value(row, "x")),
-                            "y": float(_mav_value(row, "y")),
-                            "fw_active": fw_state == 4,
-                        })
-                except (TypeError, ValueError):
-                    pass
-        ring = reposition_ring_metrics(
-            observations,
-            target_ned=target_ned,
-            radius_m=radius,
-            tolerance_m=FW_REPOSITION_RING_TOLERANCE_M,
-        )
-    metrics.update(ring)
-    metrics["fw_reposition_distance_m"] = (
-        relocation.get("distance_m") if relocation else None
+    ring_event = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_fw_ring_judgement"),
+        None,
     )
-    metrics["fw_reposition_tolerance_m"] = FW_REPOSITION_RING_TOLERANCE_M
-    metrics["fw_reposition_radius_m"] = radius if isinstance(target_ned, (list, tuple)) and len(target_ned) >= 2 else FW_REPOSITION_RING_DEFAULT_RADIUS_M
+    if ring_event and ring_event.get("judgement_complete") is True:
+        ring = {
+            key: ring_event.get(key)
+            for key in (
+                "fw_reposition_ring_error_p95_m",
+                "fw_reposition_dwell_s",
+                "fw_reposition_swept_deg",
+                "fw_reposition_success",
+                "fw_reposition_distance_m",
+                "fw_reposition_tolerance_m",
+                "fw_reposition_radius_m",
+            )
+        }
+    else:
+        ring = _delta_fw_ring_metrics(mavlink, steps)
+    metrics.update(ring)
+    metrics.update(_delta_fw_overspeed_metrics(mavlink))
     post_transition = next(
         (row for row in mavlink if row.get("message_type") == "delta_smoke_post_transition_end"),
         None,
@@ -856,6 +1049,20 @@ def build_plan(
             {"stage": "rtl", "action": "return to launch", "mav_cmd": 192},
         ]
     )
+    if delta_strict:
+        reposition_index = next(
+            index for index, step in enumerate(steps) if step.get("stage") == "reposition"
+        )
+        steps.insert(
+            reposition_index,
+            {
+                "stage": "fw_overspeed_recovery",
+                "action": "raise FW_THR_MIN until 22 m/s, restore it, then recover below 19 m/s",
+                "injection_timeout_s": 40,
+                "recovery_timeout_s": 40,
+                "required_recovery_hold_s": 15,
+            },
+        )
     if transition:
         steps.append({"stage": "transition_mc", "action": "FW -> MC", "mav_cmd": 3000, "param1": 3})
     steps.append(
@@ -897,6 +1104,8 @@ def build_plan(
                 "fw_sustain_success",
                 "fw_reposition_success",
                 "fw_metrics_pass",
+                "fw_overspeed_recovery_success",
+                "fw_overspeed_saturation_success",
                 "post_transition_climb_success",
                 "self_occlusion_success",
             ]
@@ -923,6 +1132,21 @@ def build_plan(
                     "fw_sustain_success": None,
                     "fw_reposition_success": None,
                     "fw_metrics_pass": None,
+                    "fw_overspeed_peak_mps": None,
+                    "fw_overspeed_cycle_peak_mps": None,
+                    "fw_overspeed_injection_success": None,
+                    "fw_overspeed_injection_status": None,
+                    "fw_overspeed_recovery_s": None,
+                    "fw_overspeed_recovery_stable_s": None,
+                    "fw_overspeed_recovery_success": None,
+                    "fw_overspeed_saturation_success": None,
+                    "fw_overspeed_parameter_restored": None,
+                    "fw_overspeed_recovery_height_error_p95_m": None,
+                    "fw_overspeed_fw_continuous": None,
+                    "fw_overspeed_failure_reason": None,
+                    "fw_overspeed_motor_saturation_fraction": None,
+                    "fw_overspeed_motor_saturation_fraction_by_motor": None,
+                    "fw_overspeed_motor_samples": None,
                     "post_transition_climb_m": None,
                     "post_transition_climb_success": None,
                     "self_occlusion_fraction": None,
@@ -1061,6 +1285,8 @@ def main(argv: list[str] | None = None) -> int:
                 "fw_sustain_success",
                 "fw_reposition_success",
                 "fw_metrics_pass",
+                "fw_overspeed_recovery_success",
+                "fw_overspeed_saturation_success",
                 "post_transition_climb_success",
                 "self_occlusion_success",
             )

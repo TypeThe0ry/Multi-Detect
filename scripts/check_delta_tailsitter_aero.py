@@ -17,6 +17,9 @@ class Surface:
     a0: float
     cla: float
     cda: float
+    alpha_stall: float
+    cla_stall: float
+    cda_stall: float
     upward_x: float
     upward: tuple[float, float, float]
     cp: tuple[float, float, float]
@@ -40,12 +43,113 @@ def surfaces_from_sdf(path: str | Path) -> tuple[Surface, ...]:
                 a0=float(plugin.findtext("a0", "0")),
                 cla=float(plugin.findtext("cla", "0")),
                 cda=float(plugin.findtext("cda", "0")),
+                alpha_stall=float(plugin.findtext("alpha_stall", str(math.pi / 2))),
+                cla_stall=float(plugin.findtext("cla_stall", "0")),
+                cda_stall=float(plugin.findtext("cda_stall", "1")),
                 upward_x=upward[0],
                 upward=upward,
                 cp=tuple(float(x) for x in plugin.findtext("cp", "0 0 0").split()),
             )
         )
     return tuple(result)
+
+
+def _dot(left: tuple[float, float, float], right: tuple[float, float, float]) -> float:
+    return sum(a * b for a, b in zip(left, right, strict=True))
+
+
+def _cross(
+    left: tuple[float, float, float], right: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def _unit(vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    length = math.sqrt(_dot(vector, vector))
+    if length <= 1e-12:
+        return (0.0, 0.0, 0.0)
+    return tuple(value / length for value in vector)
+
+
+def _surface_wrench(
+    surface: Surface,
+    speed_mps: float,
+    alpha_rad: float,
+    *,
+    rho: float,
+    roll_rate_z_rad_s: float,
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    float,
+    float,
+]:
+    forward = (0.0, 0.0, 1.0)
+    upward = _unit(surface.upward)
+    spanwise = _unit(_cross(forward, upward))
+    velocity = (
+        speed_mps * math.sin(alpha_rad) - roll_rate_z_rad_s * surface.cp[1],
+        roll_rate_z_rad_s * surface.cp[0],
+        speed_mps * math.cos(alpha_rad),
+    )
+    velocity_length = math.sqrt(_dot(velocity, velocity))
+    if velocity_length <= 1e-9 or spanwise == (0.0, 0.0, 0.0):
+        return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 0.0, 0.0
+
+    sweep_sine = _dot(spanwise, _unit(velocity))
+    cos2_sweep = max(0.0, 1.0 - sweep_sine * sweep_sine)
+    velocity_plane = tuple(
+        velocity[index] - _dot(velocity, spanwise) * spanwise[index]
+        for index in range(3)
+    )
+    plane_speed = math.sqrt(_dot(velocity_plane, velocity_plane))
+    if plane_speed <= 1e-9:
+        return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 0.0, 0.0
+
+    drag_direction = tuple(-value / plane_speed for value in velocity_plane)
+    lift_direction = _unit(_cross(spanwise, velocity_plane))
+    cos_alpha = max(-1.0, min(1.0, _dot(lift_direction, upward)))
+    angle = surface.a0 - math.acos(cos_alpha)
+    if _dot(lift_direction, forward) >= 0.0:
+        angle = surface.a0 + math.acos(cos_alpha)
+    while abs(angle) > math.pi / 2:
+        angle += -math.pi if angle > 0 else math.pi
+
+    q = 0.5 * rho * plane_speed * plane_speed
+    if angle > surface.alpha_stall:
+        cl = max(
+            0.0,
+            surface.cla * surface.alpha_stall
+            + surface.cla_stall * (angle - surface.alpha_stall),
+        )
+        cd = (
+            surface.cda * surface.alpha_stall
+            + surface.cda_stall * (angle - surface.alpha_stall)
+        )
+    elif angle < -surface.alpha_stall:
+        cl = min(
+            0.0,
+            -surface.cla * surface.alpha_stall
+            + surface.cla_stall * (angle + surface.alpha_stall),
+        )
+        cd = (
+            -surface.cda * surface.alpha_stall
+            + surface.cda_stall * (angle + surface.alpha_stall)
+        )
+    else:
+        cl = surface.cla * angle
+        cd = surface.cda * angle
+    cl *= cos2_sweep
+    cd = abs(cd * cos2_sweep)
+    lift_force = tuple(q * surface.area * cl * lift_direction[i] for i in range(3))
+    drag_force = tuple(q * surface.area * cd * drag_direction[i] for i in range(3))
+    force = tuple(lift_force[i] + drag_force[i] for i in range(3))
+    moment = _cross(surface.cp, force)
+    return force, moment, -lift_force[0], q * surface.area * cd
 
 
 def aerodynamic_force(
@@ -56,21 +160,22 @@ def aerodynamic_force(
     rho: float = 1.15,
     include_advance_drag: bool = False,
 ) -> tuple[float, float]:
-    """Return lift and drag magnitudes with finite zero speed and stall bounds."""
+    """Return link-axis lift and drag magnitudes using Gazebo LiftDrag geometry."""
     if speed_mps <= 1e-6:
         return 0.0, 0.0
-    q = 0.5 * rho * speed_mps * speed_mps
     lift = drag = 0.0
     for surface in surfaces:
         if not include_advance_drag and surface.name.startswith("propeller_advance_drag_"):
             continue
-        alpha = alpha_rad + surface.a0
-        cl = surface.cla * alpha
-        if surface.cla:
-            cl = max(-0.8, min(0.8, cl))
-        cd = abs(surface.cda * alpha)
-        lift += q * surface.area * cl * -surface.upward_x
-        drag += q * surface.area * cd
+        _, _, part_lift, part_drag = _surface_wrench(
+            surface,
+            speed_mps,
+            alpha_rad,
+            rho=rho,
+            roll_rate_z_rad_s=0.0,
+        )
+        lift += part_lift
+        drag += part_drag
     return lift, drag
 
 
@@ -86,38 +191,21 @@ def aerodynamic_force_moment(
     """Return the summed force and r×F moment in base_link coordinates."""
     if speed_mps <= 1e-6:
         return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
-    q = 0.5 * rho * speed_mps * speed_mps
     force = [0.0, 0.0, 0.0]
     moment = [0.0, 0.0, 0.0]
     for surface in surfaces:
         if not include_advance_drag and surface.name.startswith("propeller_advance_drag_"):
             continue
-        # LiftDrag samples velocity at each CP: v_cp = v_link + omega x r_cp.
-        # In forward flight (+Z), a positive z roll rate gives the +y panel
-        # negative x flow and therefore a lower local angle of attack.
-        flow_alpha = alpha_rad - math.atan2(
-            roll_rate_z_rad_s * surface.cp[1], speed_mps
+        part_force, part_moment, _, _ = _surface_wrench(
+            surface,
+            speed_mps,
+            alpha_rad,
+            rho=rho,
+            roll_rate_z_rad_s=roll_rate_z_rad_s,
         )
-        alpha = flow_alpha + surface.a0
-        cl = max(-0.8, min(0.8, surface.cla * alpha)) if surface.cla else 0.0
-        cd = abs(surface.cda * alpha)
-        lift = q * surface.area * cl
-        drag = q * surface.area * cd
-        forward = (0.0, 0.0, 1.0)
-        lift_direction = tuple(
-            surface.upward[i] * math.cos(flow_alpha) + forward[i] * math.sin(flow_alpha)
-            for i in range(3)
-        )
-        drag_direction = tuple(
-            -(forward[i] * math.cos(flow_alpha) - surface.upward[i] * math.sin(flow_alpha))
-            for i in range(3)
-        )
-        vector = [lift_direction[i] * lift + drag_direction[i] * drag for i in range(3)]
-        for i in range(3):
-            force[i] += vector[i]
-        moment[0] += surface.cp[1] * vector[2] - surface.cp[2] * vector[1]
-        moment[1] += surface.cp[2] * vector[0] - surface.cp[0] * vector[2]
-        moment[2] += surface.cp[0] * vector[1] - surface.cp[1] * vector[0]
+        for index in range(3):
+            force[index] += part_force[index]
+            moment[index] += part_moment[index]
     return tuple(force), tuple(moment)
 
 
@@ -142,12 +230,13 @@ def trim_scan(
     for speed in speeds_mps:
         for angle in alpha_deg:
             force, moment = aerodynamic_force_moment(surfaces, speed, math.radians(angle))
+            lift, drag = aerodynamic_force(surfaces, speed, math.radians(angle))
             rows.append(
                 {
                     "speed_mps": float(speed),
                     "alpha_deg": float(angle),
-                    "lift_n": float(force[0]),
-                    "drag_n": float(-force[2]),
+                    "lift_n": float(lift),
+                    "drag_n": float(drag),
                     "pitch_moment_nm": float(moment[1]),
                     "pitch_moment_slope_nm_per_rad": pitching_moment_slope(
                         surfaces, speed, math.radians(angle)

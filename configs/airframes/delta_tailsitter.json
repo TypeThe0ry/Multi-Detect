@@ -6,7 +6,7 @@
   "px4_autostart": 4050,
   "min_airspeed_mps": 12.0,
   "cruise_airspeed_mps": 15.0,
-  "max_airspeed_mps": 19.0,
+  "max_airspeed_mps": 18.0,
   "stall_airspeed_mps": 10.0,
   "max_bank_deg": 35.0,
   "max_climb_rate_mps": 3.0,
@@ -32,11 +32,11 @@
     "mc_to_fw_param1": 4.0,
     "fw_to_mc_param1": 3.0,
     "minimum_height_m": 30.0,
-    "minimum_airspeed_mps": 15.0,
+    "minimum_airspeed_mps": 14.0,
     "timeout_s": 20.0,
     "parameters": {
       "airspeed": {
-        "value": 15.0,
+        "value": 14.0,
         "px4_name": "VT_ARSP_TRANS",
         "unverified": true
       },

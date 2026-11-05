@@ -198,6 +198,12 @@ DELTA_SMOKE_FW_MIN_DURATION_S = 120.0
 DELTA_SMOKE_FW_MAX_DURATION_S = 240.0
 DELTA_SMOKE_FW_MIN_ORBIT_DEG = 360.0
 DELTA_SMOKE_REPOSITION_TIMEOUT_S = 120.0
+DELTA_OVERSPEED_TARGET_MPS = 22.0
+DELTA_OVERSPEED_INJECT_MIN_THR = 0.45
+DELTA_OVERSPEED_INJECT_TIMEOUT_S = 40.0
+DELTA_OVERSPEED_RECOVERY_MAX_S = 40.0
+DELTA_OVERSPEED_RECOVERY_HOLD_S = 15.0
+DELTA_OVERSPEED_HEIGHT_ERROR_MAX_M = 10.0
 MOTION_ALONG_TRACK_DONE_M = 5.0
 # A fixed-wing reposition may complete by flying past its waypoint, but a
 # projection crossing alone is insufficient: the aircraft can cross the target
@@ -2727,6 +2733,60 @@ def _set_sim_params(
     return applied
 
 
+def _delta_fw_thr_min_baseline(plan: CollectionPlan) -> str:
+    airframe = ROOT / "simulation" / "px4" / "airframes" / "4050_gz_delta_tailsitter"
+    match = re.search(
+        r"^param set-default FW_THR_MIN (\S+)$",
+        airframe.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if match is None:
+        raise RuntimeError("4050 airframe does not define FW_THR_MIN")
+    value = match.group(1)
+    for name, override in plan.extra_sim_params:
+        if name == "FW_THR_MIN":
+            value = override
+    return value
+
+
+def _set_runtime_sim_param(
+    plan: CollectionPlan,
+    environment: DockerSimEnvironment,
+    parameter: str,
+    value: str,
+) -> dict[str, Any]:
+    command = [
+        _docker_executable(plan),
+        "exec",
+        environment.name,
+        "/opt/px4-gazebo/bin/px4-param",
+        "set",
+        parameter,
+        value,
+    ]
+    attempts = []
+    for attempt in range(1, 4):
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        attempts.append(
+            {
+                "attempt": attempt,
+                "returncode": result.returncode,
+                "stdout": (result.stdout or "")[-500:],
+                "stderr": (result.stderr or "")[-500:],
+            }
+        )
+        if result.returncode == 0:
+            return {"parameter": parameter, "value": value, "attempts": attempts}
+        time.sleep(0.25)
+    raise RuntimeError(f"could not set PX4 parameter {parameter}={value}: {attempts[-1]}")
+
+
 # pymavlink's PX4 mode table uses bare names ("MISSION", "LOITER"); dotted PX4 UI names
 # are reported as "Unknown mode" and silently not sent.
 _PYMAVLINK_PX4_MODE_ALIASES = {
@@ -4941,6 +5001,229 @@ def run_episode(
                         }
                     )
 
+                def _run_delta_fw_overspeed_recovery() -> dict[str, Any]:
+                    from scripts.smoke_airframe_flight import _percentile
+
+                    baseline = _delta_fw_thr_min_baseline(plan)
+                    commanded_altitude = -float(executor._commanded[2])
+                    peak_mps: float | None = None
+                    injection_status = "command_failed"
+                    injection_failure: str | None = None
+                    injection_elapsed = 0.0
+                    restored = False
+                    continuous_fw = True
+                    recovery_status = "not_run"
+                    recovery_elapsed: float | None = None
+                    stable_s = 0.0
+                    recovery_height_errors: list[float] = []
+
+                    _record_delta_smoke_event(
+                        "fw_overspeed_start",
+                        target_airspeed_mps=DELTA_OVERSPEED_TARGET_MPS,
+                        injection_timeout_s=DELTA_OVERSPEED_INJECT_TIMEOUT_S,
+                        recovery_timeout_s=DELTA_OVERSPEED_RECOVERY_MAX_S,
+                        recovery_hold_s=DELTA_OVERSPEED_RECOVERY_HOLD_S,
+                        fw_thr_min_baseline=baseline,
+                        fw_thr_min_injected=DELTA_OVERSPEED_INJECT_MIN_THR,
+                    )
+                    try:
+                        _set_runtime_sim_param(
+                            plan,
+                            environment,
+                            "FW_THR_MIN",
+                            str(DELTA_OVERSPEED_INJECT_MIN_THR),
+                        )
+                        injection_start_ns = _pose_sim_stamp_ns(
+                            _snapshot_mavlink_state(mav_reader.state)
+                        )
+                        if injection_start_ns is None:
+                            injection_status = "telemetry_missing"
+                            injection_failure = "missing_sim_clock_at_injection_start"
+                        else:
+                            wall_deadline = time.monotonic() + max(
+                                300.0, DELTA_OVERSPEED_INJECT_TIMEOUT_S * 10.0
+                            )
+                            last_sample_ns = injection_start_ns - 1
+                            while time.monotonic() < wall_deadline:
+                                mav_reader.raise_if_failed()
+                                snapshot = _snapshot_mavlink_state(mav_reader.state)
+                                stamp_ns = _pose_sim_stamp_ns(snapshot)
+                                if stamp_ns is None or stamp_ns <= last_sample_ns:
+                                    time.sleep(0.1)
+                                    continue
+                                elapsed_s = (stamp_ns - injection_start_ns) / 1e9
+                                injection_elapsed = max(injection_elapsed, elapsed_s)
+                                last_sample_ns = stamp_ns
+                                state = _flight_state_snapshot(mav_reader.state)
+                                if state.get("vtol_state") != 4:
+                                    continuous_fw = False
+                                    injection_status = "fw_exit"
+                                    injection_failure = "left_fw_during_injection"
+                                    break
+                                speed = state.get("airspeed_mps")
+                                try:
+                                    speed = float(speed)
+                                except (TypeError, ValueError):
+                                    speed = math.nan
+                                if math.isfinite(speed):
+                                    peak_mps = speed if peak_mps is None else max(peak_mps, speed)
+                                    if speed >= DELTA_OVERSPEED_TARGET_MPS:
+                                        injection_status = "reached"
+                                        break
+                                if elapsed_s >= DELTA_OVERSPEED_INJECT_TIMEOUT_S:
+                                    injection_status = "timeout"
+                                    injection_failure = "injection_failed_to_reach_22_mps"
+                                    break
+                                time.sleep(0.1)
+                            if injection_status == "command_failed":
+                                injection_status = "wall_timeout"
+                                injection_failure = "injection_wall_timeout"
+                    except Exception as exc:
+                        injection_status = "command_failed"
+                        injection_failure = f"injection_error:{type(exc).__name__}:{exc}"
+                    _record_delta_smoke_event(
+                        "fw_overspeed_injection_end",
+                        status=injection_status,
+                        elapsed_s=injection_elapsed,
+                        peak_airspeed_mps=peak_mps,
+                        failure_reason=injection_failure,
+                    )
+
+                    try:
+                        _set_runtime_sim_param(plan, environment, "FW_THR_MIN", baseline)
+                        restored = True
+                        _record_delta_smoke_event(
+                            "fw_overspeed_parameter_restored",
+                            status="restored",
+                            fw_thr_min=baseline,
+                        )
+                    except Exception as exc:
+                        _record_delta_smoke_event(
+                            "fw_overspeed_parameter_restored",
+                            status="restore_failed",
+                            fw_thr_min=baseline,
+                            failure_reason=f"restore_error:{type(exc).__name__}:{exc}",
+                        )
+                        _record_delta_smoke_event(
+                            "fw_overspeed_end",
+                            status="restore_failed",
+                            recovery_s=None,
+                            stable_s=0.0,
+                            continuous_fw=continuous_fw,
+                            height_error_p95_m=None,
+                            failure_reason="fw_thr_min_restore_failed",
+                        )
+                        raise RuntimeError("could not restore FW_THR_MIN after overspeed injection") from exc
+
+                    if injection_status == "reached" and restored and continuous_fw:
+                        recovery_start_ns = _pose_sim_stamp_ns(
+                            _snapshot_mavlink_state(mav_reader.state)
+                        )
+                        if recovery_start_ns is None:
+                            recovery_status = "telemetry_missing"
+                        else:
+                            _record_delta_smoke_event(
+                                "fw_overspeed_recovery_start",
+                                recovery_timeout_s=DELTA_OVERSPEED_RECOVERY_MAX_S,
+                                recovered_airspeed_mps=19.0,
+                                required_hold_s=DELTA_OVERSPEED_RECOVERY_HOLD_S,
+                            )
+                            recovery_status = "timeout"
+                            stable_start_ns: int | None = None
+                            last_sample_ns = recovery_start_ns - 1
+                            wall_deadline = time.monotonic() + max(
+                                300.0, DELTA_OVERSPEED_RECOVERY_MAX_S * 10.0
+                            )
+                            while time.monotonic() < wall_deadline:
+                                mav_reader.raise_if_failed()
+                                snapshot = _snapshot_mavlink_state(mav_reader.state)
+                                stamp_ns = _pose_sim_stamp_ns(snapshot)
+                                if stamp_ns is None or stamp_ns <= last_sample_ns:
+                                    time.sleep(0.1)
+                                    continue
+                                recovery_elapsed = max(
+                                    0.0, (stamp_ns - recovery_start_ns) / 1e9
+                                )
+                                last_sample_ns = stamp_ns
+                                state = _flight_state_snapshot(mav_reader.state)
+                                if state.get("vtol_state") != 4:
+                                    continuous_fw = False
+                                    recovery_status = "fw_exit"
+                                    break
+                                try:
+                                    altitude = -float(_state_position(mav_reader.state)[2])
+                                    recovery_height_errors.append(
+                                        abs(altitude - commanded_altitude)
+                                    )
+                                except (TypeError, ValueError):
+                                    pass
+                                speed = state.get("airspeed_mps")
+                                try:
+                                    speed = float(speed)
+                                except (TypeError, ValueError):
+                                    speed = math.nan
+                                if math.isfinite(speed) and speed <= 19.0:
+                                    if stable_start_ns is None:
+                                        stable_start_ns = stamp_ns
+                                    stable_s = max(0.0, (stamp_ns - stable_start_ns) / 1e9)
+                                else:
+                                    stable_start_ns = None
+                                    stable_s = 0.0
+                                height_error_p95 = _percentile(recovery_height_errors, 95)
+                                if (
+                                    stable_s >= DELTA_OVERSPEED_RECOVERY_HOLD_S
+                                    and recovery_elapsed <= DELTA_OVERSPEED_RECOVERY_MAX_S
+                                ):
+                                    if (
+                                        len(recovery_height_errors) >= 30
+                                        and height_error_p95 is not None
+                                        and height_error_p95 <= DELTA_OVERSPEED_HEIGHT_ERROR_MAX_M
+                                    ):
+                                        recovery_status = "complete"
+                                    else:
+                                        recovery_status = "height_error"
+                                    break
+                                if recovery_elapsed >= DELTA_OVERSPEED_RECOVERY_MAX_S:
+                                    break
+                                time.sleep(0.1)
+                    elif injection_status != "reached":
+                        recovery_status = "not_run_injection_failed"
+                    elif not continuous_fw:
+                        recovery_status = "fw_exit"
+
+                    height_error_p95 = _percentile(recovery_height_errors, 95)
+                    _record_delta_smoke_event(
+                        "fw_overspeed_end",
+                        status=recovery_status,
+                        recovery_s=recovery_elapsed,
+                        stable_s=stable_s,
+                        continuous_fw=continuous_fw,
+                        height_error_p95_m=height_error_p95,
+                        height_error_sample_count=len(recovery_height_errors),
+                        failure_reason=(
+                            injection_failure
+                            or (
+                                "airspeed_not_recovered_within_40_sim_s_and_15_s_hold"
+                                if recovery_status == "timeout"
+                                else "height_error_exceeded_10_m"
+                                if recovery_status == "height_error"
+                                else "left_fw_during_overspeed_step"
+                                if recovery_status == "fw_exit"
+                                else None
+                            )
+                        ),
+                    )
+                    return {
+                        "injection_status": injection_status,
+                        "peak_airspeed_mps": peak_mps,
+                        "recovery_status": recovery_status,
+                        "recovery_s": recovery_elapsed,
+                        "stable_s": stable_s,
+                        "height_error_p95_m": height_error_p95,
+                        "continuous_fw": continuous_fw,
+                        "parameter_restored": restored,
+                    }
+
                 def _wait_fw_state(phase: str, timeout_s: float) -> bool:
                     nonlocal launch_applied
                     if phase == "land":
@@ -5618,6 +5901,31 @@ def run_episode(
                         "total_ms": round((time.perf_counter_ns() - step_t0) / 1e6, 3),
                     },
                 )
+                if (
+                    strict_delta_smoke
+                    and getattr(action, "kind", None) == "hold"
+                    and result.status == "success"
+                ):
+                    from scripts.smoke_airframe_flight import _delta_fw_ring_metrics
+
+                    with recorder._mavlink_lock:
+                        if recorder._mavlink_file is not None:
+                            recorder._mavlink_file.flush()
+                    ring_judgement = _delta_fw_ring_metrics(
+                        _jsonl(recorder.mavlink_path), _jsonl(recorder.steps_path)
+                    )
+                    _record_delta_smoke_event(
+                        "fw_ring_judgement",
+                        judgement_complete=True,
+                        **ring_judgement,
+                    )
+                    _progress("fw_ring_judgement", **ring_judgement)
+                    overspeed_result = _run_delta_fw_overspeed_recovery()
+                    recorder.meta["delta_tailsitter_fw_overspeed"] = overspeed_result
+                    recorder.episode_path.write_text(
+                        json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                    )
+                    _progress("fw_overspeed_recovery_end", **overspeed_result)
                 # STOP is a terminal policy action.  Keep this step in the
                 # episode (including its observation pair), then immediately
                 # leave the primitive loop so we do not execute redundant

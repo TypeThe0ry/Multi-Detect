@@ -549,6 +549,99 @@ def test_delta_smoke_fails_when_fw_motor_saturation_exceeds_fifteen_percent(tmp_
     assert result["fw_metrics_pass"] is False
 
 
+def _overspeed_telemetry_rows(
+    *, injection_status="reached", injection_peak=22.5, recovery_status="complete",
+    recovery_s=30.0, stable_s=15.0, height_error_p95=5.0, continuous_fw=True,
+):
+    return [
+        {"message_type": "delta_smoke_fw_overspeed_start", "sim_time_s": 10.0},
+        {"message_type": "EXTENDED_SYS_STATE", "time_boot_ms": 10000, "vtol_state": 4},
+        {"message_type": "VFR_HUD", "time_boot_ms": 10000, "airspeed": 16.0},
+        {"message_type": "SERVO_OUTPUT_RAW", "time_usec": 10500000,
+         **{f"servo{i}_raw": 500 for i in range(1, 5)}},
+        {"message_type": "VFR_HUD", "time_boot_ms": 14000, "airspeed": injection_peak},
+        {
+            "message_type": "delta_smoke_fw_overspeed_injection_end",
+            "sim_time_s": 15.0,
+            "status": injection_status,
+            "peak_airspeed_mps": injection_peak,
+        },
+        {
+            "message_type": "delta_smoke_fw_overspeed_parameter_restored",
+            "sim_time_s": 15.0,
+            "status": "restored",
+        },
+        {"message_type": "VFR_HUD", "time_boot_ms": 30000, "airspeed": 18.8},
+        {"message_type": "SERVO_OUTPUT_RAW", "time_usec": 40000000,
+         **{f"servo{i}_raw": 500 for i in range(1, 5)}},
+        {"message_type": "VFR_HUD", "time_boot_ms": 45000, "airspeed": 18.7},
+        {
+            "message_type": "delta_smoke_fw_overspeed_end",
+            "sim_time_s": 45.0,
+            "status": recovery_status,
+            "recovery_s": recovery_s,
+            "stable_s": stable_s,
+            "height_error_p95_m": height_error_p95,
+            "continuous_fw": continuous_fw,
+        },
+    ]
+
+
+def test_delta_overspeed_gate_passes_a_verified_recovery():
+    result = smoke._delta_fw_overspeed_metrics(_overspeed_telemetry_rows())
+
+    assert result["fw_overspeed_peak_mps"] == pytest.approx(22.5)
+    assert result["fw_overspeed_recovery_s"] == pytest.approx(30.0)
+    assert result["fw_overspeed_recovery_success"] is True
+    assert result["fw_overspeed_motor_saturation_fraction"] == pytest.approx(0.0)
+    assert result["fw_overspeed_saturation_success"] is True
+
+
+def test_delta_overspeed_gate_fails_when_speed_does_not_recover():
+    result = smoke._delta_fw_overspeed_metrics(
+        _overspeed_telemetry_rows(
+            recovery_status="timeout", recovery_s=40.0, stable_s=4.0
+        )
+    )
+
+    assert result["fw_overspeed_injection_success"] is True
+    assert result["fw_overspeed_recovery_success"] is False
+    assert result["fw_overspeed_saturation_success"] is True
+
+
+def test_delta_overspeed_gate_marks_injection_below_target_as_failure():
+    result = smoke._delta_fw_overspeed_metrics(
+        _overspeed_telemetry_rows(
+            injection_status="timeout",
+            injection_peak=21.9,
+            recovery_status="complete",
+        )
+    )
+
+    assert result["fw_overspeed_peak_mps"] == pytest.approx(21.9)
+    assert result["fw_overspeed_injection_success"] is False
+    assert result["fw_overspeed_recovery_success"] is False
+
+
+def test_delta_overspeed_gate_preserves_the_existing_saturation_limit():
+    result = smoke._delta_fw_overspeed_metrics(
+        _overspeed_telemetry_rows()
+        + [
+            {
+                "message_type": "SERVO_OUTPUT_RAW",
+                "time_usec": 20000000,
+                "servo1_raw": 0,
+                "servo2_raw": 500,
+                "servo3_raw": 500,
+                "servo4_raw": 500,
+            }
+        ]
+    )
+
+    assert result["fw_overspeed_motor_saturation_fraction"] == pytest.approx(1 / 3)
+    assert result["fw_overspeed_saturation_success"] is False
+
+
 def test_command_ack_wait_survives_a_later_ack_for_another_command(monkeypatch):
     # RTL (176) and the VTOL back-transition (3000) are sent back to back; PX4's
     # RTL ACK lands right after the transition ACK and replaces the latest COMMAND_ACK.

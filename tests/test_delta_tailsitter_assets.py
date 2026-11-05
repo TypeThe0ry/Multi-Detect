@@ -147,13 +147,33 @@ def test_motor_geometry_directions_and_thrust_match_control_allocation():
     assert params["FW_YR_P"] == pytest.approx(0.2 * yaw_authority_ratio)
     assert params["VT_FW_DIFTHR_EN"] == 7
     assert params["VT_FW_DIFTHR_S_R"] == params["VT_FW_DIFTHR_S_P"] == params["VT_FW_DIFTHR_S_Y"] == 1
-    assert params["FW_THR_TRIM"] == pytest.approx(0.22)
+    assert params["FW_THR_TRIM"] == pytest.approx(0.32)
+    assert params["FW_AIRSPD_MAX"] == pytest.approx(18.0)
+    assert params["FW_T_SPDWEIGHT"] == pytest.approx(2.0)
     assert params["FW_THR_MIN"] == pytest.approx(0.0)
-    assert params["VT_F_TRANS_THR"] == pytest.approx(0.25)
+    assert params["VT_F_TRANS_THR"] == pytest.approx(0.15)
     assert params["VT_F_TRANS_DUR"] == pytest.approx(5.0)
     assert params["VT_B_TRANS_DUR"] == pytest.approx(10.0)
     assert params["THR_MDL_FAC"] == 1 and params["MPC_THR_HOVER"] == 0.44
     assert sorted(int(plugin.findtext("motorNumber")) for plugin in motors) == [0, 1, 2, 3]
+    rotor_geometry = [
+        value
+        for i in range(4)
+        for value in (
+            params[f"CA_ROTOR{i}_PX"],
+            params[f"CA_ROTOR{i}_PY"],
+            params[f"CA_ROTOR{i}_PZ"],
+            params[f"CA_ROTOR{i}_KM"],
+        )
+    ]
+    assert rotor_geometry == pytest.approx(
+        [
+            0.141, 0.6, -0.041, 0.025,
+            -0.159, -0.6, -0.041, 0.025,
+            0.141, -0.6, -0.041, -0.025,
+            -0.159, 0.6, -0.041, -0.025,
+        ]
+    )
     for motor in motors:
         i = int(motor.findtext("motorNumber"))
         position = _numbers(model.findtext(f"link[@name='rotor_{i}']/pose"))[:3]
@@ -252,6 +272,10 @@ def test_offline_aero_force_is_trimmed_bounded_and_finite():
     # The LiftDrag angle sign is opposite conventional fixed-wing AoA in this
     # MC-FLU basis, so positive dMy/d(alpha_plugin) represents static stability.
     assert pitching_moment_slope(surfaces, 15.0, alpha) > 0.0
+    effective_arm_m = pitching_moment_slope(surfaces, 15.0, alpha) / (
+        0.5 * 1.15 * 15.0**2 * 0.607 * 2.82
+    )
+    assert effective_arm_m == pytest.approx(0.020, abs=0.0025)
     assert aerodynamic_force(surfaces, 0.0, 10.0) == (0.0, 0.0)
     stalled_lift, stalled_drag = aerodynamic_force(surfaces, 80.0, math.radians(89.0))
     assert math.isfinite(stalled_lift) and math.isfinite(stalled_drag)
@@ -283,18 +307,18 @@ def test_aero_trim_scan_preserves_cruise_lift_and_static_stability():
     surfaces = surfaces_from_sdf(MODEL_DIR / "model.sdf")
     rows = trim_scan(surfaces)
     assert len(rows) == 4 * 26
-    cruise = [row for row in rows if row["alpha_deg"] == 7.0 or row["alpha_deg"] == 8.0]
+    cruise = [row for row in rows if 3.0 <= row["alpha_deg"] <= 12.0]
     assert all(row["pitch_moment_slope_nm_per_rad"] > 0.0 for row in cruise)
     for speed in (12.0, 15.0, 19.0, 25.0):
         row = min(
             (item for item in rows if item["speed_mps"] == speed),
-            key=lambda item: abs(item["alpha_deg"] - 7.5),
+            key=lambda item: abs(item["lift_n"] - 2.929 * 9.80665),
         )
-        assert 7.0 <= row["alpha_deg"] <= 8.0
-        assert abs(row["pitch_moment_nm"]) < 0.2
-        assert abs(row["pitch_moment_nm"]) / 3.9 < 0.05
-    baseline = aerodynamic_force(surfaces, 15.0, math.radians(7.4314663815))[0]
-    assert baseline == pytest.approx(2.929 * 9.80665, rel=0.06)
+        assert abs(row["lift_n"] - 2.929 * 9.80665) < 5.0
+    cruise_trim = aerodynamic_force_moment(
+        surfaces, 15.0, math.radians(7.4314663815)
+    )[1][1]
+    assert abs(cruise_trim) < 0.05
 
 
 def test_articulated_payload_links_have_solver_safe_mass_and_inertia():
@@ -470,7 +494,7 @@ def test_smoke_and_ai_collector_resolve_new_airframe(airframe):
     plan = smoke.build_plan(airframe, profile, scenario, None)
     stages = [step["stage"] for step in plan["steps"]]
     assert stages.index("takeoff") < stages.index("transition_fw") < stages.index("land")
-    assert next(step for step in plan["steps"] if step["stage"] == "loiter")["airspeed_mps"] == [12, 19]
+    assert next(step for step in plan["steps"] if step["stage"] == "loiter")["airspeed_mps"] == [12, 18]
     assert ("gimbal_check" in stages) == ("gimbal" in airframe)
     runtime = SCENARIO_DIR / ("delta_tailsitter_gimbal_cam_001.runtime.json" if "gimbal" in airframe else "delta_tailsitter_mono_cam_001.runtime.json")
     assert collector._airframe_profile(airframe).id == ("delta_tailsitter_gimbal" if "gimbal" in airframe else "delta_tailsitter")
