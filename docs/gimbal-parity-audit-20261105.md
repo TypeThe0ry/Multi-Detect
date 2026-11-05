@@ -2,7 +2,7 @@
 
 本审计覆盖 `src/`、`scripts/`、`configs/`，先阅读了 `docs/gimbal-support-plan.md` 和
 `docs/gimbal-sitl-run.md`。目标是确认普通固定相机和 `x500_gimbal` 都能走同一套能力解析、
-仿真启动、相机姿态和数据记录边界；本次只修复了局部、可由现有 dry-run 单测证明的缺口。
+仿真启动、相机姿态和数据记录边界。
 
 ## 本次已修复
 
@@ -29,8 +29,13 @@
      `src/multidetect/autonomy/sim_navigation_reference.py` 和
      `src/multidetect/autonomy/sim_ground_contact_geometry.py` 要求固定的 x500/x500_base
      SDF 闭包、四个 rotor link 和 `x500_mono_cam_0`。这些检查不能直接接收 PX4
-     `x500_gimbal` 的镜像模型；需要为 gimbal 模型建立独立的源资产提取和哈希合同，不能
-     放宽现有 x500 合同。
+     `x500_gimbal` 的镜像模型。现已增加独立提取器和
+     `multidetect.px4-x500-gimbal-collision-source-assets-v1` 哈希快照，包含组合模型、gimbal、
+     x500、x500_base 和两份 airframe SDF/原文闭包；快照通过导出器从 pinned image digest 重建，
+     未手工复制。消费者仍未接入此闭包：三个审计的 gimbal 输入/API、展开后的四 rotor + 云台
+     camera collision 对比，以及云台全关节范围的源几何包络/接触计算还需实现。云台 collision
+     sphere 必须按 SDF joint 位姿和实际限位计算，不能遗漏或以固定相机结果代替。固定 x500 合同
+     与结果未修改。
 2. **3-D 控制和仿真资产选择**
    * `src/multidetect/simulator/three_d_control.py` 的 multirotor 资产绑定仍是
      `x500` + `mono_cam`；`scripts/run_simulator_3d_control_acceptance.py` 也只验证
@@ -67,6 +72,14 @@
    * `src/multidetect/search_coverage.py`、`src/multidetect/autonomy/fw_search.py` 和
      `src/multidetect/autonomy/fw_geometry.py` 仍以单个向下俯角表达视场。云台接入后需要
      统一调用 composed pose，否则固定翼和 tailsitter 的业务层仍会把机体姿态误当相机姿态。
+
+## 本次续作
+
+* `scripts/extract_px4_x500_gimbal_collision_assets.py` 生成独立的六文件源闭包，覆盖碰撞与导航
+  检查需要的 SDF 和 PX4 airframe 原文。
+* `tests/test_px4_x500_gimbal_collision_asset_extraction.py` 检查 pinned 来源、六个文件的哈希
+  记录和输出目录覆盖保护。
+* 三个审计消费者尚未迁移至 gimbal 合同；本审计项保持开放，不将提取器完成误记为几何审计完成。
 
 ## 验证
 
