@@ -453,6 +453,9 @@ class FixedWingVtolExecutor:
                     )
                 return ExecutionResult("success", self._clock() - started, ack={"orbit": result})
             if action.kind == "continue":
+                deadline = started + action.seconds
+                while self._clock() < deadline:
+                    time.sleep(min(0.05, max(0.0, deadline - self._clock())))
                 return ExecutionResult("success", self._clock() - started, ack={"continue": True})
             if action.kind == "land":
                 return self.land()

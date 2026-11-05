@@ -45,7 +45,7 @@ class ActionPrimitive:
     @classmethod
     def continue_running(cls) -> ActionPrimitive:
         """Keep the current position while allowing the mission to advance."""
-        return cls("continue")
+        return cls("continue", seconds=0.5)
 
     @classmethod
     def land(cls) -> ActionPrimitive:

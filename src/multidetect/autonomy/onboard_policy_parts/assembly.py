@@ -665,6 +665,7 @@ def assemble_runtime_executor(
             if options.get("runtime_step_limit") is None
             else int(options["runtime_step_limit"])
         ),
+        landing_descent_speed_mps=float(options.get("landing_descent_speed_mps", 1.0)),
         alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
         alert_require_majority=(
             options.get("alert_require_majority", False)

@@ -49,6 +49,24 @@ def test_executor_streams_local_ned_and_completes_with_fake_vehicle():
     assert vehicle.modes == ["RTL"]
 
 
+def test_continue_waits_for_defined_sim_duration():
+    sim = {"t": 0.0}
+
+    def sleep(seconds: float) -> None:
+        sim["t"] += seconds
+
+    executor = PymavlinkPrimitiveExecutor(
+        FakeVehicle(),
+        position=lambda: (0.0, 0.0, -10.0),
+        clock=lambda: sim["t"],
+        sleep=sleep,
+        stream_hz=10.0,
+    )
+    result = executor.execute(ActionPrimitive.continue_running())
+    assert result.status == "success"
+    assert result.elapsed_s == pytest.approx(0.5, abs=0.1)
+
+
 def test_executor_rejects_remote_endpoint():
     with pytest.raises(SimulationIsolationError):
         PymavlinkPrimitiveExecutor(FakeVehicle(), endpoint="udp://192.168.1.2:14540")
