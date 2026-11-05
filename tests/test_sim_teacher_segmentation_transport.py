@@ -17,6 +17,7 @@ from scripts.gazebo_segmentation_wire import (
     normalize_labels_map,
     read_segmentation_wire_frame,
 )
+from scripts.gazebo_depth_wire import ROTOR_VELOCITY_SLOWDOWN
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from scripts.sim_teacher_frame_server import (  # noqa: E402
@@ -158,6 +159,12 @@ def test_gazebo_joint_state_is_bound_to_rgb_stamp_and_roundtrips():
     }
     assert state["propeller_joint_state"]["angles_rad"] == [0.1, 0.2, 0.3, 0.4]
     assert state["propeller_joint_state"]["spin_rad_s"] == [11.0, -12.0, 13.0, -14.0]
+    assert state["propeller_joint_state"]["velocity_slowdown"] == ROTOR_VELOCITY_SLOWDOWN
+    physical_spin = (
+        state["propeller_joint_state"]["spin_rad_s"][0]
+        * state["propeller_joint_state"]["velocity_slowdown"]
+    )
+    assert physical_spin == 110.0
 
     record = encode_candidate(
         replace(_candidate(), joint_state=state), 0, _contract(), (2, 1), (2, 1), "FLOAT32_M"
@@ -171,6 +178,19 @@ def test_gazebo_joint_state_is_bound_to_rgb_stamp_and_roundtrips():
     invalid_propellers["angles_rad"] = [float("nan"), 0.2, 0.3, 0.4]
     invalid_state = {**state, "propeller_joint_state": invalid_propellers}
     with pytest.raises(ValueError, match="finite"):
+        encode_candidate(
+            replace(_candidate(), joint_state=invalid_state),
+            1,
+            _contract(),
+            (2, 1),
+            (2, 1),
+            "FLOAT32_M",
+        )
+
+    invalid_propellers = dict(state["propeller_joint_state"])
+    invalid_propellers["velocity_slowdown"] = ROTOR_VELOCITY_SLOWDOWN / 2
+    invalid_state = {**state, "propeller_joint_state": invalid_propellers}
+    with pytest.raises(ValueError, match="velocity_slowdown"):
         encode_candidate(
             replace(_candidate(), joint_state=invalid_state),
             1,

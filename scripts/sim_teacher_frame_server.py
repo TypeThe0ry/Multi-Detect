@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from gazebo_depth_wire import build_depth_wire_record
+from gazebo_depth_wire import ROTOR_VELOCITY_SLOWDOWN, build_depth_wire_record
 from gazebo_segmentation_wire import build_segmentation_wire_record, normalize_labels_map
 from gazebo_sensor_stream import (
     DEPTH_MAX_SOURCE_SKEW_NS,
@@ -360,6 +360,7 @@ def _frame_joint_state(sample: dict[str, Any] | None, frame_stamp_ns: int) -> di
             "joint_names": list(ROTOR_JOINT_NAMES),
             "angles_rad": [float(value["position_rad"]) for value in rotor_samples],
             "spin_rad_s": [float(value["velocity_rad_s"]) for value in rotor_samples],
+            "velocity_slowdown": ROTOR_VELOCITY_SLOWDOWN,
             "source": "gazebo_joint_state",
         }
     if all(name in joints for name in GIMBAL_JOINT_NAMES.values()):

@@ -29,6 +29,8 @@ DEPTH_WIRE_MAX_SKEW_NS = 100_000_000
 DEPTH_WIRE_ENCODINGS = frozenset({"FLOAT32_M", "UINT16_MM"})
 DEPTH_WIRE_REGISTRATION = "registered_to_rgb"
 DEPTH_WIRE_COORDINATE_SPACE = "rgb_pixel_aligned"
+# PX4 x500_gimbal sets rotorVelocitySlowdownSim=10; Gazebo joint velocity is physical speed / 10.
+ROTOR_VELOCITY_SLOWDOWN = 10
 
 
 class GazeboDepthWireError(ValueError):
@@ -236,6 +238,7 @@ def _validate_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
                 "joint_names",
                 "angles_rad",
                 "spin_rad_s",
+                "velocity_slowdown",
                 "source",
             }:
                 raise GazeboDepthWireError("propeller_joint_state field set mismatch")
@@ -254,6 +257,14 @@ def _validate_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
                     raise GazeboDepthWireError(f"propeller {field} must contain four values")
                 for index, value in enumerate(values):
                     _finite_number(value, f"propeller {field}[{index}]")
+            velocity_slowdown = _positive_int(
+                propeller_state["velocity_slowdown"],
+                "propeller velocity_slowdown",
+            )
+            if velocity_slowdown != ROTOR_VELOCITY_SLOWDOWN:
+                raise GazeboDepthWireError(
+                    "propeller velocity_slowdown does not match the PX4 model"
+                )
             if propeller_state["source"] != "gazebo_joint_state":
                 raise GazeboDepthWireError("propeller_joint_state source is invalid")
         if gimbal_state is None and propeller_state is None:
