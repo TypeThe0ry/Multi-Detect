@@ -208,20 +208,55 @@ SDF 并只读挂载，不修改仓库。删除 CAD 网格后，可执行下面�
 "$PY" scripts/generate_delta_tailsitter_model.py
 ```
 
-PX4/MAVLink 控制使用标准 gimbal v2 或兼容的 `DO_MOUNT_CONTROL`。例如 pymavlink：
+PX4/MAVLink 控制使用标准 gimbal v2：先用 `MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE` (1001)
+取得主控，再用 `MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW` (1000) 下发角度。`MNT_MODE_IN=4`
+时不发送旧的 `MAV_CMD_DO_MOUNT_CONTROL` (205)，因为它可能返回 ACK 但不驱动云台。
+例如 pymavlink：
 
 ```python
 master.mav.command_long_send(
     target_system, target_component,
-    mavutil.mavlink.MAV_CMD_DO_MOUNT_CONTROL,
-    0,  # pitch_deg, roll_deg, yaw_deg, yaw lock, 0, 0, 0
-    -45, 0, 0, 2, 0, 0, 0,
+    mavutil.mavlink.MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+    0, 255, 190, -1, -1, 0, 0, 1,
+)
+master.mav.command_long_send(
+    target_system, target_component,
+    mavutil.mavlink.MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+    0,  # pitch, yaw, pitch rate, yaw rate, flags, reserved, device id
+    -45, 0, float("nan"), float("nan"), 44, 0, 1,
 )
 ```
 
 PX4 状态优先从 `GIMBAL_DEVICE_ATTITUDE_STATUS`（必要时同时记录
 `GIMBAL_MANAGER_STATUS`）读取，采集器把原始状态放入每个 `flight_state.gimbal_status`；
 Gazebo 关节话题仍可用于离线校验实际关节角。
+
+## 第十三轮日志定量结论与修正
+
+2026-11-05 第 13 轮固定版的 `mavlink.jsonl` 有 40,087 行，PX4 `LOCAL_POSITION_NED`
+最后时间戳为 110.292 s；容器清理前仍为 running，Gazebo 仿真时钟为 109.86 s 且继续
+推进，ULog `04_23_14.ulg` 也记录到约 36.8 s 的 `vehicle_attitude`、`vehicle_local_position`
+和 `actuator_outputs`。因此第 12 轮的静默不是 PX4/Gazebo 停止：PX4 仍在记录和仿真仍在走，
+但 UDP 接收端在高负载下出现丢包或链路静默。第 12 轮静默诊断的精确值是：最后 MAVLink
+后墙钟 18.99 s、PX4 时间前进 5.016 s、容器仍运行、`OOMKilled=false`；ULog 的控制器和
+传感器主题没有同步停止。采集器现在把 `MavlinkReader.stats`（线程存活、收包总数、按
+消息类型计数、解析异常、坏 CRC、最后消息类型/时间戳）写入 `telemetry-silence.json`，
+便于区分接收线程异常、解析异常和 UDP 丢包。
+
+固定版第 13 轮的姿态消息 5,327 条，ATTITUDE 的 roll/pitch 范围约 −19.72°..93.28°、
+−85.55°..16.75°（含尾座转换段），舵机输出四路分别有约 10.6%、5.6%、10.4%、5.6%
+样本达到 0/1100 饱和；VFR_HUD 空速范围 −2.46..21.41 m/s，盘旋样本为 18.88 和
+17.78 m/s，返航和降落完整。这说明后段大姿态/输出变化与转换和差动分配饱和有关，
+不是新的云台故障；本轮没有改气动和飞控增益。
+
+云台版第 13 轮明确验证了旧命令路径：`MNT_MODE_IN=4` 下 `COMMAND_ACK(command=205,
+result=0)`，但 `GIMBAL_MANAGER_STATUS.primary_control_sysid=0`，197 条
+`GIMBAL_DEVICE_SET_ATTITUDE` 中目标始终为中性四元数（其余为 NaN），三个 Gazebo 关节
+角始终约 0 rad，回读 pitch 误差 45.21°。这表示 ACK 只确认 PX4 接收了不适用的旧协议。
+现已将冒烟采集器、SIM 执行器和 onboard vehicle 统一为 gimbal v2：先发送
+`MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE` (1001) 取得主控，再发送
+`MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW` (1000)，并保留 4° 回读门槛及关节/四元数记录。
+`motion_intent` 也在命令元数据中标注协议和两个命令 ID，避免 AI 动作路径回退到 205。
 
 ## 未验证的关键量
 

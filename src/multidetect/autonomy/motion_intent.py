@@ -809,7 +809,12 @@ class AirframeMotionAdapter:
                 gimbal_pitch_deg=action.gimbal_pitch_deg,
                 gimbal_yaw_deg=action.gimbal_yaw_deg,
                 gimbal_roll_deg=action.gimbal_roll_deg,
-                metadata=dict(intent.metadata),
+                metadata={
+                    "gimbal_protocol": "mavlink_gimbal_v2",
+                    "manager_command": 1000,
+                    "configure_command": 1001,
+                    **dict(intent.metadata),
+                },
             )
         if self.is_multirotor:
             if intent.kind in {"wait", "observe"} and intent.target_ned is None:

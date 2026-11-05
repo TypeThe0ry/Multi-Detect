@@ -56,6 +56,16 @@ from multidetect.sim_teacher import (  # noqa: E402
     SetpointStreamer,
     primitive_to_ned,
 )
+from multidetect.sim_teacher.executor import (
+    GCS_SOURCE_COMPONENT,
+    GCS_SOURCE_SYSTEM,
+    GIMBAL_MANAGER_DEVICE_ID,
+    GIMBAL_MANAGER_FLAGS_PITCH_LOCK,
+    GIMBAL_MANAGER_FLAGS_ROLL_LOCK,
+    GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME,
+    MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+    MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+)
 from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context  # noqa: E402
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
@@ -2264,6 +2274,10 @@ class MavlinkTelemetrySilenceWatchdog:
                 "running": state_snapshot.get("Running") if state_snapshot else None,
                 "state": state_snapshot,
             },
+            "mavlink_reader": self.reader.stats,
+            "last_message_type": getattr(self.reader, "last_message_type", None),
+            "last_message_monotonic_ns": getattr(self.reader, "last_message_monotonic_ns", None),
+            "last_message_vehicle_ms": getattr(self.reader, "last_message_vehicle_ms", None),
             "thresholds": {
                 "sim_s": MAVLINK_SILENCE_SIM_TIMEOUT_S,
                 "stalled_sim_wall_s": MAVLINK_SILENCE_STALLED_SIM_WALL_S,
@@ -2817,19 +2831,64 @@ def _command_and_wait_gimbal(
     timeout_s: float = 15.0,
     tolerance_deg: float = 4.0,
 ) -> dict[str, Any]:
-    """Send MAV_CMD_DO_MOUNT_CONTROL and wait for fresh device attitude telemetry."""
+    """Acquire gimbal-manager control, command pitch/yaw, and verify fresh telemetry."""
     sender = getattr(getattr(connection, "mav", None), "command_long_send", None)
     if sender is None:
         raise RuntimeError("MAVLink connection cannot send gimbal command")
     target_system = int(getattr(connection, "target_system", 1) or 1)
     target_component = int(getattr(connection, "target_component", 1) or 1)
     command_started_ns = time.monotonic_ns()
-    sender(target_system, target_component, 205, 0, float(target["pitch"]), float(target["roll"]), float(target["yaw"]), 2, 0, 0, 0)
-    ack = _ReaderAckLink(connection, reader).wait_command_ack(205, min(timeout_s, 5.0))
+    sender(
+        target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, 0,
+        float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0,
+        float(GIMBAL_MANAGER_DEVICE_ID),
+    )
+    configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
+        MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(timeout_s, 5.0)
+    )
+    if configure_ack is None or int(configure_ack.get("result", -1)) != 0:
+        return {
+            "status": "manager_configure_rejected" if configure_ack is not None else "manager_configure_ack_timeout",
+            "target_deg": dict(target), "configure_ack": configure_ack, "tolerance_deg": tolerance_deg,
+        }
+    ack_state = getattr(reader.state, "command_acks", {})
+    configure_ack_entry = ack_state.get(MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE) if isinstance(ack_state, Mapping) else None
+    configure_ack_ns = int(configure_ack_entry[1]) if configure_ack_entry is not None else command_started_ns
+    manager_deadline = time.monotonic() + min(max(0.1, timeout_s), 2.0)
+    primary = 0
+    manager_confirmed = False
+    while time.monotonic() < manager_deadline:
+        manager = reader.state.get("GIMBAL_MANAGER_STATUS")
+        received = getattr(reader.state, "received_monotonic_ns", {})
+        if isinstance(reader.state, Mapping):
+            received = reader.state.get("received_monotonic_ns", received)
+        manager_ns = received.get("GIMBAL_MANAGER_STATUS", -1) if isinstance(received, Mapping) else -1
+        primary = int(_field(manager, "primary_control_sysid", 0) or 0)
+        if manager is not None and int(manager_ns) >= configure_ack_ns and primary == GCS_SOURCE_SYSTEM:
+            manager_confirmed = True
+            break
+        time.sleep(0.02)
+    if not manager_confirmed:
+        return {
+            "status": "manager_control_not_owned", "target_deg": dict(target),
+            "configure_ack": configure_ack, "primary_control_sysid": primary,
+            "tolerance_deg": tolerance_deg,
+        }
+    command_started_ns = time.monotonic_ns()
+    sender(
+        target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, 0,
+        float(target["pitch"]), float(target["yaw"]), math.nan, math.nan,
+        float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK | GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+        0.0, float(GIMBAL_MANAGER_DEVICE_ID),
+    )
+    ack = _ReaderAckLink(connection, reader).wait_command_ack(
+        MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, min(timeout_s, 5.0)
+    )
     if ack is None or int(ack.get("result", -1)) != 0:
         return {
             "status": "command_rejected" if ack is not None else "command_ack_timeout",
-            "target_deg": dict(target),
+            "target_deg": dict(target), "configure_ack": configure_ack,
+            "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
             "command_ack": ack,
             "tolerance_deg": tolerance_deg,
         }
@@ -2857,7 +2916,9 @@ def _command_and_wait_gimbal(
             if max(error.values()) <= tolerance_deg:
                 return {"status": "reached", "target_deg": dict(target), "actual_deg": _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw_deg), "error_deg": error, "tolerance_deg": tolerance_deg}
         time.sleep(0.05)
-    return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error, "tolerance_deg": tolerance_deg}
+    return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error,
+            "configure_ack": configure_ack, "command_ack": ack,
+            "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, "tolerance_deg": tolerance_deg}
 
 
 def _wait_for_stable_mc_hover(

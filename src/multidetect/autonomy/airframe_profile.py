@@ -828,7 +828,8 @@ class AirframeProfile:
                 "capability": "gimbal_control",
                 "axes": list(gimbal.get("axes", ("yaw", "roll", "pitch"))),
                 "angle_range_deg": dict(gimbal.get("angle_range_deg", {})),
-                "command": "MAV_CMD_DO_MOUNT_CONTROL",
+                "configure_command": "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
+                "command": "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
                 "feedback": "GIMBAL_DEVICE_ATTITUDE_STATUS",
             }
         return result

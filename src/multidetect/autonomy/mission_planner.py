@@ -388,7 +388,7 @@ def plan_prompt_parts(
                 .format(
                     axes=", ".join(str(axis) for axis in gimbal.get("axes", ())),
                     ranges=json.dumps(gimbal.get("angle_range_deg", {}), sort_keys=True),
-                    command=gimbal.get("command", "MAV_CMD_DO_MOUNT_CONTROL"),
+                    command=gimbal.get("command", "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW"),
                     feedback=gimbal.get("feedback", "GIMBAL_DEVICE_ATTITUDE_STATUS"),
                 )
             )

@@ -94,7 +94,11 @@ def test_gimbal_command_wait_uses_fresh_fake_device_telemetry(monkeypatch):
 
     class Mav:
         def command_long_send(self, *args):
-            assert args[:4] == (1, 1, 205, 0)
+            assert args[:4] in ((1, 1, 1001, 0), (1, 1, 1000, 0))
+            if args[2] == 1001:
+                state["GIMBAL_MANAGER_STATUS"] = {"primary_control_sysid": 255}
+                state["received_monotonic_ns"]["GIMBAL_MANAGER_STATUS"] = time.monotonic_ns()
+                return
             pitch = math.radians(float(args[4]))
             state["GIMBAL_DEVICE_ATTITUDE_STATUS"] = {
                 "q": (math.cos(pitch / 2), 0.0, math.sin(pitch / 2), 0.0)
@@ -106,7 +110,13 @@ def test_gimbal_command_wait_uses_fresh_fake_device_telemetry(monkeypatch):
         target_component = 1
         mav = Mav()
 
-    monkeypatch.setattr(collector._ReaderAckLink, "wait_command_ack", lambda *args: {"result": 0})
+    def wait_ack(_self, command, _timeout):
+        if command == 1001:
+            state["GIMBAL_MANAGER_STATUS"] = {"primary_control_sysid": 255}
+            state["received_monotonic_ns"]["GIMBAL_MANAGER_STATUS"] = time.monotonic_ns()
+        return {"result": 0}
+
+    monkeypatch.setattr(collector._ReaderAckLink, "wait_command_ack", wait_ack)
     result = collector._command_and_wait_gimbal(
         Connection(), Reader(), {"yaw": 0.0, "roll": 0.0, "pitch": -45.0}, timeout_s=0.2
     )
@@ -177,9 +187,14 @@ def test_gimbal_action_sends_and_reads_fresh_attitude():
 
     class Mav:
         def command_long_send(self, *args):
-            assert args[:4] == (1, 1, 205, 0)
+            assert args[:4] in ((1, 1, 1001, 0), (1, 1, 1000, 0))
+            if args[2] == 1001:
+                state.command_acks[1001] = ({"result": 0}, __import__("time").monotonic_ns())
+                state.messages["GIMBAL_MANAGER_STATUS"] = {"primary_control_sysid": 255}
+                state.received_monotonic_ns["GIMBAL_MANAGER_STATUS"] = __import__("time").monotonic_ns()
+                return
             pitch = math.radians(float(args[4]))
-            state.command_acks[205] = ({"result": 0}, __import__("time").monotonic_ns())
+            state.command_acks[1000] = ({"result": 0}, __import__("time").monotonic_ns())
             state.messages["GIMBAL_DEVICE_ATTITUDE_STATUS"] = {
                 "q": (math.cos(pitch / 2), 0.0, math.sin(pitch / 2), 0.0)
             }

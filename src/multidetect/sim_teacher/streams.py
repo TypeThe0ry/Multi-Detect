@@ -455,6 +455,9 @@ class MavlinkReader:
         self.progress = progress
         self._health_check: Callable[[], None] | None = None
         self.message_counts: Counter[str] = Counter()
+        self.last_message_type: str | None = None
+        self.last_message_monotonic_ns: int | None = None
+        self.last_message_vehicle_ms: int | None = None
         self.parse_errors = 0
         self.bad_crc = 0
         self._pose_condition = threading.Condition()
@@ -548,6 +551,9 @@ class MavlinkReader:
             "bad_crc": self.bad_crc,
             "thread_alive": bool(thread is not None and thread.is_alive()),
             "error": None if self.error is None else repr(self.error),
+            "last_message_type": self.last_message_type,
+            "last_message_monotonic_ns": self.last_message_monotonic_ns,
+            "last_message_vehicle_ms": self.last_message_vehicle_ms,
         }
 
     def raise_if_failed(self) -> None:
@@ -620,6 +626,7 @@ class MavlinkReader:
                 name = self._type(message)
                 self.message_counts[name] += 1
                 self.state.count += 1
+                self.last_message_type = name
                 if name == "BAD_DATA":
                     self.parse_errors += 1
                     reason = str(_field(message, "reason", "")).lower()
@@ -639,6 +646,8 @@ class MavlinkReader:
                 mono = self.clock()
                 wall = time.time()
                 boot_ms = _field(message, "time_boot_ms", None)
+                self.last_message_monotonic_ns = mono
+                self.last_message_vehicle_ms = int(boot_ms) if isinstance(boot_ms, int) and not isinstance(boot_ms, bool) and boot_ms >= 0 else self.last_message_vehicle_ms
                 if isinstance(boot_ms, int) and not isinstance(boot_ms, bool) and boot_ms >= 0:
                     with self._pose_condition:
                         # Measured from the newest clock seen, so a stray older

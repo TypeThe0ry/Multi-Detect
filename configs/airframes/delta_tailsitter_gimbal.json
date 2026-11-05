@@ -129,7 +129,7 @@
   ],
   "provenance": {
     "design_report": "delta_tailsitter_design_report.txt 全文；md-scratch/px4-upstream，只读来源；折叠尾座式三角翼（带电设）11.3.stp，真实 STEP 待到位。",
-    "px4": "4051_gz_delta_tailsitter_gimbal 复用 4050_gz_delta_tailsitter；PX4 gimbal v2/MAVLink DO_MOUNT_CONTROL，VT_TYPE=0、CA_AIRFRAME=4、四 MC 电机、零舵面。",
+    "px4": "4051_gz_delta_tailsitter_gimbal 复用 4050_gz_delta_tailsitter；PX4 gimbal v2，先用 MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE(1001) 取得主控，再用 MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW(1000)，VT_TYPE=0、CA_AIRFRAME=4、四 MC 电机、零舵面。",
     "geometry": "CAD mm -> Gazebo MC FLU m: (-(z+9),x,646-y)/1000；PX4 FRD=(x,-y,-z)；机头 +Z，尾部四支脚 CAD y=1055。",
     "camera": "C11 CAD (0,258,-55) mm -> base_link (0.046,0,0.388) m；固定俯仰 -20°，沿用 quadtailsitter 光学安装矩阵；PX4 tailsitter 的 MC/FW 均报告 MC FRD 姿态，因此两模式矩阵相同。相机链节仅数值质量，C11 100 g 已在整机质量预算中。",
     "power": "4S 5000 mAh=74 Wh；报告悬停约 34 A/500 W、巡航 10–12 A/约 160 W；20% 储备。",

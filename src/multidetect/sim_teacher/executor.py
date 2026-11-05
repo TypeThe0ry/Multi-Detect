@@ -20,7 +20,14 @@ from .isolation import validate_local_endpoint
 from .primitives import ActionPrimitive, CompletionCriterion, primitive_to_ned
 
 
-MAV_CMD_DO_MOUNT_CONTROL = 205
+MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW = 1000
+MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE = 1001
+GIMBAL_MANAGER_FLAGS_ROLL_LOCK = 4
+GIMBAL_MANAGER_FLAGS_PITCH_LOCK = 8
+GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME = 32
+GIMBAL_MANAGER_DEVICE_ID = 1
+GCS_SOURCE_SYSTEM = 255
+GCS_SOURCE_COMPONENT = 190
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +57,7 @@ def _gimbal_profile_limits(profile: Any) -> tuple[bool, Mapping[str, Any]]:
     return False, {}
 
 
-def _gimbal_angles_deg(status: Any) -> dict[str, float] | None:
+def _gimbal_angles_deg(status: Any, *, vehicle_yaw_deg: float | None = None) -> dict[str, float] | None:
     q = status.get("q") if isinstance(status, Mapping) else getattr(status, "q", None)
     if not isinstance(q, (list, tuple)) or len(q) < 4:
         return None
@@ -62,10 +69,14 @@ def _gimbal_angles_deg(status: Any) -> dict[str, float] | None:
     if not math.isfinite(norm) or norm <= 1e-9:
         return None
     w, x, y, z = (value / norm for value in (w, x, y, z))
+    yaw_deg = math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
+    flags = int(status.get("flags", 0) if isinstance(status, Mapping) else getattr(status, "flags", 0) or 0)
+    if vehicle_yaw_deg is not None and flags & 64:
+        yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
     return {
         "roll": math.degrees(math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
         "pitch": math.degrees(math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))),
-        "yaw": math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))),
+        "yaw": yaw_deg,
     }
 
 
@@ -79,7 +90,7 @@ def execute_gimbal_action(
     timeout_s: float = 15.0,
     tolerance_deg: float = 4.0,
 ) -> ExecutionResult:
-    """Send a typed mount command and require a fresh device attitude sample."""
+    """Acquire the MAVLink gimbal-manager lease and require a fresh readback."""
     started = clock()
     if not isinstance(action, ActionPrimitive) or action.kind != "gimbal":
         return ExecutionResult("rejected", clock() - started, ack={"reason": "gimbal_action_required"})
@@ -119,15 +130,60 @@ def execute_gimbal_action(
     sender(
         target_system,
         target_component,
-        MAV_CMD_DO_MOUNT_CONTROL,
+        MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+        0,
+        float(GCS_SOURCE_SYSTEM),
+        float(GCS_SOURCE_COMPONENT),
+        -1.0,
+        -1.0,
+        0.0,
+        0.0,
+        float(GIMBAL_MANAGER_DEVICE_ID),
+    )
+    configure_deadline = time.monotonic() + min(max(0.1, float(timeout_s)), 5.0)
+    configure_ack_ns = 0
+    while time.monotonic() < configure_deadline:
+        state = getattr(reader, "state", None)
+        acks = getattr(state, "command_acks", {}) if state is not None else {}
+        entry = acks.get(MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE) if isinstance(acks, Mapping) else None
+        if entry is not None:
+            message, configure_ack_ns = entry
+            result = message.get("result", -1) if isinstance(message, Mapping) else getattr(message, "result", -1)
+            if int(configure_ack_ns) >= command_started_ns:
+                if int(result) not in {0, 5}:
+                    return ExecutionResult("failed", clock() - started, ack={"reason": "gimbal_manager_configure_rejected", "ack_result": int(result)})
+                if int(result) == 0:
+                    break
+        time.sleep(0.02)
+    else:
+        return ExecutionResult("timeout", clock() - started, ack={"reason": "gimbal_manager_configure_ack_timeout"})
+    manager_deadline = time.monotonic() + min(max(0.1, float(timeout_s)), 2.0)
+    manager_status = None
+    while time.monotonic() < manager_deadline:
+        state = getattr(reader, "state", None)
+        manager_status = state.get("GIMBAL_MANAGER_STATUS") if state is not None and callable(getattr(state, "get", None)) else None
+        received = getattr(state, "received_monotonic_ns", {}) if state is not None else {}
+        manager_ns = received.get("GIMBAL_MANAGER_STATUS", -1) if isinstance(received, Mapping) else -1
+        primary = manager_status.get("primary_control_sysid", 0) if isinstance(manager_status, Mapping) else getattr(manager_status, "primary_control_sysid", 0)
+        if int(manager_ns) >= int(configure_ack_ns) and int(primary or 0) == GCS_SOURCE_SYSTEM:
+            break
+        time.sleep(0.02)
+    else:
+        primary = manager_status.get("primary_control_sysid", 0) if isinstance(manager_status, Mapping) else getattr(manager_status, "primary_control_sysid", 0) if manager_status is not None else 0
+        return ExecutionResult("failed", clock() - started, ack={"reason": "gimbal_manager_control_not_owned", "primary_control_sysid": int(primary or 0)})
+    command_started_ns = time.monotonic_ns()
+    sender(
+        target_system,
+        target_component,
+        MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
         0,
         target["pitch"],
-        target["roll"],
         target["yaw"],
-        2,
-        0,
-        0,
-        0,
+        math.nan,
+        math.nan,
+        float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK | GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+        0.0,
+        float(GIMBAL_MANAGER_DEVICE_ID),
     )
     deadline = time.monotonic() + max(0.0, float(timeout_s))
     last_error: dict[str, float] | None = None
@@ -136,18 +192,20 @@ def execute_gimbal_action(
         if state is None:
             break
         acks = getattr(state, "command_acks", {})
-        if isinstance(acks, Mapping) and MAV_CMD_DO_MOUNT_CONTROL in acks:
-            ack_message, received_ns = acks[MAV_CMD_DO_MOUNT_CONTROL]
+        if isinstance(acks, Mapping) and MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW in acks:
+            ack_message, received_ns = acks[MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW]
             if isinstance(ack_message, Mapping):
                 ack_result = ack_message.get("result", -1)
             else:
                 ack_result = getattr(ack_message, "result", -1)
             if int(received_ns) >= command_started_ns and int(ack_result) not in {0, 5}:
-                return ExecutionResult("failed", clock() - started, ack={"reason": "gimbal_command_rejected"})
+                return ExecutionResult("failed", clock() - started, ack={"reason": "gimbal_manager_pitchyaw_rejected"})
         status = state.get("GIMBAL_DEVICE_ATTITUDE_STATUS") if callable(getattr(state, "get", None)) else None
         received = getattr(state, "received_monotonic_ns", {})
         if status is not None and isinstance(received, Mapping) and received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns:
-            actual = _gimbal_angles_deg(status)
+            attitude = state.get("ATTITUDE") if callable(getattr(state, "get", None)) else None
+            raw_yaw = getattr(attitude, "yaw", attitude.get("yaw", 0.0) if isinstance(attitude, Mapping) else 0.0)
+            actual = _gimbal_angles_deg(status, vehicle_yaw_deg=math.degrees(float(raw_yaw)))
             if actual is not None:
                 last_error = {
                     axis: abs((actual[axis] - target[axis] + 180.0) % 360.0 - 180.0)
@@ -157,10 +215,10 @@ def execute_gimbal_action(
                     return ExecutionResult(
                         "success",
                         clock() - started,
-                        ack={"command": "MAV_CMD_DO_MOUNT_CONTROL", "command_id": MAV_CMD_DO_MOUNT_CONTROL, "target_deg": target, "actual_deg": actual, "error_deg": last_error},
+                        ack={"command": "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW", "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, "configure_command_id": MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, "target_deg": target, "actual_deg": actual, "error_deg": last_error},
                     )
         time.sleep(0.02)
-    return ExecutionResult("timeout", clock() - started, ack={"command": "MAV_CMD_DO_MOUNT_CONTROL", "command_id": MAV_CMD_DO_MOUNT_CONTROL, "target_deg": target, "error_deg": last_error})
+    return ExecutionResult("timeout", clock() - started, ack={"command": "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW", "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, "configure_command_id": MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, "target_deg": target, "error_deg": last_error})
 
 
 class SetpointStreamer:
@@ -512,5 +570,6 @@ __all__ = [
     "SetpointStreamer",
     "PymavlinkPrimitiveExecutor",
     "execute_gimbal_action",
-    "MAV_CMD_DO_MOUNT_CONTROL",
+    "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
+    "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
 ]

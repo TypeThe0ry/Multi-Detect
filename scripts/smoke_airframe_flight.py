@@ -331,7 +331,7 @@ def build_plan(
         steps.append(
             {
                 "stage": "gimbal_check",
-                "action": "DO_MOUNT_CONTROL pitch=-45 roll=0 yaw=0; verify GIMBAL_DEVICE_ATTITUDE_STATUS",
+                "action": "DO_GIMBAL_MANAGER_CONFIGURE then DO_GIMBAL_MANAGER_PITCHYAW pitch=-45 yaw=0; verify manager ownership, GIMBAL_DEVICE_ATTITUDE_STATUS, and joint angles",
                 "tolerance_deg": 4.0,
             }
         )
