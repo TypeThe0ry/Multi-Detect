@@ -35,6 +35,38 @@ def _episode_metadata(episode: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _is_count_task(row: dict[str, Any]) -> bool:
+    """Return whether generic count metrics apply to an episode.
+
+    Count-site truth contains ``count_member`` targets for survey and monitor
+    missions too. Their expected checks use coverage or alerts, so those truth
+    members must not make the count summary look like a failed count task.
+    Older episodes without mission labels retain the historical
+    ``expected_count`` fallback.
+    """
+    skills = row.get("mission_plan_skills")
+    if isinstance(skills, list):
+        return "count" in skills
+    return "expected_count" in row
+
+
+def _count_summary(complete: list[dict[str, Any]]) -> dict[str, float | None]:
+    count_rows = [row for row in complete if _is_count_task(row) and "expected_count" in row]
+    return {
+        "count_exact_rate": (
+            sum(row.get("count_exact", False) for row in count_rows) / len(count_rows)
+            if count_rows
+            else None
+        ),
+        "mean_abs_count_error": (
+            sum(abs((row.get("reported_count") or 0) - row["expected_count"]) for row in count_rows)
+            / len(count_rows)
+            if count_rows
+            else None
+        ),
+    }
+
+
 def episode_is_complete(episode: Path) -> bool:
     """Return whether an episode is safe to count as collected.
 
@@ -437,6 +469,7 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
     complete = [r for r in rows if r["status"] == "complete"]
+    count_summary = _count_summary(complete)
     summary = {
         "worlds": [w["world_id"] for w in worlds],
         "episodes": len(rows),
@@ -458,17 +491,7 @@ def main(argv: list[str] | None = None) -> int:
         "no_confirm_rate": sum(not r["confirmed"] for r in complete) / len(complete)
         if complete
         else None,
-        "count_exact_rate": (
-            sum(r.get("count_exact", False) for r in complete) / len(complete)
-            if complete and any("expected_count" in r for r in complete)
-            else None
-        ),
-        "mean_abs_count_error": (
-            sum(abs((r.get("reported_count") or 0) - r["expected_count"]) for r in complete)
-            / len(complete)
-            if complete and all("expected_count" in r for r in complete)
-            else None
-        ),
+        **count_summary,
         "median_position_error_m": sorted(
             r["position_error_m"] for r in complete if r.get("position_error_m") is not None
         )[len([r for r in complete if r.get("position_error_m") is not None]) // 2]
