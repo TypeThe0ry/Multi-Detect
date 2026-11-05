@@ -13,6 +13,7 @@ from scripts.run_r15_round import (
     merge_without_copies,
     stratified_replay,
     filter_r21id_r2_additions,
+    selected_episode_metadata,
 )
 from scripts.train_slow_system_lora import initialize_adapter, resolve_adapter_weights
 
@@ -110,6 +111,29 @@ def test_r21id_train_command_passes_learning_rate_and_hot_start(tmp_path):
     command = captured[0][1]
     assert command[command.index("--learning-rate") + 1] == "2e-05"
     assert command[command.index("--init-adapter") + 1] == str(args.r12_adapter)
+
+
+def test_selected_episode_metadata_filters_logical_keys_and_rejects_failed(tmp_path):
+    root = tmp_path / "r7"
+    state_dir = root / "pipeline"
+    episode_dir = root / "episodes" / "gen_r21id_r7_w0000" / "ep-0" / "attempt-0" / "episodes" / "episode-0000-abcd"
+    episode_dir.mkdir(parents=True)
+    (episode_dir / "episode.json").write_text('{"status":"complete","episode_index":0}', encoding="utf-8")
+    state_dir.mkdir()
+    (state_dir / "round-state.json").write_text(
+        '{"episodes":{"gen_r21id_r7_w0000:0":{"status":"complete","path":"'
+        + str(episode_dir / "episode.json")
+        + '"},"gen_r21id_r7_w0013:0":{"status":"failed"}}}',
+        encoding="utf-8",
+    )
+    keys = tmp_path / "keys.txt"
+    keys.write_text("gen_r21id_r7_w0000:0\n", encoding="utf-8")
+    selected = selected_episode_metadata(keys, [root], tmp_path)
+    assert selected == [episode_dir]
+    keys.write_text("gen_r21id_r7_w0013:0\n", encoding="utf-8")
+    import pytest
+    with pytest.raises(ValueError, match="not complete"):
+        selected_episode_metadata(keys, [root], tmp_path)
 
 
 def test_merge_uses_explicit_additions_path(tmp_path):
