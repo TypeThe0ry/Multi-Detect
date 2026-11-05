@@ -168,7 +168,9 @@ def _validate_3d_assets(
         }
         assets = source_contract.get("assets")
         if (
-            source_contract.get("contract") != "multidetect.px4-x500-gimbal-source-assets-v2"
+            source_contract.get("schema_version") != 1
+            or source_contract.get("contract")
+            != "multidetect.px4-x500-gimbal-source-assets-v2"
             or source_contract.get("image") != PINNED_IMAGE
             or source_contract.get("image_revision") != source_contract.get("image")
             or not isinstance(assets, dict)
@@ -185,11 +187,9 @@ def _validate_3d_assets(
                 raise ValueError(f"PX4 gimbal source asset hash mismatch: {name}")
         x500_source = ET.parse(GIMBAL_SOURCE_ASSETS / "x500_gimbal_model.sdf").getroot()
         x500_model = x500_source.find("model")
-        includes = (
-            {uri.text for uri in x500_model.findall("include/uri") if uri.text}
-            if x500_model is not None
-            else set()
-        )
+        if x500_model is None or x500_model.attrib.get("name") != "x500_gimbal":
+            raise ValueError("PX4 x500_gimbal source does not declare the x500_gimbal model")
+        includes = {uri.text for uri in x500_model.findall("include/uri") if uri.text}
         gimbal_source = (GIMBAL_SOURCE_ASSETS / "gimbal_model.sdf").read_text(encoding="utf-8")
         startup_source = (GIMBAL_SOURCE_ASSETS / "4019_gz_x500_gimbal").read_text(encoding="utf-8")
         if not {"model://x500", "model://gimbal"}.issubset(includes):

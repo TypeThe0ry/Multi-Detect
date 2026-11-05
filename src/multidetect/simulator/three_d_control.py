@@ -305,7 +305,8 @@ def _verify_assets(
                 }
                 image = contract.get("image")
                 if (
-                    contract.get("contract") != "multidetect.px4-x500-gimbal-source-assets-v2"
+                    contract.get("schema_version") != 1
+                    or contract.get("contract") != "multidetect.px4-x500-gimbal-source-assets-v2"
                     or image != PINNED_IMAGE
                     or contract.get("image_revision") != image
                     or not isinstance(assets, Mapping)
@@ -331,6 +332,8 @@ def _verify_assets(
                             contract_path.parent / "x500_gimbal_model.sdf"
                         ).getroot()
                         x500_model = x500_root.find("model")
+                        if x500_model is None or x500_model.attrib.get("name") != "x500_gimbal":
+                            reasons.append("gimbal composition source is not the x500_gimbal model")
                         component_includes = (
                             {uri.text for uri in x500_model.findall("include/uri") if uri.text}
                             if x500_model is not None
@@ -519,7 +522,10 @@ def verify_document(
             if isinstance(scenario_vehicle, Mapping)
             else None
         )
-        if runtime_record.get("airframe_profile_id") == GIMBAL_PROFILE_ID:
+        if (
+            declared_profile == GIMBAL_PROFILE_ID
+            or runtime_record.get("airframe_profile_id") == GIMBAL_PROFILE_ID
+        ):
             _check(
                 runtime_record.get("airframe_profile_id") == declared_profile,
                 checks,
