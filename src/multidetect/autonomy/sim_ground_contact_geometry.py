@@ -22,10 +22,13 @@ from .serialization import (
 )
 from .sim_airframe_envelope import (
     MAXIMUM_SOURCE_BYTES,
+    _corners,
     _loaded,
+    _loaded_gimbal,
     _models,
     audit_x500_collision_envelope,
 )
+from .sim_gimbal_collision import load_gimbal_collision_geometry
 from .sim_static_route_clearance import (
     _IDENTITY,
     _bound_bytes,
@@ -62,13 +65,15 @@ def _environment(root, declared):
     return current
 
 
-def _sources(environment, models, extraction):
+def _sources(environment, models, extraction, gimbal_sources, vehicle_source):
     values = [
         environment.scene.world_source,
         *dict(environment.scene.include_sources).values(),
         environment.generated_sdf_source,
-        *models.values(),
-        extraction,
+        *((vehicle_source,) if vehicle_source is not None else ()),
+        *(models.values() if models is not None else ()),
+        *((extraction,) if extraction is not None else ()),
+        *(gimbal_sources.values() if gimbal_sources is not None else ()),
     ]
     unique = {}
     for source in values:
@@ -92,6 +97,16 @@ def _contains(support, body, radius):
     return all(abs(local[i]) + radius <= support.half_extents_local_m[i] for i in (0, 1))
 
 
+def _may_intersect_footprint(support, body, radius):
+    delta = (body[0] - support.center_enu_m[0], body[1] - support.center_enu_m[1], 0)
+    local = tuple(sum(support.rotation[j][i] * delta[j] for j in range(3)) for i in range(3))
+    if support.kind == "cylinder":
+        return math.hypot(*local[:2]) <= support.half_extents_local_m[0] + radius
+    dx = max(0.0, abs(local[0]) - support.half_extents_local_m[0])
+    dy = max(0.0, abs(local[1]) - support.half_extents_local_m[1])
+    return math.hypot(dx, dy) <= radius
+
+
 @dataclass(frozen=True, slots=True)
 class SignedGroundContactGeometryAudit:
     _document_json: str
@@ -113,8 +128,10 @@ def audit_signed_ground_contact_geometry(
     *,
     artifact_root: str | Path,
     environment: StaticTeacherSimEnvironment,
-    model_sources: dict,
-    extraction_source,
+    model_sources: dict | None = None,
+    extraction_source=None,
+    gimbal_sources: dict | None = None,
+    gimbal_generated_sdf_source: EvidenceBinding | None = None,
     support_collision_id: str,
     maximum_ground_tilt_deg: float = 1.0,
 ) -> SignedGroundContactGeometryAudit:
@@ -134,28 +151,64 @@ def audit_signed_ground_contact_geometry(
     )
     _require(
         type(environment) is StaticTeacherSimEnvironment
-        and type(model_sources) is dict
-        and set(model_sources) == {"x500_mono_cam", "x500", "x500_base"}
-        and all(type(v) is EvidenceBinding for v in model_sources.values())
-        and type(extraction_source) is EvidenceBinding,
+        and (
+            (
+                gimbal_sources is None
+                and gimbal_generated_sdf_source is None
+                and type(model_sources) is dict
+                and set(model_sources) == {"x500_mono_cam", "x500", "x500_base"}
+                and all(type(v) is EvidenceBinding for v in model_sources.values())
+                and type(extraction_source) is EvidenceBinding
+            )
+            or (
+                gimbal_sources is not None
+                and model_sources is None
+                and extraction_source is None
+                and isinstance(gimbal_sources, dict)
+                and type(gimbal_generated_sdf_source) is EvidenceBinding
+                and gimbal_generated_sdf_source.json_pointer is None
+            )
+        ),
         "typed full environment and exact three-model source closure required",
     )
-    sources = _sources(environment, model_sources, extraction_source)
+    sources = _sources(
+        environment,
+        model_sources,
+        extraction_source,
+        gimbal_sources,
+        gimbal_generated_sdf_source,
+    )
     identities = {}
     for source in sources:
         _bound_bytes(root, source, MAXIMUM_SOURCE_BYTES, identities)
     current = _environment(root, environment)
-    airframe = audit_x500_collision_envelope(
-        artifact_root=root,
-        model_sources=model_sources,
-        extraction_source=extraction_source,
-        generated_sdf_source=current.generated_sdf_source,
-        maximum_tilt_deg=180.0,
+    vehicle_source = (
+        current.generated_sdf_source if gimbal_sources is None else gimbal_generated_sdf_source
     )
-    models, offset, collisions, _, points = _models(root, model_sources, identities)
-    _, vehicle, _, _ = _loaded(
-        root, current.generated_sdf_source, collisions, offset, models, identities
-    )
+    airframe_inputs = {
+        "artifact_root": root,
+        "generated_sdf_source": vehicle_source,
+        "maximum_tilt_deg": 180.0,
+    }
+    if gimbal_sources is None:
+        airframe_inputs.update(model_sources=model_sources, extraction_source=extraction_source)
+        models, offset, collisions, _, points = _models(root, model_sources, identities)
+        gimbal_geometry = None
+        _, vehicle, _, _ = _loaded(
+            root, current.generated_sdf_source, collisions, offset, models, identities
+        )
+    else:
+        airframe_inputs["gimbal_sources"] = gimbal_sources
+        gimbal_geometry = load_gimbal_collision_geometry(root, gimbal_sources, identities)
+        models = None
+        offset = gimbal_geometry.model_offset
+        collisions = gimbal_geometry.base_collisions
+        points = []
+        for key, collision in collisions.items():
+            if key.startswith("base_link/"):
+                points.extend(_corners(collision, offset))
+        _, vehicle, _, _ = _loaded_gimbal(root, vehicle_source, gimbal_geometry, identities)
+    airframe = audit_x500_collision_envelope(**airframe_inputs)
     rotation, model_position = _pose(vehicle)
     body_delta = _mv(rotation, offset)
     body = tuple(model_position[i] + body_delta[i] for i in range(3))
@@ -172,7 +225,17 @@ def audit_signed_ground_contact_geometry(
             )
             rotor_bottoms.append(body[2] + _mv(rotation, center)[2] - swept_vertical_extent)
     _require(len(rotor_bottoms) == 4, "complete four-rotor sweep required")
-    bottom = min(rigid_bottom, *rotor_bottoms)
+    fixed_collision_bottom = min(rigid_bottom, *rotor_bottoms)
+    gimbal_bottom = None
+    gimbal_top = None
+    if gimbal_geometry is not None:
+        relative_gimbal_range = gimbal_geometry.vertical_range_at_body_rotation(rotation)
+        gimbal_bottom = body[2] + relative_gimbal_range[0]
+        gimbal_top = body[2] + relative_gimbal_range[1]
+    bottom = min(rigid_bottom, *rotor_bottoms, *(() if gimbal_bottom is None else (gimbal_bottom,)))
+    gimbal_changes_contact = (
+        None if gimbal_bottom is None else gimbal_bottom < fixed_collision_bottom - 1e-9
+    )
     tilt = math.degrees(math.acos(max(-1.0, min(1.0, rotation[2][2]))))
     support = next(
         (c for c in current.scene.collisions if c.collision_id == support_collision_id), None
@@ -186,6 +249,32 @@ def audit_signed_ground_contact_geometry(
     radius = airframe.envelope_bounds["horizontal_radius_m"]
     contains = _contains(support, body, radius)
     gap = bottom - support.upper_surface_up_m
+    gimbal_support_overlap = (
+        None
+        if gimbal_bottom is None
+        else (
+            max(0.0, support.upper_surface_up_m - gimbal_bottom)
+            if support.kind == "plane" and gimbal_bottom <= support.upper_surface_up_m <= gimbal_top
+            else max(
+                0.0,
+                min(gimbal_top, support.upper_surface_up_m)
+                - max(
+                    gimbal_bottom,
+                    support.center_enu_m[2] - support.half_extents_local_m[2],
+                ),
+            )
+        )
+    )
+    gimbal_may_contact_support = (
+        None
+        if gimbal_bottom is None
+        else _may_intersect_footprint(
+            support,
+            body,
+            gimbal_geometry.swept_bounds(tilt)["horizontal_radius_m"],
+        )
+        and gimbal_support_overlap > 0
+    )
     reasons = []
     if tilt > maximum_tilt:
         reasons.append("saved_body_tilt_outside_explicit_ground_domain")
@@ -204,7 +293,7 @@ def audit_signed_ground_contact_geometry(
         "scope": "retained source geometry only, no freshness or ground-state admission",
         "environment_sha256": current.canonical_hash,
         "source_derived_airframe_audit_sha256": airframe.canonical_hash,
-        "generated_sdf_source": current.generated_sdf_source.to_mapping(),
+        "generated_sdf_source": vehicle_source.to_mapping(),
         "source_bindings": [s.to_mapping() for s in sources],
         "support_collision": support.to_mapping(),
         "saved_model_position_enu_m": list(model_position),
@@ -212,6 +301,20 @@ def audit_signed_ground_contact_geometry(
         "source_derived_rigid_collision_bottom_up_m": rigid_bottom,
         "source_derived_full_rotor_sweep_bottom_up_m": min(rotor_bottoms),
         "source_derived_all_collision_bottom_up_m": bottom,
+        **(
+            {
+                "source_derived_gimbal_collision_bottom_up_m": gimbal_bottom,
+                "source_derived_gimbal_collision_top_up_m": gimbal_top,
+                "gimbal_joint_range_contact_checked": True,
+                "gimbal_bottom_is_conservative_joint_range_lower_bound": True,
+                "gimbal_may_contact_named_support": gimbal_may_contact_support,
+                "gimbal_support_geometry_overlap_m": gimbal_support_overlap,
+                "gimbal_changes_lowest_collision_point": gimbal_changes_contact,
+                "fixed_collision_bottom_up_m": fixed_collision_bottom,
+            }
+            if gimbal_geometry is not None
+            else {}
+        ),
         "support_surface_up_m": support.upper_surface_up_m,
         "signed_bottom_minus_support_up_m": gap,
         "predeclared_interval_m": [-NUMERICAL_PENETRATION_ALLOWANCE_M, POSITIVE_GAP_ALLOWANCE_M],
@@ -252,13 +355,7 @@ def audit_signed_ground_contact_geometry(
         },
     }
     repeated_environment = _environment(root, environment)
-    repeated_airframe = audit_x500_collision_envelope(
-        artifact_root=root,
-        model_sources=model_sources,
-        extraction_source=extraction_source,
-        generated_sdf_source=current.generated_sdf_source,
-        maximum_tilt_deg=180.0,
-    )
+    repeated_airframe = audit_x500_collision_envelope(**airframe_inputs)
     _require(
         repeated_environment.canonical_hash == current.canonical_hash
         and repeated_airframe.canonical_hash == airframe.canonical_hash,
