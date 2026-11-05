@@ -71,11 +71,13 @@ param set-default FW_RR_P 1.785935
 param set-default FW_YR_FF 0
 param set-default FW_YR_I 0
 param set-default FW_YR_P 0.291559
-# 15 m/s 估计阻力约 4 N（满推力 64.8 N 的 6%）；初值 10% 给差动配平余量。
+# 15 m/s 基础阻力估计约 4 N（满推力 64.8 N 的 6%），不含下方单列的高速桨阻力代理。
 # 无舵面且 SM 约 3.5%；FW_PSP_OFF=2 保持 4018 tailsitter 偏置约定，最终闭环增益仍需 SITL/实测整定。
-# 第 23 轮固定版 FW 空速 p95=21.27 m/s，超过 19 m/s 档案上限；降低巡航推力配平，
-# 保留足够的 15 m/s 配平余量，待下一轮完整持续段验证。
-param set-default FW_THR_TRIM 0.32
+# 第 27 轮两变体 FW 空速 p95=23.84/23.99 m/s，ATTITUDE_TARGET 坡度中位数均约 35°，
+# 任一路电机触及端点占比为 70.1%/72.3%。在 80 m 半径下，24 m/s 需要约 36° 坡度，
+# 已贴近 FW_R_LIM 并放大无舵面差动饱和。按空速平方比例估算，把配平推力从 0.32
+# 实验性下调到 0.22；空速、输出饱和及抓圈门限保持不变，须用下一轮 MAVLink 验证。
+param set-default FW_THR_TRIM 0.22
 param set-default FW_THR_MAX 0.8
 param set-default FW_THR_MIN 0.0
 param set-default FW_R_LIM 35
