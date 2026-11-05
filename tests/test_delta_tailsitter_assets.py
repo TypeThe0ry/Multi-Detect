@@ -532,6 +532,20 @@ def test_px4_logger_mode_override_and_default_preserve_other_airframes(tmp_path,
         )
 
 
+@pytest.mark.parametrize(
+    ("airframe", "expected"),
+    [
+        ("delta_tailsitter", "poll"),
+        ("delta_tailsitter_mono_cam", "poll"),
+        ("delta_tailsitter_gimbal", "poll"),
+        ("delta_tailsitter_gimbal_cam", "poll"),
+        ("advanced_plane", "default"),
+    ],
+)
+def test_collector_logger_mode_resolves_airframe_aliases(airframe, expected):
+    assert collector._default_px4_logger_mode(airframe) == expected
+
+
 def test_docker_cad_override_is_staged_without_mutating_source(tmp_path, monkeypatch):
     original = (MODEL_DIR / "model.sdf").read_bytes()
     shutil.copytree(MODEL_DIR, tmp_path / "model")

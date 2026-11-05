@@ -641,3 +641,32 @@ Docker 启动器现提供 `MULTIDETECT_PX4_LOGGER_MODE=default|poll|off`。仅�
 输出到 `container-evidence/px4-threads.txt`。journalctl 与 gdb 取证均为 best-effort，失败
 不会阻止容器清理。smoke `judgement.failure_class` 使用 `px4_logger_segfault`、
 `px4_other_segfault`、`px4_hang`、`telemetry_receiver`、`flight`、`none` 分类，不改变通过门限。
+
+## 第二十轮采集器属性错误与第十九轮 FW 遥测量化
+
+第 20 轮固定版和云台版都在启动仿真前以 `AttributeError: 'str' object has no attribute 'id'`
+退出，episode 的 `step_count=0`，没有生成 `mavlink.jsonl`。根因是 `CollectionPlan.airframe`
+字段为字符串（例如 `delta_tailsitter_mono_cam`），logger 元数据分支却访问了
+`plan.airframe.id`。现在通过 `_airframe_profile()` 解析别名并按 profile ID 选择 logger 模式；
+新增固定/云台基础 ID 和相机别名的回归测试，其他机型仍选 `default`。没有改飞行判定门槛。
+
+为区分这次采集器故障与气动表现，重新计算第 19 轮云台 MAVLink 持续段标记之后、容器退出之前的
+样本，时间窗为 163.788–260.852 s，共 97.064 s，尚未达到 120 s，不能计为持续飞行通过。只统计
+`EXTENDED_SYS_STATE.vtol_state=4`；姿态由 `ATTITUDE_QUATERNION` 计算，电机输出按现有
+`<=5` 或 `>=1095` 判为饱和：
+
+- 有效空速 388 个样本，p5/p50/p95 为 15.10/15.52/18.76 m/s；
+- 四元数姿态 4,721 个样本，绝对坡度 p95 为 35.80°（最大 37.32°），抬头角 p5/p95 为
+  3.35°/7.38°；
+- 电机输出 4,714 个样本，至少一路饱和占 11.90%，逐路占比为 4.75%、0.13%、6.89%、0.55%。
+
+同轮固定版没有持续段起始标记，遥测在约 66.076 s 停止；仅把所有记录到的 FW 状态样本作为诊断
+窗口时，空速 p5/p50/p95 为 15.78/17.52/21.46 m/s，绝对坡度 p95 为 36.58°，至少一路电机
+饱和占 49.66%。因它没有完整持续段边界，这些值不作为正式 FW gate 指标，但指向超速与差动输出
+饱和需要后续有效持续段复核。第 19 轮云台早期悬停云台回读最大轴误差 3.546°，满足该次
+`<4°` 子检查；这不能替代完整任务的通过结果。第 20 轮修复后仍须重新运行两种变体，确认完整航线、
+帧对齐、FW 指标以及连续稳定运行；本节记录的旧失败不改写为通过。
+
+修复后的本次执行尝试在 Docker 可用性预检处停止：当前环境返回 `Docker daemon is not reachable`，
+没有创建容器或产生新 MAVLink 数据。固定版和云台版的 dry-run 均成功生成各自 Docker 计划；完整飞行
+验证仍待 Docker daemon 可用后执行。

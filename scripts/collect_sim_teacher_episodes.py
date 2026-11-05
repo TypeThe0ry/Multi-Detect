@@ -428,6 +428,16 @@ def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> Airfr
     raise ValueError(f"unknown airframe profile: {airframe}")
 
 
+def _default_px4_logger_mode(airframe: str) -> str:
+    """Select the logger workaround from the resolved profile, not the CLI string."""
+    profile = _airframe_profile(airframe)
+    return (
+        "poll"
+        if profile is not None and profile.id in DELTA_TAILSITTER_SMOKE_PROFILES
+        else "default"
+    )
+
+
 def _new_video_sample(sample: Any, last_written_ns: int) -> bool:
     """A camera sample the continuous video has not written yet.
 
@@ -4494,10 +4504,8 @@ def run_episode(
     recorder.meta["takeoff_altitude_source"] = altitude_source
     recorder.meta["delta_tailsitter_smoke_gates"] = strict_delta_smoke
     configured_logger_mode = os.environ.get("MULTIDETECT_PX4_LOGGER_MODE")
-    recorder.meta["px4_logger_mode"] = configured_logger_mode or (
-        "poll"
-        if plan.airframe.id in {"delta_tailsitter", "delta_tailsitter_gimbal"}
-        else "default"
+    recorder.meta["px4_logger_mode"] = configured_logger_mode or _default_px4_logger_mode(
+        plan.airframe
     )
     recorder.meta["frame_age_limit_s"] = _frame_age_limit_s(plan.airframe)
     world_path = scenario_world_path(plan.runtime)
