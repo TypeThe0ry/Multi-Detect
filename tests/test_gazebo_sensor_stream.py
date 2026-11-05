@@ -41,6 +41,8 @@ from scripts.gazebo_sensor_stream import (
     WireOrderValidator,
     _normalize_depth_float32,
     _odometry_from_message,
+    _frame_gimbal_state,
+    _joint_sample_from_message,
     _parse_depth_contract,
     _runtime_pixel_format_name,
     _shutdown_transport_node,
@@ -66,6 +68,43 @@ TEST_ATTITUDE_COVARIANCE = (
     0.0,
     0.0009,
 )
+
+
+def test_gimbal_state_gate_rejects_missing_and_stale_samples() -> None:
+    assert _frame_gimbal_state(None, 1_000_000_000) is None
+    sample = {
+        "stamp_ns": 800_000_000,
+        "joints": {
+            "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.2},
+            "cgo3_vertical_arm_joint": {"position_rad": 0.3, "velocity_rad_s": 0.4},
+            "cgo3_horizontal_arm_joint": {"position_rad": 0.5, "velocity_rad_s": 0.6},
+        },
+    }
+    assert _frame_gimbal_state(sample, 1_000_000_001) is None
+    assert _frame_gimbal_state({**sample, "joints": {}}, 1_000_000_000) is None
+
+
+def test_gimbal_state_gate_records_fresh_joint_values_and_separate_timestamps() -> None:
+    sample = _joint_sample_from_message(
+        _gazebo_message(
+            stamp_ns=950_000_000,
+            joint=[
+                SimpleNamespace(name=name, axis1=SimpleNamespace(position=pos, velocity=vel))
+                for name, pos, vel in (
+                    ("cgo3_camera_joint", 0.1, 0.2),
+                    ("cgo3_vertical_arm_joint", 0.3, 0.4),
+                    ("cgo3_horizontal_arm_joint", 0.5, 0.6),
+                )
+            ],
+        )
+    )
+    state = _frame_gimbal_state(sample, 1_000_000_000)
+    assert state is not None
+    assert state["timestamp_ns"] == 1_000_000_000
+    assert state["source_timestamp_ns"] == 950_000_000
+    assert state["source_skew_ns"] == 50_000_000
+    assert state["position_rad"] == {"pitch": 0.1, "yaw": 0.3, "roll": 0.5}
+    assert state["velocity_rad_s"] == {"pitch": 0.2, "yaw": 0.4, "roll": 0.6}
 
 
 def _frame(

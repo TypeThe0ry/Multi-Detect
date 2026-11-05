@@ -105,6 +105,12 @@ MAX_FAULT_TIMELINE_EVENTS = 64
 QUATERNION_NORM_TOLERANCE = 1.0e-3
 FAULT_SOURCES = ("image", "navsat", "odometry")
 DEPTH_MAX_SOURCE_SKEW_NS = 100_000_000
+MAX_JOINT_STATE_SKEW_NS = 100_000_000
+GIMBAL_JOINT_NAMES = {
+    "pitch": "cgo3_camera_joint",
+    "yaw": "cgo3_vertical_arm_joint",
+    "roll": "cgo3_horizontal_arm_joint",
+}
 DEPTH_CAMERA_INFO_TOPIC_SUFFIX = "/link/depth_camera_link/sensor/depth_camera/camera_info"
 DEPTH_IMAGE_TOPIC_SUFFIX = "/link/depth_camera_link/sensor/depth_camera/depth_image"
 # Gazebo derives the matrix from an SDF floating-point horizontal FOV.  The
@@ -304,6 +310,57 @@ def _finite(name: str, value: float) -> float:
     if not math.isfinite(normalized):
         raise ValueError(f"{name} must be finite")
     return normalized
+
+
+def _joint_sample_from_message(message: Any) -> dict[str, object]:
+    """Normalize JointStatePublisher axis-1 values using simulation time."""
+    stamp_ns = _stamp_ns(message)
+    joints: dict[str, dict[str, float]] = {}
+    for joint in getattr(message, "joint", ()):
+        name = str(getattr(joint, "name", ""))
+        axis = getattr(joint, "axis1", None)
+        if not name or axis is None:
+            continue
+        try:
+            position = _finite(f"{name} position_rad", axis.position)
+            velocity = _finite(f"{name} velocity_rad_s", axis.velocity)
+        except (AttributeError, ValueError):
+            continue
+        joints[name] = {"position_rad": position, "velocity_rad_s": velocity}
+    if stamp_ns <= 0 or not joints:
+        raise ValueError("joint state must contain a positive timestamp and finite axis-1 samples")
+    return {"stamp_ns": stamp_ns, "joints": joints}
+
+
+def _frame_gimbal_state(
+    sample: dict[str, object] | None, frame_stamp_ns: int
+) -> dict[str, object] | None:
+    """Bind a fresh, causal gimbal sample to an RGB simulation timestamp."""
+    if sample is None:
+        return None
+    source_stamp_ns = int(sample["stamp_ns"])
+    skew_ns = frame_stamp_ns - source_stamp_ns
+    joints = sample["joints"]
+    assert isinstance(joints, dict)
+    if skew_ns < 0 or skew_ns > MAX_JOINT_STATE_SKEW_NS or not all(
+        name in joints for name in GIMBAL_JOINT_NAMES.values()
+    ):
+        return None
+    return {
+        "timestamp_ns": frame_stamp_ns,
+        "source_timestamp_ns": source_stamp_ns,
+        "source_skew_ns": skew_ns,
+        "position_rad": {
+            axis: float(joints[name]["position_rad"])
+            for axis, name in GIMBAL_JOINT_NAMES.items()
+        },
+        "velocity_rad_s": {
+            axis: float(joints[name]["velocity_rad_s"])
+            for axis, name in GIMBAL_JOINT_NAMES.items()
+        },
+        "source": "gazebo_joint_state",
+        "fresh": True,
+    }
 
 
 def _validate_navsat(
@@ -1418,6 +1475,9 @@ def main() -> int:
 
     model = args.model_instance
     world = args.world
+    gimballed_airframe = "gimbal" in model.lower()
+    if gimballed_airframe:
+        from gz.msgs10.model_pb2 import Model
     image_topic = args.image_topic or (
         f"/world/{world}/model/{model}/link/camera_link/sensor/camera/image"
     )
@@ -1428,6 +1488,7 @@ def main() -> int:
         f"/world/{world}/model/{model}/link/base_link/sensor/navsat_sensor/navsat"
     )
     odometry_topic = args.odometry_topic or f"/model/{model}/odometry_with_covariance"
+    joint_state_topic = f"/world/{world}/model/{model}/joint_state"
     depth_topic = (
         str(depth_contract["source_topic"]) if depth_contract is not None else None
     )
@@ -1444,6 +1505,8 @@ def main() -> int:
         "navsat": CausalSourceBuffer("NavSat"),
         "odometry": CausalSourceBuffer("Odometry"),
     }
+    if gimballed_airframe:
+        source_buffers["gimbal"] = CausalSourceBuffer("JointStatePublisher", maximum_samples=128)
     if depth_contract is not None:
         source_buffers.update(
             {
@@ -1465,6 +1528,8 @@ def main() -> int:
         "camera_info": 0,
         "navsat": 0,
         "odometry": 0,
+        "gimbal": 0,
+        "gimbal_missing_or_stale_rejections": 0,
         "odometry_invalid": 0,
         "odometry_startup_velocity_rejected": 0,
         "fault_dropped_image": 0,
@@ -1787,6 +1852,17 @@ def main() -> int:
                 return
             fail(f"Odometry rejected: {exc}")
 
+    def on_joint_state(message: Model) -> None:
+        try:
+            sample = _joint_sample_from_message(message)
+            with state_lock:
+                source_buffers["gimbal"].append(sample)
+                counts["gimbal"] += 1
+        except Exception as exc:
+            with state_lock:
+                counts["gimbal_invalid"] = counts.get("gimbal_invalid", 0) + 1
+            _diagnostic("gazebo_sensor_stream_joint_state_dropped", reason=str(exc))
+
     def on_image(message: Image) -> None:
         nonlocal accepted, last_sensor_stamp_ns, odometry_timestamp_frame_count
         nonlocal fault_recovered_frame_count
@@ -1850,8 +1926,12 @@ def main() -> int:
                         for name, buffer in source_buffers.items()
                         if name in {"camera_info", "navsat", "odometry"}
                     }
+                    if gimballed_airframe:
+                        selected["gimbal"] = source_buffers["gimbal"].latest_at_or_before(stamp_ns)
                     if any(sample is None for sample in selected.values()):
                         counts["ignored_before_ready"] += 1
+                        if gimballed_airframe and selected.get("gimbal") is None:
+                            counts["gimbal_missing_or_stale_rejections"] += 1
                         if (
                             dynamic_fault_source in {"navsat", "odometry"}
                             and fault_cache_cleared
@@ -1891,6 +1971,14 @@ def main() -> int:
                     navsat = selected["navsat"]
                     odometry = selected["odometry"]
                     assert camera is not None and navsat is not None and odometry is not None
+                    gimbal_state = (
+                        _frame_gimbal_state(selected.get("gimbal"), stamp_ns)
+                        if gimballed_airframe
+                        else None
+                    )
+                    if gimballed_airframe and gimbal_state is None:
+                        counts["gimbal_missing_or_stale_rejections"] += 1
+                        return
                     if dynamic_fault_source in {"navsat", "odometry"}:
                         selected_source = selected[dynamic_fault_source]
                         dropped_stamp = fault_last_dropped_source_stamp_ns
@@ -2100,6 +2188,18 @@ def main() -> int:
                         )
                     ):
                         fault_recovered_frame_count += 1
+                if gimballed_airframe:
+                    _diagnostic(
+                        "gazebo_sensor_stream_gimbal_frame_state",
+                        sequence=sequence,
+                        timestamp_ns=int(gimbal_state["timestamp_ns"]),
+                        source_timestamp_ns=int(gimbal_state["source_timestamp_ns"]),
+                        source_skew_ns=int(gimbal_state["source_skew_ns"]),
+                        position_rad=gimbal_state["position_rad"],
+                        velocity_rad_s=gimbal_state["velocity_rad_s"],
+                        source="gazebo_joint_state",
+                        fresh=True,
+                    )
                 # Queue one atomic stdout blob: once an RGB frame is accepted,
                 # its companion must be the immediately following record.
                 packets.put(packet + depth_record)
@@ -2126,6 +2226,8 @@ def main() -> int:
             (OdometryWithCovariance, odometry_topic, on_odometry),
         ]
     )
+    if gimballed_airframe:
+        required_subscriptions.append((Model, joint_state_topic, on_joint_state))
     subscription_topics = tuple(topic for _message_type, topic, _callback in required_subscriptions)
     for message_type, topic, callback in required_subscriptions:
         if not node.subscribe(message_type, topic, callback):
@@ -2150,6 +2252,10 @@ def main() -> int:
         camera_info_topic=camera_info_topic,
         navsat_topic=navsat_topic,
         odometry_topic=odometry_topic,
+        gimballed_airframe=gimballed_airframe,
+        joint_state_topic=joint_state_topic if gimballed_airframe else None,
+        maximum_joint_state_skew_ns=MAX_JOINT_STATE_SKEW_NS if gimballed_airframe else None,
+        gimbal_joint_names=GIMBAL_JOINT_NAMES if gimballed_airframe else None,
         depth_enabled=depth_contract is not None,
         depth_topic=depth_topic,
         depth_camera_info_topic=depth_camera_info_topic,
@@ -2260,6 +2366,14 @@ def main() -> int:
         emitted_frames=emitted,
         ready_sources=ready_sources,
         odometry_present="odometry" in ready_sources,
+        gimballed_airframe=gimballed_airframe,
+        gimbal_state_present=("gimbal" in ready_sources) if gimballed_airframe else None,
+        gimbal_state_timestamp_count=count_snapshot.get("gimbal", 0),
+        gimbal_missing_or_stale_rejections=count_snapshot.get("gimbal_missing_or_stale_rejections", 0),
+        gimbal_freshness_gate_passed=(
+            gate_passed and count_snapshot.get("gimbal", 0) > 0
+            if gimballed_airframe else None
+        ),
         odometry_required=True,
         odometry_timestamp_frame_count=odometry_timestamp_frame_count_snapshot,
         odometry_pose_velocity_fusion=gate_passed,
