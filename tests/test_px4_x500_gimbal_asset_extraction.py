@@ -9,6 +9,12 @@ import pytest
 from scripts.extract_px4_x500_gimbal_assets import extract_assets
 from scripts.run_simulator_docker import PINNED_IMAGE
 
+REAL_SOURCE_ASSETS = Path(__file__).resolve().parents[1] / "simulation/gazebo/source-assets/x500_gimbal"
+REAL_AIRFRAMES = {
+    name: (REAL_SOURCE_ASSETS / name).read_text(encoding="utf-8")
+    for name in ("4019_gz_x500_gimbal", "4001_gz_x500")
+}
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -26,9 +32,8 @@ def test_extracts_composition_camera_gimbal_and_4019_from_one_image_revision(tmp
             '<sdf version="1.9"><model name="gimbal">'
             '<link name="cgo3_mount_link"/><link name="camera_link"/></model></sdf>'
         ),
-        "etc/init.d-posix/airframes/4019_gz_x500_gimbal": (
-            "#!/bin/sh\nPX4_SIM_MODEL=gz_x500_gimbal\n# autostart 4019\n"
-        ),
+        "etc/init.d-posix/airframes/4019_gz_x500_gimbal": REAL_AIRFRAMES["4019_gz_x500_gimbal"],
+        "etc/init.d-posix/airframes/4001_gz_x500": REAL_AIRFRAMES["4001_gz_x500"],
     }
     for relative, content in files.items():
         source = image_root / relative
@@ -45,6 +50,7 @@ def test_extracts_composition_camera_gimbal_and_4019_from_one_image_revision(tmp
         "x500_gimbal_model.sdf",
         "gimbal_model.sdf",
         "4019_gz_x500_gimbal",
+        "4001_gz_x500",
     }
     assert all(record["sha256"] == _sha256(output / name) for name, record in contract["assets"].items())
 
@@ -59,7 +65,8 @@ def test_extraction_requires_camera_link_in_gimbal_component(tmp_path: Path) -> 
         "share/gz/models/gimbal/model.sdf": (
             '<sdf><model name="gimbal"><link name="cgo3_mount_link"/></model></sdf>'
         ),
-        "etc/init.d-posix/airframes/4019_gz_x500_gimbal": "PX4_SIM_MODEL=gz_x500_gimbal 4019\n",
+        "etc/init.d-posix/airframes/4019_gz_x500_gimbal": REAL_AIRFRAMES["4019_gz_x500_gimbal"],
+        "etc/init.d-posix/airframes/4001_gz_x500": REAL_AIRFRAMES["4001_gz_x500"],
     }
     for relative, content in files.items():
         source = image_root / relative

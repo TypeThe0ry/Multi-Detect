@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -297,16 +298,18 @@ def _verify_assets(
                     "x500_gimbal_model.sdf",
                     "gimbal_model.sdf",
                     "4019_gz_x500_gimbal",
+                    "4001_gz_x500",
                 }
                 expected_image_paths = {
                     "x500_gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf",
                     "gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/gimbal/model.sdf",
                     "4019_gz_x500_gimbal": "/opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal",
+                    "4001_gz_x500": "/opt/px4-gazebo/etc/init.d-posix/airframes/4001_gz_x500",
                 }
                 image = contract.get("image")
                 if (
                     contract.get("schema_version") != 1
-                    or contract.get("contract") != "multidetect.px4-x500-gimbal-source-assets-v2"
+                    or contract.get("contract") != "multidetect.px4-x500-gimbal-source-assets-v3"
                     or image != PINNED_IMAGE
                     or contract.get("image_revision") != image
                     or not isinstance(assets, Mapping)
@@ -356,8 +359,16 @@ def _verify_assets(
                             reasons.append("gimbal x500 composition is missing component includes")
                         if not {"camera_link", "cgo3_mount_link"}.issubset(gimbal_links):
                             reasons.append("gimbal source links are incomplete")
-                        if "4019" not in startup_text or "gz_x500_gimbal" not in startup_text:
-                            reasons.append("gimbal PX4 startup file is not autostart 4019")
+                        if not re.search(
+                            r"(?m)^PX4_SIM_MODEL=\$\{PX4_SIM_MODEL:=x500_gimbal\}\s*$",
+                            startup_text,
+                        ):
+                            reasons.append("gimbal PX4 startup file does not default to x500_gimbal")
+                        if not re.search(
+                            r"(?m)^\. \$\{R\}etc/init\.d-posix/airframes/4001_gz_x500\s*$",
+                            startup_text,
+                        ):
+                            reasons.append("gimbal PX4 startup file does not source 4001_gz_x500")
             except (OSError, ValueError, TypeError) as exc:
                 reasons.append(f"gimbal source asset contract cannot be verified: {exc}")
 
