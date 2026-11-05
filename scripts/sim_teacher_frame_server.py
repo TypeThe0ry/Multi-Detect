@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from gazebo_depth_wire import build_depth_wire_record
+from gazebo_depth_wire import ROTOR_VELOCITY_SLOWDOWN, build_depth_wire_record
 from gazebo_segmentation_wire import build_segmentation_wire_record, normalize_labels_map
 from gazebo_sensor_stream import (
     DEPTH_MAX_SOURCE_SKEW_NS,
@@ -41,9 +41,15 @@ from gazebo_sensor_stream import (
     validate_camera_info_semantics,
 )
 
-
 MAX_CONSECUTIVE_ODOMETRY_VELOCITY_REJECTIONS = 3
 ODOMETRY_VELOCITY_BOUND_ERROR = "wire Odometry velocity exceeds the safety bound"
+MAX_JOINT_STATE_SKEW_NS = 100_000_000
+ROTOR_JOINT_NAMES = tuple(f"rotor_{index}_joint" for index in range(4))
+GIMBAL_JOINT_NAMES = {
+    "pitch": "cgo3_camera_joint",
+    "yaw": "cgo3_vertical_arm_joint",
+    "roll": "cgo3_horizontal_arm_joint",
+}
 
 
 class OdometrySamplePolicy:
@@ -92,6 +98,7 @@ class Candidate:
     depth_height: int
     segmentation: bytes | None = None
     segmentation_topic: str | None = None
+    joint_state: dict[str, Any] | None = None
 
 
 class ExactSegmentationPairer:
@@ -294,6 +301,8 @@ def encode_candidate(
         "cx_px": float(depth_contract["cx_px"]) * depth_size[0] / candidate.depth_width,
         "cy_px": float(depth_contract["cy_px"]) * depth_size[1] / candidate.depth_height,
     }
+    if candidate.joint_state is not None:
+        metadata["joint_state"] = candidate.joint_state
     output = rgb_record + build_depth_wire_record(metadata=metadata, payload=depth_payload)
     if candidate.segmentation is not None:
         segmentation_payload = scale_bgr24(
@@ -308,6 +317,69 @@ def encode_candidate(
             segmentation_payload,
         )
     return output
+
+
+def _joint_sample_from_message(message: Any) -> dict[str, Any]:
+    """Normalize a Gazebo JointStatePublisher Model message."""
+    stamp_ns = _stamp_ns(message)
+    joints: dict[str, dict[str, float]] = {}
+    for joint in getattr(message, "joint", ()):
+        name = str(getattr(joint, "name", ""))
+        axis = getattr(joint, "axis1", None)
+        if not name or axis is None:
+            continue
+        position = float(getattr(axis, "position", math.nan))
+        velocity = float(getattr(axis, "velocity", math.nan))
+        if math.isfinite(position) and math.isfinite(velocity):
+            joints[name] = {"position_rad": position, "velocity_rad_s": velocity}
+    if not joints:
+        raise ValueError("joint state message contains no finite axis-1 samples")
+    return {"stamp_ns": stamp_ns, "joints": joints}
+
+
+def _frame_joint_state(sample: dict[str, Any] | None, frame_stamp_ns: int) -> dict[str, Any] | None:
+    """Bind the newest causal actuator sample to one RGB timestamp."""
+    if sample is None:
+        return None
+    source_stamp_ns = int(sample["stamp_ns"])
+    skew_ns = int(frame_stamp_ns) - source_stamp_ns
+    if skew_ns < 0 or skew_ns > MAX_JOINT_STATE_SKEW_NS:
+        return None
+    joints = sample["joints"]
+    result: dict[str, Any] = {
+        "timestamp_ns": int(frame_stamp_ns),
+        "source_timestamp_ns": source_stamp_ns,
+        "source_skew_ns": skew_ns,
+        "gimbal_joint_state": None,
+        "propeller_joint_state": None,
+    }
+    if all(name in joints for name in ROTOR_JOINT_NAMES):
+        rotor_samples = [joints[name] for name in ROTOR_JOINT_NAMES]
+        result["propeller_joint_state"] = {
+            "timestamp_ns": int(frame_stamp_ns),
+            "joint_names": list(ROTOR_JOINT_NAMES),
+            "angles_rad": [float(value["position_rad"]) for value in rotor_samples],
+            "spin_rad_s": [float(value["velocity_rad_s"]) for value in rotor_samples],
+            "velocity_slowdown": ROTOR_VELOCITY_SLOWDOWN,
+            "source": "gazebo_joint_state",
+        }
+    if all(name in joints for name in GIMBAL_JOINT_NAMES.values()):
+        result["gimbal_joint_state"] = {
+            "timestamp_ns": int(frame_stamp_ns),
+            "position_rad": {
+                axis: float(joints[name]["position_rad"])
+                for axis, name in GIMBAL_JOINT_NAMES.items()
+            },
+            "velocity_rad_s": {
+                axis: float(joints[name]["velocity_rad_s"])
+                for axis, name in GIMBAL_JOINT_NAMES.items()
+            },
+            "source": "gazebo_joint_state",
+            "fresh": True,
+        }
+    if result["gimbal_joint_state"] is None and result["propeller_joint_state"] is None:
+        return None
+    return result
 
 
 def _diagnostic(event: str, **fields: Any) -> None:
@@ -349,6 +421,7 @@ def main() -> int:
 
     from gz.msgs10.camera_info_pb2 import CameraInfo
     from gz.msgs10.image_pb2 import Image
+    from gz.msgs10.model_pb2 import Model
     from gz.msgs10.navsat_pb2 import NavSat
     from gz.msgs10.odometry_with_covariance_pb2 import OdometryWithCovariance
     from gz.transport13 import Node
@@ -368,6 +441,7 @@ def main() -> int:
     odometry_topic = args.odometry_topic or f"/model/{model}/odometry_with_covariance"
     depth_topic = str(contract["source_topic"])
     depth_info_topic = str(contract["depth_camera_info_topic"])
+    joint_state_topic = f"/world/{world}/model/{model}/joint_state"
     buffers = {
         "camera": CausalSourceBuffer("CameraInfo"),
         "navsat": CausalSourceBuffer("NavSat"),
@@ -377,6 +451,7 @@ def main() -> int:
         ),
         "depth": CausalSourceBuffer("DepthImage", maximum_samples=MAX_DEPTH_HISTORY_SAMPLES),
     }
+    joint_states = CausalSourceBuffer("JointStatePublisher", maximum_samples=128)
     state_lock = threading.Lock()
     image_lock = threading.Lock()
     latest = LatestCandidate()
@@ -389,6 +464,9 @@ def main() -> int:
         "odometry_invalid": 0,
         "odometry_velocity_rejected": 0,
         "odometry_max_consecutive_velocity_rejections": 0,
+        "joint_state_invalid": 0,
+        "joint_state_frames": 0,
+        "joint_state_missing_or_stale": 0,
     }
     odometry_policy = OdometrySamplePolicy()
 
@@ -507,6 +585,16 @@ def main() -> int:
 
         guard("Depth Image", update)
 
+    def on_joint_state(message: Model) -> None:
+        try:
+            sample = _joint_sample_from_message(message)
+            with state_lock:
+                joint_states.append(sample)
+        except Exception as exc:
+            with state_lock:
+                stats["joint_state_invalid"] += 1
+            _diagnostic("sim_teacher_joint_state_dropped", reason=str(exc))
+
     def on_image(message: Image) -> None:
         def update() -> None:
             stamp = _stamp_ns(message)
@@ -541,6 +629,13 @@ def main() -> int:
                         int(message.height),
                     ):
                         raise ValueError("RGB image geometry differs from CameraInfo")
+                    joint_state = _frame_joint_state(
+                        joint_states.latest_at_or_before(stamp), stamp
+                    )
+                    if joint_state is None:
+                        stats["joint_state_missing_or_stale"] += 1
+                    else:
+                        stats["joint_state_frames"] += 1
                     copied = (dict(camera), dict(navsat), dict(odometry), dict(depth))
                 bgr = normalize_bgr24(
                     message.data,
@@ -563,6 +658,7 @@ def main() -> int:
                         bytes(depth["payload"]),
                         int(contract["width"]),
                         int(contract["height"]),
+                        joint_state=joint_state,
                     )
                 )
 
@@ -587,6 +683,7 @@ def main() -> int:
         (CameraInfo, camera_topic, on_camera),
         (NavSat, navsat_topic, on_navsat),
         (OdometryWithCovariance, odometry_topic, on_odometry),
+        (Model, joint_state_topic, on_joint_state),
     ]
     if args.segmentation:
         subscriptions.append((Image, args.segmentation_topic, on_segmentation))
@@ -600,6 +697,7 @@ def main() -> int:
         "sim_teacher_frame_server_started",
         image_topic=image_topic,
         depth_topic=depth_topic,
+        joint_state_topic=joint_state_topic,
         rgb_size=args.rgb_size,
         depth_size=args.depth_size,
         depth_encoding=args.depth_encoding,
@@ -632,6 +730,7 @@ def main() -> int:
             synchronized=latest.received,
             dropped=latest.dropped,
             rejected=stats,
+            joint_state_topic=joint_state_topic,
             error=latest.error,
             teardown_errors=teardown,
         )
