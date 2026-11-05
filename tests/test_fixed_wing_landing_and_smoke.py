@@ -174,6 +174,32 @@ def test_smoke_evaluation_reads_recorded_artifacts(tmp_path: Path):
     assert result["max_distance_from_origin_m"] == 500.0 and result["stayed_in_area"] is True
 
 
+def test_smoke_takeoff_uses_measured_altitude_not_commanded_altitude(tmp_path: Path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
+    (tmp_path / "episode.json").write_text(
+        json.dumps({"takeoff_altitude_m": 5.0}), encoding="utf-8"
+    )
+    assert evaluate_episode(tmp_path, profile, 5.0)["takeoff_success"] is False
+
+
+def test_smoke_reposition_must_meet_plan_tolerance(tmp_path: Path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
+    (tmp_path / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "action": {"kind": "translate"},
+                "outcome": {
+                    "commanded_delta_ned": [10.0, 0.0, 0.0],
+                    "achieved_delta_ned": [8.0, 0.0, 0.0],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert evaluate_episode(tmp_path, profile, 5.0, 1.0)["reposition_success"] is False
+    assert evaluate_episode(tmp_path, profile, 2.0, 2.0)["reposition_success"] is True
+
+
 def test_smoke_evaluation_takes_rtl_from_px4_statustext(tmp_path: Path):
     profile = AirframeProfile.from_json(Path("configs/airframes/advanced_plane.json"))
     rows = [

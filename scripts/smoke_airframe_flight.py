@@ -65,7 +65,10 @@ def _difference_norm(left: Any, right: Any) -> float | None:
 
 
 def evaluate_episode(
-    episode_dir: Path, profile: AirframeProfile, target_altitude_m: float = 5.0
+    episode_dir: Path,
+    profile: AirframeProfile,
+    target_altitude_m: float = 5.0,
+    position_error_m: float | None = None,
 ) -> dict[str, Any]:
     """Evaluate a completed collector artifact from telemetry and step records."""
     episode_dir = Path(episode_dir)
@@ -151,10 +154,6 @@ def evaluate_episode(
     takeoff_success = bool(
         local_altitudes and max(local_altitudes) >= max(0.5, target_altitude_m * 0.8)
     )
-    if episode.get("takeoff_altitude_m") is not None:
-        takeoff_success = (
-            takeoff_success or float(episode["takeoff_altitude_m"]) >= target_altitude_m * 0.8
-        )
     if profile.category == "vtol":
         transition_success = 4 in vtol_states or 5 in vtol_states
     else:
@@ -205,6 +204,9 @@ def evaluate_episode(
         )
         if error is not None:
             reposition_errors.append(error)
+    reposition_success = bool(reposition_errors) and position_error_m is not None and position_error_m > 0
+    if reposition_success:
+        reposition_success = max(reposition_errors) <= position_error_m
     video = episode.get("video") or {}
     camera_frames = int(video.get("frames_written", video.get("frame_count", 0)) or 0)
     if not camera_frames:
@@ -230,6 +232,8 @@ def evaluate_episode(
         # Guided fixed-wing commands return on PX4's ACK, so the per-step deltas
         # are short-horizon samples, not route accuracy.
         "reposition_error_m": reposition_errors,
+        # 仅供参考：上面的误差是 ACK 后的短时采样，不是航线精度，不能作为通过条件。
+        "reposition_success": reposition_success,
         "max_distance_from_origin_m": max(horizontal) if horizontal else None,
         "stayed_in_area": bool(horizontal) and max(horizontal) <= MAX_SMOKE_RANGE_M,
         "rtl_entered": rtl_entered,
@@ -476,7 +480,21 @@ def main(argv: list[str] | None = None) -> int:
     result["judgement"] = dict(plan["judgement"])
     episodes = sorted(args.out.rglob("episode.json"), key=lambda path: path.stat().st_mtime)
     if episodes:
-        parsed = evaluate_episode(episodes[-1].parent, profile, DEFAULT_TAKEOFF_ALTITUDE_M)
+        reposition_tolerance = next(
+            (
+                float(step["position_error_m"])
+                for step in plan["steps"]
+                if step.get("stage") == "reposition"
+                and isinstance(step.get("position_error_m"), (int, float))
+            ),
+            None,
+        )
+        parsed = evaluate_episode(
+            episodes[-1].parent,
+            profile,
+            DEFAULT_TAKEOFF_ALTITUDE_M,
+            reposition_tolerance,
+        )
         result["judgement"].update(parsed)
         required = (
             "takeoff_success",
