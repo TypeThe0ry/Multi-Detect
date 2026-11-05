@@ -2846,8 +2846,8 @@ def _command_and_wait_gimbal(
     command_started_ns = time.monotonic_ns()
     sender(
         target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, 0,
-        float(GIMBAL_MANAGER_DEVICE_ID), float(GCS_SOURCE_SYSTEM),
-        float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0,
+        float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT),
+        -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID),
     )
     configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
         MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(timeout_s, 5.0)
@@ -2862,6 +2862,7 @@ def _command_and_wait_gimbal(
     configure_ack_ns = int(configure_ack_entry[1]) if configure_ack_entry is not None else command_started_ns
     manager_deadline = time.monotonic() + GIMBAL_MANAGER_STATUS_WALL_TIMEOUT_S
     primary = 0
+    primary_component = 0
     manager_confirmed = False
     while time.monotonic() < manager_deadline:
         manager = reader.state.get("GIMBAL_MANAGER_STATUS")
@@ -2870,7 +2871,9 @@ def _command_and_wait_gimbal(
             received = reader.state.get("received_monotonic_ns", received)
         manager_ns = received.get("GIMBAL_MANAGER_STATUS", -1) if isinstance(received, Mapping) else -1
         primary = int(_field(manager, "primary_control_sysid", 0) or 0)
-        if manager is not None and int(manager_ns) >= configure_ack_ns and primary == GCS_SOURCE_SYSTEM:
+        primary_component = int(_field(manager, "primary_control_compid", 0) or 0)
+        if (manager is not None and int(manager_ns) >= configure_ack_ns
+                and primary == GCS_SOURCE_SYSTEM and primary_component == GCS_SOURCE_COMPONENT):
             manager_confirmed = True
             break
         time.sleep(0.02)
@@ -2878,6 +2881,7 @@ def _command_and_wait_gimbal(
         return {
             "status": "manager_control_not_owned", "target_deg": dict(target),
             "configure_ack": configure_ack, "primary_control_sysid": primary,
+            "primary_control_compid": primary_component,
             "tolerance_deg": tolerance_deg,
         }
     command_started_ns = time.monotonic_ns()

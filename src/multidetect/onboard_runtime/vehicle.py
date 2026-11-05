@@ -647,7 +647,7 @@ class PymavlinkVehicle:
         configure = self._command_with_ack(
             CommandSpec(
                 MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
-                (float(GIMBAL_MANAGER_DEVICE_ID), float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0),
+                (float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID)),
                 "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
             ), timeout_s=min(timeout_s, 5.0),
         )
@@ -663,12 +663,18 @@ class PymavlinkVehicle:
             received = getattr(state, "received_monotonic_ns", {}) if state is not None else {}
             manager_ns = received.get("GIMBAL_MANAGER_STATUS", -1) if isinstance(received, dict) else -1
             primary = manager.get("primary_control_sysid", 0) if isinstance(manager, dict) else getattr(manager, "primary_control_sysid", 0)
-            if manager is not None and manager_ns >= configure_started_ns and int(primary or 0) == GCS_SOURCE_SYSTEM:
+            primary_component = manager.get("primary_control_compid", 0) if isinstance(manager, dict) else getattr(manager, "primary_control_compid", 0)
+            if (manager is not None and manager_ns >= configure_started_ns
+                    and int(primary or 0) == GCS_SOURCE_SYSTEM
+                    and int(primary_component or 0) == GCS_SOURCE_COMPONENT):
                 manager_owned = True
                 break
             time.sleep(0.02)
         if not manager_owned:
-            return CommandResult("rejected", MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, detail="gimbal manager ownership was not confirmed")
+            return CommandResult(
+                "rejected", MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+                detail=f"gimbal manager ownership was not confirmed (primary={int(primary or 0)}/{int(primary_component or 0)})",
+            )
         result = self._command_with_ack(
             CommandSpec(
                 MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,

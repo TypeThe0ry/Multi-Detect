@@ -152,7 +152,7 @@ export MULTIDETECT_SIM_GPU=off  # CPU 渲染；已有 GPU 镜像可改用 GPU1/2
   --out .tmp/smoke-delta-tailsitter \
   --container-prefix md-smoke-delta --control-port 14570 --telemetry-port 14571
 
-# 云台版起飞后发送 DO_MOUNT_CONTROL(pitch=-45°, roll=0°, yaw=0°)，并等待
+# 云台版稳定悬停后通过 gimbal v2 下发 pitch=-45°、yaw=0°，并等待
 # GIMBAL_DEVICE_ATTITUDE_STATUS 三轴误差均不超过 4°；判定写入 smoke judgement。
 "$PY" scripts/smoke_airframe_flight.py \
   --airframe delta_tailsitter_gimbal_cam --takeoff-method vtol \
@@ -217,7 +217,7 @@ PX4/MAVLink 控制使用标准 gimbal v2：先用 `MAV_CMD_DO_GIMBAL_MANAGER_CON
 master.mav.command_long_send(
     target_system, target_component,
     mavutil.mavlink.MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
-    0, 1, 255, 190, -1, -1, 0, 0,
+    0, 255, 190, -1, -1, 0, 0, 1,
 )
 master.mav.command_long_send(
     target_system, target_component,
@@ -273,16 +273,40 @@ result=0)`，但 `GIMBAL_MANAGER_STATUS.primary_control_sysid=0`，197 条
 第 14 轮云台版检查发生在稳定 MC 悬停后：持续 3 s，最大 |roll|=0.306°、|pitch|=2.630°。
 1001 ACK 为 ACCEPTED，但管理器主控仍为 sysid 0；177 条 `GIMBAL_DEVICE_SET_ATTITUDE` 的四元数
 均为 NaN（仅速率/标志流），关节 pitch 约 0.00543 rad，命令前后没有转动，所以没有到达角度
-命令阶段。根因是 `MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE` 的 COMMAND_LONG 参数顺序错误：
-`param1=device_id, param2=primary_sysid, param3=primary_compid`，旧实现把 device ID 放进了
-param7。ACK 只证明命令被接收，未证明控制权已分配。采集器、SIM 执行器和 onboard vehicle
-现已统一参数顺序；管理器确认等待上限设为 30 s，以兼容 0.1×实时下低频状态报告。新冒烟尚未
-运行，修正后实际关节响应与严格 4° 回读仍待验证。
+命令阶段。第 14 轮当时推断配置参数应为 `param1=device_id`，该推断不正确；第 15 轮数据
+证明了这个错误编码会把主控登记成 `sysid=1, compid=255`。ACK 只证明命令被接收，未证明
+控制权交给 GCS。MAVLink 定义的配置顺序是 `param1=primary_sysid, param2=primary_compid,
+param3/4=secondary_sysid/compid, param7=gimbal_device_id`。第 15 轮前，采集器、SIM 执行器和
+onboard vehicle 都使用了错误顺序，现已统一修正；管理器确认等待上限为 30 s，以兼容
+0.1×实时下低频状态报告。
 
 第 14 轮固定版全程 MAVLink/ULog 连续覆盖到降落；FW 横向状态在约 57.8 s 后结束并进入转换，
-本次没有复现“后段姿态与舵机输出大幅变化”。缺少该异常复现的 ULog，故本轮不调整气动或
-飞控增益。第 13 轮以旧参数顺序发出的 1001 同样不能证明控制权成功，先前将问题仅归因于
-205 不适用并不完整；本轮修正的是实际阻止 manager 获得主控的参数编码错误。
+本次没有复现“后段姿态与舵机输出大幅变化”。缺少该异常复现的 ULog，故不调整气动或飞控
+增益。第 13 轮以旧参数顺序发出的 1001 同样不能证明控制权成功，先前将问题仅归因于 205
+不适用并不完整；实际阻止 manager 获得主控的是 CONFIGURE 参数编码错误。
+
+## 第十五轮日志分析与 gimbal v2 配置修正
+
+固定版完整通过起飞、前转换、盘旋、返航、后转换和着陆；盘旋空速样本为 18.500 和
+18.296 m/s，均在档案 12–19 m/s 范围内，7 帧对齐且云台项对固定相机按既有规则不参与门控。
+此结果没有给出要求调整气动或飞控增益的证据，本轮不改这些参数。
+
+云台版在稳定悬停测量（3 s，最大 |roll|=0.294°、|pitch|=3.138°）后配置云台。原始
+`mavlink.jsonl` 共记录 221 条 `GIMBAL_DEVICE_SET_ATTITUDE`、22 条 `GIMBAL_MANAGER_STATUS`、
+4 条 `COMMAND_ACK`。`COMMAND_ACK(command=1001,result=0)` 后管理器状态从
+`primary_control_sysid=0` 变成 `sysid=1, compid=255`；配置调用参数当时实际是
+`(device_id=1, primary_sysid=255, primary_compid=190, ...)`，依 MAVLink 定义被解释成
+`primary_sysid=1, primary_compid=255`。因此采集器的所有权检查正确拒绝继续，没有发送
+`MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW(1000)`：SET_ATTITUDE 的四元数持续为 NaN，关节 pitch
+命令前后约为 0.005426/0.005316 rad，没有发生可测转动。根因是 CONFIGURE 参数顺序编码错误，
+不是安装变换、云台关节零位或 4° 判定阈值。
+
+现已在冒烟采集器、SIM executor 和 onboard vehicle 统一使用
+`(primary_sysid=255, primary_compid=190, secondary_sysid=-1, secondary_compid=-1,
+reserved=0,0, gimbal_device_id=1)`，并要求读回的主控 sysid/compid 都匹配 255/190，增加测试
+断言实际 COMMAND_LONG 参数位置。云台命令、
+关节响应和严格小于 4° 回读仍须下一次冒烟实测确认；本轮不能记为云台通过。未启动 SITL，
+也没有修改模型或飞控参数。
 
 ## 未验证的关键量
 
