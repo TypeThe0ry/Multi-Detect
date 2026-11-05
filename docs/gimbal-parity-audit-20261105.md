@@ -47,7 +47,7 @@
      `x500` + `mono_cam`；`scripts/run_simulator_3d_control_acceptance.py` 也只验证
      `x500_mono_cam` 的模型文本。需要把 gimbal 资产作为独立 profile 纳入控制验收，确认
      camera link、gimbal link 和 PX4 4019 启动文件都来自同一 revision。
-3. **Gazebo 传感器录制（本次完成 gimbal freshness gate）**
+3. **Gazebo 传感器录制（本次完成 gimbal freshness gate，并接入旋翼 sidecar）**
    * `scripts/gazebo_sensor_stream.py` 对模型名含 `gimbal` 的机型订阅
      `/world/{world}/model/{model}/joint_state`，使用 sidecar 相同的
      `cgo3_camera_joint`、`cgo3_vertical_arm_joint`、`cgo3_horizontal_arm_joint` 键和
@@ -55,21 +55,28 @@
      独立保留 joint source timestamp，允许的最大偏差为 100 ms；缺样、未来样本、超时或
      缺少任一 gimbal 关节时拒绝该帧。通过帧会写入含帧时间、源时间、角度及角速度的
      `gazebo_sensor_stream_gimbal_frame_state` 诊断事件，不使用固定机体相机姿态回退。
-     固定相机机型不订阅 joint state，原行为不变。propeller joint state 仍待后续单独接入。
-4. **螺旋桨旋转与渲染**
-   * `simulation/gazebo/models/x500_mono_cam` 及相关 world/overlay 目前只保证动力学 rotor
-     link，数据采集和离线 Blender 渲染没有把每帧 propeller angle/spin 作为输入。
-     `scripts/render_onboard_sdf_blender_dataset.py` 只读取静态 world primitive，
-     `scripts/build_onboard_rendered_3d_dataset.py` 只消费 RGB/depth/telemetry manifest。
-     需要在模型/插件、采集 sidecar 和 renderer 三处共同定义角度、角速度与时间语义，避免
-     只在标签里增加一个未驱动的字段。
+     非 x500 的旧模型没有 sidecar 时仍可继续出帧。x500 的四个旋翼 joint 名称为
+     `rotor_0_joint` 到 `rotor_3_joint`，且插件声明 `rotorVelocitySlowdownSim=10`。
+4. **螺旋桨旋转与渲染（本次已接入）**
+   * `scripts/gazebo_sensor_stream.py` 对 x500 订阅同一个 joint-state topic，按不晚于 RGB
+     仿真时间的最近样本绑定。四个旋翼全部存在时，depth companion 写入同一 RGB 时间戳、
+     独立 source timestamp、`angles_rad` 和 `spin_rad_s`；未来样本、超过 100 ms 或不完整
+     样本不会绑定。旋翼状态是可选 enrichment，固定/旧 episode 没有 topic 时不阻断 RGB。
+   * `scripts/render_onboard_sdf_blender_dataset.py` 接受每帧四个记录角度，按
+     `rotor_i_joint` 索引直接设置 propeller 对象的 Z 旋转，并保留角速度在 manifest；标量
+     旧输入仍保留原有交替旋向兼容行为。
+   * 真实旋翼速度相对渲染帧率会产生 alias，因此采用逐帧冻结记录角度，不将角速度外推到
+     曝光区间，也不打开 Blender motion blur。`spin_rad_s` 仅作为可追溯状态保存，未来若
+     需要曝光积分可另行增加明确合同。
 5. **离线 Blender 相机姿态（代码已补，未实际渲染）**
    * 默认随机采样保持兼容；`--camera-pose-json` 现在可接收 recorded composed pose，或
      `vehicle_pose`（NED 位置与姿态）加 `camera_mount`（fixed/gimbal 与稳定模式）。后者使用
      `CameraMount`/`compose_camera_pose()` 合成姿态。相机按完整旋转与中心写入 Blender 世界
      矩阵，逐帧 manifest 记录相机世界矩阵、输入来源和云台角。CPU 单测覆盖坐标转换、固定
      相机随机体转动以及 composed pose 精确回放。此环境未运行 Blender，故没有渲染图像或
-     Blender API 集成结果；不能据此声称视觉输出已验证。
+     Blender API 集成结果；不能据此声称视觉输出已验证。环境没有 `blender` 可执行文件，
+     已用 CPU 数值测试解析 SDF joint axis，并核对固定 `pi` yaw 后的有效轴为 pitch=`-Y`、
+     yaw=`-Z`、roll=`+X`，同时验证 `compose_camera_pose()` 的 RPY 矩阵输出。
 6. **生成 world 与 teacher intent**
    * `src/multidetect/simulator/world_gen.py`、`scripts/generate_r15_worlds.py` 及生成的
      teacher intent 仍以单个 `camera_pitch_rad` 描述多旋翼相机，没有 gimbal yaw/roll、稳定

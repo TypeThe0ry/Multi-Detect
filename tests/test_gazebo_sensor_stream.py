@@ -42,6 +42,7 @@ from scripts.gazebo_sensor_stream import (
     _normalize_depth_float32,
     _odometry_from_message,
     _frame_gimbal_state,
+    _frame_joint_state,
     _joint_sample_from_message,
     _parse_depth_contract,
     _runtime_pixel_format_name,
@@ -105,6 +106,40 @@ def test_gimbal_state_gate_records_fresh_joint_values_and_separate_timestamps() 
     assert state["source_skew_ns"] == 50_000_000
     assert state["position_rad"] == {"pitch": 0.1, "yaw": 0.3, "roll": 0.5}
     assert state["velocity_rad_s"] == {"pitch": 0.2, "yaw": 0.4, "roll": 0.6}
+
+
+def test_joint_state_gate_records_x500_rotors_with_the_rgb_timestamp() -> None:
+    sample = {
+        "stamp_ns": 950_000_000,
+        "joints": {
+            **{
+                f"rotor_{index}_joint": {
+                    "position_rad": float(index) + 0.1,
+                    "velocity_rad_s": (-1.0 if index % 2 else 1.0) * (10.0 + index),
+                }
+                for index in range(4)
+            },
+            "unrelated_joint": {"position_rad": 99.0, "velocity_rad_s": 0.0},
+        },
+    }
+    state = _frame_joint_state(sample, 1_000_000_000)
+    assert state is not None
+    assert state["timestamp_ns"] == 1_000_000_000
+    assert state["source_timestamp_ns"] == 950_000_000
+    propeller = state["propeller_joint_state"]
+    assert propeller["joint_names"] == [f"rotor_{index}_joint" for index in range(4)]
+    assert propeller["angles_rad"] == pytest.approx([0.1, 1.1, 2.1, 3.1])
+    assert propeller["spin_rad_s"] == pytest.approx([10.0, -11.0, 12.0, -13.0])
+    assert propeller["velocity_slowdown"] == 10
+
+
+def test_rotor_state_is_optional_for_legacy_joint_samples() -> None:
+    sample = {
+        "stamp_ns": 950_000_000,
+        "joints": {"other_joint": {"position_rad": 0.0, "velocity_rad_s": 0.0}},
+    }
+    assert _frame_joint_state(sample, 1_000_000_000) is None
+    assert _frame_joint_state(sample, 1_100_000_001) is None
 
 
 def _frame(

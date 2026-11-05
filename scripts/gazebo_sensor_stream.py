@@ -31,9 +31,9 @@ from dataclasses import dataclass, replace
 from typing import Any, BinaryIO
 
 try:  # ``python scripts/gazebo_sensor_stream.py`` inside the container.
-    from scripts.gazebo_depth_wire import build_depth_wire_record
+    from scripts.gazebo_depth_wire import ROTOR_VELOCITY_SLOWDOWN, build_depth_wire_record
 except ModuleNotFoundError:  # pragma: no cover - standalone helper launch
-    from gazebo_depth_wire import build_depth_wire_record
+    from gazebo_depth_wire import ROTOR_VELOCITY_SLOWDOWN, build_depth_wire_record
 
 WIRE_MAGIC = b"MDGZSIM3"
 WIRE_VERSION = 3
@@ -106,6 +106,7 @@ QUATERNION_NORM_TOLERANCE = 1.0e-3
 FAULT_SOURCES = ("image", "navsat", "odometry")
 DEPTH_MAX_SOURCE_SKEW_NS = 100_000_000
 MAX_JOINT_STATE_SKEW_NS = 100_000_000
+ROTOR_JOINT_NAMES = tuple(f"rotor_{index}_joint" for index in range(4))
 GIMBAL_JOINT_NAMES = {
     "pitch": "cgo3_camera_joint",
     "yaw": "cgo3_vertical_arm_joint",
@@ -361,6 +362,59 @@ def _frame_gimbal_state(
         "source": "gazebo_joint_state",
         "fresh": True,
     }
+
+
+def _frame_joint_state(
+    sample: dict[str, object] | None, frame_stamp_ns: int
+) -> dict[str, object] | None:
+    """Bind causal x500 rotor/gimbal state to one RGB simulation timestamp.
+
+    Rotor state is optional: a fixed or older model may publish no matching
+    rotor joints and must continue to emit ordinary RGB/depth frames.  A
+    gimbal frame remains gated by the existing all-three-joints requirement.
+    """
+    if sample is None:
+        return None
+    source_stamp_ns = int(sample["stamp_ns"])
+    skew_ns = int(frame_stamp_ns) - source_stamp_ns
+    if skew_ns < 0 or skew_ns > MAX_JOINT_STATE_SKEW_NS:
+        return None
+    joints = sample["joints"]
+    assert isinstance(joints, dict)
+    result: dict[str, object] = {
+        "timestamp_ns": int(frame_stamp_ns),
+        "source_timestamp_ns": source_stamp_ns,
+        "source_skew_ns": skew_ns,
+        "gimbal_joint_state": None,
+        "propeller_joint_state": None,
+    }
+    if all(name in joints for name in ROTOR_JOINT_NAMES):
+        rotor_samples = [joints[name] for name in ROTOR_JOINT_NAMES]
+        result["propeller_joint_state"] = {
+            "timestamp_ns": int(frame_stamp_ns),
+            "joint_names": list(ROTOR_JOINT_NAMES),
+            "angles_rad": [float(value["position_rad"]) for value in rotor_samples],
+            "spin_rad_s": [float(value["velocity_rad_s"]) for value in rotor_samples],
+            "velocity_slowdown": ROTOR_VELOCITY_SLOWDOWN,
+            "source": "gazebo_joint_state",
+        }
+    if all(name in joints for name in GIMBAL_JOINT_NAMES.values()):
+        result["gimbal_joint_state"] = {
+            "timestamp_ns": int(frame_stamp_ns),
+            "position_rad": {
+                axis: float(joints[name]["position_rad"])
+                for axis, name in GIMBAL_JOINT_NAMES.items()
+            },
+            "velocity_rad_s": {
+                axis: float(joints[name]["velocity_rad_s"])
+                for axis, name in GIMBAL_JOINT_NAMES.items()
+            },
+            "source": "gazebo_joint_state",
+            "fresh": True,
+        }
+    if result["gimbal_joint_state"] is None and result["propeller_joint_state"] is None:
+        return None
+    return result
 
 
 def _validate_navsat(
@@ -1476,7 +1530,11 @@ def main() -> int:
     model = args.model_instance
     world = args.world
     gimballed_airframe = "gimbal" in model.lower()
-    if gimballed_airframe:
+    # x500 and x500_gimbal both expose rotor joints.  The subscription is
+    # optional for non-gimbal models so fixed/older episodes remain usable
+    # when the transport sidecar is absent.
+    rotor_joint_state_enabled = "x500" in model.lower() or gimballed_airframe
+    if rotor_joint_state_enabled:
         from gz.msgs10.model_pb2 import Model
     image_topic = args.image_topic or (
         f"/world/{world}/model/{model}/link/camera_link/sensor/camera/image"
@@ -1505,8 +1563,8 @@ def main() -> int:
         "navsat": CausalSourceBuffer("NavSat"),
         "odometry": CausalSourceBuffer("Odometry"),
     }
-    if gimballed_airframe:
-        source_buffers["gimbal"] = CausalSourceBuffer("JointStatePublisher", maximum_samples=128)
+    if rotor_joint_state_enabled:
+        source_buffers["joint"] = CausalSourceBuffer("JointStatePublisher", maximum_samples=128)
     if depth_contract is not None:
         source_buffers.update(
             {
@@ -1530,6 +1588,8 @@ def main() -> int:
         "odometry": 0,
         "gimbal": 0,
         "gimbal_missing_or_stale_rejections": 0,
+        "propeller_frames": 0,
+        "propeller_missing_or_stale": 0,
         "odometry_invalid": 0,
         "odometry_startup_velocity_rejected": 0,
         "fault_dropped_image": 0,
@@ -1856,7 +1916,7 @@ def main() -> int:
         try:
             sample = _joint_sample_from_message(message)
             with state_lock:
-                source_buffers["gimbal"].append(sample)
+                source_buffers["joint"].append(sample)
                 counts["gimbal"] += 1
         except Exception as exc:
             with state_lock:
@@ -1926,11 +1986,16 @@ def main() -> int:
                         for name, buffer in source_buffers.items()
                         if name in {"camera_info", "navsat", "odometry"}
                     }
-                    if gimballed_airframe:
-                        selected["gimbal"] = source_buffers["gimbal"].latest_at_or_before(stamp_ns)
-                    if any(sample is None for sample in selected.values()):
+                    if rotor_joint_state_enabled:
+                        selected["joint"] = source_buffers["joint"].latest_at_or_before(stamp_ns)
+                    required_selected = {
+                        name: sample
+                        for name, sample in selected.items()
+                        if name != "joint" or gimballed_airframe
+                    }
+                    if any(sample is None for sample in required_selected.values()):
                         counts["ignored_before_ready"] += 1
-                        if gimballed_airframe and selected.get("gimbal") is None:
+                        if gimballed_airframe and selected.get("joint") is None:
                             counts["gimbal_missing_or_stale_rejections"] += 1
                         if (
                             dynamic_fault_source in {"navsat", "odometry"}
@@ -1963,7 +2028,7 @@ def main() -> int:
                                 fault_waiting_rejection_recorded = True
                         if any(
                             source_buffers[name].ready and sample is None
-                            for name, sample in selected.items()
+                            for name, sample in required_selected.items()
                         ):
                             counts["future_source_rejections"] += 1
                         return
@@ -1971,14 +2036,28 @@ def main() -> int:
                     navsat = selected["navsat"]
                     odometry = selected["odometry"]
                     assert camera is not None and navsat is not None and odometry is not None
+                    joint_state = (
+                        _frame_joint_state(selected.get("joint"), stamp_ns)
+                        if rotor_joint_state_enabled
+                        else None
+                    )
                     gimbal_state = (
-                        _frame_gimbal_state(selected.get("gimbal"), stamp_ns)
-                        if gimballed_airframe
+                        joint_state.get("gimbal_joint_state")
+                        if joint_state is not None
                         else None
                     )
                     if gimballed_airframe and gimbal_state is None:
                         counts["gimbal_missing_or_stale_rejections"] += 1
                         return
+                    propeller_state = (
+                        joint_state.get("propeller_joint_state")
+                        if joint_state is not None
+                        else None
+                    )
+                    if propeller_state is not None:
+                        counts["propeller_frames"] += 1
+                    elif rotor_joint_state_enabled:
+                        counts["propeller_missing_or_stale"] += 1
                     if dynamic_fault_source in {"navsat", "odometry"}:
                         selected_source = selected[dynamic_fault_source]
                         dropped_stamp = fault_last_dropped_source_stamp_ns
@@ -2104,6 +2183,8 @@ def main() -> int:
                         "cx_px": float(depth_contract["cx_px"]),
                         "cy_px": float(depth_contract["cy_px"]),
                     }
+                    if joint_state is not None:
+                        depth_metadata["joint_state"] = joint_state
                     depth_record = build_depth_wire_record(
                         metadata=depth_metadata,
                         payload=bytes(depth_sample["payload"]),
@@ -2200,6 +2281,19 @@ def main() -> int:
                         source="gazebo_joint_state",
                         fresh=True,
                     )
+                if propeller_state is not None:
+                    _diagnostic(
+                        "gazebo_sensor_stream_propeller_frame_state",
+                        sequence=sequence,
+                        timestamp_ns=int(propeller_state["timestamp_ns"]),
+                        source_timestamp_ns=int(joint_state["source_timestamp_ns"]),
+                        source_skew_ns=int(joint_state["source_skew_ns"]),
+                        joint_names=propeller_state["joint_names"],
+                        angles_rad=propeller_state["angles_rad"],
+                        spin_rad_s=propeller_state["spin_rad_s"],
+                        velocity_slowdown=int(propeller_state["velocity_slowdown"]),
+                        source="gazebo_joint_state",
+                    )
                 # Queue one atomic stdout blob: once an RGB frame is accepted,
                 # its companion must be the immediately following record.
                 packets.put(packet + depth_record)
@@ -2226,12 +2320,16 @@ def main() -> int:
             (OdometryWithCovariance, odometry_topic, on_odometry),
         ]
     )
-    if gimballed_airframe:
+    if rotor_joint_state_enabled:
         required_subscriptions.append((Model, joint_state_topic, on_joint_state))
     subscription_topics = tuple(topic for _message_type, topic, _callback in required_subscriptions)
     for message_type, topic, callback in required_subscriptions:
         if not node.subscribe(message_type, topic, callback):
             _diagnostic("gazebo_sensor_stream_subscription_failed", topic=topic)
+            if topic == joint_state_topic and not gimballed_airframe:
+                # Rotor state is an enrichment sidecar.  A missing topic must
+                # not make fixed/legacy RGB episodes fail closed.
+                continue
             cleanup_errors = _shutdown_transport_node(
                 node,
                 subscription_topics,
@@ -2253,8 +2351,10 @@ def main() -> int:
         navsat_topic=navsat_topic,
         odometry_topic=odometry_topic,
         gimballed_airframe=gimballed_airframe,
-        joint_state_topic=joint_state_topic if gimballed_airframe else None,
-        maximum_joint_state_skew_ns=MAX_JOINT_STATE_SKEW_NS if gimballed_airframe else None,
+        rotor_joint_state_enabled=rotor_joint_state_enabled,
+        joint_state_topic=joint_state_topic if rotor_joint_state_enabled else None,
+        maximum_joint_state_skew_ns=MAX_JOINT_STATE_SKEW_NS if rotor_joint_state_enabled else None,
+        rotor_joint_names=ROTOR_JOINT_NAMES if rotor_joint_state_enabled else None,
         gimbal_joint_names=GIMBAL_JOINT_NAMES if gimballed_airframe else None,
         depth_enabled=depth_contract is not None,
         depth_topic=depth_topic,
@@ -2269,7 +2369,8 @@ def main() -> int:
         vertical_flip_applied=GAZEBO_VERTICAL_FLIP_APPLIED,
         required_sources=["image", "camera_info", "navsat", "odometry_pose_velocity"],
         optional_sources=(
-            ["depth_r_float32"] if depth_contract is not None else []
+            (["depth_r_float32"] if depth_contract is not None else [])
+            + (["propeller_joint_state"] if rotor_joint_state_enabled else [])
         ),
         source_association_policy="nearest_source_at_or_before_image",
         camera_info_freshness_policy="session_static_geometry_bound_causal_timestamp",
@@ -2367,8 +2468,10 @@ def main() -> int:
         ready_sources=ready_sources,
         odometry_present="odometry" in ready_sources,
         gimballed_airframe=gimballed_airframe,
-        gimbal_state_present=("gimbal" in ready_sources) if gimballed_airframe else None,
+        gimbal_state_present=("joint" in ready_sources) if gimballed_airframe else None,
         gimbal_state_timestamp_count=count_snapshot.get("gimbal", 0),
+        propeller_state_present=("joint" in ready_sources) if rotor_joint_state_enabled else None,
+        propeller_state_timestamp_count=count_snapshot.get("propeller_frames", 0),
         gimbal_missing_or_stale_rejections=count_snapshot.get("gimbal_missing_or_stale_rejections", 0),
         gimbal_freshness_gate_passed=(
             gate_passed and count_snapshot.get("gimbal", 0) > 0
