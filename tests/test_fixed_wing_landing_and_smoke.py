@@ -613,12 +613,12 @@ def test_delta_overspeed_gate_marks_injection_below_target_as_failure():
     result = smoke._delta_fw_overspeed_metrics(
         _overspeed_telemetry_rows(
             injection_status="timeout",
-            injection_peak=21.9,
+            injection_peak=20.9,
             recovery_status="complete",
         )
     )
 
-    assert result["fw_overspeed_peak_mps"] == pytest.approx(21.9)
+    assert result["fw_overspeed_peak_mps"] == pytest.approx(20.9)
     assert result["fw_overspeed_injection_success"] is False
     assert result["fw_overspeed_recovery_success"] is False
 

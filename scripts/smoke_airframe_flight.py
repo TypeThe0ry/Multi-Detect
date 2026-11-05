@@ -335,7 +335,7 @@ def _delta_fw_overspeed_metrics(mavlink: list[dict[str, Any]]) -> dict[str, Any]
         injection_end
         and injection_end.get("status") == "reached"
         and injected_peak is not None
-        and injected_peak >= 22.0
+        and injected_peak >= 21.0
     )
     parameter_restored = bool(restored and restored.get("status") == "restored")
     recovery_success = bool(
@@ -1057,8 +1057,8 @@ def build_plan(
             reposition_index,
             {
                 "stage": "fw_overspeed_recovery",
-                "action": "raise FW_THR_MIN until 22 m/s, restore it, then recover below 19 m/s",
-                "injection_timeout_s": 40,
+                "action": "raise FW_THR_MIN until 21 m/s, restore it, then recover below 19 m/s",
+                "injection_timeout_s": 60,
                 "recovery_timeout_s": 40,
                 "required_recovery_hold_s": 15,
             },

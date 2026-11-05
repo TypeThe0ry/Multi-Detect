@@ -65,6 +65,7 @@ param set-default FW_P_TC 0.6
 param set-default FW_PR_I 0.963310
 param set-default FW_PR_P 1.605517
 param set-default FW_PSP_OFF 2
+param set-default FW_P_LIM_MIN 1
 param set-default FW_RR_FF 0.892968
 param set-default FW_RR_I 0.892968
 param set-default FW_RR_P 1.785935
@@ -74,16 +75,13 @@ param set-default FW_YR_P 0.291559
 # 15 m/s 基础阻力估计约 4 N（满推力 64.8 N 的 6%），不含下方单列的高速桨阻力代理。
 # 无舵面且 SM 约 3.5%；FW_PSP_OFF=2 保持 4018 tailsitter 偏置约定，最终闭环增益仍需 SITL/实测整定。
 # 18-19 m/s 是现有 MAVLink 样本中 PX pitch rotor pair 频繁触底的转折带；工作上限收至 18。
-# 把 FW 交接目标收至 14 m/s 并降低前转换推力，减少交接后继续加速的初始能量。
-# 速度权重置 2，让 TECS 更积极地用俯仰通道回收空速；无舵面机型仍须外部验证权限。
-# 第 30 轮两版持续段均在后半段进入 19--22 m/s 双稳态，云台版初始高度误差 p95 达 36 m；
-# 将巡航推力配平降到 0.25，并把爬升上限收回档案能力值 3 m/s，避免过大的爬升请求换取速度。
-param set-default FW_T_SPDWEIGHT 2.0
-param set-default FW_THR_TRIM 0.25
+# 第 31 轮回退交接目标到 15 m/s，前转换推力恢复 0.25；无舵面机型仍须外部验证权限。
+# 第 31 轮回到 r26 干净基线；本轮仅试验最低俯仰限制 +1°，限制控制器压低机头。
+param set-default FW_THR_TRIM 0.32
 param set-default FW_THR_MAX 0.8
 param set-default FW_THR_MIN 0.0
 param set-default FW_R_LIM 35
-param set-default FW_T_CLMB_MAX 3
+param set-default FW_T_CLMB_MAX 6
 param set-default FW_T_HRATE_FF 0.5
 param set-default FW_T_SINK_MAX 3
 param set-default FW_T_SINK_MIN 1.6
@@ -99,7 +97,7 @@ param set-default MC_PITCH_P 3
 param set-default MC_ROLLRATE_P 0.3
 param set-default MC_PITCHRATE_P 0.3
 
-param set-default VT_ARSP_TRANS 14
+param set-default VT_ARSP_TRANS 15
 param set-default VT_ARSP_BLEND 10
 param set-default VT_B_DEC_MSS 1
 param set-default VT_B_TRANS_DUR 10
@@ -109,7 +107,7 @@ param set-default VT_FW_DIFTHR_S_R 1
 param set-default VT_FW_DIFTHR_S_P 1
 param set-default VT_FW_DIFTHR_S_Y 1
 param set-default VT_F_TRANS_DUR 5
-param set-default VT_F_TRANS_THR 0.15
+param set-default VT_F_TRANS_THR 0.25
 param set-default VT_F_TR_OL_TM 8
 param set-default VT_TRANS_TIMEOUT 20
 param set-default VT_TYPE 0

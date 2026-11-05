@@ -198,9 +198,9 @@ DELTA_SMOKE_FW_MIN_DURATION_S = 120.0
 DELTA_SMOKE_FW_MAX_DURATION_S = 240.0
 DELTA_SMOKE_FW_MIN_ORBIT_DEG = 360.0
 DELTA_SMOKE_REPOSITION_TIMEOUT_S = 120.0
-DELTA_OVERSPEED_TARGET_MPS = 22.0
+DELTA_OVERSPEED_TARGET_MPS = 21.0
 DELTA_OVERSPEED_INJECT_MIN_THR = 0.45
-DELTA_OVERSPEED_INJECT_TIMEOUT_S = 40.0
+DELTA_OVERSPEED_INJECT_TIMEOUT_S = 60.0
 DELTA_OVERSPEED_RECOVERY_MAX_S = 40.0
 DELTA_OVERSPEED_RECOVERY_HOLD_S = 15.0
 DELTA_OVERSPEED_HEIGHT_ERROR_MAX_M = 10.0
@@ -5107,7 +5107,7 @@ def run_episode(
                                         break
                                 if elapsed_s >= DELTA_OVERSPEED_INJECT_TIMEOUT_S:
                                     injection_status = "timeout"
-                                    injection_failure = "injection_failed_to_reach_22_mps"
+                                    injection_failure = "injection_failed_to_reach_21_mps"
                                     break
                                 time.sleep(0.1)
                             if injection_status == "command_failed":

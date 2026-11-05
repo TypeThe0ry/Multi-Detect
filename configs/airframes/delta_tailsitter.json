@@ -32,11 +32,11 @@
     "mc_to_fw_param1": 4.0,
     "fw_to_mc_param1": 3.0,
     "minimum_height_m": 30.0,
-    "minimum_airspeed_mps": 14.0,
+    "minimum_airspeed_mps": 15.0,
     "timeout_s": 20.0,
     "parameters": {
       "airspeed": {
-        "value": 14.0,
+        "value": 15.0,
         "px4_name": "VT_ARSP_TRANS",
         "unverified": true
       },
