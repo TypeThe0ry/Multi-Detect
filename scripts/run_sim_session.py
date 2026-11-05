@@ -42,6 +42,7 @@ DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
 DEFAULT_AIRFRAME_WORLDS = {
     "x500": DEFAULT_WORLD,
     "x500_mono_cam": DEFAULT_WORLD,
+    "x500_gimbal": DEFAULT_WORLD,
     "standard_vtol": "river_rescue_vtol_001.sdf",
     "quadtailsitter": "quadtailsitter_mono_cam_001.sdf",
     "tiltrotor": "tiltrotor_mono_cam_001.sdf",
@@ -75,6 +76,7 @@ WORLD_SCENARIOS.update(
 AIRFRAME_SCENARIOS = {
     "x500": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
     "x500_mono_cam": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
+    "x500_gimbal": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
     "standard_vtol": WORLD_SCENARIOS["river_rescue_vtol_001.sdf"],
     "tiltrotor": ROOT / "configs/scenarios/airframes/tiltrotor_mono_cam_001.scenario.json",
     "quadtailsitter": ROOT
@@ -302,6 +304,7 @@ def build_session_command(
         telemetry_port=telemetry_port,
         image=PINNED_IMAGE,
         dry_run=False,
+        airframe_profile_id=canonical,
     )
     command = list(plan.command)
     _replace_world_mount(command, world_path)

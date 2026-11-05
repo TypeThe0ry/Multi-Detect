@@ -23,6 +23,33 @@ def test_non_multirotor_runtime_is_accepted_for_explicit_airframe() -> None:
     assert data["vehicle"]["model"] == "advanced_plane_mono_cam"
 
 
+@pytest.mark.parametrize("airframe", ["x500_mono_cam", "x500_gimbal"])
+def test_multirotor_runtime_is_accepted_for_fixed_and_gimbal_profiles(airframe: str) -> None:
+    runtime = ROOT / "configs/scenarios/generated-r15/gen_r15_w0000.runtime_input.json"
+    data = collector._validate_runtime(runtime, airframe)
+    assert data["vehicle"]["model"] == "px4_multirotor_standard"
+
+
+@pytest.mark.parametrize(
+    ("runtime", "airframe"),
+    [
+        (
+            ROOT / "configs/scenarios/generated-r15/gen_r15_w0000.runtime_input.json",
+            "vtol",
+        ),
+        (
+            ROOT / "configs/scenarios/river_rescue_vtol_001.runtime.json",
+            "fixed_wing",
+        ),
+    ],
+)
+def test_profileless_airframe_alias_does_not_enforce_runtime_category(
+    runtime: Path, airframe: str
+) -> None:
+    data = collector._validate_runtime(runtime, airframe)
+    assert data["vehicle"]["model"]
+
+
 def test_smoke_plan_has_vtol_transition_and_airframe_speed_gate() -> None:
     profile = smoke.profile_for("standard_vtol_mono_cam")
     scenario = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
