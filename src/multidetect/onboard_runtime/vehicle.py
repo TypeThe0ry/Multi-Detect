@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Protocol, runtime_checkable
 
 from multidetect.sim_teacher.executor import SetpointStreamer
-from multidetect.sim_teacher.streams import MavlinkReader
+from multidetect.sim_teacher.streams import MavlinkReader, gimbal_angles_from_status
 
 from .fw_vtol_commands import (
     CommandSpec,
@@ -113,6 +113,8 @@ class VehicleState:
     landed_state: int | None = None
     nav_state: str | None = None
     time_boot_ms: int | None = None
+    gimbal_angles_deg: Vector3 | None = None
+    gimbal_observed_monotonic: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +178,11 @@ class FixedWingVtolVehicle(VehicleInterface, Protocol):
     def fw_takeoff(self, method: str = "runway", **kwargs: Any) -> CommandResult: ...
 
     def fw_land(self, method: str = "runway", **kwargs: Any) -> CommandResult: ...
+
+    def gimbal_control(
+        self, *, pitch_deg: float, yaw_deg: float = 0.0, roll_deg: float = 0.0,
+        timeout_s: float = 1.0,
+    ) -> CommandResult: ...
 
 
 
@@ -397,6 +404,18 @@ class PymavlinkVehicle:
                                    attitude_monotonic=stamp)
                 if message.get("time_boot_ms") is not None:
                     updates["time_boot_ms"] = int(message["time_boot_ms"])
+            elif kind == "GIMBAL_DEVICE_ATTITUDE_STATUS":
+                angles = gimbal_angles_from_status(message)
+                if angles is not None and (
+                    state.gimbal_observed_monotonic is None
+                    or stamp >= state.gimbal_observed_monotonic
+                ):
+                    updates.update(
+                        gimbal_angles_deg=(
+                            angles["roll"], angles["pitch"], angles["yaw"]
+                        ),
+                        gimbal_observed_monotonic=stamp,
+                    )
             elif kind == "HOME_POSITION":
                 home = _vector(message, ("latitude", "longitude", "altitude"))
                 if state.home_monotonic is None or stamp >= state.home_monotonic:
@@ -597,6 +616,40 @@ class PymavlinkVehicle:
             return CommandResult("rejected", spec.command, result, f"MAV_RESULT={result}")
         except (RuntimeError, TimeoutError, OSError, ValueError) as exc:
             return CommandResult("failed", spec.command, detail=str(exc))
+
+    def gimbal_control(
+        self,
+        *,
+        pitch_deg: float,
+        yaw_deg: float = 0.0,
+        roll_deg: float = 0.0,
+        timeout_s: float = 1.0,
+    ) -> CommandResult:
+        """Command a MAVLink mount and wait for a fresh attitude readback."""
+        values = (float(pitch_deg), float(roll_deg), float(yaw_deg))
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("gimbal angles must be finite")
+        started = self._clock()
+        result = self._command_with_ack(
+            CommandSpec(205, (*values, 2.0, 0.0, 0.0, 0.0), "MAV_CMD_DO_MOUNT_CONTROL"),
+            timeout_s=timeout_s,
+        )
+        if not result.ok or timeout_s <= 0:
+            return result
+        deadline = self._clock() + float(timeout_s)
+        while self._clock() < deadline:
+            state = self.snapshot()
+            actual = state.gimbal_angles_deg
+            if actual is not None and state.gimbal_observed_monotonic is not None and state.gimbal_observed_monotonic >= started:
+                error = {
+                    "pitch": abs((actual[1] - float(pitch_deg) + 180.0) % 360.0 - 180.0),
+                    "roll": abs((actual[0] - float(roll_deg) + 180.0) % 360.0 - 180.0),
+                    "yaw": abs((actual[2] - float(yaw_deg) + 180.0) % 360.0 - 180.0),
+                }
+                if max(error.values()) <= 4.0:
+                    return result
+            time.sleep(0.02)
+        return CommandResult("timeout", 205, detail="GIMBAL_DEVICE_ATTITUDE_STATUS readback timeout")
 
     def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float:
         """Read one parameter.

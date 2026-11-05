@@ -8,7 +8,7 @@ import queue
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -751,6 +751,34 @@ class OnboardRuntime:
     def _dispatch_motion_command(self, command: MotionCommand, state: VehicleState) -> Any:
         """Dispatch a profile command to the FixedWingVtolVehicle protocol."""
         vehicle = self.vehicle
+        if command.kind == "gimbal":
+            profile = getattr(self.motion_adapter, "profile", None)
+            gimbal = getattr(getattr(profile, "camera", None), "gimbal", {})
+            if not isinstance(gimbal, Mapping) or not bool(gimbal.get("enabled")):
+                raise RuntimeError("gimbal_capability_required")
+            action = command.action
+            if action is not None:
+                pitch = action.gimbal_pitch_deg
+                yaw = action.gimbal_yaw_deg
+                roll = action.gimbal_roll_deg
+            else:
+                pitch = float(command.gimbal_pitch_deg or 0.0)
+                yaw = float(command.gimbal_yaw_deg or 0.0)
+                roll = float(command.gimbal_roll_deg or 0.0)
+            limits = gimbal.get("angle_range_deg", {})
+            for axis, value in (("pitch", pitch), ("yaw", yaw), ("roll", roll)):
+                bounds = limits.get(axis) if isinstance(limits, Mapping) else None
+                if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+                    raise RuntimeError(f"gimbal_axis_range_missing: {axis}")
+                if value < float(bounds[0]) or value > float(bounds[1]):
+                    raise RuntimeError(f"gimbal_angle_out_of_range: {axis}={value}")
+            method = getattr(vehicle, "gimbal_control", None)
+            if not callable(method):
+                raise RuntimeError("vehicle lacks gimbal_control()")
+            result = method(pitch_deg=pitch, yaw_deg=yaw, roll_deg=roll, timeout_s=1.0)
+            if hasattr(result, "ok") and not result.ok:
+                raise RuntimeError(getattr(result, "detail", None) or "gimbal command failed")
+            return result
         target = command.target_ned or state.position_ned
         if target is None:
             raise RuntimeError("motion command has no target and no vehicle position")

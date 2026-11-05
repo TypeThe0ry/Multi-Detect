@@ -169,6 +169,9 @@ class MotionIntent:
     requested_radius_m: float | None = None
     mode: str | None = None
     reason: str = ""
+    gimbal_pitch_deg: float | None = None
+    gimbal_yaw_deg: float | None = None
+    gimbal_roll_deg: float | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -184,6 +187,22 @@ class MotionIntent:
             value = getattr(self, name)
             if value is not None and (not math.isfinite(float(value)) or float(value) <= 0):
                 raise MotionIntentError(f"{name} must be positive and finite")
+        gimbal_values = (self.gimbal_pitch_deg, self.gimbal_yaw_deg, self.gimbal_roll_deg)
+        if any(value is not None for value in gimbal_values):
+            if self.kind != "gimbal":
+                raise MotionIntentError("gimbal angles require a gimbal intent")
+            if any(
+                value is None
+                or isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in gimbal_values
+            ):
+                raise MotionIntentError("gimbal angles must be finite numbers")
+            if abs(float(self.gimbal_pitch_deg)) > 180 or abs(float(self.gimbal_roll_deg)) > 180:
+                raise MotionIntentError("gimbal pitch/roll outside supported range")
+            if abs(float(self.gimbal_yaw_deg)) > 360:
+                raise MotionIntentError("gimbal yaw outside supported range")
 
     @classmethod
     def goto(cls, target_ned: Sequence[float], *, mode: str | None = None) -> MotionIntent:
@@ -217,6 +236,17 @@ class MotionIntent:
     def deliver(cls, target_ned: Sequence[float], *, radius_m: float | None = None) -> MotionIntent:
         return cls("deliver", tuple(float(v) for v in target_ned), radius_m=radius_m)
 
+    @classmethod
+    def gimbal(
+        cls, *, pitch_deg: float, yaw_deg: float = 0.0, roll_deg: float = 0.0
+    ) -> MotionIntent:
+        return cls(
+            "gimbal",
+            gimbal_pitch_deg=pitch_deg,
+            gimbal_yaw_deg=yaw_deg,
+            gimbal_roll_deg=roll_deg,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class MotionCommand:
@@ -230,6 +260,9 @@ class MotionCommand:
     speed_mps: float | None = None
     mode: str | None = None
     reason: str | None = None
+    gimbal_pitch_deg: float | None = None
+    gimbal_yaw_deg: float | None = None
+    gimbal_roll_deg: float | None = None
     action: ActionPrimitive | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -248,6 +281,12 @@ class MotionCommand:
         result.update(
             duration_s=self.duration_s, speed_mps=self.speed_mps, metadata=dict(self.metadata)
         )
+        if self.gimbal_pitch_deg is not None:
+            result["gimbal_pitch_deg"] = self.gimbal_pitch_deg
+        if self.gimbal_yaw_deg is not None:
+            result["gimbal_yaw_deg"] = self.gimbal_yaw_deg
+        if self.gimbal_roll_deg is not None:
+            result["gimbal_roll_deg"] = self.gimbal_roll_deg
         if self.action is not None:
             result["action"] = self.action.to_dict()
         return result
@@ -605,6 +644,18 @@ class AirframeMotionAdapter:
         meta = metadata or {}
         onboard = meta.get("onboard", {}) if isinstance(meta, Mapping) else {}
         skill = onboard.get("state") if isinstance(onboard, Mapping) else None
+        if action.kind == "gimbal":
+            if self.is_multirotor:
+                return action
+            return MotionCommand(
+                "gimbal",
+                mode=self.mode,
+                action=action,
+                gimbal_pitch_deg=action.gimbal_pitch_deg,
+                gimbal_yaw_deg=action.gimbal_yaw_deg,
+                gimbal_roll_deg=action.gimbal_roll_deg,
+                metadata=meta,
+            )
         if skill == "deliver":
             return MotionCommand(
                 "reject",
@@ -740,6 +791,26 @@ class AirframeMotionAdapter:
     ) -> MotionCommand | ActionPrimitive:
         pose = tuple(float(v) for v in pose_ned)
         active = (mode or intent.mode or self.mode).upper()
+        if intent.kind == "gimbal":
+            try:
+                action = ActionPrimitive.gimbal(
+                    pitch_deg=float(intent.gimbal_pitch_deg),
+                    yaw_deg=float(intent.gimbal_yaw_deg or 0.0),
+                    roll_deg=float(intent.gimbal_roll_deg or 0.0),
+                )
+            except (TypeError, ValueError) as exc:
+                raise MotionIntentError("gimbal intent requires pitch/yaw/roll angles") from exc
+            if self.is_multirotor:
+                return action
+            return MotionCommand(
+                "gimbal",
+                mode=active,
+                action=action,
+                gimbal_pitch_deg=action.gimbal_pitch_deg,
+                gimbal_yaw_deg=action.gimbal_yaw_deg,
+                gimbal_roll_deg=action.gimbal_roll_deg,
+                metadata=dict(intent.metadata),
+            )
         if self.is_multirotor:
             if intent.kind in {"wait", "observe"} and intent.target_ned is None:
                 return ActionPrimitive.hold(intent.duration_s or 1.0)

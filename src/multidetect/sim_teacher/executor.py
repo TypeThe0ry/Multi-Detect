@@ -13,10 +13,14 @@ import math
 import threading
 import time
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from typing import Any, Protocol
 
 from .isolation import validate_local_endpoint
 from .primitives import ActionPrimitive, CompletionCriterion, primitive_to_ned
+
+
+MAV_CMD_DO_MOUNT_CONTROL = 205
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +40,127 @@ class PrimitiveExecutor(Protocol):
     def execute(self, action: ActionPrimitive) -> ExecutionResult: ...
 
     def rtl(self) -> None: ...
+
+
+def _gimbal_profile_limits(profile: Any) -> tuple[bool, Mapping[str, Any]]:
+    camera = getattr(profile, "camera", None)
+    gimbal = getattr(camera, "gimbal", None)
+    if isinstance(gimbal, Mapping) and bool(gimbal.get("enabled")):
+        return True, gimbal.get("angle_range_deg", {})
+    return False, {}
+
+
+def _gimbal_angles_deg(status: Any) -> dict[str, float] | None:
+    q = status.get("q") if isinstance(status, Mapping) else getattr(status, "q", None)
+    if not isinstance(q, (list, tuple)) or len(q) < 4:
+        return None
+    try:
+        w, x, y, z = (float(value) for value in q[:4])
+        norm = math.sqrt(w * w + x * x + y * y + z * z)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(norm) or norm <= 1e-9:
+        return None
+    w, x, y, z = (value / norm for value in (w, x, y, z))
+    return {
+        "roll": math.degrees(math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
+        "pitch": math.degrees(math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))),
+        "yaw": math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))),
+    }
+
+
+def execute_gimbal_action(
+    vehicle: Any,
+    action: ActionPrimitive,
+    *,
+    profile: Any,
+    reader: Any,
+    clock: callable = time.monotonic,
+    timeout_s: float = 15.0,
+    tolerance_deg: float = 4.0,
+) -> ExecutionResult:
+    """Send a typed mount command and require a fresh device attitude sample."""
+    started = clock()
+    if not isinstance(action, ActionPrimitive) or action.kind != "gimbal":
+        return ExecutionResult("rejected", clock() - started, ack={"reason": "gimbal_action_required"})
+    enabled, limits = _gimbal_profile_limits(profile)
+    if not enabled:
+        return ExecutionResult("rejected", clock() - started, ack={"reason": "gimbal_capability_required"})
+    target = {
+        "yaw": float(action.gimbal_yaw_deg),
+        "roll": float(action.gimbal_roll_deg),
+        "pitch": float(action.gimbal_pitch_deg),
+    }
+    for axis, value in target.items():
+        bounds = limits.get(axis) if isinstance(limits, Mapping) else None
+        if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+            return ExecutionResult(
+                "failed",
+                clock() - started,
+                ack={"reason": "gimbal_axis_range_missing", "axis": axis},
+            )
+        if value < float(bounds[0]) or value > float(bounds[1]):
+            return ExecutionResult(
+                "rejected",
+                clock() - started,
+                ack={"reason": "gimbal_angle_out_of_range", "axis": axis, "value_deg": value},
+            )
+    if reader is None:
+        return ExecutionResult("failed", clock() - started, ack={"reason": "gimbal_reader_required"})
+    mav = getattr(vehicle, "mav", None)
+    if callable(mav):
+        mav = mav()
+    sender = getattr(mav, "command_long_send", None)
+    if not callable(sender):
+        return ExecutionResult("failed", clock() - started, ack={"reason": "gimbal_command_sender_missing"})
+    target_system = int(getattr(vehicle, "target_system", 1) or 1)
+    target_component = int(getattr(vehicle, "target_component", 1) or 1)
+    command_started_ns = time.monotonic_ns()
+    sender(
+        target_system,
+        target_component,
+        MAV_CMD_DO_MOUNT_CONTROL,
+        0,
+        target["pitch"],
+        target["roll"],
+        target["yaw"],
+        2,
+        0,
+        0,
+        0,
+    )
+    deadline = time.monotonic() + max(0.0, float(timeout_s))
+    last_error: dict[str, float] | None = None
+    while time.monotonic() < deadline:
+        state = getattr(reader, "state", None)
+        if state is None:
+            break
+        acks = getattr(state, "command_acks", {})
+        if isinstance(acks, Mapping) and MAV_CMD_DO_MOUNT_CONTROL in acks:
+            ack_message, received_ns = acks[MAV_CMD_DO_MOUNT_CONTROL]
+            if isinstance(ack_message, Mapping):
+                ack_result = ack_message.get("result", -1)
+            else:
+                ack_result = getattr(ack_message, "result", -1)
+            if int(received_ns) >= command_started_ns and int(ack_result) not in {0, 5}:
+                return ExecutionResult("failed", clock() - started, ack={"reason": "gimbal_command_rejected"})
+        status = state.get("GIMBAL_DEVICE_ATTITUDE_STATUS") if callable(getattr(state, "get", None)) else None
+        received = getattr(state, "received_monotonic_ns", {})
+        if status is not None and isinstance(received, Mapping) and received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns:
+            actual = _gimbal_angles_deg(status)
+            if actual is not None:
+                last_error = {
+                    axis: abs((actual[axis] - target[axis] + 180.0) % 360.0 - 180.0)
+                    for axis in ("yaw", "roll", "pitch")
+                }
+                if max(last_error.values()) <= tolerance_deg:
+                    return ExecutionResult(
+                        "success",
+                        clock() - started,
+                        ack={"command": "MAV_CMD_DO_MOUNT_CONTROL", "command_id": MAV_CMD_DO_MOUNT_CONTROL, "target_deg": target, "actual_deg": actual, "error_deg": last_error},
+                    )
+        time.sleep(0.02)
+    return ExecutionResult("timeout", clock() - started, ack={"command": "MAV_CMD_DO_MOUNT_CONTROL", "command_id": MAV_CMD_DO_MOUNT_CONTROL, "target_deg": target, "error_deg": last_error})
 
 
 class SetpointStreamer:
@@ -182,6 +307,10 @@ class PymavlinkPrimitiveExecutor:
         streamer: SetpointStreamer | None = None,
         wall_clock: callable = time.monotonic,
         max_wall_s: float | None = None,
+        airframe_profile: Any = None,
+        telemetry_reader: Any = None,
+        gimbal_timeout_s: float = 15.0,
+        gimbal_tolerance_deg: float = 4.0,
     ) -> None:
         validate_local_endpoint(endpoint)
         if stream_hz <= 2.0 or not math.isfinite(stream_hz):
@@ -206,6 +335,10 @@ class PymavlinkPrimitiveExecutor:
         self.streamer = streamer
         self._commanded_position: tuple[float, float, float] | None = None
         self._commanded_yaw: float | None = None
+        self.airframe_profile = airframe_profile
+        self.telemetry_reader = telemetry_reader
+        self.gimbal_timeout_s = float(gimbal_timeout_s)
+        self.gimbal_tolerance_deg = float(gimbal_tolerance_deg)
 
     def _mav(self) -> Any:
         mav = getattr(self.vehicle, "mav", None)
@@ -262,6 +395,16 @@ class PymavlinkPrimitiveExecutor:
         self._send_setpoint(*target, yaw)
 
     def execute(self, action: ActionPrimitive) -> ExecutionResult:
+        if action.kind == "gimbal":
+            return execute_gimbal_action(
+                self.vehicle,
+                action,
+                profile=self.airframe_profile,
+                reader=self.telemetry_reader,
+                clock=self._clock,
+                timeout_s=self.gimbal_timeout_s,
+                tolerance_deg=self.gimbal_tolerance_deg,
+            )
         start_time = self._clock()
         wall_start = self._wall_clock()
         last_clock = start_time
@@ -363,4 +506,11 @@ class PymavlinkPrimitiveExecutor:
         self._armed = False
 
 
-__all__ = ["ExecutionResult", "PrimitiveExecutor", "SetpointStreamer", "PymavlinkPrimitiveExecutor"]
+__all__ = [
+    "ExecutionResult",
+    "PrimitiveExecutor",
+    "SetpointStreamer",
+    "PymavlinkPrimitiveExecutor",
+    "execute_gimbal_action",
+    "MAV_CMD_DO_MOUNT_CONTROL",
+]

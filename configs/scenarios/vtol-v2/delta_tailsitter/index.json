@@ -1,0 +1,40 @@
+{
+  "generator": "multidetect.simulator.world_gen.derive_vtol_scenario",
+  "schema_version": 1,
+  "worlds": [
+    {
+      "airframe": "delta_tailsitter",
+      "asset_mode": "fuel_v1",
+      "seed": 20261027,
+      "source_scenario": "gen_v2_w0016.scenario.json",
+      "split": "train",
+      "target_combo": {
+        "category": "ambulance",
+        "color": "white",
+        "slug": "ambulance"
+      },
+      "task_text": "找到白色救护车并记录位置",
+      "task_text_en": "Find the white ambulance and record its position.",
+      "true_target_id": "target_true_gen_v2_w0016",
+      "world_file": "gen_v2_w0016.sdf",
+      "world_id": "gen_v2_w0016"
+    },
+    {
+      "airframe": "delta_tailsitter",
+      "asset_mode": "fuel_v1",
+      "seed": 20261042,
+      "source_scenario": "gen_v2_w0031.scenario.json",
+      "split": "val",
+      "target_combo": {
+        "category": "fire_truck",
+        "color": "red",
+        "slug": "fire_truck"
+      },
+      "task_text": "找到红色消防车并记录位置",
+      "task_text_en": "Find the red fire truck and record its position.",
+      "true_target_id": "target_true_gen_v2_w0031",
+      "world_file": "gen_v2_w0031.sdf",
+      "world_id": "gen_v2_w0031"
+    }
+  ]
+}

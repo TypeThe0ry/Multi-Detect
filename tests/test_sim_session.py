@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import pytest
 
@@ -95,6 +96,8 @@ def test_world_must_be_repository_owned() -> None:
         ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter_mono_cam"),
         ("delta_tailsitter", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter_mono_cam"),
         ("delta_tailsitter_mono_cam", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter_mono_cam"),
+        ("delta_tailsitter_gimbal", "delta_tailsitter_gimbal_cam_001.sdf", "delta_tailsitter_gimbal_cam"),
+        ("delta_tailsitter_gimbal_cam", "delta_tailsitter_gimbal_cam_001.sdf", "delta_tailsitter_gimbal_cam"),
         ("tiltrotor", "tiltrotor_mono_cam_001.sdf", "tiltrotor_mono_cam"),
         ("rc_cessna", "coastal_patrol_fixed_wing_001.sdf", "px4_fixed_wing_standard"),
     ],
@@ -114,6 +117,8 @@ def test_session_plan_selects_airframe_runtime(airframe: str, world: str, model:
         ("standard_vtol", "gen_v2_w0031", "vtol-v2/standard_vtol/gen_v2_w0031"),
         ("standard_vtol", "gen_v2_w0016", "vtol-v2/standard_vtol/gen_v2_w0016"),
         ("quadtailsitter", "gen_v2_w0016", "vtol-v2/quadtailsitter/gen_v2_w0016"),
+        ("delta_tailsitter", "gen_v2_w0016", "vtol-v2/delta_tailsitter/gen_v2_w0016"),
+        ("delta_tailsitter_gimbal", "gen_v2_w0016", "vtol-v2/delta_tailsitter_gimbal/gen_v2_w0016"),
         ("rc_cessna", "gen_v2_w0031", "fixed-wing-v2/gen_v2_w0031"),
         ("rc_cessna_hand", "gen_v2_w0016", "fixed-wing-v2/gen_v2_w0016"),
         ("x500", "gen_v2_w0031", "generated-v2/gen_v2_w0031"),
@@ -265,6 +270,19 @@ def test_generated_world_resolves_through_its_scenario_index() -> None:
         _scenario_for(worlds / "gen_v2_w0031.sdf", "rc_cessna")
         == ROOT / "configs/scenarios/fixed-wing-v2/gen_v2_w0031.scenario.json"
     )
+
+
+@pytest.mark.parametrize("family", ["delta_tailsitter", "delta_tailsitter_gimbal"])
+def test_delta_tailsitter_vtol_scenario_index_is_complete(family: str) -> None:
+    index_path = ROOT / "configs/scenarios" / "vtol-v2" / family / "index.json"
+    document = json.loads(index_path.read_text(encoding="utf-8"))
+    worlds = document["worlds"]
+    assert len(worlds) == 2
+    assert {entry["split"] for entry in worlds} == {"train", "val"}
+    assert {entry["world_id"] for entry in worlds} == {"gen_v2_w0016", "gen_v2_w0031"}
+    for entry in worlds:
+        scenario = index_path.parent / f"{entry['world_id']}.scenario.json"
+        assert scenario.is_file()
 
 
 def test_run_task_uses_session_ports_and_repo_defaults(monkeypatch, tmp_path: Path) -> None:

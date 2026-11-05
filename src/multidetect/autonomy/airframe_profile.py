@@ -816,12 +816,22 @@ class AirframeProfile:
             mode = "loiter"
         else:
             mode = "hover" if self.can_hover else "fixed_wing_loiter"
-        return {
+        result = {
             "hover": self.can_hover,
             "loiter": self.loiter_radius_m(),
             "mode_choice": mode,
             "stop_near_target": self.can_stop_near_target(),
         }
+        gimbal = self.camera.gimbal if isinstance(self.camera.gimbal, Mapping) else {}
+        if bool(gimbal.get("enabled")):
+            result["gimbal"] = {
+                "capability": "gimbal_control",
+                "axes": list(gimbal.get("axes", ("yaw", "roll", "pitch"))),
+                "angle_range_deg": dict(gimbal.get("angle_range_deg", {})),
+                "command": "MAV_CMD_DO_MOUNT_CONTROL",
+                "feedback": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            }
+        return result
 
 
 def load_airframe_profile(path: str | Path) -> AirframeProfile:

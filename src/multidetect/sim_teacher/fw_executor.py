@@ -25,7 +25,7 @@ from ..onboard_runtime.fw_vtol_commands import (
     nav_takeoff,
     nav_vtol_takeoff,
 )
-from .executor import ExecutionResult
+from .executor import ExecutionResult, execute_gimbal_action
 from .primitives import ActionPrimitive, CompletionCriterion, body_to_ned
 
 if TYPE_CHECKING:  # motion_intent imports sim_teacher (via safety_envelope); avoid the cycle
@@ -54,6 +54,10 @@ class FixedWingVtolExecutor:
         geo_reference: Callable[[], tuple[Any, Any]] | None = None,
         clock: Callable[[], float] = time.monotonic,
         transition_after_takeoff: bool = True,
+        airframe_profile: Any = None,
+        telemetry_reader: Any = None,
+        gimbal_timeout_s: float = 15.0,
+        gimbal_tolerance_deg: float = 4.0,
     ) -> None:
         normalized = airframe.strip().lower().replace("-", "_")
         # Profile IDs are intentionally accepted here so the collector can
@@ -107,6 +111,10 @@ class FixedWingVtolExecutor:
         self._commanded = tuple(float(v) for v in self._position())
         self._commanded_yaw = float(self._yaw())
         self._armed = False
+        self.airframe_profile = airframe_profile
+        self.telemetry_reader = telemetry_reader
+        self.gimbal_timeout_s = float(gimbal_timeout_s)
+        self.gimbal_tolerance_deg = float(gimbal_tolerance_deg)
 
     @staticmethod
     def _ok(result: Any) -> bool:
@@ -434,6 +442,16 @@ class FixedWingVtolExecutor:
             return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})
 
     def execute(self, action: ActionPrimitive) -> ExecutionResult:
+        if action.kind == "gimbal":
+            return execute_gimbal_action(
+                self.vehicle,
+                action,
+                profile=self.airframe_profile,
+                reader=self.telemetry_reader,
+                clock=self._clock,
+                timeout_s=self.gimbal_timeout_s,
+                tolerance_deg=self.gimbal_tolerance_deg,
+            )
         started = self._clock()
         origin = self._commanded
         yaw = self._commanded_yaw
@@ -507,6 +525,21 @@ class FixedWingVtolExecutor:
             if command.rejected:
                 return ExecutionResult(
                     "failed", self._clock() - started, ack={"reason": command.reason}
+                )
+            if command.kind == "gimbal":
+                action = command.action or ActionPrimitive.gimbal(
+                    pitch_deg=float(command.gimbal_pitch_deg or 0.0),
+                    yaw_deg=float(command.gimbal_yaw_deg or 0.0),
+                    roll_deg=float(command.gimbal_roll_deg or 0.0),
+                )
+                return execute_gimbal_action(
+                    self.vehicle,
+                    action,
+                    profile=self.airframe_profile,
+                    reader=self.telemetry_reader,
+                    clock=self._clock,
+                    timeout_s=self.gimbal_timeout_s,
+                    tolerance_deg=self.gimbal_tolerance_deg,
                 )
             centre = command.target_ned or self._commanded
             altitude = -centre[2]
