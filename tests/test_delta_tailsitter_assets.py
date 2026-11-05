@@ -478,7 +478,7 @@ def test_smoke_and_ai_collector_resolve_new_airframe(airframe):
     assert vehicle["model"] == ("delta_tailsitter_gimbal_cam" if "gimbal" in airframe else "delta_tailsitter_mono_cam")
 
 
-def test_docker_plan_mounts_custom_airframe_readonly_and_records_its_hash(tmp_path):
+def test_docker_plan_mounts_custom_airframe_readonly_and_records_its_hash(tmp_path, monkeypatch):
     plan = docker.build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "job", gpu_render=False)
     assert dict(plan.environment)["PX4_SYS_AUTOSTART"] == "4050"
     assert dict(plan.environment)["PX4_SIM_MODEL"] == "gz_delta_tailsitter_mono_cam"
@@ -487,6 +487,49 @@ def test_docker_plan_mounts_custom_airframe_readonly_and_records_its_hash(tmp_pa
     assert mount["readonly"] is True
     assert mount["sha256"] == hashlib.sha256(AIRFRAME.read_bytes()).hexdigest()
     assert f"type=bind,source={AIRFRAME},target={mount['container']},readonly" in plan.command
+    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "poll"
+    startup = plan.command[-1]
+    assert "rc.logging" in startup
+    assert "-p vehicle_attitude" in startup
+
+    gimbal = docker.build_docker_simulator_plan(
+        SCENARIO_DIR / "delta_tailsitter_gimbal_cam_001.scenario.json",
+        job_dir=tmp_path / "gimbal",
+        gpu_render=False,
+    )
+    assert dict(gimbal.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "poll"
+    assert "-p vehicle_attitude" in gimbal.command[-1]
+
+    monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", "default")
+    explicit_default = docker.build_docker_simulator_plan(
+        SCENARIO, job_dir=tmp_path / "explicit-default", gpu_render=False
+    )
+    assert dict(explicit_default.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "default"
+    assert "rc.logging" not in explicit_default.command[-1]
+
+
+def test_px4_logger_mode_override_and_default_preserve_other_airframes(tmp_path, monkeypatch):
+    default = docker.build_docker_simulator_plan(
+        ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json",
+        job_dir=tmp_path / "default",
+        gpu_render=False,
+    )
+    assert dict(default.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "default"
+    assert "rc.logging" not in default.command[-1]
+
+    monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", "off")
+    disabled = docker.build_docker_simulator_plan(
+        SCENARIO, job_dir=tmp_path / "off", gpu_render=False
+    )
+    assert dict(disabled.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "off"
+    assert dict(disabled.environment)["SDLOG_BACKEND"] == "0"
+    assert "rc.logging" not in disabled.command[-1]
+
+    monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", "invalid")
+    with pytest.raises(docker.DockerSimulatorPlanError, match="MULTIDETECT_PX4_LOGGER_MODE"):
+        docker.build_docker_simulator_plan(
+            SCENARIO, job_dir=tmp_path / "invalid", gpu_render=False
+        )
 
 
 def test_docker_cad_override_is_staged_without_mutating_source(tmp_path, monkeypatch):

@@ -65,7 +65,8 @@ def test_telemetry_silence_uses_sim_and_wall_clocks_at_point_one_realtime(tmp_pa
         watchdog.check()
 
     diagnostic = json.loads((recorder.episode_dir / "telemetry-silence.json").read_text())
-    assert diagnostic["failure_class"] == "receiver_thread_exit"
+    assert diagnostic["failure_class"] == "telemetry_receiver"
+    assert diagnostic["failure_detail"] == "receiver_thread_exit"
     assert diagnostic["sim_elapsed_since_last_mavlink_s"] == pytest.approx(5.0)
     assert diagnostic["sim_clock_advancing"] is True
     assert diagnostic["container"]["running"] is True
@@ -112,7 +113,7 @@ def test_telemetry_silence_classifies_container_exit(tmp_path):
     with pytest.raises(TimeoutError, match="MAVLink telemetry silent"):
         watchdog.check()
     diagnostic = json.loads((recorder.episode_dir / "telemetry-silence.json").read_text())
-    assert diagnostic["failure_class"] == "container_exit"
+    assert diagnostic["failure_class"] == "px4_other_segfault"
     assert diagnostic["container"]["state"]["ExitCode"] == 139
 
 
@@ -213,6 +214,63 @@ def test_evidence_records_container_state_before_cleanup_and_exit_source(tmp_pat
     assert evidence["oom_killed"] is True
     assert evidence["exit_code_source"] == "collector_stop"
     assert calls[-1] == ["docker-test", "rm", "--force", environment.name]
+
+
+def test_logger_crash_kernel_capture_is_best_effort_and_records_matching_pid(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(list(command))
+        return SimpleNamespace(
+            returncode=0,
+            stdout="Nov 05 px4[1234]: logger[77] segfault at 2885a9\nNov 05 px4[9]: unrelated\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(collector.subprocess, "run", fake_run)
+    plan = collector.CollectionPlan(
+        "scenario", "runtime", "truth", "explore", 1, 1, 0, str(tmp_path)
+    )
+    environment = collector.DockerSimEnvironment(plan, "episode", tmp_path / "episode")
+    environment.evidence_dir.mkdir(parents=True)
+    result = environment._capture_kernel_segfault(
+        {"ExitCode": 139, "Pid": 1234, "StartedAt": "2026-11-05T09:38:00Z"}
+    )
+    assert result["failure_class"] == "px4_logger_segfault"
+    assert calls[0][:4] == ["journalctl", "-k", "--since", "2026-11-05T09:38:00Z"]
+    assert "px4[1234]" in (environment.evidence_dir / "kernel-segfault.log").read_text()
+
+
+def test_px4_hang_collects_gdb_and_proc_threads_before_cleanup(tmp_path, monkeypatch):
+    now = [0.0]
+    reader = _reader()
+    reader._thread = SimpleNamespace(is_alive=lambda: True)
+
+    class RunningEnvironment(FakeEnvironment):
+        evidence_dir = tmp_path / "container-evidence"
+        px4_threads_evidence = None
+
+        def inspect_state(self):
+            return {"Running": True, "ExitCode": 0, "Pid": 1234}
+
+        def _capture_px4_threads(self, host_pid):
+            self.evidence_dir.mkdir(parents=True)
+            (self.evidence_dir / "px4-threads.txt").write_text("thread 1 bt\n")
+            return {"file": "px4-threads.txt", "host_pid": host_pid}
+
+    environment = RunningEnvironment()
+    recorder = FakeRecorder(tmp_path / "episode")
+    watchdog = collector.MavlinkTelemetrySilenceWatchdog(
+        reader, environment, recorder, clock=lambda: now[0]
+    )
+    now[0] = 50.0
+    environment.stamp_ns = 5_000_000_000
+    environment.progress_wall = now[0]
+    with pytest.raises(TimeoutError):
+        watchdog.check()
+    diagnostic = json.loads((recorder.episode_dir / "telemetry-silence.json").read_text())
+    assert diagnostic["failure_class"] == "px4_hang"
+    assert diagnostic["px4_threads"]["host_pid"] == 1234
 
 
 def test_gimbal_measurement_wait_requires_three_sim_seconds_of_level_mc(monkeypatch):

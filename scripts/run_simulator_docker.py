@@ -690,6 +690,21 @@ def build_docker_simulator_plan(
         "GZ_VERBOSE": "0",
         **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
+    requested_logger_mode = os.environ.get("MULTIDETECT_PX4_LOGGER_MODE")
+    default_logger_mode = (
+        "poll"
+        if model_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}
+        else "default"
+    )
+    logger_mode = requested_logger_mode or default_logger_mode
+    if logger_mode not in {"default", "poll", "off"}:
+        raise DockerSimulatorPlanError(
+            "MULTIDETECT_PX4_LOGGER_MODE must be default, poll, or off"
+        )
+    container_environment["MULTIDETECT_PX4_LOGGER_MODE"] = logger_mode
+    if logger_mode == "off":
+        container_environment["SDLOG_BACKEND"] = "0"
+        container_environment["PX4_PARAM_SDLOG_BACKEND"] = "0"
     if gpu_render:
         # NVIDIA Container Toolkit injects the driver libraries.  EGL_PLATFORM
         # and the vendor manifest make the selection deterministic in a
@@ -741,6 +756,15 @@ def build_docker_simulator_plan(
         f"\\1mavlink start -x -t {mavlink_target} -u $udp_gcs_port_local "
         f'-o {telemetry_port} -r 4000000 -f $mavlink_network_interface_arg|\' "$RC"; '
     )
+    logger_patch = ""
+    if logger_mode == "poll":
+        logger_rc = "/opt/px4-gazebo/etc/init.d/rc.logging"
+        logger_patch = (
+            f"LRC={logger_rc}; "
+            "sed -i 's|logger start -b ${LOGGER_BUF} -t ${LOGGER_ARGS}|"
+            "logger start -b ${LOGGER_BUF} -p vehicle_attitude -t ${LOGGER_ARGS}|' \"$LRC\"; "
+            "grep -Fq -- '-p vehicle_attitude' \"$LRC\" || exit 74; "
+        )
     gpu_gz_wrapper = ""
     if gpu_render:
         # PX4's image starts Gazebo from its rc script.  Keep that startup path,
@@ -790,6 +814,7 @@ def build_docker_simulator_plan(
             "RC=/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; ",
             patch_assignment,
             patch_command,
+            logger_patch,
             (
                 "export PX4_NET_INTERFACE=lo; "
                 if selected_network_mode == "host"

@@ -876,6 +876,7 @@ def build_plan(
             "gimbal_command_success": None if gimbal_enabled else True,
             "gimbal_error_deg": None,
             "failure_reason": None,
+            "failure_class": "none",
             **(
                 {
                     "fw_sustain_success": None,
@@ -1031,6 +1032,31 @@ def main(argv: list[str] | None = None) -> int:
     else:
         result["status"] = "fail"
         result["judgement"]["failure_reason"] = "collector produced no episode.json artifact"
+    failure_class = "none"
+    if result["status"] != "pass":
+        diagnostic = {}
+        if episodes:
+            episode = json.loads(episodes[-1].read_text(encoding="utf-8"))
+            diagnostic = episode.get("telemetry_silence", {})
+            evidence = episode.get("container_evidence", {})
+            state = evidence.get("state_before_cleanup") or {}
+            if state.get("ExitCode") == 139:
+                failure_class = "px4_other_segfault"
+                kernel = evidence.get("kernel_segfault") or {}
+                if kernel.get("failure_class"):
+                    failure_class = kernel["failure_class"]
+                elif diagnostic.get("failure_class") in {
+                    "px4_logger_segfault",
+                    "px4_other_segfault",
+                }:
+                    failure_class = diagnostic["failure_class"]
+            elif diagnostic.get("failure_class") == "telemetry_receiver":
+                failure_class = "telemetry_receiver"
+            elif diagnostic.get("failure_class") == "px4_hang":
+                failure_class = "px4_hang"
+        if failure_class == "none":
+            failure_class = "flight"
+    result["judgement"]["failure_class"] = failure_class
     if completed.returncode != 0:
         result["judgement"]["failure_reason"] = result["failure_reason"]
     print(json.dumps(result, ensure_ascii=False, indent=2))

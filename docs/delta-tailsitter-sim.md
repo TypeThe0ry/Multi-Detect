@@ -533,14 +533,16 @@ roll 0.122°、pitch 3.318°，仍使用 4° 门槛。MAVLink 中有 570 条
 gimbal v2；`MAV_CMD_DO_MOUNT_CONTROL` (205) 没有回退。云台设备四元数、flags 和三轴
 关节状态均已写入 episode，说明本轮云台控制链和安装坐标在稳定悬停工况下有效。
 
-固定版不是飞行判定失败，而是 Gazebo 进程崩溃：`mavlink.jsonl` 在 PX4 仿真时钟
+固定版不是飞行判定失败，而是 PX4 进程段错误：`mavlink.jsonl` 在 PX4 仿真时钟
 19.516 s 截止，共 5,387 条消息；接收线程仍存活，`parse_errors=0`、`bad_crc=0`，socket
 仍打开，最后消息为 `SERVO_OUTPUT_RAW`。同一 episode 的容器证据显示容器已退出、
 `ExitCode=139`、`OOMKilled=false`；ULog 中 `vehicle_attitude`、`vehicle_local_position`
 和 `actuator_outputs` 均记录到约 19.5 s，Gazebo `server_console.log` 也在相同启动阶段
-结束。因此这次静默不是 pymavlink 线程异常、解析失步或 PX4 自身遥测停止，而是仿真器
-崩溃后的结果。静默诊断新增 `failure_class=container_exit`，保留线程、socket、计数、
-最后消息和容器退出状态，避免把容器崩溃误报为接收端断流。
+结束。后续内核日志核验显示，自 2026-11-02 起 PX4 段错误 29 次，其中 28 次位于 logger
+线程，至少 22 次落在 `px4+0x2885a9`，即 `px4_sem_wait` 返回点附近；因此此前把该退出归因为
+Gazebo 的说法不正确，故障与气动无关。旧 episode 没有保留足以逐一匹配主机 PID 的内核行；
+新的容器证据会按启动时间和 PX4 主机 PID 保存 `kernel-segfault.log`，静默诊断使用
+`failure_class=px4_logger_segfault` 或 `px4_other_segfault`。
 
 固定版独有的包装模型把 `camera_link` 写成了相对 `base_link` 的 pose，却没有 fixed joint
 把该 link 接入刚体图；云台包装有 `c11_mount_joint`，所以两者表现不同。已在生成器和生成
@@ -599,14 +601,15 @@ PYTHONPATH=src:. /data/projects/f1-aero/.venv/bin/python \
 条消息，遥测到 PX4 boot time 136.832 s；预检最终 `SYS_STATUS.error_flags=0`，因此先前短暂的
 `xy_position_control` 不是本次终止原因。MAVLink/容器证据显示容器以 `ExitCode=139` 退出，
 `OOMKilled=false`，ULog 的姿态、位置和 actuator 主题也记录到约 136.8 s。现有容器日志没有
-给出崩溃栈或明确指出触发该 SIGSEGV 的插件；第 16 轮也出现过固定版 139，但时钟约 19.5 s，
-尚不能证明两次为同一根因。不能仅凭退出码断言是新加的相机固定关节或气动模型导致，需取得
-崩溃转储/带符号栈或稳定复现条件后再改模型。
+给出崩溃栈。后续主机内核日志统计表明，从 11 月 2 日起 PX4 的 139 退出多为 logger 线程在
+同一等待路径段错误；不过旧 episode 未保存匹配 PID 的内核行，因此无法逐条确认第 18 轮这一
+次的线程归属。现有证据不支持将它归因于相机固定关节或气动模型。
 
 云台版 `mavlink.jsonl` 共 28,273 条消息，PX4 boot time 到 78.824 s。静默诊断为
-`failure_class=wire_silence`：容器仍运行、非 OOM，Gazebo 时钟仍推进；最后 MAVLink 后约 3.068
-仿真秒内没有新包，随后达到 60 s 墙钟上限。该结果是遥测/锁步推进过慢或停顿的证据，不能当作
-完成 120 s FW 持续段。同期 ULog `tecs_status` 仅有 181 个样本（42.84–78.644 s），真空速 p5/
+`failure_class=px4_hang`：容器仍运行、非 OOM，Gazebo 时钟仍推进；最后 MAVLink 后约 3.068
+仿真秒内没有新包，随后达到 60 s 墙钟上限。清理前保存主机 gdb 全线程回溯和
+`/proc/<pid>/task/*/{comm,stat}` 到 `container-evidence/px4-threads.txt`。该结果是 PX4 挂死取证，
+不能当作完成 120 s FW 持续段。同期 ULog `tecs_status` 仅有 181 个样本（42.84–78.644 s），真空速 p5/
 p50/p95 约为 15.91/16.84/21.87 m/s，对应目标约 15.03 m/s；已解析 `actuator_motors` 的 741
 个样本中，至少一路控制量触及 0.01/0.99 边界的占比约 25.9%。这些是覆盖窗口内的概况，窗口含
 转换过程且未覆盖完整 120 s FW 持续判定区间，不能冒充正式 smoke gate 的 FW 指标。尤其不能据
@@ -617,3 +620,24 @@ p50/p95 约为 15.91/16.84/21.87 m/s，对应目标约 15.03 m/s；已解析 `ac
 SIGSEGV 根因未定位，以及云台版锁步遥测静默。两变体的返航、后转换、降落、帧对齐和本轮云台误差
 也都没有完整有效的通过记录。本轮没有启动额外 SITL/Docker，既有失败保持失败，等待补齐崩溃栈和
 稳定的连续遥测证据后再做针对性修正与连续两次通过验证。
+
+## 第十九轮 logger 崩溃与 PX4 挂死取证
+
+2026-11-05 内核记录中，PX4 段错误共 29 次（自 11 月 2 日起），28 次标记为 logger 线程，
+至少 22 次地址为 `px4+0x2885a9`，紧跟 `px4_sem_wait` 返回点 `0x2885a8`。固定翼、其他机型
+也有同类记录，并非三角翼或气动专属。第 19 轮云台版 09:38:28Z 退出，与 17:38:27 内核记录
+对应；没有硬件错误证据，EDAC 记录只是启动清单。`rc.logging` 原先以
+`logger start -b ${LOGGER_BUF} -t ${LOGGER_ARGS}` 使用默认定时模式；这里 `-t` 用于按时间组织
+日志目录，崩溃栈落在等待定时信号量的路径。
+
+Docker 启动器现提供 `MULTIDETECT_PX4_LOGGER_MODE=default|poll|off`。仅两个 delta tailsitter
+变体默认使用 `poll`，通过临时改写容器内 `rc.logging` 增加 `-p vehicle_attitude`；本地 ULog
+分析已确认固件记录该 uORB 话题。`off` 设置 `SDLOG_BACKEND=0`，显式 `default` 恢复原模式；
+其他机型仍为 default。生效模式记录在 episode 元数据，未在全项目统一切换。
+
+第 19 轮固定版另有一类故障：MAVLink 与 ULog 均在仿真约 66 s 停止，容器仍运行且 Gazebo
+时钟继续推进，超过 50 s 静默阈值。该情形归类为 `px4_hang`，不与 logger 段错误混为一类；
+采集器在清理前用主机 gdb 保存 PX4 全线程回溯，并读取 `/proc/<pid>/task/*/{comm,stat}`，
+输出到 `container-evidence/px4-threads.txt`。journalctl 与 gdb 取证均为 best-effort，失败
+不会阻止容器清理。smoke `judgement.failure_class` 使用 `px4_logger_segfault`、
+`px4_other_segfault`、`px4_hang`、`telemetry_receiver`、`flight`、`none` 分类，不改变通过门限。

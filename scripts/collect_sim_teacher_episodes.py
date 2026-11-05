@@ -872,6 +872,7 @@ class DockerSimEnvironment:
             self.episode_dir / "container-evidence" if self.episode_dir is not None else None
         )
         self.evidence_index: dict[str, Any] | None = None
+        self.px4_threads_evidence: dict[str, Any] | None = None
         self.sim_clock_stamp_ns: int | None = None
         self.sim_clock_progress_wall = time.monotonic()
         self._sim_clock_lock = threading.Lock()
@@ -958,6 +959,75 @@ class DockerSimEnvironment:
         except Exception as error:
             return {"inspect_error": f"{type(error).__name__}: {error}"}
 
+    def _capture_px4_threads(self, host_pid: int) -> dict[str, Any]:
+        """Save best-effort host-side stacks and task metadata before cleanup."""
+        if self.evidence_dir is None:
+            return {"error": "episode evidence directory unavailable"}
+        self.evidence_dir.mkdir(parents=True, exist_ok=True)
+        destination = self.evidence_dir / "px4-threads.txt"
+        rows = [f"host_pid={host_pid}\n"]
+        try:
+            result = subprocess.run(
+                ["/usr/bin/gdb", "-p", str(host_pid), "-batch", "-ex", "thread apply all bt"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            rows.extend(["[gdb]\n", result.stdout or "", result.stderr or ""])
+            rows.append(f"gdb_returncode={result.returncode}\n")
+        except Exception as error:
+            rows.append(f"[gdb_error] {type(error).__name__}: {error}\n")
+        task_root = Path(f"/proc/{host_pid}/task")
+        try:
+            for task in sorted(task_root.iterdir(), key=lambda path: path.name):
+                rows.append(f"\n[task {task.name}]\n")
+                for name in ("comm", "stat"):
+                    try:
+                        rows.append(f"[{name}] { (task / name).read_text().strip()}\n")
+                    except OSError as error:
+                        rows.append(f"[{name}_error] {error}\n")
+        except OSError as error:
+            rows.append(f"[proc_error] {error}\n")
+        destination.write_text("".join(rows), encoding="utf-8")
+        return {"file": destination.name, "host_pid": host_pid}
+
+    def _capture_kernel_segfault(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        if self.evidence_dir is None or state.get("ExitCode") != 139:
+            return None
+        pid = state.get("Pid")
+        started_at = state.get("StartedAt")
+        if not started_at:
+            return {"error": "container StartedAt unavailable", "host_pid": pid}
+        try:
+            result = subprocess.run(
+                ["journalctl", "-k", "--since", str(started_at), "--output=short-iso"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            output = result.stdout or ""
+            pid_pattern = re.compile(rf"\bpx4(?:-gazebo)?\[{re.escape(str(pid))}\]:", re.I)
+            matching = [line for line in output.splitlines() if pid_pattern.search(line)]
+            content = "\n".join(matching) + ("\n" if matching else "")
+            path = self.evidence_dir / "kernel-segfault.log"
+            path.write_text(content or (result.stderr or "No matching PX4 PID kernel lines.\n"), encoding="utf-8")
+            logger_signature = any(
+                re.search(r"0x2885a[89]|logger", line, re.I) for line in matching
+            )
+            info = {
+                "file": path.name,
+                "host_pid": pid,
+                "started_at": started_at,
+                "returncode": result.returncode,
+                "matching_lines": len(matching),
+                "failure_class": "px4_logger_segfault" if logger_signature else "px4_other_segfault",
+            }
+            return info
+        except Exception as error:
+            return {"error": f"{type(error).__name__}: {error}", "host_pid": pid}
+
     @staticmethod
     def _console_tail(text: str, *, limit: int = 1200) -> tuple[str, int]:
         ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -1015,6 +1085,8 @@ class DockerSimEnvironment:
         result["state_before_cleanup"] = initial_state
         if initial_state is not None:
             result["running_before_cleanup"] = initial_state.get("Running")
+            if initial_state.get("Running") is False and initial_state.get("ExitCode") == 139:
+                result["kernel_segfault"] = self._capture_kernel_segfault(initial_state)
         sim_stamp_ns, sim_progress_wall = self.sim_clock_snapshot()
         result["sim_clock_stamp_ns_before_cleanup"] = sim_stamp_ns
         result["sim_clock_advancing_before_cleanup"] = (
@@ -1109,6 +1181,7 @@ class DockerSimEnvironment:
                 "server_console_logs": server_logs,
                 "sim_clock_stamp_ns": self.sim_clock_snapshot()[0],
                 "evidence_directory": str(self.evidence_dir.relative_to(self.episode_dir)),
+                "px4_threads": self.px4_threads_evidence,
             }
         )
         if self.plan.keep_px4_ulog and ulogs:
@@ -2339,23 +2412,55 @@ class MavlinkTelemetrySilenceWatchdog:
         container_running = state_snapshot.get("Running") if state_snapshot else None
         reader_stats = self.reader.stats
         if container_running is False:
-            failure_class = "container_exit"
+            failure_class = (
+                "px4_other_segfault"
+                if state_snapshot and state_snapshot.get("ExitCode") == 139
+                else "flight"
+            )
         elif reader_stats.get("thread_alive") is False:
-            failure_class = "receiver_thread_exit"
+            failure_class = "telemetry_receiver"
+            failure_detail = "receiver_thread_exit"
         elif reader_stats.get("last_exception"):
-            failure_class = "receiver_exception"
+            failure_class = "telemetry_receiver"
+            failure_detail = "receiver_exception"
         else:
-            failure_class = "wire_silence"
+            failure_class = "px4_hang"
+            failure_detail = None
+        if container_running is False:
+            failure_detail = "container_exit"
+        kernel_capture = getattr(self.environment, "_capture_kernel_segfault", None)
+        kernel_segfault = (
+            kernel_capture(state_snapshot)
+            if callable(kernel_capture)
+            and container_running is False
+            and state_snapshot
+            and state_snapshot.get("ExitCode") == 139
+            else None
+        )
+        if kernel_segfault and kernel_segfault.get("failure_class"):
+            failure_class = kernel_segfault["failure_class"]
+        sim_clock_advancing = sim_stamp_ns is not None and now - sim_progress_wall <= 2.5
+        thread_evidence = None
+        if container_running is True:
+            host_pid = state_snapshot.get("Pid") if state_snapshot else None
+            if isinstance(host_pid, int) and host_pid > 0:
+                try:
+                    thread_evidence = self.environment._capture_px4_threads(host_pid)
+                except Exception as error:
+                    thread_evidence = {"error": f"{type(error).__name__}: {error}", "host_pid": host_pid}
+                self.environment.px4_threads_evidence = thread_evidence
         diagnostic = {
             "error": "MAVLink telemetry silent",
             "failure_class": failure_class,
+            "failure_detail": failure_detail,
             "wall_silent_s": wall_silent_s,
             "sim_elapsed_since_last_mavlink_s": sim_elapsed_s,
             "sim_time_stalled_wall_s": sim_stalled_s,
             "sim_clock_stamp_ns": sim_stamp_ns,
             "sim_clock_advancing": (
-                now - sim_progress_wall <= 2.5 if sim_stamp_ns is not None else None
+                sim_clock_advancing
             ),
+            "px4_threads": thread_evidence,
             "container": {
                 "name": self.environment.name,
                 "running": container_running,
@@ -4388,6 +4493,12 @@ def run_episode(
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
     recorder.meta["delta_tailsitter_smoke_gates"] = strict_delta_smoke
+    configured_logger_mode = os.environ.get("MULTIDETECT_PX4_LOGGER_MODE")
+    recorder.meta["px4_logger_mode"] = configured_logger_mode or (
+        "poll"
+        if plan.airframe.id in {"delta_tailsitter", "delta_tailsitter_gimbal"}
+        else "default"
+    )
     recorder.meta["frame_age_limit_s"] = _frame_age_limit_s(plan.airframe)
     world_path = scenario_world_path(plan.runtime)
     recorder.meta["world_sdf"] = str(world_path) if world_path else None

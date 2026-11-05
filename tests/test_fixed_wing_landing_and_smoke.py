@@ -210,6 +210,7 @@ def test_smoke_requires_an_episode_artifact_even_when_collector_exits_zero(tmp_p
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "fail"
     assert result["judgement"]["failure_reason"] == "collector produced no episode.json artifact"
+    assert result["judgement"]["failure_class"] == "flight"
 
 
 def test_vtol_transition_requires_fw_then_later_mc(tmp_path: Path):
