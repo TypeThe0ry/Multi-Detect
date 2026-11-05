@@ -25,7 +25,7 @@ import sys
 import xml.etree.ElementTree as ET
 import zlib
 from array import array
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -290,7 +290,55 @@ def load_world(root: Path, relative_path: str) -> World:
     )
 
 
-def camera_samples(world: World, split: str, seed: int, count: int) -> list[dict[str, Any]]:
+def camera_samples(
+    world: World,
+    split: str,
+    seed: int,
+    count: int,
+    *,
+    propeller_angle_rad: float = 0.0,
+    propeller_spin_rad_s: float = 0.0,
+    sample_period_s: float = 1.0 / 30.0,
+    gimbal_angle_rad: Sequence[float] = (0.0, 0.0, 0.0),
+    camera_pose: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Create camera samples with explicit, replayable actuator state."""
+    values = (float(propeller_angle_rad), float(propeller_spin_rad_s), float(sample_period_s))
+    if not all(math.isfinite(value) for value in values) or sample_period_s <= 0.0:
+        raise SdfRenderError(
+            "propeller inputs and sample period must be finite; period must be positive"
+        )
+    if len(gimbal_angle_rad) != 3 or not all(
+        math.isfinite(float(value)) for value in gimbal_angle_rad
+    ):
+        raise SdfRenderError("gimbal_angle_rad must contain three finite values")
+    pose_location: list[float] | None = None
+    pose_look_at: list[float] | None = None
+    if camera_pose is not None:
+        center = camera_pose.get("center_ned", camera_pose.get("center"))
+        rotation = camera_pose.get("optical_to_world")
+        if (
+            not isinstance(center, (list, tuple))
+            or len(center) != 3
+            or not all(math.isfinite(float(value)) for value in center)
+            or not isinstance(rotation, (list, tuple))
+            or len(rotation) != 9
+            or not all(math.isfinite(float(value)) for value in rotation)
+        ):
+            raise SdfRenderError("camera_pose requires finite center_ned and optical_to_world")
+        # camera_pose is expressed in NED, while the loaded SDF scene is ENU.
+        north, east, down = (float(value) for value in center)
+        pose_location = [east, north, -down]
+        # optical_to_world maps optical axes into NED; convert the first
+        # optical axis (+X/forward) into Blender's ENU world.
+        forward_n, forward_e, forward_d = (
+            float(rotation[0]), float(rotation[3]), float(rotation[6])
+        )
+        pose_look_at = [
+            pose_location[0] + forward_e,
+            pose_location[1] + forward_n,
+            pose_location[2] - forward_d,
+        ]
     digest = hashlib.sha256(
         f"{seed}|{split}|{dict(world.sources)[world.relative_path]}".encode()
     ).hexdigest()
@@ -307,6 +355,7 @@ def camera_samples(world: World, split: str, seed: int, count: int) -> list[dict
             world.target_center[1] + math.cos(azimuth) * horizontal_jitter,
             world.target_center[2] + vertical_jitter,
         ]
+        angle = propeller_angle_rad + index * sample_period_s * propeller_spin_rad_s
         samples.append(
             {
                 "index": index,
@@ -314,20 +363,58 @@ def camera_samples(world: World, split: str, seed: int, count: int) -> list[dict
                 "azimuth_rad": azimuth,
                 "horizontal_distance_m": distance,
                 "height_above_target_center_m": height,
-                "location": [
+                "location": (
+                    [
+                        pose_location[0] + distance * math.cos(azimuth),
+                        pose_location[1] + distance * math.sin(azimuth),
+                        pose_location[2] + height,
+                    ]
+                    if pose_location is not None
+                    else [
                     world.target_center[0] + distance * math.cos(azimuth),
                     world.target_center[1] + distance * math.sin(azimuth),
                     world.target_center[2] + height,
-                ],
-                "look_at": look_at,
+                    ]
+                ),
+                "look_at": pose_look_at or look_at,
                 "target_center": list(world.target_center),
                 "look_at_horizontal_jitter_m": horizontal_jitter,
                 "look_at_vertical_jitter_m": vertical_jitter,
                 "target_present": index % 5 != 4,
                 "horizontal_fov_rad": math.radians(60),
+                "gimbal_angle_rad": [float(value) for value in gimbal_angle_rad],
+                "propeller_angle_rad": angle,
+                "propeller_spin_rad_s": float(propeller_spin_rad_s),
+                "propeller_state_source": "renderer_input",
             }
         )
     return samples
+
+
+def apply_propeller_state(objects: Sequence[Any], camera: Mapping[str, Any]) -> bool:
+    """Apply input propeller angles to Blender objects that declare rotor indices.
+
+    Current SDF worlds may not contain aircraft visuals; in that case this is
+    a no-op while the same state is still sealed in the frame manifest.
+    """
+    angle = float(camera.get("propeller_angle_rad", 0.0))
+    spin = float(camera.get("propeller_spin_rad_s", 0.0))
+    applied = False
+    for index, obj in enumerate(objects):
+        rotor_index = obj.get("propeller_index") if hasattr(obj, "get") else None
+        name = str(getattr(obj, "name", "")).lower()
+        if rotor_index is None and not any(token in name for token in ("rotor", "propeller")):
+            continue
+        try:
+            rotor_index = int(rotor_index if rotor_index is not None else index)
+        except (TypeError, ValueError):
+            rotor_index = index
+        direction = -1.0 if rotor_index % 2 else 1.0
+        obj.rotation_euler.z = direction * angle
+        obj["propeller_angle_rad"] = angle
+        obj["propeller_spin_rad_s"] = spin
+        applied = True
+    return applied
 
 
 def mask_from_rgba(pixels: Sequence[float], width: int, height: int) -> bytes:
@@ -496,9 +583,12 @@ def _render_frame(
     width: int,
     height: int,
 ) -> tuple[bytes, list[list[float]]]:
+    camera["propeller_state_applied"] = apply_propeller_state(objects, camera)
     scene.camera.location = mathutils.Vector(camera["location"])
     direction = mathutils.Vector(camera["look_at"]) - scene.camera.location
-    scene.camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    tracking = direction.to_track_quat("-Z", "Y")
+    gimbal = mathutils.Euler(tuple(camera["gimbal_angle_rad"]), "XYZ").to_quaternion()
+    scene.camera.rotation_euler = (tracking @ gimbal).to_euler()
     # Remove the target mesh, not its label, for offline negative examples.
     # The same visibility state is used for both RGB and the 3-D mask pass.
     for obj in objects:
@@ -554,6 +644,17 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--engine", choices=("EEVEE", "CYCLES"), default="EEVEE")
     parser.add_argument("--render-samples", type=int, default=16)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--propeller-angle-rad", type=float, default=0.0)
+    parser.add_argument("--propeller-spin-rad-s", type=float, default=0.0)
+    parser.add_argument("--sample-period-s", type=float, default=1.0 / 30.0)
+    parser.add_argument("--gimbal-pitch-rad", type=float, default=0.0)
+    parser.add_argument("--gimbal-yaw-rad", type=float, default=0.0)
+    parser.add_argument("--gimbal-roll-rad", type=float, default=0.0)
+    parser.add_argument(
+        "--camera-pose-json",
+        type=Path,
+        help="JSON object containing center_ned and optical_to_world for offline replay",
+    )
     args = parser.parse_args(argv)
     if args.samples_per_split is not None:
         args.train_count = args.val_count = args.test_count = args.samples_per_split
@@ -565,6 +666,18 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("invalid render-samples or seed")
     if not 1 <= args.threads <= 1024:
         parser.error("threads must be in [1, 1024]")
+    if not all(
+        math.isfinite(float(value))
+        for value in (
+            args.propeller_angle_rad,
+            args.propeller_spin_rad_s,
+            args.sample_period_s,
+            args.gimbal_pitch_rad,
+            args.gimbal_yaw_rad,
+            args.gimbal_roll_rad,
+        )
+    ) or args.sample_period_s <= 0.0:
+        parser.error("actuator inputs must be finite and sample-period-s must be positive")
     return args
 
 
@@ -574,6 +687,15 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
         raise SdfRenderError("output-dir already exists; refusing overwrite")
     root = args.repo_root.resolve()
     worlds = {split: load_world(root, relative) for split, relative in WORLD_PATHS.items()}
+    camera_pose = None
+    if args.camera_pose_json is not None:
+        try:
+            raw_pose = json.loads(args.camera_pose_json.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SdfRenderError(f"camera pose JSON is invalid: {args.camera_pose_json}") from exc
+        if not isinstance(raw_pose, dict):
+            raise SdfRenderError("camera pose JSON must contain one object")
+        camera_pose = raw_pose
     # Import only after stdlib parsing; tests and --help do not require Blender.
     import bpy  # type: ignore[import-not-found]
     import mathutils  # type: ignore[import-not-found]
@@ -588,7 +710,17 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
     frames = []
     for split, world in worlds.items():
         scene, objects = _build_blender_scene(bpy, mathutils, world, args)
-        samples = camera_samples(world, split, args.seed, getattr(args, f"{split}_count"))
+        samples = camera_samples(
+            world,
+            split,
+            args.seed,
+            getattr(args, f"{split}_count"),
+            propeller_angle_rad=args.propeller_angle_rad,
+            propeller_spin_rad_s=args.propeller_spin_rad_s,
+            sample_period_s=args.sample_period_s,
+            gimbal_angle_rad=(args.gimbal_pitch_rad, args.gimbal_yaw_rad, args.gimbal_roll_rad),
+            camera_pose=camera_pose,
+        )
         for camera in samples:
             frame_id = f"{split}-{camera['index']:05d}"
             image = output / "images" / split / f"{frame_id}.png"
@@ -619,6 +751,18 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
                     "world_sha256": dict(world.sources)[world.relative_path],
                     "source_hashes": dict(world.sources),
                     "camera": {**camera, "matrix_world": matrix},
+                    "camera_world_pose": {
+                        "center": list(camera["location"]),
+                        "matrix_world": matrix,
+                        "gimbal_angle_rad": list(camera["gimbal_angle_rad"]),
+                    },
+                    "propeller_state": {
+                        "angle_rad": camera["propeller_angle_rad"],
+                        "spin_rad_s": camera["propeller_spin_rad_s"],
+                        "source": camera["propeller_state_source"],
+                        "applied": bool(camera.get("propeller_state_applied", False)),
+                    },
+                    "gimbal_state_applied": True,
                     "visible_bbox_xyxy_px": box,
                     "visible_target_pixels": sum(value > 0 for value in mask),
                     "target_visible": box is not None,
@@ -663,6 +807,22 @@ def render_dataset(args: argparse.Namespace) -> dict[str, Any]:
             "render_samples": args.render_samples,
             "threads": args.threads,
             "cycles_device": "CPU" if args.engine == "CYCLES" else None,
+            "propeller_angle_rad": args.propeller_angle_rad,
+            "propeller_spin_rad_s": args.propeller_spin_rad_s,
+            "sample_period_s": args.sample_period_s,
+            "gimbal_angle_rad": [
+                args.gimbal_pitch_rad,
+                args.gimbal_yaw_rad,
+                args.gimbal_roll_rad,
+            ],
+            "camera_pose_input": (
+                None
+                if args.camera_pose_json is None
+                else {
+                    "path": args.camera_pose_json.resolve().as_posix(),
+                    "sha256": sha256(args.camera_pose_json.resolve()),
+                }
+            ),
         },
         "mask_semantics": (
             "second_3d_emission_render_same_camera_all_occluders_retained_threshold_0.5"

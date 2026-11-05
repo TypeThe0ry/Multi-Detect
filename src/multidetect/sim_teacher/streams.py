@@ -80,6 +80,10 @@ class SensorSample:
     depth_frame: Any = None
     segmentation: Any = None
     segmentation_info: dict[str, Any] | None = None
+    # Optional simulator joint sidecar.  Older MDGZSIM3 frames do not carry
+    # this value and remain valid; newer collectors may provide gimbal and
+    # propeller joint samples without changing the RGB wire contract.
+    joint_state: dict[str, Any] | None = None
 
 
 def _import_wire_helpers() -> tuple[Any, Any, Any]:
@@ -409,6 +413,8 @@ class MavlinkReader:
             "HEALTH_REPORT",
             "STATUSTEXT",
             "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            "ACTUATOR_OUTPUT_STATUS",
+            "ESC_STATUS",
         }
     )
 
@@ -735,6 +741,41 @@ def simulation_stamp_skew_ms(
     return frame_sensor_stamp_ns / 1_000_000.0 - float(pose_time_boot_ms)
 
 
+def _propeller_joint_state(mavlink: MavlinkState, timestamp_ns: int) -> dict[str, Any]:
+    """Normalize ESC RPM when present; actuator outputs do not measure rotor spin."""
+    message = mavlink.get("ESC_STATUS")
+    if message is None:
+        return {
+            "timestamp_ns": int(timestamp_ns),
+            "angles_rad": [],
+            "spin_rad_s": [],
+            "source": "unavailable",
+        }
+    getter = (
+        message.get
+        if isinstance(message, Mapping)
+        else lambda key, default=None: getattr(message, key, default)
+    )
+    rpm = getter("rpm", None)
+    if not isinstance(rpm, (list, tuple)):
+        rpm = []
+    spin = [
+        float(value) * 2.0 * math.pi / 60.0
+        for value in rpm
+        if isinstance(value, (int, float)) and math.isfinite(float(value))
+    ]
+    return {
+        "timestamp_ns": int(timestamp_ns),
+        "angles_rad": [],
+        "spin_rad_s": [
+            float(value)
+            for value in spin
+            if isinstance(value, (int, float)) and math.isfinite(float(value))
+        ],
+        "source": "ESC_STATUS.rpm" if spin else "unavailable",
+    }
+
+
 def _ground_agl(
     sensor: SensorSample, mavlink: MavlinkState, *, max_age_s: float
 ) -> dict[str, Any] | None:
@@ -952,9 +993,12 @@ def build_observation(
         "pose_received_monotonic_ns": pose_stamp,
         "frame_pose_skew_ns": sensor.received_monotonic_ns - pose_stamp,
     }
-    # Gimbal telemetry is meaningful only for an airframe that declares a
-    # gimbal.  Keep fixed-mount observations byte-identical even if PX4 happens
-    # to publish a device-status message on the same link.
+    sidecar = sensor.joint_state if isinstance(sensor.joint_state, Mapping) else {}
+    sidecar_gimbal = sidecar.get("gimbal_joint_state")
+    sidecar_propeller = sidecar.get("propeller_joint_state")
+    # Gimbal feedback is meaningful only for airframes that declare a gimbal.
+    # Fixed mounts retain their legacy projection path; their fixed geometry
+    # is represented by the airframe profile rather than a per-frame pose.
     gimbal = (
         mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
         if camera_mount is not None and camera_mount.kind == "gimbal"
@@ -1003,6 +1047,19 @@ def build_observation(
             "out_of_limits": not within_limits,
             "source": "GIMBAL_DEVICE_ATTITUDE_STATUS",
         }
+        result["gimbal_joint_state"] = {
+            "timestamp_ns": sensor.sensor_stamp_ns,
+            "position_rad": {
+                "pitch": gimbal_state.pitch_rad,
+                "yaw": gimbal_state.yaw_rad,
+                "roll": gimbal_state.roll_rad,
+            },
+            "velocity_rad_s": dict(sidecar_gimbal.get("velocity_rad_s", {}))
+            if isinstance(sidecar_gimbal, Mapping)
+            else {},
+            "source": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            "fresh": gimbal_fresh,
+        }
         if gimbal_fresh:
             rotation_frame = (
                 gimbal_state.yaw_frame
@@ -1026,6 +1083,41 @@ def build_observation(
                 "gimbal_feedback_fresh": True,
                 "gimbal_feedback_out_of_limits": not within_limits,
             }
+    elif camera_mount is not None:
+        # Fixed-camera episodes use the same explicit state shape.  This makes
+        # consumers independent of the airframe profile while preserving the
+        # old fields and old readers.
+        result["gimbal_joint_state"] = {
+            "timestamp_ns": sensor.sensor_stamp_ns,
+            "position_rad": {
+                "pitch": camera_mount.pitch_rad,
+                "yaw": camera_mount.yaw_rad,
+                "roll": camera_mount.roll_rad,
+            },
+            "velocity_rad_s": {},
+            "source": "fixed_mount" if camera_mount.kind == "fixed" else "unavailable",
+            "fresh": camera_mount.kind == "fixed",
+        }
+    if camera_mount is not None and "gimbal_joint_state" not in result:
+        result["gimbal_joint_state"] = {
+            "timestamp_ns": sensor.sensor_stamp_ns,
+            "position_rad": {},
+            "velocity_rad_s": {},
+            "source": "unavailable",
+            "fresh": False,
+        }
+    if isinstance(sidecar_gimbal, Mapping):
+        result["gimbal_joint_state"] = {
+            **dict(result.get("gimbal_joint_state", {})),
+            **dict(sidecar_gimbal),
+            "timestamp_ns": int(sidecar_gimbal.get("timestamp_ns", sensor.sensor_stamp_ns)),
+        }
+    if isinstance(sidecar_propeller, Mapping):
+        result["propeller_joint_state"] = dict(sidecar_propeller)
+    else:
+        # PX4 ESC feedback has RPM but no rotor phase. Simulator joint sidecars
+        # can provide both values when the model publishes them.
+        result["propeller_joint_state"] = _propeller_joint_state(mavlink, sensor.sensor_stamp_ns)
     if sensor.segmentation is not None:
         result["segmentation"] = sensor.segmentation
         result["segmentation_info"] = sensor.segmentation_info
