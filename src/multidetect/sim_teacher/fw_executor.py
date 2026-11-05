@@ -111,6 +111,7 @@ class FixedWingVtolExecutor:
         self._commanded = tuple(float(v) for v in self._position())
         self._commanded_yaw = float(self._yaw())
         self._armed = False
+        self._loiter_captured = False
         self.airframe_profile = airframe_profile
         self.telemetry_reader = telemetry_reader
         self.gimbal_timeout_s = float(gimbal_timeout_s)
@@ -138,6 +139,10 @@ class FixedWingVtolExecutor:
         self._commanded = position
         self._commanded_yaw = yaw
         return position
+
+    def note_loiter_captured(self) -> None:
+        """Keep a telemetry-confirmed loiter active across subsequent hold steps."""
+        self._loiter_captured = True
 
     _GEO_COMMANDS = frozenset({"reposition", "orbit", "loiter_at", "fw_takeoff", "fw_land"})
 
@@ -484,17 +489,22 @@ class FixedWingVtolExecutor:
 
             if isinstance(action, MotionCommand):
                 return self.execute_command(action)
+            if action.kind not in {"hold", "stop"}:
+                self._loiter_captured = False
             if action.kind == "hold":
-                result = self._invoke(
-                    "orbit",
-                    origin[:2],
-                    self.loiter_radius_m,
-                    self.ground_speed_mps,
-                    alt=-origin[2],
-                    timeout_s=self._timeout(),
-                )
-                if not self._ok(result):
-                    return self._failure(started, phase="orbit", result=result)
+                if self._loiter_captured:
+                    result = {"status": "already_active", "ok": True}
+                else:
+                    result = self._invoke(
+                        "orbit",
+                        origin[:2],
+                        self.loiter_radius_m,
+                        self.ground_speed_mps,
+                        alt=-origin[2],
+                        timeout_s=self._timeout(),
+                    )
+                    if not self._ok(result):
+                        return self._failure(started, phase="orbit", result=result)
                 ok, state = self._wait_state("orbit")
                 if not ok:
                     return self._failure(

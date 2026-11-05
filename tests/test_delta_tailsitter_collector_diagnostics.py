@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -42,6 +44,63 @@ def _reader():
     reader.state.vehicle_time_boot_ms = 1000
     reader.state.received_monotonic_ns = {"ATTITUDE": 0}
     return reader
+
+
+def test_delta_fw_ring_metrics_loads_recorder_jsonl_files(tmp_path):
+    mavlink_path = tmp_path / "mavlink.jsonl"
+    steps_path = tmp_path / "steps.jsonl"
+    mavlink_rows = [
+        {"message_type": "PARAM_VALUE", "param_id": "NAV_LOITER_RAD", "param_value": 80.0}
+    ]
+    for index in range(61):
+        sim_time_s = index * 0.5
+        angle = 2.0 * math.pi * index / 60.0
+        mavlink_rows.extend(
+            [
+                {
+                    "message_type": "EXTENDED_SYS_STATE",
+                    "sim_time_s": sim_time_s,
+                    "vtol_state": 4,
+                },
+                {
+                    "message_type": "LOCAL_POSITION_NED",
+                    "sim_time_s": sim_time_s,
+                    "x": 80.0 * math.cos(angle),
+                    "y": 80.0 * math.sin(angle),
+                },
+            ]
+        )
+    steps_row = {
+        "ack": {
+            "smoke_reposition_wait": {
+                "target_ned_m": [0.0, 0.0, -40.0],
+                "distance_m": 80.0,
+            }
+        }
+    }
+    mavlink_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in mavlink_rows), encoding="utf-8"
+    )
+    steps_path.write_text(json.dumps(steps_row) + "\n", encoding="utf-8")
+
+    result = collector._delta_fw_ring_metrics_from_files(mavlink_path, steps_path)
+
+    assert result["fw_reposition_success"] is True
+    assert result["fw_reposition_radius_m"] == pytest.approx(80.0)
+    assert result["fw_reposition_dwell_s"] >= 30.0
+    assert result["fw_reposition_swept_deg"] >= 360.0
+
+
+def test_sensor_frame_timeout_reports_reader_state():
+    reader = collector.SensorStreamReader(io.BytesIO(b""))
+
+    with pytest.raises(TimeoutError, match=r'"frames_received": 0'):
+        collector._fresh_sensor_snapshot(
+            reader,
+            previous_ns=0,
+            timeout_s=0.0,
+            min_sensor_stamp_ns=123,
+        )
 
 
 def test_telemetry_silence_uses_sim_and_wall_clocks_at_point_one_realtime(tmp_path):

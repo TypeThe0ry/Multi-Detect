@@ -52,6 +52,23 @@ def test_fixed_wing_primitives_use_reposition_and_orbit() -> None:
     assert fake.calls[-1][0] == "orbit"
 
 
+def test_hold_keeps_a_telemetry_confirmed_loiter_without_resending_orbit() -> None:
+    fake = FakeVehicle()
+    waits = []
+    executor = FixedWingVtolExecutor(
+        fake,
+        wait_for_state=lambda phase, _timeout: waits.append(phase) or True,
+    )
+    executor.note_loiter_captured()
+
+    result = executor.execute(ActionPrimitive.hold(120))
+
+    assert result.status == "success"
+    assert result.ack["orbit"] == {"status": "already_active", "ok": True}
+    assert not any(name == "orbit" for name, _, _ in fake.calls)
+    assert waits == ["orbit"]
+
+
 def test_sync_commanded_state_rebases_translation_on_latest_pose_and_heading() -> None:
     fake = FakeVehicle()
     measured = [(3.0, 40.0, -39.0)]

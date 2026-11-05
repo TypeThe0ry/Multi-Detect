@@ -448,6 +448,14 @@ def _default_px4_logger_mode(airframe: str) -> str:
     )
 
 
+def _delta_fw_ring_metrics_from_files(
+    mavlink_path: Path, steps_path: Path
+) -> dict[str, Any]:
+    from scripts.smoke_airframe_flight import _delta_fw_ring_metrics, _jsonl
+
+    return _delta_fw_ring_metrics(_jsonl(mavlink_path), _jsonl(steps_path))
+
+
 def _new_video_sample(sample: Any, last_written_ns: int) -> bool:
     """A camera sample the continuous video has not written yet.
 
@@ -4305,7 +4313,34 @@ def _fresh_sensor_snapshot(
         ):
             return sample
         time.sleep(max(0.001, float(poll_interval_s)))
-    raise TimeoutError(f"sensor stream produced no frame within {timeout_s:.1f}s")
+    sample = reader.latest
+    latest_stamp_ns = getattr(sample, "sensor_stamp_ns", None)
+    latest_received_ns = getattr(sample, "received_monotonic_ns", None)
+    latest_age_s = (
+        round(max(0.0, (time.monotonic_ns() - int(latest_received_ns)) / 1e9), 3)
+        if latest_received_ns is not None
+        else None
+    )
+    reader_thread = getattr(reader, "_thread", None)
+    reader_done = getattr(reader, "done", None)
+    reader_error = getattr(reader, "error", None)
+    diagnostics = {
+        "min_sensor_stamp_ns": min_sensor_stamp_ns,
+        "previous_received_monotonic_ns": previous_ns,
+        "frames_received": getattr(reader, "frames_received", None),
+        "frames_dropped": getattr(reader, "frames_dropped", None),
+        "latest_sensor_stamp_ns": latest_stamp_ns,
+        "latest_age_s": latest_age_s,
+        "reader_thread_alive": bool(reader_thread and reader_thread.is_alive()),
+        "reader_done": bool(reader_done and reader_done.is_set()),
+        "reader_error": f"{type(reader_error).__name__}: {reader_error}"
+        if reader_error is not None
+        else None,
+    }
+    raise TimeoutError(
+        f"sensor stream produced no frame within {timeout_s:.1f}s; "
+        f"diagnostics={json.dumps(diagnostics, sort_keys=True, default=str)}"
+    )
 
 
 def _arm(
@@ -5695,6 +5730,8 @@ def run_episode(
                                     elapsed_s=float(executed.elapsed_s)
                                     + float(smoke_wait.get("elapsed_s", 0.0)),
                                 )
+                            else:
+                                executor.note_loiter_captured()
                         if motion is not None and executed.status == "success":  # noqa: B023
                             motion_wait = _wait_motion_command(
                                 motion,  # noqa: B023
@@ -5906,13 +5943,11 @@ def run_episode(
                     and getattr(action, "kind", None) == "hold"
                     and result.status == "success"
                 ):
-                    from scripts.smoke_airframe_flight import _delta_fw_ring_metrics
-
                     with recorder._mavlink_lock:
                         if recorder._mavlink_file is not None:
                             recorder._mavlink_file.flush()
-                    ring_judgement = _delta_fw_ring_metrics(
-                        _jsonl(recorder.mavlink_path), _jsonl(recorder.steps_path)
+                    ring_judgement = _delta_fw_ring_metrics_from_files(
+                        recorder.mavlink_path, recorder.steps_path
                     )
                     _record_delta_smoke_event(
                         "fw_ring_judgement",
