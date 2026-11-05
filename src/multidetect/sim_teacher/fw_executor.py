@@ -452,6 +452,10 @@ class FixedWingVtolExecutor:
                         started, phase="orbit_state", result=state, reason="timeout"
                     )
                 return ExecutionResult("success", self._clock() - started, ack={"orbit": result})
+            if action.kind == "continue":
+                return ExecutionResult("success", self._clock() - started, ack={"continue": True})
+            if action.kind == "land":
+                return self.land()
             if action.kind == "stop":
                 return ExecutionResult("success", self._clock() - started)
             if action.kind == "turn":

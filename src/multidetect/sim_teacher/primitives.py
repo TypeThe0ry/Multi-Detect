@@ -17,7 +17,7 @@ class ActionPrimitive:
     seconds: float = 0.0
 
     def __post_init__(self) -> None:
-        if self.kind not in {"translate", "turn", "hold", "stop"}:
+        if self.kind not in {"translate", "turn", "hold", "continue", "land", "stop"}:
             raise ValueError(f"unsupported primitive kind: {self.kind}")
         vals = (self.forward_m, self.right_m, self.up_m, self.yaw_delta_deg, self.seconds)
         if any(
@@ -41,6 +41,16 @@ class ActionPrimitive:
     @classmethod
     def hold(cls, seconds: float) -> ActionPrimitive:
         return cls("hold", seconds=seconds)
+
+    @classmethod
+    def continue_running(cls) -> ActionPrimitive:
+        """Keep the current position while allowing the mission to advance."""
+        return cls("continue")
+
+    @classmethod
+    def land(cls) -> ActionPrimitive:
+        """Request one landing command without declaring the mission complete."""
+        return cls("land")
 
     @classmethod
     def stop(cls) -> ActionPrimitive:

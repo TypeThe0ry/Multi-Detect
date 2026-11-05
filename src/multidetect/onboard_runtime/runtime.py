@@ -135,6 +135,7 @@ class SetpointPump:
         self.vehicle, self.rate_hz, self.before_send = vehicle, rate_hz, before_send
         self.motion_adapter = motion_adapter
         self._target = initial
+        self._stream_enabled = True
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -147,6 +148,9 @@ class SetpointPump:
     def set_target(self, target: PositionSetpoint) -> None:
         with self._lock:
             self._target = target
+
+    def set_stream_enabled(self, enabled: bool) -> None:
+        self._stream_enabled = bool(enabled)
 
     @property
     def target(self) -> PositionSetpoint:
@@ -166,7 +170,9 @@ class SetpointPump:
                     and getattr(getattr(adapter, "profile", None), "category", None) == "vtol"
                     and getattr(adapter, "mode", "FW") == "MC"
                 )
-                if adapter is None or getattr(adapter, "is_multirotor", True) or vtol_mc:
+                if self._stream_enabled and (
+                    adapter is None or getattr(adapter, "is_multirotor", True) or vtol_mc
+                ):
                     self.vehicle.send_setpoint(self.target)
                 sent = time.monotonic()
                 with self._lock:
@@ -286,6 +292,8 @@ class OnboardRuntime:
         self.pump: SetpointPump | None = None
         self.policy_worker_stopped = True
         self.mission_complete = False
+        self._landing_commanded = False
+        self._landing_requested = False
 
     def _arbitrate_action(
         self,
@@ -573,12 +581,15 @@ class OnboardRuntime:
                 ):
                     self._latch("autonomy_timeout", now)
                 elif self._active and not self.failsafe_sent:
-                    if not state.armed:
+                    mission_landing_mode = self._landing_commanded and state.mode in {"LAND", "AUTO.LAND"}
+                    if mission_landing_mode and self.pump is not None:
+                        self.pump.set_stream_enabled(False)
+                    if not state.armed and not (mission_landing_mode and state.landed is True):
                         self._latch("unexpected_disarm", now)
                     elif self.motion_adapter is None or getattr(
                         self.motion_adapter, "is_multirotor", True
                     ):
-                        if state.mode != "OFFBOARD":
+                        if state.mode != "OFFBOARD" and not mission_landing_mode:
                             self._latch("offboard_exited", now)
                     elif state.mode not in FIXED_WING_GUIDED_MODES:
                         self._latch("fixed_wing_navigation_mode_lost", now)
@@ -746,6 +757,33 @@ class OnboardRuntime:
                 self._command_error = str(exc)
 
         self._command_thread = threading.Thread(target=send, name="onboard-handoff", daemon=True)
+        self._command_thread.start()
+
+    def _send_landing_once(self, state: VehicleState) -> None:
+        """Request mission landing and retry until vehicle.land returns."""
+        self._landing_requested = True
+        if self._landing_commanded:
+            return
+        if self._command_thread is not None and self._command_thread.is_alive():
+            self._event("handoff_command_blocked", action="land")
+            return
+        self._command_error = None
+        if self.pump is not None and self._last_good_state is not None:
+            self._set_target_checked(
+                hold_setpoint(self._last_good_state), "policy_hold", state=self._last_good_state
+            )
+        self._event("landing_command_attempt", source="mission")
+
+        def send() -> None:
+            try:
+                self.vehicle.land()
+                self._landing_commanded = True
+                self._event("landing_command", source="mission")
+            except Exception as exc:
+                self._command_error = str(exc)
+                self._event("handoff_command_error", action="land", error=str(exc))
+
+        self._command_thread = threading.Thread(target=send, name="onboard-mission-land", daemon=True)
         self._command_thread.start()
 
     def _dispatch_motion_command(self, command: MotionCommand, state: VehicleState) -> Any:
@@ -919,6 +957,8 @@ class OnboardRuntime:
             if fault:
                 self._latch(fault, now)
                 return
+            if self._landing_requested and not self._landing_commanded:
+                self._send_landing_once(state)
             if self._worker and self._worker.is_alive():
                 self.pending_ticks += 1
                 return
@@ -952,7 +992,15 @@ class OnboardRuntime:
                         self._latch(action.reason or "motion command rejected", now)
                         return
                     try:
-                        result = self._dispatch_motion_command(action, source_state)
+                        if action.kind == "mc_land":
+                            self._send_landing_once(source_state)
+                            result = {"status": "accepted", "mission_landing": True}
+                        elif action.kind == "fw_land" and not self._landing_commanded:
+                            result = self._dispatch_motion_command(action, source_state)
+                        elif action.kind == "fw_land":
+                            result = {"status": "accepted", "mission_landing": True}
+                        else:
+                            result = self._dispatch_motion_command(action, source_state)
                     except Exception as exc:
                         self._latch(f"motion_command_error: {exc}", now)
                         return
@@ -968,6 +1016,8 @@ class OnboardRuntime:
                             f"motion_command_rejected: {getattr(result, 'detail', result)}", now
                         )
                         return
+                    if isinstance(action, MotionCommand) and action.kind == "fw_land":
+                        self._landing_commanded = True
                     self.steps += 1
                     self._event(
                         "autonomy_motion_command", command=action.to_dict(), result=str(result)
@@ -994,7 +1044,10 @@ class OnboardRuntime:
                     self.mission_complete = True
                     self._command(self.config.completion_action)
                     return
-                if action.kind == "hold":
+                if action.kind == "land":
+                    self._send_landing_once(source_state)
+                    target = hold_setpoint(state)
+                elif action.kind in {"hold", "continue"}:
                     target = hold_setpoint(state)
                 else:
                     n, e, d, yaw = primitive_to_ned(action, source_state.attitude_deg[2])

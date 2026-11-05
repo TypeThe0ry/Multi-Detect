@@ -31,6 +31,10 @@ episode `episode.json` 的 provenance 标明采集源码 worktree 为 `/data/pro
 
 对本问题涉及的 `mission_executor.py`、`mission_summary.py`、`runtime.py`、`tests/test_mission_executor.py` 和 `tests/test_mission_summary.py` 做 `ff8812ec` 到集成 HEAD 的路径差异检查，没有发现差异；本次的停止/完成语义在两边相同。源 worktree 的 tracked diff 在 `scripts/onboard_policy.py`：增加并逐帧更新搜索相机位姿 `_search_camera_pose`，与 land 完成协议无关。源 worktree 另有未跟踪的 `mobileclip_blt.ts`；它不属于已提交路径比较，episode provenance 的 dirty 标志也意味着不能把该次运行完全等同于干净的 `ff8812ec` 快照。
 
-## 修改与验证
+## 修复与验证
 
-本次只新增本分析文档，没有代码改动或新增测试。检查使用已有 episode、报告和只读源码/提交差异；没有启动 SITL，也没有在 `artifacts/` 中写入内容。
+执行器与运行时现在把“发出一次落地命令”和“任务终止”分开：新增 `land` primitive 表示一次落地请求，新增 `continue` primitive 表示保持当前位置并继续采集。land 步骤首次进入时返回 `land`；运行时只发送一次 `vehicle.land()`，随后每帧保持 setpoint 并继续调用策略，直到遥测 `landed=True`。确认后执行器以 `landed` 成功，运行时才收到普通 `stop` 并执行既有 `completion_action`。`landed=False` 或遥测未知时，执行器按 `landing_timeout_steps` 等待；到限后分别记录 `landing_timeout` 或 `landing_timeout_no_telemetry` 失败，绝不把发令成功记作落地成功。其他 stop 路径（无 land 步骤、已完成任务、既有 completion_action）保持原语义。
+
+episode 外层仍由 `OnboardRuntime.run(duration_s)` 的 duration 结束；运行时默认单次策略 worker 上限为 `autonomy_timeout_s=15s`，单个动作上限为 `action_timeout_s=20s`。land 等待使用零时长的 `land`/`continue` tick，不占用动作等待上限；采集器必须给 duration 留出 `landing_timeout_steps + 1` 个观测周期，才能记录最终 landed 或超时结果。`scripts/onboard_main.py` 和 campaign loop 没有把 `mission_complete` 当作提前退出条件。
+
+回归测试覆盖：空中发令后收到 landed、空中持续到 `landing_timeout`、开始时已 landed；另验证未知 landed telemetry 的显式超时原因。未运行 SITL；已运行相关 pytest，onboard gate 待本次修改完成后运行。

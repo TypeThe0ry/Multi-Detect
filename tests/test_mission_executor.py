@@ -327,7 +327,7 @@ def test_goto_poi_and_unknown_ref_and_hover_duration():
         ("a", "succeeded", "arrived"),
         ("b", "failed", "unknown_ref"),
         ("c", "succeeded", "duration_elapsed"),
-        ("z", "succeeded", "landing_commanded_unconfirmed"),
+        ("z", "failed", "landing_timeout_no_telemetry"),
     ]
     assert math.hypot(sim.pose[0], sim.pose[1] - 40.0) <= 3.0
     assert holds == 12.0 and last.kind == "stop"
@@ -391,7 +391,7 @@ def test_runtime_no_fly_guard_rejects_dynamic_finding_leg():
     executor._successful_step_ids.append("s")
     sim = Sim()
     action, _ = _cycle(executor, sim)
-    assert action.kind == "stop"
+    assert action.kind == "land"
     assert executor.history[0]["reason"] == "no_fly_zone"
     assert "s:no_fly_zone" in executor.alerts
 
@@ -440,8 +440,8 @@ def test_return_home_lands_in_place_when_no_detour_fits_area():
         "east_min_m": -0.5, "east_max_m": 0.5,
     }
     action, _ = _cycle(executor, Sim(north=20.0, east=0.0))
-    assert action.kind == "stop"
-    assert executor.history[0]["reason"] == "landing_commanded_unconfirmed"
+    assert action.kind == "land"
+    assert not executor.history
     assert "s:no_fly_zone_land_fallback" in executor.alerts
 
 
@@ -1608,9 +1608,15 @@ def test_land_requires_host_confirmation_or_records_unknown_state():
     confirmed.next_action(pose_ned=pose, yaw_deg=0.0, landed=True)
     assert confirmed.history[-1]["reason"] == "landed"
 
-    unknown = MissionExecutor(_land_only_plan(), loop_factory=_factory())
-    unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed="unknown")
-    assert unknown.history[-1]["reason"] == "landing_commanded_unconfirmed"
+    unknown = MissionExecutor(
+        _land_only_plan(), loop_factory=_factory(), config=ExecutorConfig(landing_timeout_steps=2)
+    )
+    first, first_info = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None)
+    second, second_info = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None)
+    third, _ = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None)
+    assert first.kind == "land" and first_info["phase"] == "landing_commanded"
+    assert second.kind == "continue" and second_info["phase"] == "landing_pending"
+    assert third.kind == "stop" and unknown.history[-1]["reason"] == "landing_timeout_no_telemetry"
 
     airborne = MissionExecutor(
         _land_only_plan(),
@@ -1618,9 +1624,10 @@ def test_land_requires_host_confirmation_or_records_unknown_state():
         config=ExecutorConfig(landing_timeout_steps=2),
     )
     for _ in range(4):
-        airborne.next_action(pose_ned=pose, yaw_deg=0.0, landed=False)
+        action, _ = airborne.next_action(pose_ned=pose, yaw_deg=0.0, landed=False)
         if airborne.done:
             break
+    assert action.kind == "stop"
     assert airborne.history[-1]["reason"] == "landing_timeout"
 
 

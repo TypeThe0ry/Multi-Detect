@@ -309,6 +309,21 @@ class PymavlinkPrimitiveExecutor:
             if wall_timeout_hit:
                 ack["wall_timeout"] = True
             return ExecutionResult(status, held, ack=ack)
+        if action.kind == "continue":
+            return ExecutionResult("success", self._clock() - start_time, ack={"continue": True})
+        if action.kind == "land":
+            set_mode = getattr(self.vehicle, "set_mode", None)
+            if not callable(set_mode):
+                return ExecutionResult(
+                    "failed",
+                    self._clock() - start_time,
+                    ack={"error": "vehicle lacks set_mode for LAND"},
+                )
+            try:
+                set_mode("LAND")
+            except Exception as exc:
+                return ExecutionResult("failed", self._clock() - start_time, ack={"error": str(exc)})
+            return ExecutionResult("success", self._clock() - start_time, ack={"mode": "LAND"})
         if action.kind == "stop":
             self._send_setpoint(*start_pos, start_yaw)
             return ExecutionResult("success", self._clock() - start_time)
