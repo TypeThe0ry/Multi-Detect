@@ -733,6 +733,50 @@ def round_world_ids(index: Path) -> list[str]:
     return [str(item["world_id"]) for item in doc.get("worlds", []) if item.get("world_id")]
 
 
+def selected_episode_metadata(
+    keys_file: Path | None, key_roots: list[Path], data_root: Path
+) -> list[Path]:
+    """Resolve audited logical keys through each root's final round-state path."""
+    if keys_file is None:
+        if key_roots:
+            raise ValueError("--episode-key-root requires --episode-keys-file")
+        return []
+    if not key_roots:
+        raise ValueError("--episode-keys-file requires at least one --episode-key-root")
+    keys = [line.strip() for line in keys_file.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    if len(keys) != len(set(keys)):
+        raise ValueError("episode key list contains duplicates")
+    found: dict[str, Path] = {}
+    for root_arg in key_roots:
+        root = root_arg if root_arg.is_absolute() else data_root / root_arg
+        state_path = root / "pipeline" / "round-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        for key in keys:
+            record = state.get("episodes", {}).get(key)
+            if record is None:
+                continue
+            if record.get("status") != "complete" or not record.get("path"):
+                raise ValueError(f"episode key {key} is not complete in {state_path}")
+            metadata = Path(record["path"])
+            if not metadata.is_absolute():
+                metadata = root / metadata
+            metadata = metadata.resolve(strict=True)
+            episode = json.loads(metadata.read_text(encoding="utf-8"))
+            world = next((part for part in metadata.parts if part.startswith("gen_")), None)
+            ep_parent = next((part for part in metadata.parts if part.startswith("ep-")), None)
+            if episode.get("status") not in (None, "complete") or f"{world}:{ep_parent[3:]}" != key:
+                raise ValueError(f"episode key/path/status mismatch for {key}: {metadata}")
+            if key in found:
+                raise ValueError(f"episode key {key} appears in multiple key roots")
+            found[key] = metadata.parent
+    missing = sorted(set(keys) - found.keys())
+    if missing:
+        raise ValueError(f"episode keys absent from complete round-state paths: {missing}")
+    print(f"[episode-keys] selected {len(found)} audited logical episodes")
+    return [found[key] for key in keys]
+
+
 def filter_collection_options(options: dict, categories: set[str] | None = None) -> dict:
     """Select scenario options by resolved airframe category."""
     selected = set(categories or ())
@@ -1331,6 +1375,13 @@ class Round:
             for world in world_ids:
                 if (root / world).is_dir():
                     cmd += ["--campaign", str(root / world)]
+        selected = selected_episode_metadata(
+            getattr(self.a, "episode_keys_file", None),
+            getattr(self.a, "episode_key_root", []),
+            getattr(self.a, "data_root", ROOT),
+        )
+        for episode_dir in selected:
+            cmd += ["--campaign", str(episode_dir)]
         if "--campaign" not in cmd and not self.a.dry_run:
             raise RuntimeError(
                 f"annotate 找不到本轮 index 中任何 world 的采集目录：{[str(r) for r in roots]}"
@@ -1391,6 +1442,13 @@ class Round:
                     "不能重建 SFT；请恢复原 r15-additions 或重新采集"
                 )
             extra = [arg for root in self.a.extra_episodes for arg in ("--campaign", str(root))]
+            selected = selected_episode_metadata(
+                getattr(self.a, "episode_keys_file", None),
+                getattr(self.a, "episode_key_root", []),
+                getattr(self.a, "data_root", ROOT),
+            )
+            for episode_dir in selected:
+                extra.extend(("--campaign", str(episode_dir)))
             cmd = [
                 sys.executable,
                 "scripts/build_slow_system_sft.py",
@@ -2025,6 +2083,10 @@ def main():
         default=[],
         help="more campaign roots (e.g. confuser flights) to annotate and build from",
     )
+    p.add_argument("--episode-keys-file", type=Path, default=None,
+                   help="audited logical episode keys, one per line")
+    p.add_argument("--episode-key-root", type=Path, action="append", default=[],
+                   help="round root whose pipeline/round-state.json resolves selected keys")
     p.add_argument(
         "--teacher-target",
         choices=("true", "confuser"),
