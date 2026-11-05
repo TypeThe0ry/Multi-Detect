@@ -393,6 +393,7 @@ class OnboardPolicy(RuntimeAdmissionMixin):
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
+        self._search_camera_pose: Mapping[str, object] | None = None
         if frame_format not in {"png", "jpeg"}:
             raise ValueError("frame_format must be png or jpeg")
         self.frame_format = frame_format
@@ -1019,6 +1020,9 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                 )
 
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        # Replace on every frame, including missing feedback: a gimbal search
+        # must never count coverage using the previous frame's camera pose.
+        self._search_camera_pose = observation.get("camera_pose")
         self._sync_vehicle_mode(observation)
         if getattr(self, "motion_adapter", None) is not None:
             self._set_active_camera_mode(self.motion_adapter.mode)
