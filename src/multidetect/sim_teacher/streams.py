@@ -1039,6 +1039,7 @@ def build_observation(
             "pitch_rad": gimbal_state.pitch_rad,
             "yaw_rad": gimbal_state.yaw_rad,
             "roll_rad": gimbal_state.roll_rad,
+            "rotation": list(gimbal_state.rotation) if gimbal_state.rotation is not None else None,
             "timestamp_us": gimbal_state.timestamp_us,
             "yaw_frame": gimbal_state.yaw_frame,
             "age_s": gimbal_age_s,
