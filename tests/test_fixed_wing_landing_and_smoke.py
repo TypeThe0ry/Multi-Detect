@@ -1,9 +1,13 @@
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from multidetect.autonomy.airframe_profile import AirframeProfile
 from scripts import collect_sim_teacher_episodes as collector
+from scripts import smoke_airframe_flight as smoke
 from scripts.smoke_airframe_flight import evaluate_episode
 
 
@@ -182,6 +186,32 @@ def test_smoke_takeoff_uses_measured_altitude_not_commanded_altitude(tmp_path: P
     assert evaluate_episode(tmp_path, profile, 5.0)["takeoff_success"] is False
 
 
+def test_smoke_requires_an_episode_artifact_even_when_collector_exits_zero(tmp_path, monkeypatch, capsys):
+    class _Child:
+        returncode = 0
+
+        def communicate(self):
+            return "", ""
+
+    monkeypatch.setattr(smoke.subprocess, "Popen", lambda *args, **kwargs: _Child())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke_airframe_flight.py",
+            "--airframe",
+            "delta_tailsitter_mono_cam",
+            "--out",
+            str(tmp_path),
+        ],
+    )
+
+    assert smoke.main() == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "fail"
+    assert result["judgement"]["failure_reason"] == "collector produced no episode.json artifact"
+
+
 def test_vtol_transition_requires_fw_then_later_mc(tmp_path: Path):
     profile = AirframeProfile.from_json(Path("configs/airframes/delta_tailsitter.json"))
 
@@ -255,6 +285,210 @@ def test_fixed_wing_profiles_disable_terrain_abort_without_rangefinder():
         assert params == {"FW_LND_ABORT": "0", "FW_LND_USETER": "0"}
     assert collector._profile_landing_parameters("x500_mono_cam") == ()
     assert collector._profile_landing_parameters("quadtailsitter") == ()
+
+
+def test_delta_smoke_policy_has_long_orbit_and_keeps_generic_route_unchanged():
+    strict = collector._SmokeFlightPolicy(strict_delta_smoke=True)
+    strict_actions = [strict.next_action() for _ in range(3)]
+    assert [action.kind for action in strict_actions] == ["translate", "hold", "stop"]
+    assert strict_actions[1].seconds == collector.DELTA_SMOKE_FW_MIN_DURATION_S == 120.0
+
+    generic = collector._SmokeFlightPolicy()
+    generic_actions = [generic.next_action() for _ in range(7)]
+    assert [action.kind for action in generic_actions] == [
+        "translate",
+        "hold",
+        "translate",
+        "turn",
+        "translate",
+        "hold",
+        "stop",
+    ]
+
+
+def test_delta_smoke_reposition_waits_for_measured_arrival_in_sim_time(monkeypatch):
+    class State:
+        def __init__(self):
+            self.messages = {
+                "LOCAL_POSITION_NED": {"x": 0.0, "y": 0.0, "z": -5.0, "time_boot_ms": 0},
+                "EXTENDED_SYS_STATE": {"vtol_state": 4},
+            }
+
+        def get(self, name):
+            return self.messages.get(name)
+
+    class Reader:
+        def __init__(self):
+            self.state = State()
+
+        def raise_if_failed(self):
+            return None
+
+    reader = Reader()
+
+    def advance_sim(_seconds):
+        position = reader.state.messages["LOCAL_POSITION_NED"]
+        position["time_boot_ms"] += 1000
+        position["x"] = min(35.0, position["x"] + 7.0)
+
+    monkeypatch.setattr(collector.time, "sleep", advance_sim)
+    result = collector._wait_smoke_reposition(
+        (35.0, 0.0, -5.0), reader, category="vtol", timeout_s=5.0
+    )
+
+    assert result["waited"] == "arrived"
+    assert result["distance_m"] <= collector.MOTION_ARRIVAL_TOLERANCE_M
+    assert result["sim_elapsed_s"] == 4.0
+    assert result["sim_clock_available"] is True
+
+
+def test_delta_smoke_reposition_fails_closed_without_sim_clock():
+    class State:
+        def get(self, name):
+            if name == "LOCAL_POSITION_NED":
+                return {"x": 0.0, "y": 0.0, "z": -5.0}
+            return {"vtol_state": 4} if name == "EXTENDED_SYS_STATE" else None
+
+    reader = SimpleNamespace(state=State(), raise_if_failed=lambda: None)
+    result = collector._wait_smoke_reposition(
+        (35.0, 0.0, -5.0), reader, category="vtol", timeout_s=5.0
+    )
+
+    assert result["waited"] == "timeout"
+    assert result["sim_clock_available"] is False
+
+
+def _write_delta_fw_judgement_fixture(episode_dir: Path, saturated_indices=()):
+    import numpy as np
+
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    (episode_dir / "depth").mkdir()
+    (episode_dir / "episode.json").write_text(
+        json.dumps({"status": "complete", "takeoff_altitude_m": 5.0}), encoding="utf-8"
+    )
+    rows = [
+        {"message_type": "fixed_wing_takeoff_complete", "sim_time_s": 1.0},
+        {"message_type": "EXTENDED_SYS_STATE", "time_boot_ms": 8000, "vtol_state": 3},
+        {"message_type": "SERVO_OUTPUT_RAW", "time_boot_ms": 8000, **{f"servo{i}_raw": 5 for i in range(1, 5)}},
+        {
+            "message_type": "delta_smoke_fw_sustain_start",
+            "sim_time_s": 10.0,
+            "commanded_altitude_m": 5.0,
+        },
+    ]
+    q = _axis_quaternion((0, 1, 0), -90)
+    for index in range(31):
+        time_ms = (10 + index * 4) * 1000
+        rows.extend(
+            [
+                {"message_type": "EXTENDED_SYS_STATE", "time_boot_ms": time_ms, "vtol_state": 4},
+                {"message_type": "VFR_HUD", "time_boot_ms": time_ms, "airspeed": 15.0},
+                {
+                    "message_type": "ATTITUDE_QUATERNION",
+                    "time_boot_ms": time_ms,
+                    **{f"q{number}": value for number, value in enumerate(q, start=1)},
+                },
+                {
+                    "message_type": "LOCAL_POSITION_NED",
+                    "time_boot_ms": time_ms,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": -5.0,
+                },
+                {
+                    "message_type": "SERVO_OUTPUT_RAW",
+                    "time_boot_ms": time_ms,
+                    **{
+                        f"servo{motor}_raw": 5
+                        if index in saturated_indices and motor == 1
+                        else 500
+                        for motor in range(1, 5)
+                    },
+                },
+            ]
+        )
+    rows.extend(
+        [
+            {"message_type": "delta_smoke_fw_sustain_end", "sim_time_s": 132.0,
+             "status": "complete", "continuous_fw": True, "fw_duration_s": 120.0,
+             "orbit_signed_degrees": 400.0},
+            {"message_type": "EXTENDED_SYS_STATE", "time_boot_ms": 133000, "vtol_state": 3},
+            {"message_type": "SERVO_OUTPUT_RAW", "time_boot_ms": 133000, **{f"servo{i}_raw": 1100 for i in range(1, 5)}},
+            {"message_type": "delta_smoke_post_transition_end", "sim_time_s": 140.0,
+             "status": "complete", "climb_m": 5.0},
+        ]
+    )
+    (episode_dir / "mavlink.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
+    )
+    steps = []
+    pre_takeoff_name = "000000_500000000.npy"
+    np.save(
+        episode_dir / "depth" / pre_takeoff_name,
+        np.full((10, 10), 0.5, dtype=np.float32),
+    )
+    for index in range(1, 6):
+        stamp_ns = index * 1_000_000_000 + 1_000_000_000
+        name = f"{index:06d}_{stamp_ns}.npy"
+        depth = np.full((10, 10), 2.0, dtype=np.float32)
+        np.save(episode_dir / "depth" / name, depth)
+        steps.append(
+            {
+                "action": {"kind": "translate"},
+                "ack": {
+                    "smoke_reposition_wait": {
+                        "waited": "arrived",
+                        "distance_m": 7.0,
+                    }
+                },
+                "obs_after": {
+                    "depth_path": f"depth/{name}",
+                    "frame_sensor_stamp_ns": stamp_ns,
+                },
+            }
+        )
+    (episode_dir / "steps.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in steps), encoding="utf-8"
+    )
+
+
+def _axis_quaternion(axis, angle_deg):
+    import math
+
+    angle = math.radians(angle_deg) / 2
+    scale = math.sin(angle)
+    return (math.cos(angle), *(component * scale for component in axis))
+
+
+def test_delta_smoke_metrics_use_only_continuous_fw_and_post_takeoff_depth(tmp_path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/delta_tailsitter.json"))
+    _write_delta_fw_judgement_fixture(tmp_path)
+
+    result = evaluate_episode(tmp_path, profile, 5.0, 8.0)
+
+    assert result["fw_sustain_success"] is True
+    assert result["fw_metrics_pass"] is True
+    assert result["fw_airspeed_p5_mps"] == pytest.approx(15.0)
+    assert result["fw_airspeed_p95_mps"] == pytest.approx(15.0)
+    assert result["fw_bank_abs_p95_deg"] == pytest.approx(0.0, abs=1e-8)
+    assert result["fw_pitch_p5_deg"] == pytest.approx(0.0, abs=1e-8)
+    assert result["fw_height_error_p95_m"] == pytest.approx(0.0)
+    assert result["fw_motor_saturation_fraction"] == 0.0
+    assert result["fw_reposition_success"] is True
+    assert result["post_transition_climb_success"] is True
+    assert result["self_occlusion_frame_count"] == 5
+    assert result["self_occlusion_fraction"] == pytest.approx(0.0)
+    assert result["self_occlusion_success"] is True
+
+
+def test_delta_smoke_fails_when_fw_motor_saturation_exceeds_fifteen_percent(tmp_path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/delta_tailsitter.json"))
+    _write_delta_fw_judgement_fixture(tmp_path, saturated_indices=range(5))
+
+    result = evaluate_episode(tmp_path, profile, 5.0, 8.0)
+
+    assert result["fw_motor_saturation_fraction"] == pytest.approx(5 / 31)
+    assert result["fw_metrics_pass"] is False
 
 
 def test_command_ack_wait_survives_a_later_ack_for_another_command(monkeypatch):

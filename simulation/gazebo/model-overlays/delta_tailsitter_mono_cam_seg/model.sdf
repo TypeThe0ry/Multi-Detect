@@ -19,7 +19,7 @@
       </inertial>
       <sensor name="camera" type="camera">
         <gz_frame_id>camera_link</gz_frame_id>
-        <pose>0 0 0 0 0 3.141592653589793</pose>
+        <pose>0.09 0 0 0 0 0</pose>
         <always_on>1</always_on>
         <update_rate>30</update_rate>
         <visualize>True</visualize>
@@ -58,7 +58,7 @@
       </inertial>
       <sensor name="depth_camera" type="depth_camera">
         <gz_frame_id>depth_camera_link</gz_frame_id>
-        <pose>0 0 0 0 0 0</pose>
+        <pose>0.09 0 0 0 0 0</pose>
         <always_on>1</always_on>
         <update_rate>30</update_rate>
         <visualize>True</visualize>

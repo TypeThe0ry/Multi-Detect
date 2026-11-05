@@ -90,7 +90,7 @@
         </inertia>
       </inertial>
       <visual name="camera_body">
-        <pose>-0.04 0 -0.08 0 0 0</pose>
+        <pose>0.11 0 -0.08 0 0 0</pose>
         <geometry>
           <box>
             <size>0.08 0.06 0.05</size>
@@ -103,7 +103,7 @@
       </visual>
       <sensor name="camera" type="camera">
         <gz_frame_id>camera_link</gz_frame_id>
-        <pose>-0.0412 0 -0.08 0 0 3.141592653589793</pose>
+        <pose>0.16 0 -0.08 0 0 0</pose>
         <always_on>1</always_on>
         <update_rate>30</update_rate>
         <visualize>True</visualize>
@@ -143,7 +143,7 @@
       <pose relative_to="camera_link">0 0 0 0 0 0</pose>
       <sensor name="depth_camera" type="depth_camera">
         <gz_frame_id>depth_camera_link</gz_frame_id>
-        <pose>0 0 0 0 0 0</pose>
+        <pose>0.16 0 -0.08 0 0 0</pose>
         <always_on>1</always_on>
         <update_rate>30</update_rate>
         <visualize>True</visualize>

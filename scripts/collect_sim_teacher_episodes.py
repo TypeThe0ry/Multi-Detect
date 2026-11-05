@@ -187,6 +187,13 @@ MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
 MOTION_ARRIVAL_TOLERANCE_M = 8.0
+DELTA_TAILSITTER_SMOKE_PROFILES = frozenset(
+    {"delta_tailsitter", "delta_tailsitter_gimbal"}
+)
+DELTA_SMOKE_FW_MIN_DURATION_S = 120.0
+DELTA_SMOKE_FW_MAX_DURATION_S = 240.0
+DELTA_SMOKE_FW_MIN_ORBIT_DEG = 360.0
+DELTA_SMOKE_REPOSITION_TIMEOUT_S = 120.0
 MOTION_ALONG_TRACK_DONE_M = 5.0
 # A fixed-wing reposition may complete by flying past its waypoint, but a
 # projection crossing alone is insufficient: the aircraft can cross the target
@@ -1864,6 +1871,67 @@ def _wait_motion_command(
     return {"waited": "none", "elapsed_s": 0.0}
 
 
+def _wait_smoke_reposition(
+    target_ned: tuple[float, float, float],
+    reader: MavlinkReader,
+    *,
+    category: str,
+    timeout_s: float = DELTA_SMOKE_REPOSITION_TIMEOUT_S,
+) -> dict[str, Any]:
+    """Require a smoke-flight relocation to enter the configured arrival sphere."""
+    started_wall = time.monotonic()
+    started_sim_ns = _pose_sim_stamp_ns(reader.state)
+    if started_sim_ns is None:
+        return {
+            "waited": "timeout",
+            "distance_m": None,
+            "tolerance_m": MOTION_ARRIVAL_TOLERANCE_M,
+            "sim_elapsed_s": None,
+            "sim_clock_available": False,
+            "elapsed_s": 0.0,
+            "target_ned_m": list(target_ned),
+        }
+    wall_ceiling = max(180.0, float(timeout_s) * 10.0)
+    distance = float("inf")
+    sim_elapsed_s = 0.0
+    while time.monotonic() - started_wall < wall_ceiling:
+        reader.raise_if_failed()
+        current_sim_ns = _pose_sim_stamp_ns(reader.state)
+        if current_sim_ns is not None:
+            sim_elapsed_s = max(0.0, (current_sim_ns - started_sim_ns) / 1e9)
+        position = _state_position(reader.state)
+        distance = math.sqrt(
+            sum((float(target) - float(actual)) ** 2 for target, actual in zip(target_ned, position, strict=False))
+        )
+        state = _flight_state_snapshot(reader.state)["vtol_state"]
+        fw_active = category == "fixed_wing" or state == 4
+        if fw_active and distance <= MOTION_ARRIVAL_TOLERANCE_M:
+            return {
+                "waited": "arrived",
+                "distance_m": distance,
+                "tolerance_m": MOTION_ARRIVAL_TOLERANCE_M,
+                "sim_elapsed_s": sim_elapsed_s if current_sim_ns is not None else None,
+                "sim_clock_available": current_sim_ns is not None,
+                "elapsed_s": time.monotonic() - started_wall,
+                "target_ned_m": list(target_ned),
+            }
+        if (
+            current_sim_ns is not None
+            and sim_elapsed_s >= timeout_s
+        ):
+            break
+        time.sleep(0.1)
+    return {
+        "waited": "timeout",
+        "distance_m": distance,
+        "tolerance_m": MOTION_ARRIVAL_TOLERANCE_M,
+        "sim_elapsed_s": sim_elapsed_s,
+        "sim_clock_available": True,
+        "elapsed_s": time.monotonic() - started_wall,
+        "target_ned_m": list(target_ned),
+    }
+
+
 def _fixed_wing_reposition_complete(
     *,
     dn: float,
@@ -2039,9 +2107,15 @@ def _hover_policy(plan: CollectionPlan, truth_path: Path):
 class _SmokeFlightPolicy:
     """Deterministic fixed-wing route used by the real-airframe smoke script."""
 
-    def __init__(self) -> None:
-        self._actions = iter(
+    def __init__(self, *, strict_delta_smoke: bool = False) -> None:
+        actions = (
             (
+                ActionPrimitive.translate(35.0, 0.0),
+                ActionPrimitive.hold(DELTA_SMOKE_FW_MIN_DURATION_S),
+                ActionPrimitive.stop(),
+            )
+            if strict_delta_smoke
+            else (
                 ActionPrimitive.translate(35.0, 0.0),
                 ActionPrimitive.hold(8.0),
                 ActionPrimitive.translate(0.0, 35.0),
@@ -2051,6 +2125,7 @@ class _SmokeFlightPolicy:
                 ActionPrimitive.stop(),
             )
         )
+        self._actions = iter(actions)
 
     def next_action(self):
         try:
@@ -4254,9 +4329,19 @@ def run_episode(
         recorder.mark_finished(status="aborted_low_disk", failure=initial_reason)
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=initial_reason)
         return recorder.episode_dir
+    strict_delta_smoke = False
     if plan.smoke_flight:
-        policy = _SmokeFlightPolicy()
-        task_text = "固定翼/VTOL 冒烟飞行：起飞、转换、盘旋、三次重定位、返航、降落"
+        smoke_profile = _airframe_profile(plan.airframe)
+        strict_delta_smoke = bool(
+            smoke_profile is not None
+            and smoke_profile.id in DELTA_TAILSITTER_SMOKE_PROFILES
+        )
+        policy = _SmokeFlightPolicy(strict_delta_smoke=strict_delta_smoke)
+        task_text = (
+            "delta tailsitter 冒烟飞行：起飞、转换、120 秒盘旋、到点重定位、返航、降落"
+            if strict_delta_smoke
+            else "固定翼/VTOL 冒烟飞行：起飞、转换、盘旋、重定位、返航、降落"
+        )
     elif plan.teacher == "onboard":
         # Only the curated task text is read from the generated index; truth is
         # used after the episode by the scorer, never by the policy.
@@ -4302,6 +4387,7 @@ def run_episode(
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
+    recorder.meta["delta_tailsitter_smoke_gates"] = strict_delta_smoke
     recorder.meta["frame_age_limit_s"] = _frame_age_limit_s(plan.airframe)
     world_path = scenario_world_path(plan.runtime)
     recorder.meta["world_sdf"] = str(world_path) if world_path else None
@@ -4695,6 +4781,21 @@ def run_episode(
                     }
                 launch_applied: dict[str, Any] | None = None
 
+                def _record_delta_smoke_event(event: str, **fields: Any) -> None:
+                    stamp_ns = _pose_sim_stamp_ns(_snapshot_mavlink_state(mav_reader.state))
+                    recorder.record_mavlink(
+                        {
+                            "message_type": f"delta_smoke_{event}",
+                            "sim_time_s": stamp_ns / 1e9 if stamp_ns is not None else None,
+                            "vehicle_time_boot_ms": stamp_ns // 1_000_000
+                            if stamp_ns is not None
+                            else None,
+                            "receive_monotonic_ns": time.monotonic_ns(),
+                            "flight_state": _flight_state_snapshot(mav_reader.state),
+                            **fields,
+                        }
+                    )
+
                 def _wait_fw_state(phase: str, timeout_s: float) -> bool:
                     nonlocal launch_applied
                     if phase == "land":
@@ -4729,6 +4830,123 @@ def run_episode(
                     state_clock = executor._clock
                     started_wall = time.monotonic()
                     started_sim = state_clock()
+                    if phase == "orbit" and strict_delta_smoke:
+                        timeout_s = DELTA_SMOKE_FW_MAX_DURATION_S
+                        started_wall = time.monotonic()
+                        started_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                        commanded_altitude_m = -float(executor._commanded[2])
+                        orbit_center = tuple(float(value) for value in executor._commanded[:2])
+                        _record_delta_smoke_event(
+                            "fw_sustain_start",
+                            commanded_altitude_m=commanded_altitude_m,
+                            orbit_center_ned_m=list(orbit_center),
+                            minimum_duration_s=DELTA_SMOKE_FW_MIN_DURATION_S,
+                            minimum_orbit_degrees=DELTA_SMOKE_FW_MIN_ORBIT_DEG,
+                        )
+                        if started_sim_ns is None:
+                            _record_delta_smoke_event(
+                                "fw_sustain_end",
+                                status="missing_sim_clock",
+                                fw_duration_s=0.0,
+                                elapsed_s=0.0,
+                                orbit_signed_degrees=0.0,
+                                commanded_altitude_m=commanded_altitude_m,
+                                continuous_fw=False,
+                            )
+                            return False
+                        wall_ceiling = max(300.0, timeout_s * 10.0)
+                        fw_duration_s = 0.0
+                        orbit_degrees = 0.0
+                        previous_sim_ns = started_sim_ns
+                        previous_fw = False
+                        fw_seen = False
+                        continuous_fw = True
+                        previous_bearing: float | None = None
+                        latest_state: dict[str, Any] = {}
+                        distance_from_center_m = 0.0
+                        while time.monotonic() - started_wall < wall_ceiling:
+                            mav_reader.raise_if_failed()
+                            now_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                            if now_sim_ns is None:
+                                time.sleep(0.1)
+                                continue
+                            elapsed_s = max(0.0, (now_sim_ns - started_sim_ns) / 1e9)
+                            latest_state = _flight_state_snapshot(mav_reader.state)
+                            in_fw = (
+                                latest_state["vtol_state"] == 4
+                                if profile.category == "vtol"
+                                else True
+                            )
+                            if in_fw:
+                                fw_seen = True
+                            elif fw_seen:
+                                continuous_fw = False
+                                break
+                            delta_sim_s = max(0.0, (now_sim_ns - previous_sim_ns) / 1e9)
+                            if in_fw and previous_fw:
+                                if delta_sim_s <= 1.0:
+                                    fw_duration_s += delta_sim_s
+                                else:
+                                    continuous_fw = False
+                                    break
+                            previous_fw = in_fw
+                            position_now = _state_position(mav_reader.state)
+                            dn = position_now[0] - orbit_center[0]
+                            de = position_now[1] - orbit_center[1]
+                            distance_from_center_m = math.hypot(dn, de)
+                            if in_fw and distance_from_center_m >= 10.0:
+                                bearing = math.atan2(de, dn)
+                                if previous_bearing is not None:
+                                    delta = (bearing - previous_bearing + math.pi) % (2.0 * math.pi) - math.pi
+                                    orbit_degrees += math.degrees(delta)
+                                previous_bearing = bearing
+                            else:
+                                previous_bearing = None
+                            if (
+                                continuous_fw
+                                and fw_seen
+                                and in_fw
+                                and fw_duration_s >= DELTA_SMOKE_FW_MIN_DURATION_S
+                                and abs(orbit_degrees) >= DELTA_SMOKE_FW_MIN_ORBIT_DEG
+                            ):
+                                _record_delta_smoke_event(
+                                    "fw_sustain_end",
+                                    status="complete",
+                                    fw_duration_s=fw_duration_s,
+                                    elapsed_s=elapsed_s,
+                                    orbit_signed_degrees=orbit_degrees,
+                                    orbit_distance_from_center_m=distance_from_center_m,
+                                    commanded_altitude_m=commanded_altitude_m,
+                                    continuous_fw=continuous_fw,
+                                )
+                                return True
+                            if elapsed_s >= timeout_s:
+                                break
+                            previous_sim_ns = now_sim_ns
+                            time.sleep(0.1)
+                        final_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                        _record_delta_smoke_event(
+                            "fw_sustain_end",
+                            status="timeout" if continuous_fw else "interrupted",
+                            fw_duration_s=fw_duration_s,
+                            elapsed_s=(final_sim_ns - started_sim_ns) / 1e9
+                            if final_sim_ns is not None
+                            else None,
+                            orbit_signed_degrees=orbit_degrees,
+                            orbit_distance_from_center_m=distance_from_center_m,
+                            commanded_altitude_m=commanded_altitude_m,
+                            continuous_fw=continuous_fw,
+                        )
+                        return False
+                    transition_altitude_m = None
+                    transition_max_altitude_m = None
+                    if phase == "transition_mc" and strict_delta_smoke:
+                        transition_altitude_m = -float(_state_position(mav_reader.state)[2])
+                        transition_max_altitude_m = transition_altitude_m
+                        _record_delta_smoke_event(
+                            "post_transition_start",
+                            commanded_altitude_m=transition_altitude_m,
+                        )
                     # Allow very slow lockstep (the delta tailsitter measured
                     # about 0.12x realtime) while retaining a finite fallback.
                     wall_ceiling = max(180.0, float(timeout_s) * 10.0)
@@ -4736,6 +4954,10 @@ def run_episode(
                         mav_reader.raise_if_failed()
                         state = _flight_state_snapshot(mav_reader.state)
                         z = _state_position(mav_reader.state)[2]
+                        if transition_altitude_m is not None:
+                            transition_max_altitude_m = max(
+                                float(transition_max_altitude_m), -float(z)
+                            )
                         if phase == "takeoff":
                             detected = _launch_detected(launch_status_texts)
                             climbed = z <= -(altitude_m - 1.0)
@@ -4760,6 +4982,22 @@ def run_episode(
                         if phase == "transition_fw" and state["vtol_state"] in {4, 5}:
                             return True
                         if phase == "transition_mc" and state["vtol_state"] in {3, 6}:
+                            if transition_altitude_m is not None:
+                                climb_m = max(
+                                    0.0,
+                                    float(transition_max_altitude_m) - transition_altitude_m,
+                                )
+                                recorder.meta["delta_tailsitter_post_transition_climb_m"] = climb_m
+                                recorder.episode_path.write_text(
+                                    json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                                )
+                                _record_delta_smoke_event(
+                                    "post_transition_end",
+                                    status="complete",
+                                    commanded_altitude_m=transition_altitude_m,
+                                    maximum_altitude_m=transition_max_altitude_m,
+                                    climb_m=climb_m,
+                                )
                             return True
                         if phase == "orbit":
                             speed = state["airspeed_mps"]
@@ -4769,15 +5007,34 @@ def run_episode(
                             ):
                                 return True
                         time.sleep(0.1)
+                    if transition_altitude_m is not None:
+                        climb_m = max(
+                            0.0,
+                            float(transition_max_altitude_m) - transition_altitude_m,
+                        )
+                        recorder.meta["delta_tailsitter_post_transition_climb_m"] = climb_m
+                        recorder.episode_path.write_text(
+                            json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                        )
+                        _record_delta_smoke_event(
+                            "post_transition_end",
+                            status="timeout",
+                            commanded_altitude_m=transition_altitude_m,
+                            maximum_altitude_m=transition_max_altitude_m,
+                            climb_m=climb_m,
+                        )
                     return False
 
                 executor._wait_for_state = _wait_fw_state
                 arm_ack = executor.arm_and_takeoff(altitude_m)
                 if arm_ack.status != "success":
                     raise RuntimeError(f"fixed-wing takeoff failed: {arm_ack.ack}")
+                takeoff_stamp_ns = _pose_sim_stamp_ns(mav_reader.state)
                 recorder.record_mavlink(
                     {
                         "message_type": "fixed_wing_takeoff_complete",
+                        "sim_time_s": takeoff_stamp_ns / 1e9 if takeoff_stamp_ns is not None else None,
+                        "receive_monotonic_ns": time.monotonic_ns(),
                         "method": takeoff_method,
                         "ack": _plain_record(arm_ack.ack),
                         "flight_state": _flight_state_snapshot(mav_reader.state),
@@ -4964,6 +5221,24 @@ def run_episode(
                 def _execute() -> None:
                     try:
                         executed = executor.execute(action)  # noqa: B023
+                        if (
+                            strict_delta_smoke
+                            and getattr(action, "kind", None) == "translate"
+                            and executed.status == "success"
+                        ):
+                            smoke_wait = _wait_smoke_reposition(
+                                tuple(float(value) for value in executor._commanded),
+                                mav_reader,
+                                category=profile.category,
+                            )
+                            executed.ack["smoke_reposition_wait"] = smoke_wait
+                            if smoke_wait["waited"] != "arrived":
+                                executed = dataclasses.replace(
+                                    executed,
+                                    status="timeout",
+                                    elapsed_s=float(executed.elapsed_s)
+                                    + float(smoke_wait.get("elapsed_s", 0.0)),
+                                )
                         if motion is not None and executed.status == "success":  # noqa: B023
                             motion_wait = _wait_motion_command(
                                 motion,  # noqa: B023

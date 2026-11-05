@@ -183,9 +183,10 @@ def _gimbal(model, meshes: Path):
         CAMERA_INERTIA,
         position=(0, 0, 0),
     )
-    _visual(camera, "camera_body", (-0.04, 0, -0.08), "box", {"size": "0.08 0.06 0.05"}, "0.08 0.08 0.08 1")
+    _visual(camera, "camera_body", (0.11, 0, -0.08), "box", {"size": "0.08 0.06 0.05"}, "0.08 0.08 0.08 1")
     _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 1 0", pose="-0.04 0 -0.08 0 0 0", lower=-2.35619, upper=0.7854)
-    camera_pose = "-0.0412 0 -0.08 0 0 3.141592653589793"
+    # The optical centre clears both the C11 shell and the camera-body visual.
+    camera_pose = "0.16 0 -0.08 0 0 0"
     sensor = _element(camera, "sensor", name="camera", type="camera")
     _element(sensor, "gz_frame_id", "camera_link")
     _element(sensor, "pose", camera_pose)
@@ -207,7 +208,7 @@ def _gimbal(model, meshes: Path):
     _element(depth, "pose", "0 0 0 0 0 0", relative_to="camera_link")
     sensor = _element(depth, "sensor", name="depth_camera", type="depth_camera")
     _element(sensor, "gz_frame_id", "depth_camera_link")
-    _element(sensor, "pose", "0 0 0 0 0 0")
+    _element(sensor, "pose", "0.16 0 -0.08 0 0 0")
     _element(sensor, "always_on", 1)
     _element(sensor, "update_rate", 30)
     _element(sensor, "visualize", True)
@@ -323,7 +324,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     _inertial(camera, GIMBAL_MASS - DEPTH_CAMERA_MASS, (2.102e-5, 2.102e-5, 2.102e-5))
     sensor = _element(camera, "sensor", name="camera", type="camera")
     _element(sensor, "gz_frame_id", "camera_link")
-    _element(sensor, "pose", "0 0 0 0 0 3.141592653589793")
+    _element(sensor, "pose", "0.09 0 0 0 0 0")
     _element(sensor, "always_on", 1)
     _element(sensor, "update_rate", 30)
     _element(sensor, "visualize", True)
@@ -349,7 +350,7 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     _inertial(depth, DEPTH_CAMERA_MASS, GIMBAL_CHILD_INERTIA)
     sensor = _element(depth, "sensor", name="depth_camera", type="depth_camera")
     _element(sensor, "gz_frame_id", "depth_camera_link")
-    _element(sensor, "pose", "0 0 0 0 0 0")
+    _element(sensor, "pose", "0.09 0 0 0 0 0")
     _element(sensor, "always_on", 1)
     _element(sensor, "update_rate", 30)
     _element(sensor, "visualize", True)

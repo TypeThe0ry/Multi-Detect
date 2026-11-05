@@ -173,6 +173,7 @@ def test_motor_geometry_directions_and_thrust_match_control_allocation():
         assert _numbers(model.findtext(f"joint[@name='rotor_{i}_joint']/axis/xyz")) == (0, 0, 1)
     assert 2.929 * 9.80665 / (4 * 16.2) == pytest.approx(0.44, abs=0.004)
     profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter.json")
+    assert params["FW_R_LIM"] == profile.max_bank_deg
     for param, value in (
         ("FW_AIRSPD_STALL", profile.stall_airspeed_mps),
         ("FW_AIRSPD_MIN", profile.min_airspeed_mps),
@@ -394,6 +395,10 @@ def test_fixed_and_gimbal_variants_share_base_mass_calibration_and_airframe_para
         model = _model(directory)
         rgb = model.find("link[@name='camera_link']/sensor[@name='camera']")
         depth = model.find("link[@name='depth_camera_link']/sensor[@name='depth_camera']")
+        assert _numbers(rgb.findtext("pose")) == pytest.approx(_numbers(depth.findtext("pose")))
+        minimum_offset = 0.09 if directory == WRAPPER_DIR else 0.16
+        assert _numbers(rgb.findtext("pose"))[0] >= minimum_offset
+        assert _numbers(rgb.findtext("pose"))[5] == pytest.approx(0.0)
         for sensor in (rgb, depth):
             assert sensor.findtext("camera/image/width") == str(calibration_values["width_px"])
             assert sensor.findtext("camera/image/height") == str(calibration_values["height_px"])
@@ -412,6 +417,19 @@ def test_fixed_camera_wrapper_attaches_payload_to_base_link():
     assert joint is not None and joint.get("type") == "fixed"
     assert joint.findtext("parent") == "base_link"
     assert joint.findtext("child") == "camera_link"
+
+
+def test_smoke_plan_adds_strict_sustain_only_for_delta_tailsitters():
+    for airframe, expected in (
+        ("delta_tailsitter", True),
+        ("delta_tailsitter_gimbal", True),
+        ("advanced_plane", False),
+    ):
+        profile = AirframeProfile.from_json(ROOT / f"configs/airframes/{airframe}.json")
+        plan = smoke.build_plan(airframe, profile, SCENARIO, None)
+        loiter = next(step for step in plan["steps"] if step["stage"] == "loiter")
+        assert (loiter.get("minimum_fw_duration_s") == 120) is expected
+        assert ("fw_metrics_pass" in plan["pass_fields"]) is expected
 
 
 @pytest.mark.parametrize("stem", ["delta_tailsitter_mono_cam_001", "delta_tailsitter_gimbal_cam_001"])
