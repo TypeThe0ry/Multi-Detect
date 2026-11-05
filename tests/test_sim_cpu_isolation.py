@@ -301,6 +301,13 @@ def test_episode_provenance_records_affinity_and_does_not_claim_attached_affinit
     monkeypatch.setattr(collector, "_hover_policy", lambda *_: object())
     monkeypatch.setattr(collector, "build_provenance", lambda **_: {})
     monkeypatch.setattr(collector, "snapshot_config", lambda *_: None)
+    monkeypatch.setattr(
+        collector.subprocess,
+        "run",
+        lambda command, **kwargs: SimpleNamespace(
+            returncode=1, stdout="", stderr="fake Docker unavailable"
+        ),
+    )
 
     def stop_before_docker(_self):
         raise RuntimeError("offline stop before Docker")

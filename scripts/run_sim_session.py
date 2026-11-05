@@ -410,6 +410,68 @@ def _session_log(path: Path | None, phase: str, **fields: object) -> None:
         handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+def _container_runtime_snapshot(docker: str, container: str) -> dict[str, object]:
+    snapshot: dict[str, object] = {
+        "captured_wall_time": time.time(),
+        "container_name": container,
+        "container_id": None,
+        "state": None,
+        "px4_process_alive": None,
+        "px4_host_pids": [],
+    }
+    try:
+        inspected = subprocess.run(
+            [docker, "inspect", "--format", "{{json .}}", container],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if inspected.returncode != 0:
+            snapshot["container_inspect_error"] = (
+                inspected.stderr or inspected.stdout or f"docker inspect exited {inspected.returncode}"
+            ).strip()
+            return snapshot
+        details = json.loads(inspected.stdout)
+        state = details.get("State") or {}
+        snapshot["container_id"] = details.get("Id")
+        snapshot["state"] = {
+            "running": state.get("Running"),
+            "exit_code": state.get("ExitCode"),
+            "oom_killed": state.get("OOMKilled"),
+            "finished_at": state.get("FinishedAt"),
+        }
+        if state.get("Running") is False:
+            snapshot["px4_process_alive"] = False
+            return snapshot
+        if state.get("Running") is True:
+            top = subprocess.run(
+                [docker, "top", container, "-eo", "pid,comm"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if top.returncode == 0:
+                pids = []
+                for line in top.stdout.splitlines()[1:]:
+                    fields = line.strip().split(None, 1)
+                    if len(fields) != 2 or not fields[0].isdigit():
+                        continue
+                    process_name = fields[1].strip().split(None, 1)[0].rsplit("/", 1)[-1]
+                    if process_name.lower() == "px4":
+                        pids.append(int(fields[0]))
+                snapshot["px4_host_pids"] = pids
+                snapshot["px4_process_alive"] = bool(pids)
+            else:
+                snapshot["px4_process_error"] = (
+                    top.stderr or top.stdout or f"docker top exited {top.returncode}"
+                ).strip()
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as error:
+        snapshot["container_inspect_error"] = str(error)
+    return snapshot
+
+
 def _snapshot(
     docker: str, container: str, directory: Path, *, label: str | None = None
 ) -> Path | None:
@@ -693,6 +755,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     sitl_lock = SitlLock(args.sitl_lock_path, label="sim-session", min_memory_gb=5.0)
     lock_context = sitl_lock_context(sitl_lock)
     lock_context.__enter__()
+    task_failure_reason = None
     try:
         subprocess.run(command, cwd=ROOT, check=True)
         _session_log(session_log, "container_started", container=plan.container_name)
@@ -715,6 +778,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
         if not ready:
             raise RuntimeError("PX4/Gazebo world did not become ready within 240 seconds")
+        _session_log(
+            session_log,
+            "container_ready_snapshot",
+            container_snapshot=_container_runtime_snapshot(docker, plan.container_name),
+        )
         if spawned:
             _session_log(session_log, "vehicle_spawned")
         if snapshot_dir:
@@ -771,6 +839,8 @@ def main(argv: Iterable[str] | None = None) -> int:
                 exit_code=code,
                 summary_path=str(summary) if summary else None,
             )
+            if code:
+                task_failure_reason = f"onboard task exited with code {code}"
             if snapshot_dir:
                 _snapshot(docker, plan.container_name, snapshot_dir, label="task-end")
             stop_snapshots.set()
@@ -785,7 +855,26 @@ def main(argv: Iterable[str] | None = None) -> int:
         print("Stopping owned simulator container...")
     finally:
         _session_log(session_log, "teardown", container=plan.container_name)
+        container_snapshot = _container_runtime_snapshot(docker, plan.container_name)
+        failure = sys.exc_info()[1]
+        if failure is not None or task_failure_reason is not None:
+            reason = (
+                f"{type(failure).__name__}: {failure}"
+                if failure is not None
+                else task_failure_reason
+            )
+            _session_log(
+                session_log,
+                "container_failure_snapshot",
+                reason=reason,
+                container_snapshot=container_snapshot,
+            )
+        _session_log(
+            session_log, "container_cleanup_before_stop", container_snapshot=container_snapshot
+        )
         subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
+        cleanup_snapshot = _container_runtime_snapshot(docker, plan.container_name)
+        _session_log(session_log, "container_cleanup", container_snapshot=cleanup_snapshot)
         subprocess.run([docker, "rm", plan.container_name], check=False)
         lock_context.__exit__(*sys.exc_info())
     return 0
@@ -795,4 +884,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["build_session_command", "resolve_world", "main"]
+__all__ = ["build_session_command", "resolve_world", "_container_runtime_snapshot", "main"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from scripts import collect_sim_teacher_episodes as collector
@@ -33,11 +34,30 @@ def test_attached_environment_does_not_start_or_remove(monkeypatch):
 
     def run(command, **kwargs):
         calls.append(list(command))
-        if command[:2] == ["docker", "inspect"]:
+        if command[:2] == ["docker", "inspect"] and "{{.State.Running}}" in command:
             return SimpleNamespace(returncode=0, stdout="true\n", stderr="")
+        if command[:2] == ["docker", "inspect"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "Id": "fake-container-id",
+                        "State": {
+                            "Running": True,
+                            "ExitCode": 0,
+                            "OOMKilled": False,
+                            "FinishedAt": "0001-01-01T00:00:00Z",
+                        },
+                    }
+                ),
+                stderr="",
+            )
+        if command[:2] == ["docker", "top"]:
+            return SimpleNamespace(returncode=0, stdout="PID COMMAND\n1234 px4\n", stderr="")
         raise AssertionError(command)
 
     monkeypatch.setattr(collector.subprocess, "run", run)
+    monkeypatch.setattr(collector, "_docker_executable", lambda _plan: "docker")
     plan = collector.CollectionPlan(
         "scenario",
         "runtime",
@@ -54,7 +74,114 @@ def test_attached_environment_does_not_start_or_remove(monkeypatch):
         assert environment.name == "session-container"
         assert environment.attached
         assert not environment.started
-    assert calls == [["docker", "inspect", "--format", "{{.State.Running}}", "session-container"]]
+    assert calls == [
+        ["docker", "inspect", "--format", "{{.State.Running}}", "session-container"],
+        ["docker", "inspect", "--format", "{{json .}}", "session-container"],
+        ["docker", "top", "session-container", "-eo", "pid,comm"],
+    ]
+
+
+def test_failure_snapshot_uses_fake_docker_and_keeps_process_identity(monkeypatch):
+    def run(command, **kwargs):
+        if command[:2] == ["docker", "inspect"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "Id": "fake-container-id",
+                        "State": {
+                            "Running": True,
+                            "ExitCode": 0,
+                            "OOMKilled": False,
+                            "FinishedAt": "0001-01-01T00:00:00Z",
+                        },
+                    }
+                ),
+                stderr="",
+            )
+        if command[:2] == ["docker", "top"]:
+            return SimpleNamespace(returncode=0, stdout="PID COMMAND\n1234 px4\n", stderr="")
+        if command[:2] == ["docker", "logs"] or command[:2] == ["docker", "rm"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(collector.subprocess, "run", run)
+    monkeypatch.setattr(collector, "_docker_executable", lambda _plan: "docker")
+    monkeypatch.setattr(collector, "_host_load_average", lambda: [7.5, 6.0, 5.0])
+    monkeypatch.setattr(
+        collector,
+        "_host_gpu_memory_mib",
+        lambda: [{"index": 0, "used_mib": 1234, "total_mib": 20480}],
+    )
+    plan = collector.CollectionPlan(
+        "scenario", "runtime", "truth", "onboard", 1, 1, 0, "out", max_episode_s=1.0
+    )
+    environment = collector.DockerSimEnvironment(plan, "episode")
+    environment.started = True
+    error = TimeoutError("PX4 simulation clock stalled")
+
+    assert environment.__exit__(TimeoutError, error, None) is False
+    diagnostics = environment.failure_diagnostics
+    assert diagnostics is not None
+    assert diagnostics["failure_class"] == "clock_stalled_alive"
+    assert diagnostics["container_id"] == "fake-container-id"
+    assert diagnostics["failure_state"]["state"] == {
+        "running": True,
+        "exit_code": 0,
+        "oom_killed": False,
+        "finished_at": "0001-01-01T00:00:00Z",
+    }
+    assert diagnostics["failure_state"]["px4_process_alive"] is True
+    assert diagnostics["failure_state"]["px4_host_pids"] == [1234]
+    assert diagnostics["failure_state"]["host_load_average"] == [7.5, 6.0, 5.0]
+    assert diagnostics["failure_state"]["gpu_memory_mib"] == [
+        {"index": 0, "used_mib": 1234, "total_mib": 20480}
+    ]
+    assert diagnostics["cleanup_state"]["px4_process_alive"] is True
+
+
+def test_exited_container_is_classified_as_px4_crashed_with_fake_docker(monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[:2] == ["docker", "inspect"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "Id": "crashed-container-id",
+                        "State": {
+                            "Running": False,
+                            "ExitCode": 139,
+                            "OOMKilled": False,
+                            "FinishedAt": "2026-11-05T01:02:03Z",
+                        },
+                    }
+                ),
+                stderr="",
+            )
+        if command[:2] == ["docker", "logs"] or command[:2] == ["docker", "rm"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(collector.subprocess, "run", run)
+    monkeypatch.setattr(collector, "_docker_executable", lambda _plan: "docker")
+    monkeypatch.setattr(collector, "_host_gpu_memory_mib", lambda: None)
+    plan = collector.CollectionPlan(
+        "scenario", "runtime", "truth", "onboard", 1, 1, 0, "out", max_episode_s=1.0
+    )
+    environment = collector.DockerSimEnvironment(plan, "episode")
+    environment.started = True
+    error = RuntimeError("sensor stream ended early")
+
+    assert environment.__exit__(RuntimeError, error, None) is False
+    diagnostics = environment.failure_diagnostics
+    assert diagnostics is not None
+    assert diagnostics["failure_class"] == "px4_crashed"
+    assert diagnostics["failure_state"]["px4_process_alive"] is False
+    assert diagnostics["failure_state"]["state"]["exit_code"] == 139
+    assert not any(command[:2] == ["docker", "top"] for command in calls)
 
 
 def test_parser_rejects_sim_param_without_value():

@@ -6,7 +6,7 @@ import pytest
 
 from scripts.run_nightly_regression import (
     FAILURE_CATEGORIES, SitlLock, compare_reports, failure_category,
-    final_campaign_exception, mission_triage, run,
+    final_campaign_exception, mission_triage, run, write_nightly_report,
 )
 
 
@@ -291,6 +291,76 @@ def test_triage_preserves_episodes_worlds_and_expected_safe_abort(tmp_path):
     assert result[2]["complete"] is True
     assert result[3]["complete"] is True and result[3]["mission_completed"] is False
     assert result[4]["log_error"].startswith("FileNotFoundError:")
+
+
+def test_triage_reads_episode_container_failure_snapshot_into_nightly_table(tmp_path):
+    source = tmp_path / "main"
+    _suite_output(source, [_row("failure", status="missing")], {
+        ("failure", "world"): _trace("TimeoutError: PX4 simulation clock stalled"),
+    })
+    episode_path = source / "failure/campaign/world/episodes/episode-0000-abcd/episode.json"
+    episode_path.parent.mkdir(parents=True)
+    episode_path.write_text(
+        json.dumps(
+            {
+                "episode_index": 0,
+                "finished_wall_time": 100.0,
+                "container_failure_diagnostics": {
+                    "container_name": "sim-episode-0",
+                    "container_id": "container-id",
+                    "failure_class": "clock_stalled_alive",
+                    "failure_state": {
+                        "state": {
+                            "exit_code": 0,
+                            "oom_killed": False,
+                            "finished_at": "0001-01-01T00:00:00Z",
+                        },
+                        "px4_process_alive": True,
+                        "px4_host_pids": [789],
+                        "host_load_average": [12.5, 10.0, 8.0],
+                        "gpu_memory_mib": [{"index": 0, "used_mib": 1234, "total_mib": 20480}],
+                    },
+                    "cleanup_state": {
+                        "state": {
+                            "running": False,
+                            "exit_code": 137,
+                            "oom_killed": False,
+                            "finished_at": "2026-11-05T00:00:00Z",
+                        },
+                        "px4_process_alive": False,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = json.loads((source / "suite-report.json").read_text(encoding="utf-8"))
+    triage = mission_triage(report, source)
+    assert triage[0]["failure_class"] == "clock_stalled_alive"
+    assert triage[0]["container_failure_diagnostics"]["container_id"] == "container-id"
+
+    merged = {
+        "generated_at": "2026-11-05T00:00:00+08:00",
+        "suites": [{
+            "name": "main",
+            "summary": {},
+            "metrics": {},
+            "exit_code": 1,
+            "missions": triage,
+        }],
+        "regressions": [],
+    }
+    out = tmp_path / "triage-report"
+    write_nightly_report(merged, out)
+    text = (out / "nightly-report.md").read_text(encoding="utf-8")
+    assert "clock_stalled_alive" in text
+    assert "sim-episode-0 (container-id)" in text
+    assert "| 789 |" in text
+    assert "failure: ExitCode=0; OOMKilled=False; FinishedAt=0001-01-01T00:00:00Z" in text
+    assert "cleanup: ExitCode=137; OOMKilled=False; FinishedAt=2026-11-05T00:00:00Z" in text
+    assert "failure=True; cleanup=False" in text
+    assert "[12.5, 10.0, 8.0]" in text
+    assert "GPU0: 1234/20480" in text
 
 
 def test_report_only_reads_synthetic_suites_without_running_or_writing_sources(tmp_path, monkeypatch):
