@@ -147,7 +147,8 @@ def test_motor_geometry_directions_and_thrust_match_control_allocation():
     assert params["FW_YR_P"] == pytest.approx(0.2 * yaw_authority_ratio)
     assert params["VT_FW_DIFTHR_EN"] == 7
     assert params["VT_FW_DIFTHR_S_R"] == params["VT_FW_DIFTHR_S_P"] == params["VT_FW_DIFTHR_S_Y"] == 1
-    assert params["FW_THR_TRIM"] == pytest.approx(0.32)
+    assert params["FW_THR_TRIM"] == pytest.approx(0.25)
+    assert params["FW_T_CLMB_MAX"] == pytest.approx(3.0)
     assert params["FW_AIRSPD_MAX"] == pytest.approx(18.0)
     assert params["FW_T_SPDWEIGHT"] == pytest.approx(2.0)
     assert params["FW_THR_MIN"] == pytest.approx(0.0)
@@ -244,7 +245,7 @@ def test_aerodynamic_area_lift_slope_static_margin_and_parasitic_drag():
     assert -neutral_z / 0.569 == pytest.approx(0.020 / 0.569, abs=1e-10)
     parasitic = [s for s in surfaces if float(s.findtext("cla")) == 0]
     airframe_drag = [s for s in parasitic if float(s.findtext("cda")) == pytest.approx(0.064)]
-    propeller_drag = [s for s in parasitic if float(s.findtext("cda")) == pytest.approx(0.216)]
+    propeller_drag = [s for s in parasitic if float(s.findtext("cda")) == pytest.approx(0.19)]
     assert len(airframe_drag) == 2
     assert len(propeller_drag) == 2
     for alpha in (-0.3, -0.1, 0, 0.1, 0.3):
@@ -299,7 +300,7 @@ def test_split_wings_produce_damping_sign_roll_moment_and_advance_drag_is_sized(
         surfaces, 24.0, math.radians(7.4), include_advance_drag=True
     )[1]
     assert total_drag - clean_drag == pytest.approx(
-        0.5 * 1.15 * 24.0**2 * 0.607 * 0.108, rel=0.02
+        0.5 * 1.15 * 24.0**2 * 0.607 * 0.095, rel=0.02
     )
 
 

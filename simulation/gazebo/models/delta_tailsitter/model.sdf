@@ -630,16 +630,16 @@
       <link_name>base_link</link_name>
       <radial_symmetry>false</radial_symmetry>
     </plugin>
-    <!--桨前进比损失近似：电机插件只有 kT*ω²，无空速/桨距速度输入；额外阻力面等效 ΔCD0=0.108，24 m/s 时约 22 N。这是限速代理，不是 10×4.7 桨的实测推力曲线。-->
+    <!--桨前进比损失近似：电机插件只有 kT*ω²，无空速/桨距速度输入；额外阻力面等效 ΔCD0=0.095，24 m/s 时约 19 N。这是限速代理，不是 10×4.7 桨的实测推力曲线；第 30 轮注入峰值为 20.86 至 21.80 m/s，故将代理下调约 12%。-->
     <plugin name="gz::sim::systems::LiftDrag" filename="gz-sim-lift-drag-system">
       <!--propeller_advance_drag_-1-->
       <a0>-0.5</a0>
       <cla>0</cla>
-      <cda>0.216</cda>
+      <cda>0.19</cda>
       <cma>0</cma>
       <alpha_stall>1.5707963267948966</alpha_stall>
       <cla_stall>0</cla_stall>
-      <cda_stall>0.216</cda_stall>
+      <cda_stall>0.19</cda_stall>
       <cma_stall>0</cma_stall>
       <area>0.3035</area>
       <air_density>1.15</air_density>
@@ -653,11 +653,11 @@
       <!--propeller_advance_drag_1-->
       <a0>0.5</a0>
       <cla>0</cla>
-      <cda>0.216</cda>
+      <cda>0.19</cda>
       <cma>0</cma>
       <alpha_stall>1.5707963267948966</alpha_stall>
       <cla_stall>0</cla_stall>
-      <cda_stall>0.216</cda_stall>
+      <cda_stall>0.19</cda_stall>
       <cma_stall>0</cma_stall>
       <area>0.3035</area>
       <air_density>1.15</air_density>

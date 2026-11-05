@@ -605,13 +605,16 @@ def _aero(model):
         )
     # gz-sim-multicopter-motor-model has no forward-flight advance-ratio
     # input. Approximate the lost 10x4.7 prop thrust with extra q-scaled drag:
-    # CD0=0.108 in addition to the airframe's 0.032. At 24 m/s this contributes
-    # about 22 N; it is a speed-limiting proxy, not a propeller map.
+    # CD0=0.095 in addition to the airframe's 0.032. At 24 m/s this contributes
+    # about 19 N; it is a speed-limiting proxy, not a propeller map. The round-30
+    # forced FW_THR_MIN=0.45 injection only reached 20.86--21.80 m/s, so the
+    # proxy is reduced about 12% while the strict 22 m/s gate remains unchanged.
     model.append(
         ET.Comment(
             "桨前进比损失近似：电机插件只有 kT*ω²，无空速/桨距速度输入；"
-            "额外阻力面等效 ΔCD0=0.108，24 m/s 时约 22 N。"
-            "这是限速代理，不是 10×4.7 桨的实测推力曲线。"
+            "额外阻力面等效 ΔCD0=0.095，24 m/s 时约 19 N。"
+            "这是限速代理，不是 10×4.7 桨的实测推力曲线；"
+            "第 30 轮注入峰值为 20.86 至 21.80 m/s，故将代理下调约 12%。"
         )
     )
     for sign in (-1, 1):
@@ -621,7 +624,7 @@ def _aero(model):
             (0, 0, 0),
             (-1, 0, 0),
             0,
-            0.216,
+            0.19,
             math.pi / 2,
             a0=sign * 0.5,
         )

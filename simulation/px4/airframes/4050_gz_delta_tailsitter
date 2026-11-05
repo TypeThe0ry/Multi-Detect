@@ -76,12 +76,14 @@ param set-default FW_YR_P 0.291559
 # 18-19 m/s 是现有 MAVLink 样本中 PX pitch rotor pair 频繁触底的转折带；工作上限收至 18。
 # 把 FW 交接目标收至 14 m/s 并降低前转换推力，减少交接后继续加速的初始能量。
 # 速度权重置 2，让 TECS 更积极地用俯仰通道回收空速；无舵面机型仍须外部验证权限。
+# 第 30 轮两版持续段均在后半段进入 19--22 m/s 双稳态，云台版初始高度误差 p95 达 36 m；
+# 将巡航推力配平降到 0.25，并把爬升上限收回档案能力值 3 m/s，避免过大的爬升请求换取速度。
 param set-default FW_T_SPDWEIGHT 2.0
-param set-default FW_THR_TRIM 0.32
+param set-default FW_THR_TRIM 0.25
 param set-default FW_THR_MAX 0.8
 param set-default FW_THR_MIN 0.0
 param set-default FW_R_LIM 35
-param set-default FW_T_CLMB_MAX 6
+param set-default FW_T_CLMB_MAX 3
 param set-default FW_T_HRATE_FF 0.5
 param set-default FW_T_SINK_MAX 3
 param set-default FW_T_SINK_MIN 1.6
