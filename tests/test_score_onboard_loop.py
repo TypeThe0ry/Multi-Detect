@@ -247,6 +247,36 @@ def test_count_metrics_match_findings_to_distinct_members() -> None:
     assert metrics["reported_count"] == 3 and metrics["count_exact"] is False
 
 
+def test_count_metrics_keeps_structured_report_before_terminal_mission_status() -> None:
+    from scripts.score_onboard_loop import _count_metrics
+
+    members = [
+        {"pose": {"y_north_m": 0.0, "x_east_m": 0.0}},
+        {"pose": {"y_north_m": 50.0, "x_east_m": 0.0}},
+    ]
+    # This is the recorded shape from a real episode: the count report is a
+    # mapping, then health recovery/mission completion emits mission="done".
+    rows = [
+        {
+            "labels": {
+                "onboard": {
+                    "mission": {
+                        "counts": {"s1": 2},
+                        "positions": ["0.5,0.0", "49.5,0.0"],
+                    }
+                }
+            }
+        },
+        {"labels": {"onboard": {"mission": "done"}}},
+    ]
+
+    metrics = _count_metrics(rows, members, 2.0)
+    assert metrics["reported_count"] == 2
+    assert metrics["matched_count"] == 2
+    assert metrics["false_findings"] == 0
+    assert metrics["count_exact"] is True
+
+
 def test_mission_metrics_score_alerts_coverage_inspect_and_completion() -> None:
     from scripts.score_onboard_loop import _mission_metrics
 
