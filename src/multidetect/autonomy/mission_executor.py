@@ -3698,20 +3698,29 @@ class MissionExecutor:
             self._finish("succeeded", "landed")
             return ActionPrimitive.stop(), {"phase": "landed"}
         if landed is None:
-            # A host that cannot expose EXTENDED_SYS_STATE still gets the
-            # historical bounded stop behaviour, but the record makes the
-            # missing confirmation explicit.
-            self._finish("succeeded", "landing_commanded_unconfirmed")
-            return ActionPrimitive.stop(), {"phase": "landing_commanded"}
+            # Landing is only complete after telemetry confirms it. Keep the
+            # step observable when landed state is temporarily unavailable.
+            if not run.landing_commanded:
+                run.landing_commanded = True
+                run.landing_wait_steps = 0
+                return ActionPrimitive.land(), {"phase": "landing_commanded"}
+            run.landing_wait_steps += 1
+            if run.landing_wait_steps >= self.config.landing_timeout_steps:
+                self._finish("failed", "landing_timeout_no_telemetry")
+                return None
+            return ActionPrimitive.continue_running(), {
+                "phase": "landing_pending",
+                "landing_wait_steps": run.landing_wait_steps,
+            }
         if not run.landing_commanded:
             run.landing_commanded = True
             run.landing_wait_steps = 0
-            return ActionPrimitive.stop(), {"phase": "landing_commanded"}
+            return ActionPrimitive.land(), {"phase": "landing_commanded"}
         run.landing_wait_steps += 1
         if run.landing_wait_steps >= self.config.landing_timeout_steps:
             self._finish("failed", "landing_timeout")
             return None
-        return ActionPrimitive.stop(), {
+        return ActionPrimitive.continue_running(), {
             "phase": "landing_pending",
             "landing_wait_steps": run.landing_wait_steps,
         }

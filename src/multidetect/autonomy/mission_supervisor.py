@@ -1151,6 +1151,10 @@ class MissionSupervisor:
         elif self.action in {"return_now", "land_now"}:
             result = self._recover(kwargs["pose_ned"]).next_action(**kwargs)
         action, info = result
+        # Supervisor terminal recovery keeps its historical stop handoff: the
+        # runtime owns the configured completion/failsafe action for this path.
+        if self.action == "land_now" and action.kind == "land":
+            action = ActionPrimitive.stop()
         info = {
             **info,
             "supervisor_action": self.action,
