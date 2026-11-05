@@ -362,6 +362,96 @@ def test_task_text_variants_add_swapped_identity_pair_only_when_enabled(tmp_path
     assert all(row["split"] == "train" for row in swapped)
     test_rows = [json.loads(line) for line in (enabled / "test.jsonl").read_text(encoding="utf-8").splitlines()]
     assert not any(row["task_text"] == "Find the SUV." for row in test_rows)
+
+
+def test_confusable_rejects_keep_other_focus_when_primary_target_matches_task(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    worlds = [
+        ("gen-pair-car", "car", "Find the car and record its position.", "hatchback", "mailbox"),
+        ("gen-pair-suv", "suv", "Find the SUV and record its position.", "suv", "postbox"),
+    ]
+    index = root / "index.json"
+    index.write_text(
+        json.dumps({
+            "asset_mode": "fuel_v1",
+            "worlds": [
+                {"world_id": world, "split": "train", "asset_mode": "fuel_v1",
+                 "task_text": task, "task_text_en": task,
+                 "target_combo": {"category": category}}
+                for world, category, task, _, _ in worlds
+            ],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(builder, "ROOT", root)
+    monkeypatch.setattr(runtime, "ROOT", root)
+    monkeypatch.setattr(builder, "_relative", lambda path: Path(path).name)
+    monkeypatch.setattr(builder, "_sdf_sizes", lambda path: {})
+    monkeypatch.setattr(builder, "load_sdf_obstacles", lambda path: [])
+
+    frames = []
+    expected = {}
+    for world, category, task, target_slug, distractor_slug in worlds:
+        target_id = f"target_true_{target_slug}"
+        distractor_id = f"paired_{distractor_slug}"
+        target = {
+            "target_id": target_id,
+            "category_words": [category, target_slug],
+            "class": category,
+            "asset_slug": target_slug,
+            "true_target": True,
+        }
+        distractor = {
+            "target_id": distractor_id,
+            "category_words": [distractor_slug],
+            "class": distractor_slug,
+            "asset_slug": distractor_slug,
+            "true_target": False,
+        }
+        projected = [
+            {"target": target, "box": (10.0, 10.0, 50.0, 50.0), "class": category,
+             "color": None, "range_m": 10.0, "visible_fraction": 1.0},
+            {"target": distractor, "box": (60.0, 10.0, 90.0, 40.0),
+             "class": distractor_slug, "color": None, "range_m": 10.0,
+             "visible_fraction": 1.0},
+        ]
+        frame = root / f"{world}.jpg"
+        frame.write_bytes(b"frame")
+        slug = {"task_text": task, "task_text_en": task,
+                "task_category": category, "true_target": target}
+        frames.append(("campaign", world, "train", frame, (100, 100), slug,
+                       projected, {"_view_metadata": {"view": "front"}}, "before", {}, None))
+        expected[f"{category}->{distractor_slug}"] = (target_id, distractor_id)
+
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(frames))
+    output = root / "out"
+    report = builder.build_dataset([], output, index=index, confusable_negatives=True)
+    rows = [json.loads(line) for line in (output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    rejects = {
+        row["confusable_pair_type"]: row
+        for row in rows
+        if row.get("label_type") == "confusable_negative"
+        and row.get("confusable_pair_type") in expected
+    }
+
+    assert set(rejects) == set(expected)
+    assert report["conflicting_decision_groups"] == 0
+    for pair, (target_id, distractor_id) in expected.items():
+        rejected = rejects[pair]
+        assert rejected["target_id"] == distractor_id
+        assert rejected["assistant_target"]["decision"] == "reject_track"
+        assert rejected["assistant_target"]["args"]["track_id"] == "track-2"
+        matching_positive = next(
+            row for row in rows
+            if row["image_path"] == rejected["image_path"]
+            and row["task_text"] == rejected["task_text"]
+            and row["target_id"] == target_id
+            and row["assistant_target"]["decision"] in {"confirm_target", "approach_track"}
+        )
+        assert matching_positive["assistant_target"]["args"]["track_id"] == "track-1"
+
+
 def test_fuel_worlds_build_natural_bilingual_tasks_and_focused_decisions(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     truth_dir = root / "configs/scenarios/generated-v2"

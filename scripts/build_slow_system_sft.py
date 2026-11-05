@@ -744,7 +744,7 @@ def _counterfactual_negative_focus(named: dict, others: list[tuple[int, dict]], 
 CONFUSABLE_NEGATIVES = {
     "pickup": ("suv", "car"), "suv": ("pickup", "car"), "car": ("suv", "pickup", "postbox", "mailbox"),
     "person": ("jersey_barrier", "postbox", "mailbox"),
-    "jersey_barrier": ("person",), "postbox": ("person", "car", "pickup"), "mailbox": ("person", "car"),
+    "jersey_barrier": ("person",), "postbox": ("person", "car", "pickup", "suv"), "mailbox": ("person", "car"),
 }
 
 
@@ -1166,18 +1166,8 @@ def build_dataset(
                         if _category_task_equivalent(near_category, p["target"]):
                             stats["dropped_confusable_task_equivalent"] += 1
                             continue
-                        if any(
-                            q["target"].get("target_id") == true_id
-                            and _category_task_equivalent(near_category, q["target"])
-                            for q in same_category
-                        ):
-                            # The renamed task already describes the primary
-                            # target (for example car -> SUV).  Emitting a
-                            # second positive for that same candidate would
-                            # create a decision conflict with its true-target
-                            # row.
-                            stats["dropped_confusable_task_equivalent"] += 1
-                            continue
+                        # A matching true target does not invalidate a reject
+                        # for this different focused candidate in the same frame.
                         pair_key = f"{near_category}->{distractor_category}"
                         # Bound each directional pair family so the new hard
                         # negatives correct coverage without swamping r18 replay.
