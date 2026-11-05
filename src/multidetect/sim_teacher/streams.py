@@ -6,7 +6,7 @@ import math
 import threading
 import time
 from bisect import bisect_left
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, BinaryIO
@@ -460,6 +460,7 @@ class MavlinkReader:
         self.last_message_vehicle_ms: int | None = None
         self.parse_errors = 0
         self.bad_crc = 0
+        self.recent_messages: deque[dict[str, Any]] = deque(maxlen=16)
         self._pose_condition = threading.Condition()
         self._pose_history: dict[str, list[tuple[int, dict[str, Any], int, float]]] = {
             name: [] for name in self.POSE_TYPES
@@ -544,6 +545,21 @@ class MavlinkReader:
     def stats(self) -> dict[str, Any]:
         """Return a snapshot suitable for progress logs and diagnostics."""
         thread = self._thread
+        socket_state: dict[str, Any] = {"available": False}
+        for attribute in ("port", "socket"):
+            candidate = getattr(self.connection, attribute, None)
+            if candidate is None:
+                continue
+            socket_state = {"available": True, "attribute": attribute}
+            try:
+                socket_state["closed"] = bool(candidate._closed)
+            except Exception:
+                pass
+            try:
+                socket_state["fileno"] = int(candidate.fileno())
+            except Exception as exc:
+                socket_state["fileno_error"] = repr(exc)
+            break
         return {
             "received_messages": self.state.count,
             "message_counts": dict(self.message_counts),
@@ -551,6 +567,9 @@ class MavlinkReader:
             "bad_crc": self.bad_crc,
             "thread_alive": bool(thread is not None and thread.is_alive()),
             "error": None if self.error is None else repr(self.error),
+            "last_exception": None if self.error is None else repr(self.error),
+            "socket": socket_state,
+            "recent_messages": list(self.recent_messages),
             "last_message_type": self.last_message_type,
             "last_message_monotonic_ns": self.last_message_monotonic_ns,
             "last_message_vehicle_ms": self.last_message_vehicle_ms,
@@ -624,6 +643,12 @@ class MavlinkReader:
                         selector(0.01)
                     continue
                 name = self._type(message)
+                boot_ms = _field(message, "time_boot_ms", None)
+                self.recent_messages.append({
+                    "type": name,
+                    "time_boot_ms": boot_ms if isinstance(boot_ms, int) else None,
+                    "receive_monotonic_ns": self.clock(),
+                })
                 self.message_counts[name] += 1
                 self.state.count += 1
                 self.last_message_type = name

@@ -647,7 +647,7 @@ class PymavlinkVehicle:
         configure = self._command_with_ack(
             CommandSpec(
                 MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
-                (float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID)),
+                (float(GIMBAL_MANAGER_DEVICE_ID), float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0),
                 "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
             ), timeout_s=min(timeout_s, 5.0),
         )

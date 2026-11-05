@@ -189,6 +189,7 @@ def test_gimbal_action_sends_and_reads_fresh_attitude():
         def command_long_send(self, *args):
             assert args[:4] in ((1, 1, 1001, 0), (1, 1, 1000, 0))
             if args[2] == 1001:
+                assert args[4:] == (1.0, 255.0, 190.0, -1.0, -1.0, 0.0, 0.0)
                 state.command_acks[1001] = ({"result": 0}, __import__("time").monotonic_ns())
                 state.messages["GIMBAL_MANAGER_STATUS"] = {"primary_control_sysid": 255}
                 state.received_monotonic_ns["GIMBAL_MANAGER_STATUS"] = __import__("time").monotonic_ns()

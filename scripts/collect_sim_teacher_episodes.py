@@ -60,6 +60,7 @@ from multidetect.sim_teacher.executor import (
     GCS_SOURCE_COMPONENT,
     GCS_SOURCE_SYSTEM,
     GIMBAL_MANAGER_DEVICE_ID,
+    GIMBAL_MANAGER_STATUS_WALL_TIMEOUT_S,
     GIMBAL_MANAGER_FLAGS_PITCH_LOCK,
     GIMBAL_MANAGER_FLAGS_ROLL_LOCK,
     GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME,
@@ -2275,6 +2276,11 @@ class MavlinkTelemetrySilenceWatchdog:
                 "state": state_snapshot,
             },
             "mavlink_reader": self.reader.stats,
+            "receiver_thread_alive": self.reader.stats.get("thread_alive"),
+            "receiver_last_exception": self.reader.stats.get("last_exception"),
+            "receiver_message_counts": self.reader.stats.get("message_counts"),
+            "receiver_socket": self.reader.stats.get("socket"),
+            "receiver_recent_messages": self.reader.stats.get("recent_messages"),
             "last_message_type": getattr(self.reader, "last_message_type", None),
             "last_message_monotonic_ns": getattr(self.reader, "last_message_monotonic_ns", None),
             "last_message_vehicle_ms": getattr(self.reader, "last_message_vehicle_ms", None),
@@ -2840,8 +2846,8 @@ def _command_and_wait_gimbal(
     command_started_ns = time.monotonic_ns()
     sender(
         target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, 0,
-        float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0,
-        float(GIMBAL_MANAGER_DEVICE_ID),
+        float(GIMBAL_MANAGER_DEVICE_ID), float(GCS_SOURCE_SYSTEM),
+        float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0,
     )
     configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
         MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(timeout_s, 5.0)
@@ -2854,7 +2860,7 @@ def _command_and_wait_gimbal(
     ack_state = getattr(reader.state, "command_acks", {})
     configure_ack_entry = ack_state.get(MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE) if isinstance(ack_state, Mapping) else None
     configure_ack_ns = int(configure_ack_entry[1]) if configure_ack_entry is not None else command_started_ns
-    manager_deadline = time.monotonic() + min(max(0.1, timeout_s), 2.0)
+    manager_deadline = time.monotonic() + GIMBAL_MANAGER_STATUS_WALL_TIMEOUT_S
     primary = 0
     manager_confirmed = False
     while time.monotonic() < manager_deadline:

@@ -68,6 +68,11 @@ def test_telemetry_silence_uses_sim_and_wall_clocks_at_point_one_realtime(tmp_pa
     assert diagnostic["sim_elapsed_since_last_mavlink_s"] == pytest.approx(5.0)
     assert diagnostic["sim_clock_advancing"] is True
     assert diagnostic["container"]["running"] is True
+    assert diagnostic["receiver_thread_alive"] is False
+    assert diagnostic["receiver_last_exception"] is None
+    assert diagnostic["receiver_message_counts"] == {}
+    assert diagnostic["receiver_socket"]["available"] is False
+    assert diagnostic["receiver_recent_messages"] == []
 
 
 def test_telemetry_silence_detects_frozen_sim_clock_with_wall_guard(tmp_path):

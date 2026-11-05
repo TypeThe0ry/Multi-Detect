@@ -217,7 +217,7 @@ PX4/MAVLink 控制使用标准 gimbal v2：先用 `MAV_CMD_DO_GIMBAL_MANAGER_CON
 master.mav.command_long_send(
     target_system, target_component,
     mavutil.mavlink.MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
-    0, 255, 190, -1, -1, 0, 0, 1,
+    0, 1, 255, 190, -1, -1, 0, 0,
 )
 master.mav.command_long_send(
     target_system, target_component,
@@ -257,6 +257,32 @@ result=0)`，但 `GIMBAL_MANAGER_STATUS.primary_control_sysid=0`，197 条
 `MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE` (1001) 取得主控，再发送
 `MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW` (1000)，并保留 4° 回读门槛及关节/四元数记录。
 `motion_intent` 也在命令元数据中标注协议和两个命令 ID，避免 AI 动作路径回退到 205。
+
+## 第十四轮日志结论与 gimbal v2 参数修正
+
+第 13 轮固定版 MAVLink 连续到 110.292 s（40,087 行）；ULog 姿态、位置和执行器话题记录到
+110.464 s，采证时容器仍运行且仿真时钟继续推进。第 14 轮固定版 MAVLink 连续到
+`LOCAL_POSITION_NED.time_boot_ms=114.136 s`（40,791 条记录），ULog 姿态、位置和执行器输出
+持续到 114.232 s，CPU `cpuload.load=1.0`，容器仍运行。这两轮都没有发生遥测静默。
+第 12 轮确有 18.99 墙钟秒静默、5.016 仿真秒间隔，容器/Gazebo 仍活，最终 ULog 写至约
+58.7 s；但旧诊断没有接收线程、socket 或 PX4 UDP 发送侧数据，无法确认是接收线程退出、解析
+卡住还是网络丢包。本轮诊断加入线程存活、最后异常、socket、按类型计数和最后 16 条消息，
+待下一次静默现场判断。5 仿真秒阈值需同时满足至少 50 墙钟秒，能容忍 0.1×实时；仿真时钟
+停滞阈值为 15 墙钟秒，因此不会因慢仿真而按 5 秒墙钟误杀。
+
+第 14 轮云台版检查发生在稳定 MC 悬停后：持续 3 s，最大 |roll|=0.306°、|pitch|=2.630°。
+1001 ACK 为 ACCEPTED，但管理器主控仍为 sysid 0；177 条 `GIMBAL_DEVICE_SET_ATTITUDE` 的四元数
+均为 NaN（仅速率/标志流），关节 pitch 约 0.00543 rad，命令前后没有转动，所以没有到达角度
+命令阶段。根因是 `MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE` 的 COMMAND_LONG 参数顺序错误：
+`param1=device_id, param2=primary_sysid, param3=primary_compid`，旧实现把 device ID 放进了
+param7。ACK 只证明命令被接收，未证明控制权已分配。采集器、SIM 执行器和 onboard vehicle
+现已统一参数顺序；管理器确认等待上限设为 30 s，以兼容 0.1×实时下低频状态报告。新冒烟尚未
+运行，修正后实际关节响应与严格 4° 回读仍待验证。
+
+第 14 轮固定版全程 MAVLink/ULog 连续覆盖到降落；FW 横向状态在约 57.8 s 后结束并进入转换，
+本次没有复现“后段姿态与舵机输出大幅变化”。缺少该异常复现的 ULog，故本轮不调整气动或
+飞控增益。第 13 轮以旧参数顺序发出的 1001 同样不能证明控制权成功，先前将问题仅归因于
+205 不适用并不完整；本轮修正的是实际阻止 manager 获得主控的参数编码错误。
 
 ## 未验证的关键量
 

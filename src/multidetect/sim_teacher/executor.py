@@ -26,6 +26,10 @@ GIMBAL_MANAGER_FLAGS_ROLL_LOCK = 4
 GIMBAL_MANAGER_FLAGS_PITCH_LOCK = 8
 GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME = 32
 GIMBAL_MANAGER_DEVICE_ID = 1
+# PX4 publishes GIMBAL_MANAGER_STATUS at a low vehicle-clock rate. At the
+# collector's supported 0.1x realtime floor, allow one full 2 s vehicle-clock
+# reporting interval plus scheduling margin before declaring ownership absent.
+GIMBAL_MANAGER_STATUS_WALL_TIMEOUT_S = 30.0
 GCS_SOURCE_SYSTEM = 255
 GCS_SOURCE_COMPONENT = 190
 
@@ -132,13 +136,13 @@ def execute_gimbal_action(
         target_component,
         MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
         0,
+        float(GIMBAL_MANAGER_DEVICE_ID),
         float(GCS_SOURCE_SYSTEM),
         float(GCS_SOURCE_COMPONENT),
         -1.0,
         -1.0,
         0.0,
         0.0,
-        float(GIMBAL_MANAGER_DEVICE_ID),
     )
     configure_deadline = time.monotonic() + min(max(0.1, float(timeout_s)), 5.0)
     configure_ack_ns = 0
@@ -157,7 +161,7 @@ def execute_gimbal_action(
         time.sleep(0.02)
     else:
         return ExecutionResult("timeout", clock() - started, ack={"reason": "gimbal_manager_configure_ack_timeout"})
-    manager_deadline = time.monotonic() + min(max(0.1, float(timeout_s)), 2.0)
+    manager_deadline = time.monotonic() + GIMBAL_MANAGER_STATUS_WALL_TIMEOUT_S
     manager_status = None
     while time.monotonic() < manager_deadline:
         state = getattr(reader, "state", None)
