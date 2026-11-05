@@ -9,6 +9,7 @@ planned launch without starting Docker.
 from __future__ import annotations
 
 import argparse
+import csv
 import dataclasses
 import io
 import json
@@ -871,6 +872,75 @@ def _docker_available() -> bool:
     return result.returncode == 0
 
 
+def _px4_host_pids(output: str) -> list[int]:
+    pids = []
+    for line in output.splitlines()[1:]:
+        fields = line.strip().split(None, 1)
+        if len(fields) != 2 or not fields[0].isdigit():
+            continue
+        process_name = fields[1].strip().split(None, 1)[0].rsplit("/", 1)[-1].lower()
+        if process_name == "px4":
+            pids.append(int(fields[0]))
+    return pids
+
+
+def _host_load_average() -> list[float] | None:
+    try:
+        return [round(float(value), 2) for value in os.getloadavg()]
+    except (AttributeError, OSError):
+        return None
+
+
+def _host_gpu_memory_mib() -> list[dict[str, int]] | None:
+    executable = shutil.which("nvidia-smi")
+    if not executable:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                executable,
+                "--query-gpu=index,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    rows = []
+    try:
+        for row in csv.reader(result.stdout.splitlines(), skipinitialspace=True):
+            if len(row) != 3:
+                continue
+            index, used, total = (int(value.strip()) for value in row)
+            rows.append({"index": index, "used_mib": used, "total_mib": total})
+    except ValueError:
+        return None
+    return rows or None
+
+
+def _failure_class(reason: str, snapshot: dict[str, Any]) -> str:
+    state = snapshot.get("state") or {}
+    running = state.get("running")
+    exit_code = state.get("exit_code")
+    px4_alive = snapshot.get("px4_process_alive")
+    if state.get("oom_killed") is True:
+        return "px4_crashed"
+    if px4_alive is False and (running is True or exit_code not in (None, 0)):
+        return "px4_crashed"
+    if "clock stalled" in reason.lower() and px4_alive is True:
+        return "clock_stalled_alive"
+    if px4_alive is True:
+        return "px4_alive_other_failure"
+    if px4_alive is False:
+        return "px4_not_alive"
+    return "px4_status_unknown"
+
+
 class DockerSimEnvironment:
     """Own one simulator container and always remove it on exit."""
 
@@ -880,6 +950,9 @@ class DockerSimEnvironment:
         self.attached = bool(plan.attach_container)
         self.started = False
         self._log = None
+        self._last_px4_host_pids: list[int] = []
+        self.failure_diagnostics: dict[str, Any] | None = None
+        self.cleanup_diagnostics: dict[str, Any] | None = None
 
     def set_logger(self, logger):
         self._log = logger
@@ -892,6 +965,106 @@ class DockerSimEnvironment:
             **fields,
         }
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True), file=sys.stderr, flush=True)
+
+    def _container_snapshot(self, *, include_host_metrics: bool = False) -> dict[str, Any]:
+        snapshot: dict[str, Any] = {
+            "captured_wall_time": time.time(),
+            "container_name": self.name,
+            "container_id": None,
+            "state": None,
+            "px4_process_alive": None,
+            "px4_host_pids": list(self._last_px4_host_pids),
+            "px4_host_pids_current": None,
+        }
+        try:
+            inspected = subprocess.run(
+                [
+                    _docker_executable(self.plan),
+                    "inspect",
+                    "--format",
+                    "{{json .}}",
+                    self.name,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if inspected.returncode != 0:
+                snapshot["container_inspect_error"] = (
+                    inspected.stderr or inspected.stdout or f"docker inspect exited {inspected.returncode}"
+                ).strip()
+            else:
+                details = json.loads(inspected.stdout)
+                state = details.get("State") or {}
+                snapshot["container_id"] = details.get("Id")
+                snapshot["state"] = {
+                    "running": state.get("Running"),
+                    "exit_code": state.get("ExitCode"),
+                    "oom_killed": state.get("OOMKilled"),
+                    "finished_at": state.get("FinishedAt"),
+                }
+                if state.get("Running") is False:
+                    snapshot["px4_process_alive"] = False
+                    snapshot["px4_host_pids_current"] = []
+                elif state.get("Running") is True:
+                    top = subprocess.run(
+                        [_docker_executable(self.plan), "top", self.name, "-eo", "pid,comm"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        check=False,
+                    )
+                    if top.returncode == 0:
+                        pids = _px4_host_pids(top.stdout)
+                        snapshot["px4_host_pids_current"] = pids
+                        snapshot["px4_process_alive"] = bool(pids)
+                        if pids:
+                            self._last_px4_host_pids = pids
+                            snapshot["px4_host_pids"] = list(pids)
+                    else:
+                        snapshot["px4_process_error"] = (
+                            top.stderr or top.stdout or f"docker top exited {top.returncode}"
+                        ).strip()
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError, AttributeError) as error:
+            snapshot["container_inspect_error"] = str(error)
+        if include_host_metrics:
+            snapshot["host_load_average"] = _host_load_average()
+            snapshot["gpu_memory_mib"] = _host_gpu_memory_mib()
+        return snapshot
+
+    def remember_px4_process(self) -> dict[str, Any]:
+        snapshot = self._container_snapshot()
+        return {
+            "container_name": self.name,
+            "container_id": snapshot.get("container_id"),
+            "px4_host_pids": snapshot.get("px4_host_pids", []),
+        }
+
+    def capture_failure_diagnostics(self, reason: str) -> dict[str, Any]:
+        if self.failure_diagnostics is None:
+            snapshot = self._container_snapshot(include_host_metrics=True)
+            self.failure_diagnostics = {
+                "container_name": self.name,
+                "container_id": snapshot.get("container_id"),
+                "failure_class": _failure_class(reason, snapshot),
+                "reason": reason,
+                "failure_state": snapshot,
+                "cleanup_state": None,
+            }
+            self._progress(
+                "container_failure_snapshot",
+                container=self.name,
+                failure_class=self.failure_diagnostics["failure_class"],
+                container_snapshot=snapshot,
+            )
+        return self.failure_diagnostics
+
+    def capture_cleanup_diagnostics(self) -> dict[str, Any]:
+        self.cleanup_diagnostics = self._container_snapshot()
+        if self.failure_diagnostics is not None:
+            self.failure_diagnostics["cleanup_state"] = self.cleanup_diagnostics
+        return self.cleanup_diagnostics
 
     def __enter__(self) -> DockerSimEnvironment:
         if self.attached:
@@ -957,6 +1130,8 @@ class DockerSimEnvironment:
         return copied
 
     def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is not None:
+            self.capture_failure_diagnostics(f"{exc_type.__name__}: {exc}")
         if self.started and self.plan.keep_px4_ulog:
             try:
                 self.copy_px4_ulogs()
@@ -986,6 +1161,7 @@ class DockerSimEnvironment:
             and self.plan.keep_container_on_failure
             and exc_type is not LowDiskSpace
         ):
+            cleanup_snapshot = self.capture_cleanup_diagnostics()
             subprocess.run(
                 ["docker", "rm", "--force", self.name],
                 capture_output=True,
@@ -994,9 +1170,23 @@ class DockerSimEnvironment:
                 check=False,
             )
             self.started = False
-            self._progress("cleanup", container=self.name, removed=True)
+            self._progress(
+                "cleanup", container=self.name, removed=True, container_snapshot=cleanup_snapshot
+            )
         elif self.started:
-            self._progress("cleanup", container=self.name, removed=False, kept=True)
+            cleanup_snapshot = self.capture_cleanup_diagnostics()
+            self._progress(
+                "cleanup",
+                container=self.name,
+                removed=False,
+                kept=True,
+                container_snapshot=cleanup_snapshot,
+            )
+        elif self.attached:
+            cleanup_snapshot = self.capture_cleanup_diagnostics()
+            self._progress(
+                "cleanup", container=self.name, attached=True, container_snapshot=cleanup_snapshot
+            )
         return False
 
 
@@ -3795,8 +3985,18 @@ def run_episode(
     gimbal_controller = None
     mover_driver = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
+
+    environment = DockerSimEnvironment(plan, episode_id)
+
+    def record_container_failure(exc: Exception) -> None:
+        diagnostics = environment.capture_failure_diagnostics(f"{type(exc).__name__}: {exc}")
+        if diagnostics.get("cleanup_state") is None:
+            environment.capture_cleanup_diagnostics()
+        recorder.meta["failure_class"] = diagnostics["failure_class"]
+        recorder.meta["container_failure_diagnostics"] = diagnostics
+
     try:
-        with DockerSimEnvironment(plan, episode_id) as environment:
+        with environment:
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
             _progress("gz_world_loaded", container=environment.name)
             mover_driver = _start_mover_driver(plan, environment, truth_path)
@@ -3877,6 +4077,7 @@ def run_episode(
             # failure during the docker-exec retries.
             sim_parameters = _set_sim_params(plan, environment)
             recorder.meta["sim_only_parameters"] = sim_parameters
+            recorder.meta["simulator_container"] = environment.remember_px4_process()
             recorder.meta["gcs_identity"] = {
                 "source_system": GCS_SOURCE_SYSTEM,
                 "source_component": GCS_SOURCE_COMPONENT,
@@ -4673,6 +4874,7 @@ def run_episode(
                 if connection is not None:
                     connection.close()
     except LowDiskSpace as exc:
+        record_container_failure(exc)
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
         except Exception:
@@ -4713,6 +4915,7 @@ def run_episode(
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
     except Exception as exc:
+        record_container_failure(exc)
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
         except Exception:
