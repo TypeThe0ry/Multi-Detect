@@ -35,12 +35,10 @@ from multidetect.simulator.stack import (
     build_stack_plan,
 )
 from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_network_mode
+from multidetect.simulator.px4_image import PINNED_IMAGE
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
-PINNED_IMAGE = (
-    "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
-)
 CONTAINER_MODEL_ROOT = "/opt/multidetect-gazebo-models"
 CONTAINER_WORLD_ROOT = "/opt/px4-gazebo/share/gz/worlds"
 CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"

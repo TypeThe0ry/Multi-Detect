@@ -30,11 +30,13 @@ from multidetect.simulator.px4_launch import Px4LaunchError, build_px4_launch_pl
 from multidetect.simulator.stack import SimulatorStackPlan, stack_plan_from_scenario
 
 try:  # pytest imports ``scripts`` as a namespace package
+    from multidetect.simulator.px4_image import PINNED_IMAGE
     from scripts.run_simulator_control_acceptance import run_acceptance as run_control_acceptance
     from scripts.run_simulator_interactive_acceptance import (
         run_acceptance as run_interactive_acceptance,
     )
 except ModuleNotFoundError:  # direct ``python scripts/...`` invocation
+    from multidetect.simulator.px4_image import PINNED_IMAGE
     from run_simulator_control_acceptance import run_acceptance as run_control_acceptance
     from run_simulator_interactive_acceptance import (
         run_acceptance as run_interactive_acceptance,
@@ -61,6 +63,7 @@ class _ThreeDAssetProfile:
     model: Path
     required_model_tokens: tuple[str, ...]
     expected_vehicle_tokens: tuple[str, ...]
+    profile_id: str = "x500_mono_cam"
 
 
 ASSET_PROFILES: dict[str, _ThreeDAssetProfile] = {
@@ -89,6 +92,17 @@ ASSET_PROFILES: dict[str, _ThreeDAssetProfile] = {
         expected_vehicle_tokens=("multirotor", "standard"),
     ),
 }
+
+GIMBAL_ASSET_PROFILE = _ThreeDAssetProfile(
+    scenario_id="urban_inspection_multirotor_001",
+    mode="multirotor",
+    world=ROOT / "simulation/gazebo/worlds/urban_inspection_multirotor_001.sdf",
+    model=ROOT / "simulation/gazebo/model-overlays/x500_gimbal_seg/model.sdf",
+    required_model_tokens=("x500_gimbal", "GimbalAttachJoint", "camera_link", "model://gimbal"),
+    expected_vehicle_tokens=("multirotor", "standard"),
+    profile_id="x500_gimbal",
+)
+GIMBAL_SOURCE_ASSETS = ROOT / "simulation/gazebo/source-assets/x500_gimbal"
 
 
 def _sha256(path: Path) -> str:
@@ -136,6 +150,56 @@ def _validate_3d_assets(
         raise ValueError(
             f"runtime vehicle does not match {profile.mode} asset profile: {vehicle_haystack}"
         )
+    if profile.profile_id == "x500_gimbal":
+        if runtime.vehicle.airframe_profile_id != "x500_gimbal":
+            raise ValueError("gimbal assets require the x500_gimbal airframe profile")
+        source_contract_path = GIMBAL_SOURCE_ASSETS / "extraction.json"
+        if not source_contract_path.is_file():
+            raise FileNotFoundError(
+                "PX4 x500_gimbal source asset contract is missing; extract camera, gimbal, "
+                "and 4019 startup assets from one pinned image revision"
+            )
+        source_contract = json.loads(source_contract_path.read_text(encoding="utf-8"))
+        expected_names = {"x500_gimbal_model.sdf", "gimbal_model.sdf", "4019_gz_x500_gimbal"}
+        expected_image_paths = {
+            "x500_gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf",
+            "gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/gimbal/model.sdf",
+            "4019_gz_x500_gimbal": "/opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal",
+        }
+        assets = source_contract.get("assets")
+        if (
+            source_contract.get("contract") != "multidetect.px4-x500-gimbal-source-assets-v2"
+            or source_contract.get("image") != PINNED_IMAGE
+            or source_contract.get("image_revision") != source_contract.get("image")
+            or not isinstance(assets, dict)
+            or set(assets) != expected_names
+        ):
+            raise ValueError("invalid or mixed-revision PX4 x500_gimbal source asset contract")
+        for name, record in assets.items():
+            asset_path = GIMBAL_SOURCE_ASSETS / name
+            if not isinstance(record, dict) or not asset_path.is_file():
+                raise ValueError(f"PX4 gimbal source asset is missing: {name}")
+            if record.get("image_path") != expected_image_paths[name]:
+                raise ValueError(f"PX4 gimbal source path mismatch: {name}")
+            if record.get("sha256") != _sha256(asset_path):
+                raise ValueError(f"PX4 gimbal source asset hash mismatch: {name}")
+        x500_source = ET.parse(GIMBAL_SOURCE_ASSETS / "x500_gimbal_model.sdf").getroot()
+        x500_model = x500_source.find("model")
+        includes = (
+            {uri.text for uri in x500_model.findall("include/uri") if uri.text}
+            if x500_model is not None
+            else set()
+        )
+        gimbal_source = (GIMBAL_SOURCE_ASSETS / "gimbal_model.sdf").read_text(encoding="utf-8")
+        startup_source = (GIMBAL_SOURCE_ASSETS / "4019_gz_x500_gimbal").read_text(encoding="utf-8")
+        if not {"model://x500", "model://gimbal"}.issubset(includes):
+            raise ValueError("PX4 x500_gimbal source does not include its x500 and gimbal components")
+        gimbal_root = ET.fromstring(gimbal_source)
+        gimbal_links = {link.attrib.get("name") for link in gimbal_root.findall(".//link")}
+        if not {"camera_link", "cgo3_mount_link"}.issubset(gimbal_links):
+            raise ValueError("PX4 gimbal source does not expose camera_link and cgo3_mount_link")
+        if "4019" not in startup_source or "gz_x500_gimbal" not in startup_source:
+            raise ValueError("PX4 4019 startup asset does not match x500_gimbal")
     # World files are self-contained: no network or Fuel resources, and model://
     # only for models this repository ships under simulation/gazebo/models.
     world_text = profile.world.read_text(encoding="utf-8")
@@ -158,6 +222,8 @@ def _validate_3d_assets(
         "model://x500",
         "model://mono_cam",
     }
+    if profile.profile_id == "x500_gimbal":
+        allowed_model_refs.add("model://gimbal")
     model_refs = {
         line.strip().split("</uri>", 1)[0].split(">", 1)[-1]
         for line in model_text.splitlines()
@@ -168,6 +234,7 @@ def _validate_3d_assets(
     return {
         "scenario_id": profile.scenario_id,
         "mode": profile.mode,
+        "airframe_profile_id": profile.profile_id,
         "world": str(profile.world),
         "world_sha256": _sha256(profile.world),
         "model": str(profile.model),
@@ -181,6 +248,18 @@ def _validate_3d_assets(
         },
         "visual_acceptance": "not_claimed",
         "hardware_acceptance": "not_claimed",
+        **(
+            {
+                "source_asset_contract": str(GIMBAL_SOURCE_ASSETS / "extraction.json"),
+                "source_asset_contract_sha256": _sha256(GIMBAL_SOURCE_ASSETS / "extraction.json"),
+                "source_asset_hashes": {
+                    name: record["sha256"]
+                    for name, record in source_contract["assets"].items()
+                },
+            }
+            if profile.profile_id == "x500_gimbal"
+            else {}
+        ),
     }
 
 
@@ -261,9 +340,19 @@ def _build_stack_plan_evidence(
         ),
         "world_uri_bound": plan.world_uri == runtime.world.world_asset,
         "world_asset_bound": plan.world_path.resolve() == profile.world.resolve(),
-        "model_asset_bound": plan.model_path.resolve() == profile.model.resolve(),
+        "model_asset_bound": plan.model_path.resolve()
+        == (
+            (ROOT / "simulation/gazebo/models/x500_mono_cam/model.sdf").resolve()
+            if profile.profile_id == "x500_gimbal"
+            else profile.model.resolve()
+        ),
         "world_digest_bound": plan.assets.world.sha256 == assets["world_sha256"],
-        "model_digest_bound": plan.assets.model.sha256 == assets["model_sha256"],
+        "model_digest_bound": plan.assets.model.sha256
+        == (
+            _sha256(ROOT / "simulation/gazebo/models/x500_mono_cam/model.sdf")
+            if profile.profile_id == "x500_gimbal"
+            else assets["model_sha256"]
+        ),
         "model_config_hashed": (
             plan.assets.model_config.path.is_file()
             and isinstance(plan_asset_sha.get("model_config"), str)
@@ -712,6 +801,11 @@ def run_acceptance(
     runtime = load_runtime_scenario(manifest, mode=RuntimeMode.SIM)
     if runtime.scenario_id != scenario_id:
         raise ValueError("manifest/runtime scenario identity mismatch")
+    if (
+        scenario_id == "urban_inspection_multirotor_001"
+        and runtime.vehicle.airframe_profile_id == "x500_gimbal"
+    ):
+        profile = GIMBAL_ASSET_PROFILE
     control = run_control_acceptance()
     interactive = run_interactive_acceptance(mode=profile.mode)
     assets = _validate_3d_assets(profile, runtime)
