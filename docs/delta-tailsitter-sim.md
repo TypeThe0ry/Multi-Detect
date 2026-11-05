@@ -592,3 +592,28 @@ PYTHONPATH=src:. /data/projects/f1-aero/.venv/bin/python \
 `delta_autoloop.py --pass-streak N` 默认 `N=1`。设为大于 1 时，固定版和云台版必须连续 N 轮都
 通过才写终态 `PASS`；中间 PASS 会记录 streak、tag 加一并直接启动下一轮冒烟，不调用 Codex。任一
 变体失败会将 streak 清零并进入 Codex 修正流程。
+
+## 第十八轮结果与故障归因
+
+2026-11-05 第 18 轮两变体均未通过，不据此放宽任何门槛。固定版 `mavlink.jsonl` 共 47,316
+条消息，遥测到 PX4 boot time 136.832 s；预检最终 `SYS_STATUS.error_flags=0`，因此先前短暂的
+`xy_position_control` 不是本次终止原因。MAVLink/容器证据显示容器以 `ExitCode=139` 退出，
+`OOMKilled=false`，ULog 的姿态、位置和 actuator 主题也记录到约 136.8 s。现有容器日志没有
+给出崩溃栈或明确指出触发该 SIGSEGV 的插件；第 16 轮也出现过固定版 139，但时钟约 19.5 s，
+尚不能证明两次为同一根因。不能仅凭退出码断言是新加的相机固定关节或气动模型导致，需取得
+崩溃转储/带符号栈或稳定复现条件后再改模型。
+
+云台版 `mavlink.jsonl` 共 28,273 条消息，PX4 boot time 到 78.824 s。静默诊断为
+`failure_class=wire_silence`：容器仍运行、非 OOM，Gazebo 时钟仍推进；最后 MAVLink 后约 3.068
+仿真秒内没有新包，随后达到 60 s 墙钟上限。该结果是遥测/锁步推进过慢或停顿的证据，不能当作
+完成 120 s FW 持续段。同期 ULog `tecs_status` 仅有 181 个样本（42.84–78.644 s），真空速 p5/
+p50/p95 约为 15.91/16.84/21.87 m/s，对应目标约 15.03 m/s；已解析 `actuator_motors` 的 741
+个样本中，至少一路控制量触及 0.01/0.99 边界的占比约 25.9%。这些是覆盖窗口内的概况，窗口含
+转换过程且未覆盖完整 120 s FW 持续判定区间，不能冒充正式 smoke gate 的 FW 指标。尤其不能据
+此直接调整 `FW_THR_TRIM`、气动阻力或差动增益：缺少完整持续段及同步姿态/控制响应来识别因果。
+
+两份容器证据均保留在工作树 `.tmp/smoke-{fixed,gimbal}-18/episodes/*/container-evidence/`。
+第 18 轮没有足够证据支持安全的机架参数或气动系数改动；当前阻塞项是固定版可复现的
+SIGSEGV 根因未定位，以及云台版锁步遥测静默。两变体的返航、后转换、降落、帧对齐和本轮云台误差
+也都没有完整有效的通过记录。本轮没有启动额外 SITL/Docker，既有失败保持失败，等待补齐崩溃栈和
+稳定的连续遥测证据后再做针对性修正与连续两次通过验证。
