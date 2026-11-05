@@ -4,6 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from multidetect.simulator.task_semantics import task_equivalent
 
 
@@ -41,6 +43,33 @@ def test_loop_trajectory_position_uses_constant_speed_and_wraps() -> None:
     assert target_pose_at_time(
         {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": trajectory}, 1.0
     ) == {"x_east_m": 2.0, "y_north_m": 0.0}
+
+
+def test_old_fixed_camera_score_projection_is_numerically_unchanged(tmp_path: Path) -> None:
+    from multidetect.simulator.camera_projection import project_target_bbox
+    from scripts.score_onboard_loop import _true_box, episode_camera_pitch_rad
+
+    episode = tmp_path / "episode"
+    episode.mkdir()
+    (episode / "episode.json").write_text(
+        json.dumps({"airframe_profile": {"id": "x500_mono_cam"}}), encoding="utf-8"
+    )
+    observation = {
+        "camera_info": {"width": 1280, "height": 960, "fx": 540.0, "fy": 540.0, "cx": 640.0, "cy": 480.0},
+        "pose": {"local_ned_m": [3.0, -2.0, -22.0]},
+        "attitude": {"roll_deg": 2.0, "pitch_deg": -4.0, "yaw_deg": 35.0},
+    }
+    truth = {"targets": [{"true_target": True, "target_id": "t", "pose": {"x_east_m": 30.0, "y_north_m": 40.0, "z_up_m": 0.0}}]}
+    actual, source = _true_box(episode, observation, truth)
+    expected = project_target_bbox(
+        target_ned=(40.0, 30.0, 0.0),
+        pose=observation,
+        camera_info=observation["camera_info"],
+        image_size=(1280, 960),
+        camera_pitch_rad=episode_camera_pitch_rad(episode),
+    )
+    assert source == "projection"
+    assert actual == pytest.approx(expected)
 
 
 def test_moving_track_metrics_use_sim_truth_at_each_observation() -> None:

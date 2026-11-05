@@ -87,3 +87,64 @@ def test_recorded_composed_camera_pose_drives_projection_without_mount_argument(
     center, ray = result
     assert center == pytest.approx((0.0, 0.0, -10.0))
     assert ray == pytest.approx((0.0, 1.0, 0.0))
+
+
+def test_recorded_gimbal_state_drives_projection_when_camera_pose_is_absent() -> None:
+    pose = {
+        **_pose(roll=0.0, pitch=0.0, yaw=0.0),
+        "gimbal_state": {
+            "pitch_rad": 0.0,
+            "yaw_rad": math.pi / 2.0,
+            "roll_rad": 0.0,
+            "yaw_frame": "body",
+        },
+    }
+    result = pixel_camera_ray(
+        640.0, 480.0, pose=pose, camera_info=_camera(), image_size=(1280, 960)
+    )
+    assert result is not None
+    _, ray = result
+    assert ray == pytest.approx((0.0, 1.0, 0.0), abs=1e-12)
+
+
+def test_recorded_joint_state_positions_drive_projection_without_camera_pose() -> None:
+    vehicle_pose = _pose()
+    pose = {
+        "pose": {"local_ned_m": vehicle_pose["local_ned_m"]},
+        "attitude": vehicle_pose["attitude"],
+        "gimbal_joint_state": {
+            "timestamp_ns": 1_000_000,
+            "position_rad": {"pitch": 0.6, "yaw": 0.8, "roll": 0.1},
+            "velocity_rad_s": {},
+            "source": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            "fresh": True,
+        },
+    }
+    actual = pixel_camera_ray(
+        650.0, 510.0, pose=pose, camera_info=_camera(), image_size=(1280, 960)
+    )
+    expected = pixel_camera_ray(
+        650.0, 510.0, pose=vehicle_pose, camera_info=_camera(), image_size=(1280, 960),
+        camera_mount=CameraMount.gimbal(pitch_rad=0.6, yaw_rad=0.8, roll_rad=0.1),
+    )
+    assert actual is not None and expected is not None
+    assert actual[0] == pytest.approx(expected[0], abs=1e-12)
+    assert actual[1] == pytest.approx(expected[1], abs=1e-12)
+
+
+@pytest.mark.parametrize("source", ["fixed_mount", "unavailable"])
+def test_unrecorded_joint_state_keeps_legacy_projection(source: str) -> None:
+    pose = {
+        **_pose(roll=2.0, pitch=-4.0, yaw=35.0),
+        "gimbal_joint_state": {
+            "position_rad": {"pitch": 1.2, "yaw": 0.8, "roll": 0.1},
+            "source": source,
+        },
+    }
+    legacy = pixel_camera_ray(
+        650.0, 510.0, pose=_pose(roll=2.0, pitch=-4.0, yaw=35.0), camera_info=_camera(), image_size=(1280, 960)
+    )
+    actual = pixel_camera_ray(650.0, 510.0, pose=pose, camera_info=_camera(), image_size=(1280, 960))
+    assert actual is not None and legacy is not None
+    for actual_value, legacy_value in zip(actual[0] + actual[1], legacy[0] + legacy[1]):
+        assert actual_value == pytest.approx(legacy_value)

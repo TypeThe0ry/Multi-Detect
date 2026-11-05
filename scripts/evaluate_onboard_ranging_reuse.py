@@ -28,6 +28,7 @@ from multidetect.multimodal_ranging import (  # noqa: E402
 )
 from multidetect.rgb_slam_range import RgbSlamRangeEstimator  # noqa: E402
 from multidetect.simulator.camera_projection import (  # noqa: E402
+    pixel_camera_ray,
     pixel_ground_point,
     project_target_bbox,
 )
@@ -122,6 +123,25 @@ def triangulation_quality(samples, point):
 
 
 def ray(ob, u, v):
+    # New recordings carry the composed per-frame camera pose.  Use it for
+    # ranging; retain the historical multimodal calibration path for old
+    # fixed-camera episodes so their numbers remain byte-for-byte stable.
+    joint_state = ob.get("gimbal_joint_state")
+    has_recorded_gimbal = (
+        isinstance(ob.get("camera_pose"), dict)
+        or isinstance(ob.get("gimbal_state"), dict)
+        or (isinstance(joint_state, dict) and joint_state.get("source") not in {"fixed_mount", "unavailable"})
+    )
+    if has_recorded_gimbal:
+        result = pixel_camera_ray(
+            u,
+            v,
+            pose=ob,
+            camera_info=ob.get("camera_info"),
+            image_size=(int(ob["camera_info"]["width"]), int(ob["camera_info"]["height"])),
+        )
+        if result is not None:
+            return result[1]
     cal = load_camera_calibration(
         ROOT / "simulation/gazebo/calibration/gazebo-multirotor-front-camera-v1.json"
     )

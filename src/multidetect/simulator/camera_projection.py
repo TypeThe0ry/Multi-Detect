@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 from multidetect.autonomy.ground_model import GroundModel
-from multidetect.camera_mount import CameraMount, compose_camera_pose
+from multidetect.camera_mount import CameraMount, GimbalLimits, compose_camera_pose
 
 CAMERA_MOUNT_X_M = 0.18
 CAMERA_MOUNT_Z_DOWN_M = 0.12
@@ -95,19 +96,102 @@ def _pose_values(pose: Mapping[str, Any]) -> tuple[float, float, float, float, f
     return north, east, down, roll, pitch, yaw
 
 
-def _recorded_camera_pose(pose: Mapping[str, Any]) -> tuple[tuple[float, float, float], tuple[float, ...]] | None:
+def _recorded_camera_pose(
+    pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None
+) -> tuple[tuple[float, float, float], tuple[float, ...]] | None:
+    """Return a frame camera pose, composing legacy gimbal feedback when needed.
+
+    Recorded ``camera_pose`` is authoritative.  Older gimbal recordings may
+    contain only ``gimbal_state`` (or its joint-state spelling), so compose the
+    feedback against the measured vehicle pose before falling back to the
+    historical fixed-camera geometry.
+    """
     camera = pose.get("camera_pose")
     if not isinstance(camera, Mapping):
-        return None
-    center, rotation = camera.get("center_ned"), camera.get("optical_to_world")
+        camera = None
+    center = camera.get("center_ned") if camera is not None else None
+    rotation = camera.get("optical_to_world") if camera is not None else None
     if not isinstance(center, Sequence) or isinstance(center, (str, bytes)) or len(center) != 3:
-        return None
+        center = rotation = None
     if not isinstance(rotation, Sequence) or isinstance(rotation, (str, bytes)) or len(rotation) != 9:
+        center = rotation = None
+    if center is not None and rotation is not None:
+        values = tuple(_finite(value) for value in (*center, *rotation))
+        if not any(value is None for value in values):
+            return tuple(float(value) for value in center), tuple(float(value) for value in rotation)
+
+    state = pose.get("gimbal_state")
+    angle_names = ("pitch_rad", "yaw_rad", "roll_rad")
+    if not isinstance(state, Mapping):
+        joint = pose.get("gimbal_joint_state")
+        state = (
+            joint.get("position_rad")
+            if isinstance(joint, Mapping) and joint.get("source") not in {"fixed_mount", "unavailable"}
+            else None
+        )
+        angle_names = ("pitch", "yaw", "roll")
+    if not isinstance(state, Mapping):
         return None
-    values = tuple(_finite(value) for value in (*center, *rotation))
-    if any(value is None for value in values):
+    angles = tuple(_finite(state.get(name)) for name in angle_names)
+    if any(value is None for value in angles):
         return None
-    return tuple(float(value) for value in center), tuple(float(value) for value in rotation)
+    values = _pose_values(pose)
+    if values is None:
+        return None
+    base = camera_mount if camera_mount is not None and camera_mount.kind == "gimbal" else CameraMount.gimbal()
+    yaw_frame = state.get("yaw_frame")
+    stabilization = (
+        "lock-horizon" if yaw_frame == "world" else "follow-body"
+        if yaw_frame == "body" else base.stabilization
+    )
+    if not (
+        base.limits.pitch_min_rad <= float(angles[0]) <= base.limits.pitch_max_rad
+        and base.limits.yaw_min_rad <= float(angles[1]) <= base.limits.yaw_max_rad
+        and base.limits.roll_min_rad <= float(angles[2]) <= base.limits.roll_max_rad
+    ):
+        # Keep replay geometry available for recorded feedback marked
+        # out-of-limits; the observation is still the measured pose.
+        base = replace(
+            base,
+            limits=GimbalLimits(
+                pitch_min_rad=-math.pi,
+                pitch_max_rad=math.pi,
+                yaw_min_rad=-math.pi,
+                yaw_max_rad=math.pi,
+                roll_min_rad=-math.pi,
+                roll_max_rad=math.pi,
+            ),
+        )
+    mount = replace(
+        base,
+        pitch_rad=float(angles[0]),
+        yaw_rad=float(angles[1]),
+        roll_rad=float(angles[2]),
+        stabilization=stabilization,
+    )
+    rotation_override = state.get("rotation")
+    if isinstance(rotation_override, Sequence) and not isinstance(rotation_override, (str, bytes)) and len(rotation_override) == 9:
+        parsed = tuple(_finite(value) for value in rotation_override)
+        if all(value is not None for value in parsed):
+            rotation_frame = yaw_frame if yaw_frame in {"body", "world"} else "body"
+            composed = compose_camera_pose(
+                tuple(values[:3]),
+                vehicle_roll_rad=math.radians(values[3]),
+                vehicle_pitch_rad=math.radians(values[4]),
+                vehicle_yaw_rad=math.radians(values[5]),
+                mount=mount,
+                rotation_override=tuple(float(value) for value in parsed),
+                rotation_frame=rotation_frame,
+            )
+            return composed.center_ned, composed.optical_to_world
+    composed = compose_camera_pose(
+        tuple(values[:3]),
+        vehicle_roll_rad=math.radians(values[3]),
+        vehicle_pitch_rad=math.radians(values[4]),
+        vehicle_yaw_rad=math.radians(values[5]),
+        mount=mount,
+    )
+    return composed.center_ned, composed.optical_to_world
 
 
 def _world_to_body_ned(
@@ -147,7 +231,7 @@ def camera_center_ned_up(
     pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None
 ) -> tuple[float, float, float] | None:
     """Return camera centre as ``(north_m, east_m, up_m)`` for a recorded pose."""
-    recorded = _recorded_camera_pose(pose)
+    recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
     if recorded is not None:
         return recorded[0][0], recorded[0][1], -recorded[0][2]
     values = _pose_values(pose)
@@ -184,7 +268,7 @@ def _pixel_camera_ray_raw(
     camera_mount: CameraMount | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Shared inverse projection; retain the legacy unnormalized ground ray."""
-    recorded = _recorded_camera_pose(pose)
+    recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
     if recorded is not None:
         fx, fy, cx, cy = _intrinsics(camera_info, image_size)
         x, y, z = 1.0, (u - cx) / fx, (v - cy) / fy
@@ -402,7 +486,7 @@ def project_target_bbox(
     if values is None:
         return None
     pn, pe, p_down, roll_deg, pitch_deg, yaw_deg = values
-    recorded = _recorded_camera_pose(pose)
+    recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
     target_north, target_east, target_up = target_ned
     if not all(
         math.isfinite(float(value))

@@ -195,6 +195,7 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     from multidetect.sim_teacher.policies import ExpertSearchPolicy
     from multidetect.simulator.camera_projection import pixel_camera_ray, pixel_ground_point
     from multidetect.simulator.task_semantics import typical_object_size
+    from scripts.score_onboard_loop import episode_camera_pitch_rad
 
     rows = read_rows(episode)
     if not rows:
@@ -217,8 +218,9 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     goal = restored["plan"].get("goal") or episode.parent.parent.name
     plan = validate_mission_plan(restored["plan"], capabilities=frozenset({"payload"}))
     info = rows[0]["obs_before"]["camera_info"]
+    fallback_camera_pitch_rad = episode_camera_pitch_rad(episode)
     camera = CameraModel(float(info["fx"]), float(info["fy"]), float(info["cx"]), float(info["cy"]),
-                         int(info["width"]), int(info["height"]), pitch_down_rad=0.18)
+                         int(info["width"]), int(info["height"]), pitch_down_rad=fallback_camera_pitch_rad)
     world_setting = mission.get("world_sdf", "default.sdf")
     world_path = Path(str(world_setting))
     sdf = world_path if world_path.is_absolute() else ROOT / "simulation/gazebo/worlds" / f"{world_path.stem}.sdf"
@@ -305,7 +307,7 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
     search_altitude = max(
         8.0,
         min(takeoff_altitude, (typical_object_size(query, default=0.0) or 0.0)
-            * float(info["fx"]) / 14.0 * math.sin(0.18 + math.radians(20.0))),
+            * float(info["fx"]) / 14.0 * math.sin(fallback_camera_pitch_rad + math.radians(20.0))),
     )
     if obstacles:
         search_altitude = max(search_altitude, min(takeoff_altitude,
@@ -394,9 +396,9 @@ def replay(episode: Path, *, mode: str = "logged", cache_file: Path | None = Non
         stamp_s = float(stamp) / 1e9 if stamp is not None else None
         width, height = camera.width, camera.height
         def ground(u: float, v: float) -> Any:
-            return pixel_ground_point(u, v, pose=obs, camera_info=obs["camera_info"], image_size=(width, height), camera_pitch_rad=0.18)
+            return pixel_ground_point(u, v, pose=obs, camera_info=obs["camera_info"], image_size=(width, height), camera_pitch_rad=fallback_camera_pitch_rad)
         def ray(u: float, v: float) -> Any:
-            return pixel_camera_ray(u, v, pose=obs, camera_info=obs["camera_info"], image_size=(width, height), camera_pitch_rad=0.18)
+            return pixel_camera_ray(u, v, pose=obs, camera_info=obs["camera_info"], image_size=(width, height), camera_pitch_rad=fallback_camera_pitch_rad)
         tracks = label.get("tracks", [])
         raw_detections = detections_by_step.get(str(row["step_index"]))
         if raw_detections is None:
