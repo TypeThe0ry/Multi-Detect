@@ -21,11 +21,12 @@ from multidetect.sim_teacher.spawn_clearance import (  # noqa: E402
     teacher_intent_clearance_altitude,
     teacher_intent_clearance_route_points,
 )
+from multidetect.simulator.task_semantics import fuel_task_texts  # noqa: E402
 from multidetect.simulator.world_gen import (  # noqa: E402
     FIXED_WING_SENSORS,
+    build_teacher_actuator_state,
     generate_fuel_worlds,  # noqa: E402
 )
-from multidetect.simulator.task_semantics import fuel_task_texts  # noqa: E402
 
 
 def r21id_r4_templates():
@@ -257,12 +258,49 @@ def main(argv=None):
     p.add_argument("--resolved-root", type=Path, help="override resolved asset root")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument(
+        "--gimbal-sidecar",
+        action="store_true",
+        help="write a sidecar and index reference; teacher-intent profiles also link it",
+    )
+    p.add_argument("--gimbal-yaw-rad", type=float)
+    p.add_argument("--gimbal-roll-rad", type=float)
+    p.add_argument(
+        "--stabilization-mode",
+        choices=("follow-body", "lock-horizon", "follow-yaw"),
+    )
+    p.add_argument(
+        "--propeller-spin-rad-s",
+        type=float,
+        nargs=4,
+        metavar=("R1", "R2", "R3", "R4"),
+        help="four signed rotor rates in rad/s, in generator rotor order",
+    )
+    p.add_argument(
         "--profile",
         choices=("default", "r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"),
         default="default",
         help="optional hard-case profile; default preserves the r15 config",
     )
     a = p.parse_args(argv)
+    sidecar_overrides = (
+        a.gimbal_yaw_rad,
+        a.gimbal_roll_rad,
+        a.stabilization_mode,
+        a.propeller_spin_rad_s,
+    )
+    if not a.gimbal_sidecar and any(value is not None for value in sidecar_overrides):
+        p.error("gimbal sidecar values require --gimbal-sidecar")
+    actuator_state = None
+    if a.gimbal_sidecar:
+        try:
+            actuator_state = build_teacher_actuator_state(
+                gimbal_yaw_rad=0.0 if a.gimbal_yaw_rad is None else a.gimbal_yaw_rad,
+                gimbal_roll_rad=0.0 if a.gimbal_roll_rad is None else a.gimbal_roll_rad,
+                stabilization_mode=a.stabilization_mode or "lock-horizon",
+                propeller_spin_rad_s=a.propeller_spin_rad_s or (0.0, 0.0, 0.0, 0.0),
+            )
+        except ValueError as exc:
+            p.error(str(exc))
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
     if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"):
         # Four deterministic hard-case families. All true-target slugs are
@@ -398,20 +436,18 @@ def main(argv=None):
             dict(t, split=t.get("split", "train" if i < 16 else "val")) for i, t in enumerate(templates)
         ]
     if a.dry_run:
-        print(
-            json.dumps(
-                {
-                    "count": cfg["count"],
-                    "seed": cfg["seed"],
-                    "world_prefix": cfg["world_prefix"],
-                    "splits": {
-                        s: sum(w["split"] == s for w in cfg["worlds"])
-                        for s in ("train", "val", "test")
-                    },
-                },
-                ensure_ascii=False,
-            )
-        )
+        summary = {
+            "count": cfg["count"],
+            "seed": cfg["seed"],
+            "world_prefix": cfg["world_prefix"],
+            "splits": {
+                s: sum(w["split"] == s for w in cfg["worlds"])
+                for s in ("train", "val", "test")
+            },
+        }
+        if actuator_state is not None:
+            summary["actuator_state_sidecar"] = actuator_state
+        print(json.dumps(summary, ensure_ascii=False))
         return 0
     if a.world_prefix:
         cfg["world_prefix"] = a.world_prefix
@@ -455,6 +491,7 @@ def main(argv=None):
         confuser_copies=cfg["confuser_copies"],
         appearance=tuple(w["appearance"] for w in cfg["worlds"]),
         forced_distractors=forced,
+        actuator_state=actuator_state,
     )
     if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7"):
         doc["profile"] = a.profile
@@ -693,6 +730,10 @@ def main(argv=None):
                 "kind": "find_and_observe",
                 "observation": observation_intent,
             }
+            if "actuator_state_sidecar" in entry:
+                teacher_intent["actuator_state_sidecar"] = dict(
+                    entry["actuator_state_sidecar"]
+                )
             spawn_pose = {
                 "x_east_m": 0.0,
                 "y_north_m": 0.0,

@@ -26,3 +26,50 @@ def test_r15_cli_dry_run():
         [sys.executable, str(ROOT / "scripts/generate_r15_worlds.py"), "--dry-run"], text=True
     )
     assert '"count": 20' in out
+
+
+def test_r15_cli_gimbal_sidecar_options_are_explicit():
+    out = subprocess.check_output(
+        [
+            sys.executable,
+            str(ROOT / "scripts/generate_r15_worlds.py"),
+            "--dry-run",
+            "--gimbal-sidecar",
+            "--gimbal-yaw-rad",
+            "0.25",
+            "--gimbal-roll-rad",
+            "-0.1",
+            "--stabilization-mode",
+            "follow-yaw",
+            "--propeller-spin-rad-s",
+            "10",
+            "-10",
+            "10",
+            "-10",
+        ],
+        text=True,
+    )
+    payload = json.loads(out)
+    assert payload["actuator_state_sidecar"] == {
+        "schema_version": 1,
+        "gimbal": {
+            "yaw_rad": 0.25,
+            "roll_rad": -0.1,
+            "stabilization_mode": "follow-yaw",
+        },
+        "propeller_spin_rad_s": [10.0, -10.0, 10.0, -10.0],
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/generate_r15_worlds.py"),
+            "--dry-run",
+            "--gimbal-yaw-rad",
+            "0.25",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "require --gimbal-sidecar" in result.stderr
