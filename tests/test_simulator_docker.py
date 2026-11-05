@@ -28,6 +28,7 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
 
     assert plan.image == PINNED_IMAGE
     assert plan.command[0:2] == ("docker", "run")
+    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "default"
     assert ("--cap-drop", "ALL") == plan.command[
         plan.command.index("--cap-drop") : plan.command.index("--cap-drop") + 2
     ]
@@ -38,8 +39,6 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
     assert plan.no_new_privileges is True
     assert plan.container_security_gate_passed is True
     assert "--publish" in plan.command
-
-
     assert plan.command[plan.command.index("--add-host") + 1] == (
         "host.docker.internal:host-gateway"
     )
@@ -80,6 +79,27 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
         ["docker", "stop", "--timeout", "2", "multidetect-sim"],
         ["docker", "rm", "multidetect-sim"],
     ]
+
+
+@pytest.mark.parametrize("mode", ["default", "off"])
+def test_logger_mode_is_recorded_and_off_disables_sdlog(tmp_path, monkeypatch, mode):
+    monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", mode)
+    plan = build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / mode)
+    environment = dict(plan.environment)
+    assert environment["MULTIDETECT_PX4_LOGGER_MODE"] == mode
+    assert plan.to_mapping()["environment"]["MULTIDETECT_PX4_LOGGER_MODE"] == mode
+    if mode == "off":
+        assert environment["SDLOG_BACKEND"] == "0"
+        assert environment["PX4_PARAM_SDLOG_BACKEND"] == "0"
+    else:
+        assert "SDLOG_BACKEND" not in environment
+
+
+def test_logger_mode_rejects_poll_and_unknown_values(tmp_path, monkeypatch):
+    for mode in ("poll", "unknown"):
+        monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", mode)
+        with pytest.raises(DockerSimulatorPlanError, match="default or off"):
+            build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / mode)
 
 
 def test_gimbal_airframe_uses_px4_gimbal_model_without_starting_docker(tmp_path: Path) -> None:

@@ -49,6 +49,18 @@ DEFAULT_GPU_DEVICES = ("1", "2")
 DEFAULT_GPU_AVOID = ("0", "3")
 NVIDIA_EGL_VENDOR_FILE = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+PX4_LOGGER_MODE_ENV = "MULTIDETECT_PX4_LOGGER_MODE"
+
+
+def resolve_px4_logger_mode(value: str | None = None) -> str:
+    """Resolve and validate the logger setting used by every simulator plan."""
+    mode = os.environ.get(PX4_LOGGER_MODE_ENV, "default") if value is None else value
+    mode = str(mode).strip().lower()
+    if mode not in {"default", "off"}:
+        raise DockerSimulatorPlanError(f"{PX4_LOGGER_MODE_ENV} must be default or off")
+    return mode
+
+
 # SIM-only PX4 parameters, applied by rcS from PX4_PARAM_* before
 # px4-rc.gzsim starts the simulated sensors.  Without them EKF2's attitude
 # drifted from Gazebo's ground truth in banked flight (fixed-wing loiters:
@@ -630,6 +642,11 @@ def build_docker_simulator_plan(
         "GZ_VERBOSE": "0",
         **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
+    logger_mode = resolve_px4_logger_mode()
+    container_environment[PX4_LOGGER_MODE_ENV] = logger_mode
+    if logger_mode == "off":
+        container_environment["SDLOG_BACKEND"] = "0"
+        container_environment["PX4_PARAM_SDLOG_BACKEND"] = "0"
     if airframe_profile_id == "x500_gimbal":
         container_environment["PX4_SYS_AUTOSTART"] = "4019"
         container_environment["PX4_SIM_MODEL"] = "gz_x500_gimbal"

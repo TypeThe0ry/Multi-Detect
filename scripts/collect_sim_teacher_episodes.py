@@ -84,6 +84,7 @@ from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_SCRIPT_ROOT,
     _split_gpu_list,
     build_docker_simulator_plan,
+    resolve_px4_logger_mode,
 )
 from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context  # noqa: E402
 
@@ -299,6 +300,8 @@ class CollectionPlan:
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
+        result["linux_primitive_clock_stall_timeout_s"] = _linux_primitive_clock_stall_timeout_s()
+        result["px4_logger_mode"] = resolve_px4_logger_mode()
         altitude, source = _takeoff_altitude_for_plan(self)
         result["takeoff_altitude_m"] = altitude
         result["takeoff_altitude_source"] = source
@@ -1041,7 +1044,9 @@ class DockerSimEnvironment:
             "px4_host_pids": snapshot.get("px4_host_pids", []),
         }
 
-    def capture_failure_diagnostics(self, reason: str) -> dict[str, Any]:
+    def capture_failure_diagnostics(
+        self, reason: str, *, px4_clock_diagnostics: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         if self.failure_diagnostics is None:
             snapshot = self._container_snapshot(include_host_metrics=True)
             self.failure_diagnostics = {
@@ -1052,6 +1057,8 @@ class DockerSimEnvironment:
                 "failure_state": snapshot,
                 "cleanup_state": None,
             }
+            if px4_clock_diagnostics is not None:
+                self.failure_diagnostics["px4_clock_diagnostics"] = px4_clock_diagnostics
             self._progress(
                 "container_failure_snapshot",
                 container=self.name,
@@ -1131,7 +1138,10 @@ class DockerSimEnvironment:
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         if exc_type is not None:
-            self.capture_failure_diagnostics(f"{exc_type.__name__}: {exc}")
+            self.capture_failure_diagnostics(
+                f"{exc_type.__name__}: {exc}",
+                px4_clock_diagnostics=getattr(exc, "px4_clock_diagnostics", None),
+            )
         if self.started and self.plan.keep_px4_ulog:
             try:
                 self.copy_px4_ulogs()
@@ -2144,6 +2154,24 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
 # Wall-clock bound on one primitive when it is timed on the simulation clock.
 PRIMITIVE_MAX_WALL_S = 180.0
 LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S = 45.0
+LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_ENV = "LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S"
+
+
+def _linux_primitive_clock_stall_timeout_s() -> float:
+    raw = os.environ.get(LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_ENV)
+    if raw is None:
+        return LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_ENV} must be a finite positive number"
+        ) from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(
+            f"{LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_ENV} must be a finite positive number"
+        )
+    return value
 
 
 def _primitive_max_wall_s(platform_name: str | None = None) -> float:
@@ -2152,19 +2180,27 @@ def _primitive_max_wall_s(platform_name: str | None = None) -> float:
     return (
         PRIMITIVE_MAX_WALL_S
         if platform_name == "nt"
-        else LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S
+        else _linux_primitive_clock_stall_timeout_s()
     )
 
 
 def _raise_if_px4_clock_stalled(
-    result: Any, step: int, platform_name: str | None = None
+    result: Any,
+    step: int,
+    platform_name: str | None = None,
+    *,
+    sim_clock: Any = None,
 ) -> None:
     platform_name = os.name if platform_name is None else platform_name
     if platform_name != "nt" and result.ack.get("wall_timeout"):
-        raise TimeoutError(
+        timeout_s = _linux_primitive_clock_stall_timeout_s()
+        error = TimeoutError(
             "PX4 simulation clock stalled during primitive; "
-            f"step={step}; wall_timeout_s={LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S:.0f}"
+            f"step={step}; wall_timeout_s={timeout_s:g}"
         )
+        if sim_clock is not None and callable(getattr(sim_clock, "diagnostic_snapshot", None)):
+            error.px4_clock_diagnostics = sim_clock.diagnostic_snapshot()
+        raise error
 
 
 class _SimClock:
@@ -2182,6 +2218,10 @@ class _SimClock:
         self._last_at = float("-inf")
         self._last_wall = float("-inf")
         self._missing = False
+        self._last_raw_stamp_ns: int | None = None
+        self._last_progress_wall: float | None = None
+        self._last_progress_clock_s: float | None = None
+        self._resumed_after_default_deadline = False
 
     def __call__(self) -> float:
         stamp = _pose_sim_stamp_ns(self._reader.state)
@@ -2195,6 +2235,16 @@ class _SimClock:
             self._last_at, self._last_wall = self._last, wall
             self._missing = True
             return self._last
+        raw_clock_s = stamp / 1e9
+        if self._last_raw_stamp_ns is None or stamp > self._last_raw_stamp_ns:
+            if (
+                self._last_progress_wall is not None
+                and wall - self._last_progress_wall >= LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S
+            ):
+                self._resumed_after_default_deadline = True
+            self._last_raw_stamp_ns = stamp
+            self._last_progress_wall = wall
+            self._last_progress_clock_s = raw_clock_s
         if self._offset is None:
             self._offset = wall - stamp / 1e9
         elif self._missing:
@@ -2204,6 +2254,15 @@ class _SimClock:
         self._last = max(self._last, self._offset + stamp / 1e9)
         self._last_at, self._last_wall = self._last, wall
         return self._last
+
+    def diagnostic_snapshot(self) -> dict[str, Any]:
+        stamp = _pose_sim_stamp_ns(self._reader.state)
+        return {
+            "px4_clock_s": stamp / 1e9 if stamp is not None else None,
+            "last_progress_at_monotonic_s": self._last_progress_wall,
+            "last_progress_px4_clock_s": self._last_progress_clock_s,
+            "clock_moved_again_after_45s": self._resumed_after_default_deadline,
+        }
 
 
 def _pose_sim_stamp_ns(state: Any) -> int | None:
@@ -3967,6 +4026,10 @@ def run_episode(
         model_cache=Path(plan.out) / f"{episode_id}-onboard-frames" / ".model-hash-cache.json",
     )
     recorder.meta["provenance"]["config_snapshot"] = config_snapshot
+    recorder.meta["provenance"]["px4_logger_mode"] = resolve_px4_logger_mode()
+    recorder.meta["provenance"]["linux_primitive_clock_stall_timeout_s"] = (
+        _linux_primitive_clock_stall_timeout_s()
+    )
     cpu_isolation = resolve_cpu_isolation(plan.worker_index)
     if cpu_isolation is not None:
         # Attaching does not apply the planned Docker options to an existing
@@ -3989,11 +4052,20 @@ def run_episode(
     environment = DockerSimEnvironment(plan, episode_id)
 
     def record_container_failure(exc: Exception) -> None:
-        diagnostics = environment.capture_failure_diagnostics(f"{type(exc).__name__}: {exc}")
+        clock_diagnostics = getattr(exc, "px4_clock_diagnostics", None)
+        diagnostics = environment.capture_failure_diagnostics(
+            f"{type(exc).__name__}: {exc}",
+            px4_clock_diagnostics=clock_diagnostics,
+        )
         if diagnostics.get("cleanup_state") is None:
             environment.capture_cleanup_diagnostics()
         recorder.meta["failure_class"] = diagnostics["failure_class"]
         recorder.meta["container_failure_diagnostics"] = diagnostics
+        if clock_diagnostics is not None:
+            recorder.meta["failure_record"] = {
+                "kind": "px4_sim_clock_stall",
+                **clock_diagnostics,
+            }
 
     try:
         with environment:
@@ -4218,6 +4290,7 @@ def run_episode(
                 raise TimeoutError(f"{exc}; still missing: {_ekf_missing()}") from exc
             vehicle = telemetry_connection
             start_pos = _state_position(mav_reader.state)
+            primitive_sim_clock = _SimClock(mav_reader)
             if airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
                 setpoint_streamer = SetpointStreamer(vehicle, rate_hz=20.0)
                 setpoint_streamer.set_target(
@@ -4236,7 +4309,7 @@ def run_episode(
                     # Time primitives on PX4's lockstep clock: on a loaded host the
                     # simulation ran at 0.22x real time and a third of the 15 m legs
                     # hit the 20 s wall-clock timeout before settling.
-                    clock=_SimClock(mav_reader),
+                    clock=primitive_sim_clock,
                     max_wall_s=_primitive_max_wall_s(),
                 )
             # Let PX4's commander settle and report healthy before arming.
@@ -4651,7 +4724,8 @@ def run_episode(
                 if execute_error:
                     raise execute_error[0]
                 result = result_box[0]
-                _raise_if_px4_clock_stalled(result, index)
+                _raise_if_px4_clock_stalled(result, index, sim_clock=primitive_sim_clock)
+                timing["px4_clock_diagnostics"] = primitive_sim_clock.diagnostic_snapshot()
                 timing["command_and_primitive_wait_ms"] = round(
                     (time.perf_counter_ns() - primitive_started_ns) / 1e6, 3
                 )
