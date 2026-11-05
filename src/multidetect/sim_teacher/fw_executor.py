@@ -127,6 +127,18 @@ class FixedWingVtolExecutor:
             return bool(value)
         return getattr(result, "status", "") in {"accepted", "sent", "success"}
 
+    def sync_commanded_state(self) -> tuple[float, float, float]:
+        """Rebase local guided commands on the latest measured pose and heading."""
+        position = tuple(float(value) for value in self._position())
+        if len(position) != 3 or not all(math.isfinite(value) for value in position):
+            raise ValueError("measured position must contain three finite NED coordinates")
+        yaw = float(self._yaw())
+        if not math.isfinite(yaw):
+            raise ValueError("measured heading must be finite")
+        self._commanded = position
+        self._commanded_yaw = yaw
+        return position
+
     _GEO_COMMANDS = frozenset({"reposition", "orbit", "loiter_at", "fw_takeoff", "fw_land"})
 
     def _to_global(

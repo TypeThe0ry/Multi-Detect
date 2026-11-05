@@ -147,7 +147,7 @@ def test_motor_geometry_directions_and_thrust_match_control_allocation():
     assert params["FW_YR_P"] == pytest.approx(0.2 * yaw_authority_ratio)
     assert params["VT_FW_DIFTHR_EN"] == 7
     assert params["VT_FW_DIFTHR_S_R"] == params["VT_FW_DIFTHR_S_P"] == params["VT_FW_DIFTHR_S_Y"] == 1
-    assert params["FW_THR_TRIM"] == pytest.approx(0.35)
+    assert params["FW_THR_TRIM"] == pytest.approx(0.32)
     assert params["FW_THR_MIN"] == pytest.approx(0.0)
     assert params["VT_F_TRANS_THR"] == pytest.approx(0.25)
     assert params["VT_F_TRANS_DUR"] == pytest.approx(5.0)

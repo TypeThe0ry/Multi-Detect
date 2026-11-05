@@ -52,6 +52,24 @@ def test_fixed_wing_primitives_use_reposition_and_orbit() -> None:
     assert fake.calls[-1][0] == "orbit"
 
 
+def test_sync_commanded_state_rebases_translation_on_latest_pose_and_heading() -> None:
+    fake = FakeVehicle()
+    measured = [(3.0, 40.0, -39.0)]
+    heading = [90.0]
+    executor = FixedWingVtolExecutor(
+        fake,
+        position=lambda: measured[0],
+        yaw_deg=lambda: heading[0],
+    )
+
+    assert executor.sync_commanded_state() == measured[0]
+    assert executor.execute(ActionPrimitive.translate(35.0, 0.0)).status == "success"
+
+    # Heading east: the guided target advances 35 m east from the measured
+    # post-transition point, rather than from the executor's construction pose.
+    assert fake.calls[-1][1][0] == pytest.approx((3.0, 75.0))
+
+
 def test_vtol_takeoff_and_landing_transition_sequence() -> None:
     fake = FakeVehicle()
     executor = FixedWingVtolExecutor(fake, airframe="vtol")

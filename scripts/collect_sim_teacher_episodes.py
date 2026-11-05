@@ -5342,6 +5342,17 @@ def run_episode(
 
                 def _execute() -> None:
                     try:
+                        if (
+                            strict_delta_smoke
+                            and getattr(action, "kind", None) == "translate"
+                            and isinstance(executor, FixedWingVtolExecutor)
+                        ):
+                            # A gimballed tailsitter climbs in MC before the
+                            # smoke path transitions to FW. Rebase immediately
+                            # before its first guided leg so translation starts
+                            # from the post-transition measured pose, not the
+                            # preflight/takeoff position cached by the executor.
+                            executor.sync_commanded_state()
                         executed = executor.execute(action)  # noqa: B023
                         if (
                             strict_delta_smoke

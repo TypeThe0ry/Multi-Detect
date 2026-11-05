@@ -73,7 +73,9 @@ param set-default FW_YR_I 0
 param set-default FW_YR_P 0.291559
 # 15 m/s 估计阻力约 4 N（满推力 64.8 N 的 6%）；初值 10% 给差动配平余量。
 # 无舵面且 SM 约 3.5%；FW_PSP_OFF=2 保持 4018 tailsitter 偏置约定，最终闭环增益仍需 SITL/实测整定。
-param set-default FW_THR_TRIM 0.35
+# 第 23 轮固定版 FW 空速 p95=21.27 m/s，超过 19 m/s 档案上限；降低巡航推力配平，
+# 保留足够的 15 m/s 配平余量，待下一轮完整持续段验证。
+param set-default FW_THR_TRIM 0.32
 param set-default FW_THR_MAX 0.8
 param set-default FW_THR_MIN 0.0
 param set-default FW_R_LIM 35
