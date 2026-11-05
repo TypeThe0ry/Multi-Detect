@@ -577,13 +577,20 @@ def _sample_from_frame(
     features = list(OnboardModelInput(context, event).feature_vector())
     if len(features) != len(ONBOARD_MODEL_FEATURE_NAMES):
         raise AssertionError("rendered feature order diverged from onboard contract")
+    frame_state = provenance.get("frame_state")
+    if not isinstance(frame_state, dict):
+        frame_state = {
+            name: provenance.get(name)
+            for name in ("camera_pose", "gimbal_joint_state", "propeller_joint_state")
+            if isinstance(provenance.get(name), dict)
+        }
     regression = [
         math.atanh(max(-0.98, min(0.98, north / 500.0))),
         math.atanh(max(-0.98, min(0.98, east / 500.0))),
         math.log(max(1.0e-4, altitude) / max(1.0e-4, 1.0 - altitude)),
         math.log(max(1.0e-4, speed_fraction) / max(1.0e-4, 1.0 - speed_fraction)),
     ]
-    return {
+    row = {
         "features": features,
         "task_label": ONBOARD_MODEL_TASK_ACTION_ORDER.index(task),
         "flight_label": ONBOARD_MODEL_ACTION_ORDER.index(flight),
@@ -608,6 +615,12 @@ def _sample_from_frame(
             "truth_injected": False,
         },
     }
+    for name in ("camera_pose", "gimbal_joint_state", "propeller_joint_state"):
+        value = frame_state.get(name)
+        if isinstance(value, dict):
+            row[name] = dict(value)
+            row["source"][name] = dict(value)
+    return row
 
 
 def build_dataset(

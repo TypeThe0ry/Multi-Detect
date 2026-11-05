@@ -3694,7 +3694,9 @@ def run_episode(
 ) -> Path:
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
     # Resolve the airframe mount once per episode; observation packing reuses it.
-    airframe_profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    airframe_profile = _airframe_profile(
+        getattr(plan, "airframe", "x500_mono_cam"), getattr(plan, "takeoff_method", None)
+    )
     camera_mount = (
         airframe_profile.camera_mount.to_camera_mount()
         if airframe_profile is not None and airframe_profile.camera_mount is not None

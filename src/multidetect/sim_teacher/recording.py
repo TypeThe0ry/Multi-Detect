@@ -9,8 +9,8 @@ import json
 import math
 import threading
 import time
-from queue import Queue
 from pathlib import Path
+from queue import Queue
 from typing import Any
 
 
@@ -88,6 +88,12 @@ class EpisodeRecorder:
             "created_monotonic_ns": time.monotonic_ns(),
             "step_count": 0,
             "timing_enabled": True,
+            "frame_state_contract": {
+                "camera_pose": "optional composed camera center/orientation",
+                "gimbal_joint_state": "optional per-frame pitch/yaw/roll state",
+                "propeller_joint_state": "optional per-frame angle/spin state",
+                "legacy_episode_compatible": True,
+            },
         }
         self._mavlink_file = None
         self._mavlink_lock = threading.Lock()
@@ -199,6 +205,12 @@ class EpisodeRecorder:
         if obs is None:
             return None
         out = {k: v for k, v in obs.items() if k not in {"rgb", "depth", "segmentation"}}
+        # Accept the names emitted by both the gimbal-aware collector and
+        # older callers that only used ``gimbal_state``/``propeller_state``.
+        if "gimbal_joint_state" not in out and isinstance(out.get("gimbal_state"), dict):
+            out["gimbal_joint_state"] = dict(out["gimbal_state"])
+        if "propeller_joint_state" not in out and isinstance(out.get("propeller_state"), dict):
+            out["propeller_joint_state"] = dict(out["propeller_state"])
         stem = f"{self.index:06d}_{prefix}"
         rgb = obs.get("rgb")
         if rgb is not None:
