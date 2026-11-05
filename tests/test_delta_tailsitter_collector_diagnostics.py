@@ -90,6 +90,31 @@ def test_telemetry_silence_detects_frozen_sim_clock_with_wall_guard(tmp_path):
     assert diagnostic["sim_time_stalled_wall_s"] == pytest.approx(15.0)
 
 
+def test_telemetry_silence_allows_point_one_realtime_before_failing(tmp_path):
+    now = [0.0]
+    reader = _reader()
+    environment = FakeEnvironment()
+    recorder = FakeRecorder(tmp_path / "episode")
+    watchdog = collector.MavlinkTelemetrySilenceWatchdog(
+        reader, environment, recorder, clock=lambda: now[0]
+    )
+
+    now[0] = 49.9
+    environment.stamp_ns = 4_990_000_000
+    environment.progress_wall = now[0]
+    watchdog.check()
+
+    now[0] = 50.0
+    environment.stamp_ns = 5_000_000_000
+    environment.progress_wall = now[0]
+    with pytest.raises(TimeoutError, match="MAVLink telemetry silent"):
+        watchdog.check()
+
+    diagnostic = json.loads((recorder.episode_dir / "telemetry-silence.json").read_text())
+    assert diagnostic["thresholds"]["minimum_realtime_factor"] == pytest.approx(0.1)
+    assert diagnostic["thresholds"]["minimum_wall_s"] == pytest.approx(50.0)
+
+
 def test_console_tail_removes_px4_prompt_redraw_but_keeps_recent_console_text():
     output, prompts_removed = collector.DockerSimEnvironment._console_tail(
         "\x1b[2K\rpxh>\x1b[2K\rpxh> commander status\rPX4 boot complete\r"

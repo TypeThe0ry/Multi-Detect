@@ -206,8 +206,11 @@ DELTA_TAILSITTER_WALL_CEILING_FACTOR = 8.0
 DELTA_TAILSITTER_MIN_WALL_CEILING_S = 3600.0
 MAVLINK_SILENCE_SIM_TIMEOUT_S = 5.0
 MAVLINK_SILENCE_STALLED_SIM_WALL_S = 15.0
+MAVLINK_SILENCE_MIN_REALTIME_FACTOR = 0.1
 MAVLINK_SILENCE_WALL_CAP_S = 60.0
-MAVLINK_SILENCE_MIN_WALL_S = 5.0
+MAVLINK_SILENCE_MIN_WALL_S = max(
+    5.0, MAVLINK_SILENCE_SIM_TIMEOUT_S / MAVLINK_SILENCE_MIN_REALTIME_FACTOR
+)
 GIMBAL_HOVER_STABLE_S = 3.0
 GIMBAL_HOVER_MAX_WALL_S = 300.0
 GCS_SOURCE_SYSTEM = 255
@@ -2240,8 +2243,7 @@ class MavlinkTelemetrySilenceWatchdog:
             and sim_elapsed_s >= MAVLINK_SILENCE_SIM_TIMEOUT_S
         )
         failed = failed or (
-            wall_silent_s >= MAVLINK_SILENCE_MIN_WALL_S
-            and sim_stalled_s >= MAVLINK_SILENCE_STALLED_SIM_WALL_S
+            sim_stalled_s >= MAVLINK_SILENCE_STALLED_SIM_WALL_S
         )
         if not failed:
             return
@@ -2265,6 +2267,7 @@ class MavlinkTelemetrySilenceWatchdog:
             "thresholds": {
                 "sim_s": MAVLINK_SILENCE_SIM_TIMEOUT_S,
                 "stalled_sim_wall_s": MAVLINK_SILENCE_STALLED_SIM_WALL_S,
+                "minimum_realtime_factor": MAVLINK_SILENCE_MIN_REALTIME_FACTOR,
                 "wall_cap_s": MAVLINK_SILENCE_WALL_CAP_S,
                 "minimum_wall_s": MAVLINK_SILENCE_MIN_WALL_S,
             },
