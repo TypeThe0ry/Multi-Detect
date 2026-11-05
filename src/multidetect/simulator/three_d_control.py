@@ -25,6 +25,7 @@ from typing import Any
 from ..autonomy.serialization import canonical_sha256, strict_json_loads
 from ..runtime import RuntimeMode
 from ..simulation import load_runtime_scenario
+from .px4_image import PINNED_IMAGE
 
 SCHEMA_VERSION = 1
 EVENT = "simulator_3d_control_acceptance_finished"
@@ -38,6 +39,7 @@ AIRFRAME_SCENARIOS: dict[str, str] = {
     "coastal_patrol_fixed_wing_001": "fixed-wing",
     "urban_inspection_multirotor_001": "multirotor",
 }
+GIMBAL_PROFILE_ID = "x500_gimbal"
 REQUIRED_MODES = ("fixed-wing", "multirotor", "vtol")
 
 _REQUIRED_TOP_LEVEL = frozenset(
@@ -259,12 +261,102 @@ def _verify_assets(
                     "vtol": ("standard_vtol", "mono_cam", "CameraJoint", "camera_link"),
                     "fixed-wing": ("rc_cessna", "mono_cam", "CameraJoint", "camera_link"),
                     "multirotor": ("x500", "mono_cam", "CameraJoint", "camera_link"),
+                    "multirotor-gimbal": (
+                        "x500_gimbal", "cgo3_mount_link", "camera_link", "cgo3_vertical_arm_joint"
+                    ),
                 }[mode]
+                if runtime_record.get("airframe_profile_id") == GIMBAL_PROFILE_ID:
+                    expected_tokens = (
+                        "x500_gimbal", "GimbalAttachJoint", "camera_link", "model://gimbal"
+                    )
                 if any(token not in text for token in expected_tokens):
                     reasons.append(f"{mode} camera model is incomplete")
                 lowered = text.lower()
                 if any(token in lowered for token in ("http://", "https://", "fuel://")):
                     reasons.append("Gazebo model must not pull network resources")
+    if runtime_record.get("airframe_profile_id") == GIMBAL_PROFILE_ID:
+        try:
+            contract_path = _resolve_artifact_path(
+                runtime_record.get("source_asset_contract"),
+                source=evidence_path,
+                label="three_d_runtime.source_asset_contract",
+            )
+        except Simulator3DControlError as exc:
+            reasons.append(str(exc))
+            return
+        declared = runtime_record.get("source_asset_contract_sha256")
+        if not _is_sha256(declared) or not contract_path.is_file():
+            reasons.append("gimbal source asset contract path/hash is invalid")
+        elif _sha256(contract_path).lower() != str(declared).lower():
+            reasons.append("gimbal source asset contract SHA-256 does not match evidence")
+        else:
+            try:
+                contract = _load_object(contract_path)
+                assets = contract.get("assets")
+                expected_names = {
+                    "x500_gimbal_model.sdf",
+                    "gimbal_model.sdf",
+                    "4019_gz_x500_gimbal",
+                }
+                expected_image_paths = {
+                    "x500_gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf",
+                    "gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/gimbal/model.sdf",
+                    "4019_gz_x500_gimbal": "/opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal",
+                }
+                image = contract.get("image")
+                if (
+                    contract.get("contract") != "multidetect.px4-x500-gimbal-source-assets-v2"
+                    or image != PINNED_IMAGE
+                    or contract.get("image_revision") != image
+                    or not isinstance(assets, Mapping)
+                    or set(assets) != expected_names
+                ):
+                    reasons.append("gimbal source asset contract is incomplete or mixed-revision")
+                else:
+                    declared_hashes = runtime_record.get("source_asset_hashes")
+                    if not isinstance(declared_hashes, Mapping):
+                        declared_hashes = {}
+                    for name, record in assets.items():
+                        asset_path = contract_path.parent / name
+                        if (
+                            not isinstance(record, Mapping)
+                            or record.get("image_path") != expected_image_paths[name]
+                            or not asset_path.is_file()
+                            or record.get("sha256") != _sha256(asset_path)
+                            or declared_hashes.get(name) != record.get("sha256")
+                        ):
+                            reasons.append(f"gimbal source asset hash does not match evidence: {name}")
+                    try:
+                        x500_root = ET.parse(
+                            contract_path.parent / "x500_gimbal_model.sdf"
+                        ).getroot()
+                        x500_model = x500_root.find("model")
+                        component_includes = (
+                            {uri.text for uri in x500_model.findall("include/uri") if uri.text}
+                            if x500_model is not None
+                            else set()
+                        )
+                        gimbal_text = (contract_path.parent / "gimbal_model.sdf").read_text(
+                            encoding="utf-8"
+                        )
+                        gimbal_root = ET.fromstring(gimbal_text)
+                        gimbal_links = {
+                            link.attrib.get("name") for link in gimbal_root.findall(".//link")
+                        }
+                        startup_text = (contract_path.parent / "4019_gz_x500_gimbal").read_text(
+                            encoding="utf-8"
+                        )
+                    except (OSError, UnicodeError) as exc:
+                        reasons.append(f"gimbal source assets cannot be read: {exc}")
+                    else:
+                        if not {"model://x500", "model://gimbal"}.issubset(component_includes):
+                            reasons.append("gimbal x500 composition is missing component includes")
+                        if not {"camera_link", "cgo3_mount_link"}.issubset(gimbal_links):
+                            reasons.append("gimbal source links are incomplete")
+                        if "4019" not in startup_text or "gz_x500_gimbal" not in startup_text:
+                            reasons.append("gimbal PX4 startup file is not autostart 4019")
+            except (OSError, ValueError, TypeError) as exc:
+                reasons.append(f"gimbal source asset contract cannot be verified: {exc}")
 
 
 def verify_document(
@@ -421,6 +513,20 @@ def verify_document(
             "runtime_hardware_not_claimed",
             "three_d_runtime hardware acceptance must remain not_claimed",
         )
+        scenario_vehicle = scenario.get("vehicle") if scenario is not None else None
+        declared_profile = (
+            scenario_vehicle.get("airframe_profile_id")
+            if isinstance(scenario_vehicle, Mapping)
+            else None
+        )
+        if runtime_record.get("airframe_profile_id") == GIMBAL_PROFILE_ID:
+            _check(
+                runtime_record.get("airframe_profile_id") == declared_profile,
+                checks,
+                reasons,
+                "airframe_profile_binding",
+                "three_d_runtime airframe profile does not match scenario vehicle",
+            )
     if evidence_path is not None and scenario is not None and scenario_id is not None:
         _verify_source_scenario(
             Path(evidence_path),
@@ -979,6 +1085,7 @@ def main(argv: list[str] | None = None) -> int:
 
 __all__ = [
     "AIRFRAME_SCENARIOS",
+    "GIMBAL_PROFILE_ID",
     "EVENT",
     "REQUIRED_MODES",
     "SCHEMA_VERSION",

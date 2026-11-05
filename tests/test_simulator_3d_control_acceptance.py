@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +11,9 @@ from pathlib import Path
 import pytest
 
 import scripts.run_simulator_3d_control_acceptance as acceptance_module
+from multidetect.autonomy.serialization import canonical_sha256
+from multidetect.simulator.three_d_control import verify_document
+from scripts.run_simulator_docker import PINNED_IMAGE
 from multidetect import PRODUCT_VERSION
 from scripts.run_simulator_3d_control_acceptance import main, run_acceptance
 from scripts.verify_simulator_3d_control_evidence import main as verify_3d_main
@@ -139,6 +144,72 @@ def test_simulator_3d_control_gate_selects_multirotor_x500_assets_and_mode() -> 
     assert result["stack_plan"]["vehicle_model"] == "px4_multirotor_standard"
     assert result["stack_plan"]["environment"]["PX4_SYS_AUTOSTART"] == "4001"
     assert result["control_contract"]["vehicle_mode"] == "multirotor"
+
+
+def test_simulator_3d_control_gate_selects_independent_x500_gimbal_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scenario_dir = ROOT / "configs/scenarios"
+    manifest = json.loads((scenario_dir / "urban_inspection_multirotor_001.scenario.json").read_text())
+    runtime_path = tmp_path / "urban_inspection_multirotor_001.runtime.json"
+    runtime = json.loads((scenario_dir / manifest["channels"]["runtime_input"]["path"]).read_text())
+    runtime["vehicle"]["airframe_profile_id"] = "x500_gimbal"
+    runtime_path.write_text(json.dumps(runtime), encoding="utf-8")
+    manifest["channels"]["runtime_input"]["sha256"] = canonical_sha256(runtime)
+    for channel in ("truth", "expectations"):
+        relative = manifest["channels"][channel]["path"]
+        shutil.copyfile(scenario_dir / relative, tmp_path / relative)
+    manifest["channels"]["runtime_input"]["path"] = runtime_path.name
+    manifest_path = tmp_path / "gimbal.scenario.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    source_root = tmp_path / "px4-assets"
+    source_root.mkdir()
+    source_contents = {
+        "x500_gimbal_model.sdf": (
+            '<sdf><model name="x500_gimbal"><include><uri>model://x500</uri></include>'
+            '<include><uri>model://gimbal</uri></include></model></sdf>'
+        ),
+        "gimbal_model.sdf": (
+            '<sdf><model name="gimbal"><link name="cgo3_mount_link"/>'
+            '<link name="camera_link"/></model></sdf>'
+        ),
+        "4019_gz_x500_gimbal": "PX4_SIM_MODEL=gz_x500_gimbal\n# 4019\n",
+    }
+    source_hashes = {}
+    for name, content in source_contents.items():
+        (source_root / name).write_text(content, encoding="utf-8")
+        source_hashes[name] = hashlib.sha256(content.encode()).hexdigest()
+    source_contract = {
+        "contract": "multidetect.px4-x500-gimbal-source-assets-v2",
+        "image": PINNED_IMAGE,
+        "image_revision": PINNED_IMAGE,
+        "assets": {
+            name: {
+                "sha256": digest,
+                "image_path": {
+                    "x500_gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf",
+                    "gimbal_model.sdf": "/opt/px4-gazebo/share/gz/models/gimbal/model.sdf",
+                    "4019_gz_x500_gimbal": "/opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal",
+                }[name],
+            }
+            for name, digest in source_hashes.items()
+        },
+    }
+    (source_root / "extraction.json").write_text(json.dumps(source_contract), encoding="utf-8")
+    monkeypatch.setattr(acceptance_module, "GIMBAL_SOURCE_ASSETS", source_root)
+
+    result = run_acceptance(manifest_path, launch_job_dir=tmp_path / "launch")
+
+    assert result["gate_passed"] is True
+    assert result["three_d_runtime"]["airframe_profile_id"] == "x500_gimbal"
+    assert result["three_d_runtime"]["model"].endswith("x500_gimbal_seg/model.sdf")
+    assert result["three_d_runtime"]["source_asset_hashes"] == source_hashes
+    assert result["stack_plan"]["environment"]["PX4_SYS_AUTOSTART"] == "4019"
+    evidence_path = tmp_path / "gimbal-evidence.json"
+    evidence_path.write_text(json.dumps(result), encoding="utf-8")
+    verified = verify_document(result, evidence_path=evidence_path)
+    assert verified["gate_passed"] is True, verified["reasons"]
 
 
 def test_simulator_3d_control_gate_rejects_unknown_scenario(tmp_path: Path) -> None:
