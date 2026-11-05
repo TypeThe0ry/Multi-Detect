@@ -32,6 +32,7 @@ from .serialization import (
     require_text,
     strict_json_loads,
 )
+from .sim_gimbal_collision import load_gimbal_collision_geometry
 from .sim_static_route_clearance import (
     ORIGIN_CONTRACT,
     _bound_bytes,
@@ -704,7 +705,8 @@ def audit_sim_navigation_reference(
     artifact_root,
     capture_source: EvidenceBinding,
     world_source: EvidenceBinding,
-    model_sources: Mapping[str, EvidenceBinding],
+    model_sources: Mapping[str, EvidenceBinding] | None = None,
+    gimbal_sources: Mapping[str, EvidenceBinding] | None = None,
     observed_context: ContextSnapshot | None = None,
     runtime_attestation: ExternalRuntimeAttestation | None = None,
     now_s: float,
@@ -754,7 +756,11 @@ def audit_sim_navigation_reference(
     _require(
         re.fullmatch(r"[0-9a-f]{64}", identity["container_id"])
         and re.fullmatch(r".+@sha256:[0-9a-f]{64}", identity["image"])
-        and identity["airframe_profile_id"] == "px4_multirotor_gazebo_v1",
+        and (
+            identity["airframe_profile_id"] == "px4_multirotor_gazebo_v1"
+            if gimbal_sources is None
+            else identity["airframe_profile_id"] in {"x500_gimbal", "px4_x500_gimbal"}
+        ),
         "bound capture SIM identity invalid",
     )
     if active_inputs:
@@ -765,7 +771,11 @@ def audit_sim_navigation_reference(
     from ..simulator.stack import airframe_profile_hash
 
     profile_hash = airframe_profile_hash(capture["profile"])
-    _require(capture["profile"]["model_name"] == "x500_mono_cam", "capture x500 profile differs")
+    expected_model_name = "x500_mono_cam" if gimbal_sources is None else "x500_gimbal"
+    _require(
+        capture["profile"]["model_name"] == expected_model_name,
+        "capture x500 profile differs",
+    )
     if active_inputs:
         _require(
             profile_hash == observed_context.airframe_profile_hash
@@ -773,8 +783,16 @@ def audit_sim_navigation_reference(
             "capture observed airframe profile differs",
         )
     reference = _world(root, world_source, identities)
-    offset = _x500_model_offset(root, model_sources, identities)
-    sources = [capture_source, world_source, *model_sources.values()]
+    if gimbal_sources is None:
+        _require(model_sources is not None, "fixed x500 model source closure required")
+        offset = _x500_model_offset(root, model_sources, identities)
+        sources = [capture_source, world_source, *model_sources.values()]
+        gimbal_geometry = None
+    else:
+        _require(model_sources is None, "fixed x500 and gimbal model closures cannot be mixed")
+        gimbal_geometry = load_gimbal_collision_geometry(root, gimbal_sources, identities)
+        offset = gimbal_geometry.model_offset
+        sources = [capture_source, world_source, *gimbal_geometry.source_bindings]
     runtime_source = _binding(root, capture["runtime_source"], pointer="")
     runtime = _json_file(root, runtime_source, identities)
     _require(
@@ -1165,6 +1183,18 @@ def audit_sim_navigation_reference(
                 "WGS84_home_mapping_checked": True,
             },
         }
+    gimbal_geometry_summary = None
+    if gimbal_geometry is not None:
+        gimbal_geometry_summary = {
+            "collision_count": len(gimbal_geometry.collision_definitions),
+            "source_expanded_collision_definitions": [
+                collision.to_mapping()
+                for _, collision in sorted(gimbal_geometry.collision_definitions.items())
+            ],
+            "source_joint_limits_rad": gimbal_geometry.joint_limits,
+            "source_sphere_radius_m": gimbal_geometry.sphere_radius_m,
+            "joint_range_swept_bounds": gimbal_geometry.swept_bounds(180.0),
+        }
     # Reopen every referenced positive-length input before returning. Empty native
     # stderr has no semantic role and is not substituted for any required source.
     for path, old in identities.items():
@@ -1196,6 +1226,11 @@ def audit_sim_navigation_reference(
             else "missing-live-observed-context-and-runtime-admission"
         ],
         "model_to_navigation_body_offset_flu_m": list(offset),
+        **(
+            {"gimbal_collision_geometry": gimbal_geometry_summary}
+            if gimbal_geometry_summary is not None
+            else {}
+        ),
         "actual_parameters": parameters,
         "reference": reference,
         "reference_scope": reference_scope,

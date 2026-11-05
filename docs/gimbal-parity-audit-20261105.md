@@ -20,22 +20,28 @@
 * `tests/test_sim_session.py`
   * 普通 x500 与 x500 gimbal 共用 airframe/scenario 选择测试，并增加 gimbal PX4 环境断言。
 
+## 已关闭的审计项
+
+1. **x500 专用碰撞/接触合同（2026-11-05 已关闭）**
+   * `sim_airframe_envelope.py`、`sim_navigation_reference.py` 和
+     `sim_ground_contact_geometry.py` 都接受独立 `gimbal_sources` 闭包。新解析器要求提取清单、
+     六个原始资产同目录绑定，并逐文件核对 pinned image、image path 和 SHA-256；不接受固定
+     x500 与 gimbal 输入混用。原 x500 三模型闭包和固定相机结果路径保持不变。
+   * Envelope 与 contact 消费者从真实组合 SDF 展开四 rotor/base 的九个碰撞体和
+     `camera_link/cgo3_camera_collision` 球体，并将生成 SDF 的十个碰撞定义逐项对比。关节轴、
+     child-relative SDF joint pose 和原始限位用于扫过连续范围；1 度采样以关节杠杆臂上界外扩，
+     不用固定相机几何代替。Navigation reference 也重算同一源闭包，并记录关节限位、碰撞数和
+     范围包络。
+   * 数值结果：gimbal 单独全姿态半径上界为 `0.187232 m`；x500 原包络为 `0.390646 m`，所以
+     它没有扩大整体包络（水平半径、顶部和底部扩展均为 `0 m`）。指定停机坪场景中，关节范围
+     最坏 gimbal 球底点为 `0.061624 m`，停机坪顶面为 `0.080 m`，新增潜在支撑几何重叠最多
+     `0.018376 m`。最低总碰撞点仍是原 x500 机体/旋翼的 `0.016 m`，故 gimbal 不改变最低点，
+     但增加了一个可能接触停机坪的碰撞体；这只是几何可能性，不代表 Gazebo 接触力或求解器已验证。
+
 ## 仍需较大改造的项目
 
 以下项目涉及仿真资产、录制协议或已绑定的证据生成器，本次没有直接改动：
 
-1. **x500 专用碰撞/接触合同**
-   * `src/multidetect/autonomy/sim_airframe_envelope.py`、
-     `src/multidetect/autonomy/sim_navigation_reference.py` 和
-     `src/multidetect/autonomy/sim_ground_contact_geometry.py` 要求固定的 x500/x500_base
-     SDF 闭包、四个 rotor link 和 `x500_mono_cam_0`。这些检查不能直接接收 PX4
-     `x500_gimbal` 的镜像模型。现已增加独立提取器和
-     `multidetect.px4-x500-gimbal-collision-source-assets-v1` 哈希快照，包含组合模型、gimbal、
-     x500、x500_base 和两份 airframe SDF/原文闭包；快照通过导出器从 pinned image digest 重建，
-     未手工复制。消费者仍未接入此闭包：三个审计的 gimbal 输入/API、展开后的四 rotor + 云台
-     camera collision 对比，以及云台全关节范围的源几何包络/接触计算还需实现。云台 collision
-     sphere 必须按 SDF joint 位姿和实际限位计算，不能遗漏或以固定相机结果代替。固定 x500 合同
-     与结果未修改。
 2. **3-D 控制和仿真资产选择**
    * `src/multidetect/simulator/three_d_control.py` 的 multirotor 资产绑定仍是
      `x500` + `mono_cam`；`scripts/run_simulator_3d_control_acceptance.py` 也只验证
@@ -84,7 +90,8 @@
   检查需要的 SDF 和 PX4 airframe 原文。
 * `tests/test_px4_x500_gimbal_collision_asset_extraction.py` 检查 pinned 来源、六个文件的哈希
   记录和输出目录覆盖保护。
-* 三个审计消费者尚未迁移至 gimbal 合同；本审计项保持开放，不将提取器完成误记为几何审计完成。
+* 本次新增 `sim_gimbal_collision.py` 作为闭包校验和 SDF 关节/碰撞展开器，并为三个消费者增加
+  gimbal 专项 CPU 测试，包含资产/加载碰撞漂移拒绝与地面支撑范围检查。
 
 ## 验证
 
@@ -107,3 +114,14 @@ tests/test_gimbal_controller.py
 
 没有修改 `artifacts/` 软链接内容、`cx-delta-*` 工作、受证据约束的 JSON 文件，也没有
 修改 schemas 或 release/progress 证据。
+
+### 2026-11-05 本次续作验证
+
+* 单进程相关测试：`test_sim_gimbal_collision_consumers.py`、
+  `test_sim_airframe_envelope.py`、`test_sim_navigation_reference.py`、
+  `test_sim_ground_contact_geometry.py` 全部通过；Navigation reference 中一个可选只读诊断因本地
+  证据不存在而按既有规则跳过。
+* `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp /data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python scripts/run_onboard_gate.py -q -p no:warnings`：
+  `PASS (111s)`，CPU-only。
+* 没有启动 Docker、Gazebo/SITL、GPU 任务或网络下载；没有改动 `artifacts/`、schemas、release/progress
+  证据文件。
