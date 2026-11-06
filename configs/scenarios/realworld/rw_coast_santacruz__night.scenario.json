@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_coast_santacruz__night",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_coast_santacruz__night.runtime.json",
+   "sha256": "c82379056f5d948d6134373dba98dac503dd261dddf91457d434d101f6d16ec5"
+  },
+  "truth": {
+   "path": "rw_coast_santacruz__night.truth.json",
+   "sha256": "58ac34021e567b14e38e980e967e7125428281b03bda6ceeec8a8459d572995c"
+  },
+  "expectations": {
+   "path": "rw_coast_santacruz__night.expectations.json",
+   "sha256": "0f6184251dc5726b74f49e59ba7afcf0c69ed74ccaebdbbc24bb064c095ee8ee"
+  }
+ }
+}

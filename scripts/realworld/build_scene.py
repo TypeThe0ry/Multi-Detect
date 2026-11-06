@@ -735,6 +735,9 @@ def main() -> None:
         if o["merged"] and (RESOLVED / o["cat"] / "model.sdf").exists() and o["role"] != "person":
             merger.add(o["cat"], o["x"], o["y"], o["z"], o["yaw"])
     vis_xml += merger.write(write_obj, face_normals_to_vertex)
+    if kind == "industrial":
+        n_containers = add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml)
+        print("containers", n_containers, flush=True)
     print("merged groups", len(merger.groups), flush=True)
     write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch)
     # ---- Model files
@@ -750,6 +753,65 @@ def main() -> None:
                   "footprints": [[round(v, 1) for v in b["poly"].bounds] + [round(b["h"], 1)] for b in buildings]})
     (ASSET_ROOT / "sites" / name / "scene.json").write_text(json.dumps(scene, ensure_ascii=False))
     print({k: (len(v) if isinstance(v, list) else v) for k, v in scene.items() if k != "footprints"}, flush=True)
+
+
+def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml, radius=900.0) -> int:
+    """Stack 3-D containers where the aerial shows a busy yard, aligned with the main road."""
+    longest = max((r for r in road_lines if r["line"].distance(Point(0, 0)) < radius), key=lambda r: r["line"].length)
+    c = np.array(longest["line"].coords)
+    yaw = math.atan2(c[-1, 1] - c[0, 1], c[-1, 0] - c[0, 0])
+    u, w = np.array([math.cos(yaw), math.sin(yaw)]), np.array([-math.sin(yaw), math.cos(yaw)])
+    res = 2 * half / mosaic.shape[0]
+    lum = mosaic[..., :3].mean(axis=2).astype(np.float32)
+    win = max(3, int(6.0 / res))
+    mean = ndi.uniform_filter(lum, win)
+    rough = np.sqrt(np.maximum(ndi.uniform_filter(lum * lum, win) - mean * mean, 0))
+    blocked = unary_union([b["poly"].buffer(3) for b in buildings] + [r["line"].buffer(r["width"] / 2 + 3) for r in road_lines] + [Point(0, 0).buffer(PAD_R + 25)])
+    tree = STRtree(list(blocked.geoms) if hasattr(blocked, "geoms") else [blocked])
+    colors = [(166, 60, 44), (44, 86, 128), (196, 196, 190), (60, 112, 78), (176, 124, 52), (92, 92, 98)]
+    bins = [MeshBin() for _ in colors]
+    coll = MeshBin()
+    L, W, H = 12.2, 2.44, 2.59
+    # Per-face vertices give flat shading; ribs run around the sides, and roofs stay plain.
+    quads = [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7), (4, 5, 6, 7)]
+    box_f = np.array([[i * 4, i * 4 + 1, i * 4 + 2] for i in range(5)] + [[i * 4, i * 4 + 2, i * 4 + 3] for i in range(5)])
+    side_uv = np.array([[0, 0], [2, 0], [2, 1], [0, 1.0]])
+    box_uv = np.vstack([side_uv] * 4 + [np.zeros((4, 2))])
+    count = 0
+    for a in np.arange(-radius, radius, L + 0.6 + 7.4 / 4):
+        for b_ in np.arange(-radius, radius, W + 0.25):
+            if int((b_ + radius) // ((W + 0.25) * 5)) % 2 == 1 and int((b_ + radius) // (W + 0.25)) % 5 == 4:
+                continue
+            q = u * a + w * b_
+            if math.hypot(*q) > radius:
+                continue
+            row = int((half - q[1]) / res)
+            col = int((q[0] + half) / res)
+            if not (0 <= row < rough.shape[0] and 0 <= col < rough.shape[1]) or rough[row, col] < 24:
+                continue
+            if len(tree.query(Point(q).buffer(L / 2), predicate="intersects")):
+                continue
+            z0 = float(terrain.z(q[0], q[1])) - 0.05
+            for level in range(int(rng.integers(1, 5))):
+                ci = int(rng.integers(0, len(colors)))
+                pts = np.array([q + s_ * u * L / 2 + t_ * w * W / 2 for s_, t_ in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+                z_lo, z_hi = z0 + level * H, z0 + (level + 1) * H
+                v = np.vstack([np.c_[pts, np.full(4, z_lo)], np.c_[pts, np.full(4, z_hi)]])
+                v = v[np.array(quads).reshape(-1)]
+                bins[ci].add(v, box_uv, box_f)
+                coll.add(v, box_uv, box_f)
+                count += 1
+    for i, (b, col) in enumerate(zip(bins, colors)):
+        if b.count:
+            b.write(out / "meshes" / f"container_{i}.obj")
+            x = np.arange(256)
+            ribs = (0.86 + 0.14 * np.sin(x / 256 * 2 * np.pi * 24))[None, :, None]
+            Image.fromarray((np.tile(np.array(col, float)[None, None], (64, 256, 1)) * ribs).astype(np.uint8)).save(out / "textures" / f"container_{i}.jpg", quality=90)
+            vis_xml.append(pbr_visual(f"container_{i}", f"model://{name}/meshes/container_{i}.obj", f"model://{name}/textures/container_{i}.jpg", 0.7))
+    if coll.count:
+        coll.write(out / "meshes" / "containers_collision.obj")
+        coll_xml.append(f'<collision name="containers"><geometry><mesh><uri>model://{name}/meshes/containers_collision.obj</uri></mesh></geometry></collision>')
+    return count
 
 
 def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch) -> None:

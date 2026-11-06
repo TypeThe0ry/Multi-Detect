@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Static rain streaks around the takeoff area.
 
-Gazebo's particle emitter hangs the headless server in this image, so rain is a mesh of thin
-translucent quads tilted with the wind. Streaks do not fall, which a single frame cannot show.
+The particle emitter needs a world <plugin>, and any world plugin replaces Gazebo's default
+systems so the world never becomes ready. Rain is therefore a mesh of thin translucent quads
+tilted with the wind. Streaks do not fall, which a single frame cannot show.
 """
 
 from pathlib import Path
@@ -11,9 +12,9 @@ import numpy as np
 
 RESOLVED = Path(__file__).resolve().parents[2] / "artifacts/cache/gz-fuel/resolved"
 OUT = RESOLVED / "rw_rain"
-N = 60000
-HALF = 150.0
-TOP = 70.0
+N = 160000
+HALF = 120.0
+TOP = 55.0
 
 
 def main() -> None:
@@ -24,7 +25,7 @@ def main() -> None:
     tilt = np.array([0.08, 0.04, -1.0])
     tilt /= np.linalg.norm(tilt)
     ang = rng.uniform(0, np.pi, N)
-    side = np.column_stack([np.cos(ang), np.sin(ang), np.zeros(N)]) * 0.006
+    side = np.column_stack([np.cos(ang), np.sin(ang), np.zeros(N)]) * 0.007
     a = c - side - tilt[None] * length[:, None] / 2
     b = c + side - tilt[None] * length[:, None] / 2
     d = c + side + tilt[None] * length[:, None] / 2

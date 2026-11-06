@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_oakland__night",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_oakland__night.runtime.json",
+   "sha256": "11e1c13787c659c2e3ca017653586a7b1c2e47654701b63d5cfb458f9167a10f"
+  },
+  "truth": {
+   "path": "rw_port_oakland__night.truth.json",
+   "sha256": "432cf0afe37e41cccb74740445f01ee0ec8d187b490b5280b41d0fa48b06ce20"
+  },
+  "expectations": {
+   "path": "rw_port_oakland__night.expectations.json",
+   "sha256": "27dafa894898d2fe2636a5c51207fd5f5f1cac4a9339d7daf742d94de8cfd640"
+  }
+ }
+}

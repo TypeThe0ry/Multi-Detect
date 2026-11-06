@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_downtown_sf__evening",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_downtown_sf__evening.runtime.json",
+   "sha256": "7811c6d8cbfa7e82a804f2ed42433279e4801411e3ebad2aec01559ca5a4875e"
+  },
+  "truth": {
+   "path": "rw_downtown_sf__evening.truth.json",
+   "sha256": "d398da0b80625c635fbcd6ca41d76fc347e1acc748631ab5375fdd26067c81dc"
+  },
+  "expectations": {
+   "path": "rw_downtown_sf__evening.expectations.json",
+   "sha256": "d751d32334c3ce9d4ca820ae7f79fc76c3583af64f80d41374f901abce173a70"
+  }
+ }
+}

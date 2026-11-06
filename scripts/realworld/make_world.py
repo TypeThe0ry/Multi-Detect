@@ -11,6 +11,8 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
@@ -21,6 +23,7 @@ CATALOG = {a["slug"]: a for a in json.loads((ROOT / "configs/sim-assets/fuel-cat
 OUT = ROOT / "simulation/gazebo/worlds"
 
 # Sun direction points from the sun; ambient models sky light since Ogre2 has no GI here.
+GUST_PERIOD_S = 18.0
 WEATHER = {
     "partly_cloudy": {"sky": "cloudy", "ambient": (0.46, 0.47, 0.50), "bg": (0.62, 0.74, 0.92), "sun": (-0.30, 0.35, -0.88), "i": 0.8, "dif": (1, 0.97, 0.92), "shadows": True},
     "clear_noon": {"sky": "noon", "ambient": (0.42, 0.44, 0.47), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.95, "dif": (1, 0.98, 0.93), "shadows": True},
@@ -177,9 +180,31 @@ def movers(routes: list[dict], rng: random.Random, kind: str) -> str:
     return "".join(out)
 
 
+def obstacle_boxes(scene: dict, site: str, radius: float = 350.0, limit: int = 80) -> str:
+    """Nearby buildings as obstacle_* boxes, the form the takeoff-altitude and teacher code reads.
+
+    The merged building mesh keeps exact collision; these only add coarse bounds at low entity cost.
+    """
+    dem = np.load(ASSET_ROOT / "sites" / site / "raw" / "dem.npy")
+    half = scene["size_m"] / 2
+    n = dem.shape[0]
+    near = sorted(scene["footprints"], key=lambda f: math.hypot((f[0] + f[2]) / 2, (f[1] + f[3]) / 2))
+    out = []
+    for i, (x0, y0, x1, y1, h) in enumerate(near[:limit]):
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        if math.hypot(cx, cy) > radius:
+            break
+        col = min(n - 1, max(0, int((cx + half) / 2.0)))
+        row = min(n - 1, max(0, int((cy + half) / 2.0)))
+        base = float(dem[row, col]) - scene["elevation"]
+        out.append(f'<model name="obstacle_{i:02d}"><static>true</static><pose>{cx:.2f} {cy:.2f} {base + h / 2:.2f} 0 0 0</pose><link name="bounds">'
+                   f'<collision name="bounds_collision"><geometry><box><size>{x1 - x0:.2f} {y1 - y0:.2f} {h:.2f}</size></box></geometry></collision></link></model>')
+    return "".join(out)
+
+
 def rain_emitter() -> str:
     return ('<model name="rw_rain"><static>true</static><pose>0 0 0 0 0 0</pose><link name="l"><visual name="streaks"><cast_shadows>false</cast_shadows>'
-            '<transparency>0.55</transparency><geometry><mesh><uri>model://rw_rain/meshes/streaks.obj</uri></mesh></geometry>'
+            '<transparency>0.35</transparency><geometry><mesh><uri>model://rw_rain/meshes/streaks.obj</uri></mesh></geometry>'
             '<material><ambient>0.8 0.84 0.9 1</ambient><diffuse>0.8 0.84 0.9 1</diffuse><specular>0 0 0 1</specular><double_sided>true</double_sided></material></visual></link></model>')
 
 
@@ -209,10 +234,11 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
         # Inlined rather than <include>: the stack plan only admits repository-owned includes.
         ET.tostring(ET.fromstring((RESOLVED / site / "model.sdf").read_text()).find("model"), encoding="unicode").replace(f'<model name="{site}">', '<model name="rw_terrain">', 1),
     ]
-    sky = ""
-    if (RESOLVED / "rw_sky" / f"{w['sky']}.dds").exists():
-        sky = f'<sky><cubemap_uri>model://rw_sky/{w["sky"]}.dds</cubemap_uri></sky>'
-    parts[4] = parts[4].replace("__SKY__", sky)
+    parts[4] = parts[4].replace("__SKY__", "")
+    sky_tex = f"model://rw_sky/{w['sky']}.jpg"
+    parts.append(f'<model name="rw_sky_dome"><static>true</static><link name="l"><visual name="dome"><cast_shadows>false</cast_shadows><geometry><mesh><uri>model://rw_sky/dome.obj</uri></mesh></geometry>'
+                 f'<material><lighting>false</lighting><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>1 1 1 1</emissive><double_sided>true</double_sided>'
+                 f'<pbr><metal><emissive_map>{sky_tex}</emissive_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual></link></model>')
     rng = random.Random(seed)
     label = 100
     # Trees and most props already live in the merged terrain model.
@@ -222,6 +248,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
         parts.append(labelled_model(f"rw_obj_{i:04d}", o["cat"], o["x"], o["y"], o["z"], o["yaw"], label))
         o["label"] = label
         label += 1
+    parts.append(obstacle_boxes(scene, site))
     parts.append(movers(scene["routes"], random.Random(seed + 1), scene["kind"]))
     for k, t in enumerate(targets):
         parts.append(labelled_model(f"rw_target_{k:02d}", t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k)))
@@ -232,10 +259,10 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     if "wind" in w:
         spd, gust = w["wind"]
         ang = rng.uniform(0, 6.283)
+        # No world <plugin> here: it would replace Gazebo's default systems and hang the world.
+        # The container start-up patch adds WindEffects when it sees this comment.
+        parts.insert(1, f"<!-- multidetect-wind-gust amplitude_percent={min(1.0, gust / spd):.4g} period={GUST_PERIOD_S:.6g} -->")
         parts.append(f'<wind><linear_velocity>{spd * math.cos(ang):.2f} {spd * math.sin(ang):.2f} 0</linear_velocity></wind>')
-        parts.append('<plugin filename="gz-sim-wind-effects-system" name="gz::sim::systems::WindEffects"><force_approximation_scaling_factor>1</force_approximation_scaling_factor>'
-                     f'<horizontal><magnitude><time_for_rise>6</time_for_rise><sin><amplitude_percent>{gust / max(spd, 1):.2f}</amplitude_percent><period>18</period></sin>'
-                     '<noise type="gaussian"><mean>0</mean><stddev>0.2</stddev></noise></magnitude><direction><time_for_rise>20</time_for_rise><sin><amplitude>8</amplitude><period>40</period></sin></direction></horizontal></plugin>')
     parts.append("</world></sdf>\n")
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"{wname}.sdf"
@@ -250,7 +277,6 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> 
     sim = ROOT / "simulation"
     half = scene["size_m"] / 2
     raw = ASSET_ROOT / "sites" / site / "raw"
-    import numpy as np
     dem = np.load(raw / "dem.npy")
     n = dem.shape[0]
     spacing = 50.0
@@ -265,23 +291,28 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> 
         "schema_version": 1, "scenario_id": wid, "coordinate_reference": "WGS84", "vertical_datum": "MSL",
         "origin": {"latitude_deg": lat0, "longitude_deg": lon0, "elevation_m": round(scene["elevation"], 2)},
         "north_origin_m": -half, "east_origin_m": -half, "north_spacing_m": spacing, "east_spacing_m": spacing,
+        "vertical_sigma_m": 1.0, "slope_sigma_m_per_m": 0.02,
         "elevation_m": [[round(float(v), 2) for v in row] for row in grid]}) + "\n")
     ring = [[lon0 - dlon, lat0 - dlat], [lon0 + dlon, lat0 - dlat], [lon0 + dlon, lat0 + dlat], [lon0 - dlon, lat0 + dlat], [lon0 - dlon, lat0 - dlat]]
     (sim / "maps" / f"{wid}.geojson").write_text(json.dumps({
         "type": "FeatureCollection", "schema_version": 1, "scenario_id": wid, "coordinate_reference": "WGS84",
         "features": [{"type": "Feature", "id": "operating-area", "properties": {"role": "operating_area", "surface": "real_terrain", "clearance_radius_m": half},
                       "geometry": {"type": "Polygon", "coordinates": [ring]}}]}) + "\n")
-    out = ROOT / "configs/scenarios/realworld"
+    # The world id is fixed, so other airframes get a parallel folder with the same scenario id.
+    out = ROOT / "configs/scenarios/realworld" / ("" if airframe == "x500_mono_cam" else airframe)
     out.mkdir(parents=True, exist_ok=True)
     # Sensor contract comes from the mainline multirotor scenario; only world bindings change.
-    runtime = json.loads((ROOT / "configs/scenarios/urban_inspection_multirotor_001.runtime.json").read_text())
+    template = {"x500_mono_cam": "urban_inspection_multirotor_001", "standard_vtol_mono_cam": "river_rescue_vtol_001", "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001",
+                "tiltrotor_mono_cam": "airframes/tiltrotor_mono_cam_001", "quadtailsitter_mono_cam": "airframes/quadtailsitter_mono_cam_001",
+                "advanced_plane_mono_cam": "airframes/advanced_plane_mono_cam_001"}[airframe]
+    runtime = json.loads((ROOT / f"configs/scenarios/{template}.runtime.json").read_text())
     runtime.update({"scenario_id": wid, "seed": seed})
     runtime["world"].update({"world_asset": f"builtin://gazebo/{wid}", "map_asset": f"builtin://maps/{wid}.geojson", "dem_asset": f"builtin://terrain/{wid}.dem.json",
                              "wind_north_mps": 0.0, "wind_east_mps": 0.0, "gust_mps": 0.0})
     runtime["vehicle"]["model"] = airframe
     runtime["vehicle"].pop("spawn_pose", None)
     for sensor in runtime["sensors"]:
-        sensor["stream_uri"] = sensor["stream_uri"].replace("urban_inspection_multirotor_001", wid)
+        sensor["stream_uri"] = sensor["stream_uri"].replace(Path(template).name, wid)
     truth = {"schema_version": 1, "scenario_id": wid, "scenario_version": 1, "targets": []}
     expect = {"schema_version": 1, "scenario_id": wid, "scenario_version": 1, "allowed_terminal_states": ["completed", "safe_rtl", "safe_land"],
               "maximum_geofence_violations": 0, "maximum_false_geolocations": 0, "maximum_unauthorized_commands": 0}

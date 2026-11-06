@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_mountain_boulder__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_mountain_boulder__windy.runtime.json",
+   "sha256": "7d3db18e8db4da3ab5500b274a1eefd09e5324ae480cdfc5fc978cccc4b43160"
+  },
+  "truth": {
+   "path": "rw_mountain_boulder__windy.truth.json",
+   "sha256": "d4eabd49a0d96460ea0ab41b43c3ecf2c71d0207a6a1ae6705a24ff18c5c1480"
+  },
+  "expectations": {
+   "path": "rw_mountain_boulder__windy.expectations.json",
+   "sha256": "13527dba4b07479ef1060faea7bf0a2580c601f03e7dddd709dbe231bbeaae4a"
+  }
+ }
+}

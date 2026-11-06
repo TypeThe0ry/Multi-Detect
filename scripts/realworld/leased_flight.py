@@ -67,7 +67,7 @@ def main() -> None:
         th.start()
         extra = sys.argv[5:]
         rc = subprocess.run([sys.executable, "scripts/smoke_airframe_flight.py", "--airframe", airframe,
-                             "--scenario", f"configs/scenarios/realworld/{world}.scenario.json", "--out", str(out),
+                             "--scenario", world if world.endswith(".json") else f"configs/scenarios/realworld/{'' if airframe == 'x500_mono_cam' else airframe + '/'}{world}.scenario.json", "--out", str(out),
                              "--container-prefix", prefix, "--control-port", str(control), "--telemetry-port", str(control + 1), *extra], cwd=ROOT).returncode
         stop.set()
         sys.exit(rc)

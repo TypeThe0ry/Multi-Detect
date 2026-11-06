@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_suburb_davis__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_suburb_davis__windy.runtime.json",
+   "sha256": "1a6832ffc6bb1e556439d12fab2d205200e568334231718c53d8156e2015d6e1"
+  },
+  "truth": {
+   "path": "rw_suburb_davis__windy.truth.json",
+   "sha256": "2de2f3bb3c37235e380023233ee166905a7821e22220f6d16699ed1247de1a91"
+  },
+  "expectations": {
+   "path": "rw_suburb_davis__windy.expectations.json",
+   "sha256": "00a8d397f9563cc474f4cb1176e9d130d3d6f942f89b912cbca6886bafe0bb1f"
+  }
+ }
+}

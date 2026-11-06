@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_farm_iowa__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_farm_iowa__windy.runtime.json",
+   "sha256": "4207ea1fa476fbc4529e3bd5f92cc0132fa8e34b134840c53b1827ca7c4cc37f"
+  },
+  "truth": {
+   "path": "rw_farm_iowa__windy.truth.json",
+   "sha256": "e654275eca50785350ce4f18852d01ef397f9d19240fe42eedb3427d05b17c6e"
+  },
+  "expectations": {
+   "path": "rw_farm_iowa__windy.expectations.json",
+   "sha256": "da0461697b5addf15f74fcf0135d37457e5d6e28a2b380f68c403b899799c6ba"
+  }
+ }
+}
