@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "asset_root": "/data/datasets/multidetect-sim-assets",
+  "comment": "Real places rebuilt from public data. origin is the takeoff point; size_m is the square edge.",
+  "sites": {
+    "rw_downtown_sf": {
+      "title": "旧金山市中心 高楼街区",
+      "lat": 37.78515,
+      "lon": -122.4025,
+      "size_m": 2000,
+      "kind": "urban"
+    },
+    "rw_suburb_davis": {
+      "title": "戴维斯 独栋住宅区",
+      "lat": 38.557,
+      "lon": -121.751,
+      "size_m": 2000,
+      "kind": "suburb"
+    },
+    "rw_farm_iowa": {
+      "title": "爱荷华 农田和乡村公路",
+      "lat": 42.015,
+      "lon": -93.71,
+      "size_m": 3000,
+      "kind": "rural"
+    },
+    "rw_mountain_boulder": {
+      "title": "博尔德 山地森林",
+      "lat": 39.999,
+      "lon": -105.283,
+      "size_m": 3000,
+      "kind": "mountain"
+    },
+    "rw_coast_santacruz": {
+      "title": "圣克鲁斯 海岸和港口",
+      "lat": 36.96697,
+      "lon": -122.00144,
+      "size_m": 3000,
+      "kind": "coast"
+    },
+    "rw_port_oakland": {
+      "title": "奥克兰港 工业区",
+      "lat": 37.801,
+      "lon": -122.315,
+      "size_m": 3000,
+      "kind": "industrial"
+    }
+  }
+}

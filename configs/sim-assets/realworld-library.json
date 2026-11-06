@@ -1,0 +1,5235 @@
+{
+"schema_version": 1,
+"asset_root": "/data/datasets/multidetect-sim-assets/library",
+"items": [
+{
+"kind": "polyhaven_hdri",
+"slug": "kloofendal_48d_partly_cloudy_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/kloofendal_48d_partly_cloudy_puresky_4k.hdr",
+"sha256": "3061c00a16ecae748e84fd6c44c04804f539c118bb66325db858bad87b11bf88",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "moonless_golf",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/moonless_golf_4k.hdr",
+"sha256": "d114c8e235f7aeacc30a9efe3b8545ea4202f7a33933071a1066efb904f4ea16",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "lilienstein",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/lilienstein_4k.hdr",
+"sha256": "5ff50a6e4e0a1cab05cbc349c18f4c73a2d25f09c676ae00cabf213945f29f49",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "satara_night",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/satara_night_4k.hdr",
+"sha256": "87f1f52fdb6497d966e236e0ae29b55f5555d9179b20315025673bdb77711c36",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "the_sky_is_on_fire",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/the_sky_is_on_fire_4k.hdr",
+"sha256": "b2f8feb373c894ff8f3c40a0edbf0356ef63bea9ee35d68a7684e34a6960f990",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "kloppenheim_02",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/kloppenheim_02_4k.hdr",
+"sha256": "e1d9b9299d8141a8f56cada67a112f4f5ac931a5c7b3592f5a9ddf1959248a98",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "spruit_sunrise",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/spruit_sunrise_4k.hdr",
+"sha256": "b5654f184ffa7f6e4f08d6ac5c59b46556f384dfdc2c9e8f3b982c8f4aff5b46",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "kloppenheim_06_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/kloppenheim_06_puresky_4k.hdr",
+"sha256": "1bebd7cbbfb5c48a642f03d93bffbabb2c42d0b109061f37a72259d1cbdb3053",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "kiara_1_dawn",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/kiara_1_dawn_4k.hdr",
+"sha256": "61f024d80f21bc9800bfdd5bf5d4034bc36d7a10494da73185edc40e1b81dc8b",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "belfast_sunset_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/belfast_sunset_puresky_4k.hdr",
+"sha256": "cafc52b99ce15d84bd039826a0333f5ab0259d8c1f4feb2f7faf5fafa039108a",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "overcast_soil_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/overcast_soil_puresky_4k.hdr",
+"sha256": "717958e9dfd092fcead82ff4691f3d615088803dd1888bb638ba948669021140",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "cannon",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/cannon_4k.hdr",
+"sha256": "80c65be1bfef7f0058bdf00bac673ff19d5868b3bcd3a991f9767dde0db12b15",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "mud_road_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/mud_road_puresky_4k.hdr",
+"sha256": "a84d211d59fa0284535c7563eaefc38944fd055f8934e4494dc5d65a85f674a3",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "snowy_park_01",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/snowy_park_01_4k.hdr",
+"sha256": "fd481fc511dac7d5ae1762491886f68ced1ad40409add5a62082aedb0d8613bb",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "tiergarten",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/tiergarten_4k.hdr",
+"sha256": "9068202e0111d8e07915f69af15103b059f7d7fd939eecbf4aa088a06b277da9",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "urban_street_01",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/urban_street_01_4k.hdr",
+"sha256": "b73c9aaca358c2ff217154730238ed9f5b2810cb0f3b1210ecadbb556cdabec3",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "dikhololo_night",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/dikhololo_night_4k.hdr",
+"sha256": "44434f4e2b2c674bc16a024898d86a8a455c0ce5cea266d04a4644964c1b3019",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "satara_night_no_lamps",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/satara_night_no_lamps_4k.hdr",
+"sha256": "d2ea47493416e75f1ae32905fc06472c8e6fec221f1e1ddfd6f67add13b9e9f8",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "shanghai_bund",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/shanghai_bund_4k.hdr",
+"sha256": "2e72825fd2502ae649f59035ecc9887c7d217dfe1a32e7915146d587fa2816e3",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "wide_street_01",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/wide_street_01_4k.hdr",
+"sha256": "f1588af2830c794690fdb49bbf593e9d75596ff6f3baa150852738fde58d07f9",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "noon_grass",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/noon_grass_4k.hdr",
+"sha256": "7b8be38b8de57d7803c78e0dd2eff460c0a1d2e0145bdd809add8fe93a69c249",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "golden_gate_hills",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/golden_gate_hills_4k.hdr",
+"sha256": "29bd4a52a40405df31dbaeee59a821c84c1b409ee6cb68ea1a058f0b04c633a0",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "rural_asphalt_road",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/rural_asphalt_road_4k.hdr",
+"sha256": "325e8626aefa9cfdf66026bdfd669209d44cba1a32536e172db215e0e21a22d7",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "sunflowers",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/sunflowers_4k.hdr",
+"sha256": "5acfc07b38307c38b54bf1c4538a6b84e1c5600f646318bfc5ddd434a8fb0d4a",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "canary_wharf",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/canary_wharf_4k.hdr",
+"sha256": "e9ef3c82901dcf50294797c046a05b184be0c0f3b2a4e5c5235ccb01adba5ef5",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "meadow_2",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/meadow_2_4k.hdr",
+"sha256": "69d2ff4b090f0da4e4cd4b5a83ff7e898f085db8b18e1cbe9c624e5760fad964",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "je_gray_02",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/je_gray_02_4k.hdr",
+"sha256": "d248dcc666352b5b3ee8a81eefa2e4337a4a69dcd1c210f7dbb7c67d16b521b1",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "autumn_field_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/autumn_field_puresky_4k.hdr",
+"sha256": "52e13951317a14f74d9c04d687368d702f1c0648b48265f17831310a95eba2e9",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "grass_medium_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/grass_medium_01/grass_medium_01_1k.gltf",
+"sha256": "3e5e2a314c94e16de54fd7c28e41709731fbd2b1613ab539f1544f622ddb6a85",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "tree_small_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/tree_small_02/tree_small_02_1k.gltf",
+"sha256": "3062a709614c05b80fdc1e56583998bc3cb1027b0d52f956c8ecfb882ff8ca6d",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "jacaranda_tree",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/jacaranda_tree/jacaranda_tree_1k.gltf",
+"sha256": "ba4aa8ab4c3e3741ce3699604d6ec1607cd6b126ae2d32abbcc0d98e8edb3be4",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Camera_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Camera_01/Camera_01_1k.gltf",
+"sha256": "9c5ca3104579c84ffcebdee5c6e5e09821fe8d4a5cd9ce95ed32d81507450ee3",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "potted_plant_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/potted_plant_02/potted_plant_02_1k.gltf",
+"sha256": "c533dcce0d1aa4379eb7db04601a04983f8df2422b28578de922655a416e64a9",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "grass_bermuda_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/grass_bermuda_01/grass_bermuda_01_1k.gltf",
+"sha256": "a1e5bb7fcf33721dc4844d7acacab80759fccec659f1ea643f8701afc542e207",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "marble_bust_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/marble_bust_01/marble_bust_01_1k.gltf",
+"sha256": "b6f192fc01be4349470b66f6f6948bd37620267bdbc86f4568e4d078f97ff09b",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "rock_moss_set_02",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_moss_set_02/rock_moss_set_02_1k.gltf",
+"sha256": "c3b992a7622e94f7d8da97a47277a2a5177a513af0312a127ec908d4056c97db",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "island_tree_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/island_tree_02/island_tree_02_1k.gltf",
+"sha256": "d8c5d9ead41cdbef91a648f40ff60470faa19eb3a7010e59e44cb1a01250f75d",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "potted_plant_04",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/potted_plant_04/potted_plant_04_1k.gltf",
+"sha256": "b3a3bc3e97da75844999c4da07b7104b6c023f729a7c045979929b9504184339",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "rock_moss_set_01",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_moss_set_01/rock_moss_set_01_1k.gltf",
+"sha256": "c36675aca9c6b2be7785c2534cf413b03ec82a5a2a5407a2b1c0cdb0346c9727",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "fern_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/fern_02/fern_02_1k.gltf",
+"sha256": "33974295ee19670af4877705fc7d91f33f42d6302f0d44a625e072271223031f",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "celandine_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/celandine_01/celandine_01_1k.gltf",
+"sha256": "ae54536f79b426e69c33449b75a89b86fb127f91342445c26cc4142c5f4220d5",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "fir_tree_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/fir_tree_01/fir_tree_01_1k.gltf",
+"sha256": "72e49eefb4ed4db6a8ca5e17fb10980f8463dd300d94589ac774cde95ade7709",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "island_tree_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/island_tree_01/island_tree_01_1k.gltf",
+"sha256": "78e905a40670bfabb2760601d4d9a6c17193a50d68e6271c66893eb7bd75906d",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Lantern_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Lantern_01/Lantern_01_1k.gltf",
+"sha256": "d3f8d7a7afec96d55d3b7f20c3e329c909d19d37047902a826bc157f77c27819",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "potted_plant_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/potted_plant_01/potted_plant_01_1k.gltf",
+"sha256": "23b30294407684b02f14800d6685bd8938da5d2111e17753ac8dd3c37d8c88a0",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "dandelion_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/dandelion_01/dandelion_01_1k.gltf",
+"sha256": "68f804fe29f641f37b03c470cf9065d34aacd1b4f580ed6f35385626c2bb42b7",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Barrel_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Barrel_01/Barrel_01_1k.gltf",
+"sha256": "e084945dedd6a3379c6f3e97842cac89df7169797707e123a5e5b42c135d6888",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "fir_sapling_medium",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/fir_sapling_medium/fir_sapling_medium_1k.gltf",
+"sha256": "2e80cd49d716c99bdead5a42aa6441e89443044d9a0edc31b56b5dbf87fc41de",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "dry_branches_medium_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/dry_branches_medium_01/dry_branches_medium_01_1k.gltf",
+"sha256": "23f328ded9be1e151ccd7994b303c70221551544c4857a71474c1c01a14b8a22",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "grass_medium_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/grass_medium_02/grass_medium_02_1k.gltf",
+"sha256": "7037f8d2dfc6aeec0bf72f4eeb96cfa3f6b3a5e6c6f0bc5de537c055b2fd5d04",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "street_rat",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/street_rat/street_rat_1k.gltf",
+"sha256": "66d822f0828838a5ffd1f82b846bdf90c962c73781bf8f1da22b487eef6950b2",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "boulder_01",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/boulder_01/boulder_01_1k.gltf",
+"sha256": "51487934db898b4c24072780a451e34eca5c02e3ada24a62bbc600bbc4019e92",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "shrub_sorrel_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/shrub_sorrel_01/shrub_sorrel_01_1k.gltf",
+"sha256": "97e2c9b564610a1077de9e15de07acbf19f2e66619016aeebb7987e191ad3ce1",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "GothicCabinet_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/GothicCabinet_01/GothicCabinet_01_1k.gltf",
+"sha256": "1b3506f78e263c66e90d4a84b9efa883fe0bb02a13ff8ead2b3a265024e045ce",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "CoffeeCart_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/CoffeeCart_01/CoffeeCart_01_1k.gltf",
+"sha256": "3f4e7e79e751662a767c22b21c34dfb6f7d414d56dda60a236ad7d621d211934",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "namaqualand_boulder_02",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/namaqualand_boulder_02/namaqualand_boulder_02_1k.gltf",
+"sha256": "3c41b5946cd5b208673ec481a3969047665688b2fab1de99b57a7b4eedde099b",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "outdoor_table_chair_set_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/outdoor_table_chair_set_01/outdoor_table_chair_set_01_1k.gltf",
+"sha256": "1b718deb56a9f07b260a5f95926fb7caa5fd27918cacca283414c840e46415f2",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "anthurium_botany_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/anthurium_botany_01/anthurium_botany_01_1k.gltf",
+"sha256": "6b3f6b8eda6cc0edfefd6a58f6758ef6538c35b2ca2a76189383f23b246dd8c6",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "treasure_chest",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/treasure_chest/treasure_chest_1k.gltf",
+"sha256": "5edb8df3a45d2709b9407102ba4dd63025adff401ed8eba939d0117a74dd8dd5",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "pine_tree_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/pine_tree_01/pine_tree_01_1k.gltf",
+"sha256": "c81e8eebbda722313f07bed37b8b9156ce520f7fa95488d83a694d02fffdb469",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "dead_tree_trunk_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/dead_tree_trunk_02/dead_tree_trunk_02_1k.gltf",
+"sha256": "b486ab1f0c7f4972e0eec97b19de53b26a34d09f07da5f9c2a70f8621f9e574c",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "moss_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/moss_01/moss_01_1k.gltf",
+"sha256": "36fe6cb9889abb33f4dbee402928e260a3e7dfaec043d39b80b1e3afff684f65",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "modular_fort_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modular_fort_01/modular_fort_01_1k.gltf",
+"sha256": "829ac97d4c5c5672d3055d772e0ef4b545ad93cb4b639296f34e3ddf04cf9faf",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Chandelier_03",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Chandelier_03/Chandelier_03_1k.gltf",
+"sha256": "ab3c57ada6a22e472778b4c7f7e7d5e9b3b10fe91d4566de95e89497f282e00f",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Chandelier_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Chandelier_01/Chandelier_01_1k.gltf",
+"sha256": "19a63453965dde6ace3159e2059c30adee81905e95a6beaf62b7f47d9283e724",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Ottoman_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Ottoman_01/Ottoman_01_1k.gltf",
+"sha256": "cb515553924d7ca85b94807aba7d7d5110fafa0fedf7132573b105ac8b900584",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "searsia_lucida",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/searsia_lucida/searsia_lucida_1k.gltf",
+"sha256": "ebdc8d776c058b9a6f9a04c57ca0540368531febd3bfa007d2e2d8af8d368f67",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "cannon_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/cannon_01/cannon_01_1k.gltf",
+"sha256": "d46d014e0fa1818c51222260fe6cab3bc34b7568b6bf19f196e14b24406168ee",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "nettle_plant",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/nettle_plant/nettle_plant_1k.gltf",
+"sha256": "45baafa16feb0017e6a46712e2aa7afe7841fd00905075ead8316a5fc8314b0e",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "street_lamp_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/street_lamp_01/street_lamp_01_1k.gltf",
+"sha256": "5d0358ede168b5e04547780b99d8e6d651cbe644e468e67cb505019047cbd5c8",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "WetFloorSign_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/WetFloorSign_01/WetFloorSign_01_1k.gltf",
+"sha256": "ba5b10d2de7bb60b77dc3e44a96446181a078e35597947a490a4b6de906059e4",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Rockingchair_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Rockingchair_01/Rockingchair_01_1k.gltf",
+"sha256": "eb8c3a8f9c2c1bd6ca6d76804b8361dd0fd779498249d554536e5683e08f565b",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wooden_picnic_table",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wooden_picnic_table/wooden_picnic_table_1k.gltf",
+"sha256": "6b0dd9916fd87dba2e5baad06e20c0badf68bc68a5761a13854fa9a215c6bd50",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "cassette_player",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/cassette_player/cassette_player_1k.gltf",
+"sha256": "3501d41d15249c78d0dec2adf6518b3bdfe691ca24b16d0f0c1f0f0ca57824e8",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "modern_ceiling_lamp_01",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modern_ceiling_lamp_01/modern_ceiling_lamp_01_1k.gltf",
+"sha256": "f88b5d0a81fa813457a77474e7e4e812f97ad5fac2109ba03ddb183274be3f8c",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "vintage_wooden_drawer_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/vintage_wooden_drawer_01/vintage_wooden_drawer_01_1k.gltf",
+"sha256": "4080ecdac2228759dd41a5d5705b984f993bbf6b0f66570824a9dcbbeaa49e51",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "brass_vase_03",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/brass_vase_03/brass_vase_03_1k.gltf",
+"sha256": "b65379454ee1c8a608e757b513dc72013cfc5b4156deaf33a46e4f58338b5e8c",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "modular_chainlink_fence",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modular_chainlink_fence/modular_chainlink_fence_1k.gltf",
+"sha256": "4204f151f809b4abd41ea0b18b1b6a5d9c23e6bcc0b6a81e44d03690f26604e9",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Barrel_02",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Barrel_02/Barrel_02_1k.gltf",
+"sha256": "82204368af4d7211c440e7ebcd30979f48ba349d4439f3bf0212f86d4ba5d9d8",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "metal_trash_can",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/metal_trash_can/metal_trash_can_1k.gltf",
+"sha256": "ccdc55ecfe43db2174c9257891e92551882a874564bb9a7908cafc5268b46c0c",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "brass_goblets",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/brass_goblets/brass_goblets_1k.gltf",
+"sha256": "f78416e66ef2dc2de3aadfbd3bcd5da78902bc129764bc92bf62436cea6c4c65",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "coastal_cliff_04",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/coastal_cliff_04/coastal_cliff_04_1k.gltf",
+"sha256": "645cadf494f60e247434451af6a88291d3be3019aa0973d635596810b0fe2d11",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wooden_crate_01",
+"category": "cargo",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wooden_crate_01/wooden_crate_01_1k.gltf",
+"sha256": "fd9c6073acfc671e12b64666053f2805ae33aff5d3dbbcfe5c97c08c06644927",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wine_barrel_01",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wine_barrel_01/wine_barrel_01_1k.gltf",
+"sha256": "503d3339677217c3241a3cdbc1c803ed1eb82d1a48f51436d1545ec5745ae8d8",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "weed_plant_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/weed_plant_02/weed_plant_02_1k.gltf",
+"sha256": "20fe9aa14ec8160de54d8027422ce6db93bcc6211299509067ee3edbceff218b",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "coast_land_rocks_04",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/coast_land_rocks_04/coast_land_rocks_04_1k.gltf",
+"sha256": "dadfdb9258cae328d135ad0e75cda79654c1d9da688d88dbba08c41e2ffedf45",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "calathea_orbifolia_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/calathea_orbifolia_01/calathea_orbifolia_01_1k.gltf",
+"sha256": "399130c01bfff6b493f885652112c3c841c3814b024a3d3c87773e0c5ab4f156",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "stone_fire_pit",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/stone_fire_pit/stone_fire_pit_1k.gltf",
+"sha256": "40034b326d28c06f25cf1cdb39a5ab3f3b1d1a9415d490af39621efe6c31cee6",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "modular_electricity_poles",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modular_electricity_poles/modular_electricity_poles_1k.gltf",
+"sha256": "2032fb781809021258ceeb22f163bd9ddca2a9186173ed99ee61130dbb808c62",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "lightbulb_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/lightbulb_01/lightbulb_01_1k.gltf",
+"sha256": "6b17f2a316b0562fc5eeaa9a7dd64855c0f76499b64e9ad45081ed7243116826",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "island_tree_03",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/island_tree_03/island_tree_03_1k.gltf",
+"sha256": "5efbe24ad6fc769db55ac771eec7a2ee7aa389c5667656f279d0743e455ef04a",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "old_tyre",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/old_tyre/old_tyre_1k.gltf",
+"sha256": "ba7b417eb3dc747c356ac3cd1f125754755684eb664737a9f1fc9e490c0b766e",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "namaqualand_cliff_02",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/namaqualand_cliff_02/namaqualand_cliff_02_1k.gltf",
+"sha256": "025d245c7bbd0dfeb061c95a03a79699b5e39c9b3b04e7f0c8f729d2b99830cf",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wooden_display_shelves_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wooden_display_shelves_01/wooden_display_shelves_01_1k.gltf",
+"sha256": "3784953c451b088d24ac1b0e6946c7f7bd589115f51e6549fdb8fe9f7c10600e",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "shrub_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/shrub_01/shrub_01_1k.gltf",
+"sha256": "c3bb3340687d46c684b9dab82f5b2f92b7b0fe761842423d3c9e19f59a839393",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "pine_sapling_medium",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/pine_sapling_medium/pine_sapling_medium_1k.gltf",
+"sha256": "b08bc0f19b06b545115945164b0d3a8340c78ba86a0521ea7cfe9c2d50a83f4e",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "sand_rocks_small_01",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/sand_rocks_small_01/sand_rocks_small_01_1k.gltf",
+"sha256": "8d5dd6fc49f00646f3df1cee18c731c72b843fc9d448830bac5f151180a63d0e",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "namaqualand_boulder_03",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/namaqualand_boulder_03/namaqualand_boulder_03_1k.gltf",
+"sha256": "14560936aaad68da0c0fc549b54c67bba4cd573dfe5b07f92835b9ca044a0092",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "tree_stump_01",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/tree_stump_01/tree_stump_01_1k.gltf",
+"sha256": "9c66ba87d693f35eb404acaa96e0eeff831c295b61a0a903795584cbcc3527c9",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "barrel_03",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/barrel_03/barrel_03_1k.gltf",
+"sha256": "80e2faf48b7423bb522b573e459d99c5656a16763285ec8268e957fc7d41f9b8",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "mid_century_lounge_chair",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/mid_century_lounge_chair/mid_century_lounge_chair_1k.gltf",
+"sha256": "47c5769ee4dfa350e2506a6a76d8ef58a1e1060344acda35c503ddff46645d26",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "othonna_cerarioides",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/othonna_cerarioides/othonna_cerarioides_1k.gltf",
+"sha256": "cbbe57f895038c490f2b73d3c068a478f74c6e74d19c8d21ae96cb78567e5a56",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "desk_lamp_arm_01",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/desk_lamp_arm_01/desk_lamp_arm_01_1k.gltf",
+"sha256": "2ac8389afc1519449a9cfdf7efd9fa36780a2177bb47ab58f7a7dda7d247dc8c",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "Chandelier_02",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Chandelier_02/Chandelier_02_1k.gltf",
+"sha256": "d52ea299a0831a6851d50901d6719367454ffc61c1fed871cdcfc7db6b775dfd",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "flower_heliophila",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/flower_heliophila/flower_heliophila_1k.gltf",
+"sha256": "629274399d44a1a9c8666d7a341bf7c5b2083c3ec292166cb23419ff9eb192b1",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "coast_rocks_05",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/coast_rocks_05/coast_rocks_05_1k.gltf",
+"sha256": "4b5e97d42b4d9e1999ee5961922adc6b5d81f4aad34219915def7975bb2a8eb7",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "vintage_cabinet_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/vintage_cabinet_01/vintage_cabinet_01_1k.gltf",
+"sha256": "ce66c642cb13ba11bf7cde72bb58ad465dce1909dbef8a22dd55b28d857c1848",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "shrub_04",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/shrub_04/shrub_04_1k.gltf",
+"sha256": "782832cbc57e96686b78c6ef9df6234c25f564f78421c8ed4bd42c3631f5aeae",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "pachira_aquatica_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/pachira_aquatica_01/pachira_aquatica_01_1k.gltf",
+"sha256": "e73b77c0ffadd8b9fa686faabfecf37799123fe4bc756f816145a4f8c9f53364",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "street_lamp_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/street_lamp_02/street_lamp_02_1k.gltf",
+"sha256": "3a8a42486c5dc4538a8b44aeeef502c64a1c9d0d42fa5610e37886c355337ff8",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "searsia_burchellii",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/searsia_burchellii/searsia_burchellii_1k.gltf",
+"sha256": "77cde5ca5a5aade15e1d167cb35dd7e52d9c4f59fadffdfb1baa47eed178ea2c",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "dead_tree_trunk",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/dead_tree_trunk/dead_tree_trunk_1k.gltf",
+"sha256": "8baaf1ff66ba1f79acdceed0dc3797a882990a3abb10b18abe56762f34c26e39",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "painted_wooden_cabinet",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/painted_wooden_cabinet/painted_wooden_cabinet_1k.gltf",
+"sha256": "ce04543cdb10e05fe9c2cc08e9c118b16c1c717a07bcbfac9b99859465c8d1ed",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "gallinera_table",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/gallinera_table/gallinera_table_1k.gltf",
+"sha256": "6254d8b51b9fbccc86a4978796ee5d3cb7d46a78cbf2b3090ec12d8c68176a67",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "modern_coffee_table_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modern_coffee_table_01/modern_coffee_table_01_1k.gltf",
+"sha256": "a35d811da4c174d0c888f23353dda21501763dbf5505c66f57fef4b3f613e50c",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "coastal_cliff_02",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/coastal_cliff_02/coastal_cliff_02_1k.gltf",
+"sha256": "022e2df3da198ad294be18d322f09881bc0ad90b108d88ff638fa4a3fafb033f",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "modern_wooden_cabinet",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modern_wooden_cabinet/modern_wooden_cabinet_1k.gltf",
+"sha256": "9c0765063297018e854d11bc27da3cbab3c33904a3be2f5c15f46635df7e857f",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wooden_bucket_02",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wooden_bucket_02/wooden_bucket_02_1k.gltf",
+"sha256": "9ced8ec4849e59e7135d1ab342dbb106adc8c927d2178b1643f1089f19d548b5",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "pine_roots",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/pine_roots/pine_roots_1k.gltf",
+"sha256": "3f25ab982be6dee9328e012fcff9b82f21284fe8af8abdaafa6f316c819297aa",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "barrel_stove",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/barrel_stove/barrel_stove_1k.gltf",
+"sha256": "33006d0166cda06b377b749553571220c9dcbb6f89d42d123d74d0308cf4df32",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "drawer_cabinet",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/drawer_cabinet/drawer_cabinet_1k.gltf",
+"sha256": "899581e6a041644139a138f909c6ba001684cc55b5d1702e08f01094e20d0617",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "rock_09",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_09/rock_09_1k.gltf",
+"sha256": "636e57eb0090889627da18edaec202ff9f65f83101b94f91b7da4d21dc080ab9",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "pine_sapling_small",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/pine_sapling_small/pine_sapling_small_1k.gltf",
+"sha256": "f358c01926861dd082f32dba60f7c9fba232b585a985cf38c0d2229eecf4bc48",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "coast_land_rocks_03",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/coast_land_rocks_03/coast_land_rocks_03_1k.gltf",
+"sha256": "b71ea37f8dd72785c0a90b99d52190f7bee3731439bb1d53750a4482fa1b938c",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "coast_rocks_03",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/coast_rocks_03/coast_rocks_03_1k.gltf",
+"sha256": "50a6df79bc54a54019b818d2a3d831da40dad09519658259236e0ea1b191d8e5",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "mountainside",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/mountainside/mountainside_1k.gltf",
+"sha256": "73241a50748582e6a13b2462afbd57d18a1bae5ffef777b3119d064709604fcd",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wooden_bucket_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wooden_bucket_01/wooden_bucket_01_1k.gltf",
+"sha256": "f5338d760391b1f6183f09cbb3dfcb0d6b5d954d9a1d388e7debabce46fd999d",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "brass_diya_lantern",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/brass_diya_lantern/brass_diya_lantern_1k.gltf",
+"sha256": "6b908c48f0f5300ba561cbcfe38e938863e8d1d33569e9a1fab6c7e9c16f8e95",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wooden_barrels_01",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wooden_barrels_01/wooden_barrels_01_1k.gltf",
+"sha256": "ff785e2150198c4cdb3cc74e532b02ce9574d6a7fc3606f5801fcbf68e3136af",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "CheeseBox_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/CheeseBox_01/CheeseBox_01_1k.gltf",
+"sha256": "2d6fe3d6034f41fb724c6d4ef3016e0c9a8c6fc6d250aea1e2ce2e1317b32d45",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wheelchair_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wheelchair_01/wheelchair_01_1k.gltf",
+"sha256": "6a59d638ceb35e46fe543f4b8b5e94b00fe2c6f15045c1d3cd7d9f46de34f645",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "didelta_spinosa",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/didelta_spinosa/didelta_spinosa_1k.gltf",
+"sha256": "08d14d3a7667588dbd7539147b9efa64cd3277780564d86ec56b0a679935d422",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "periwinkle_plant",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/periwinkle_plant/periwinkle_plant_1k.gltf",
+"sha256": "df781eea76123fc6eee97e6e8d466743e3a5fb08e1a2c3f5025a57e090d2cc55",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "wooden_crate_02",
+"category": "cargo",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wooden_crate_02/wooden_crate_02_1k.gltf",
+"sha256": "e90985d317664668988cb95ce707784c94ab0ccc6d13c980ca789fa69a5cf7b6",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "lantern_chandelier_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/lantern_chandelier_01/lantern_chandelier_01_1k.gltf",
+"sha256": "dc5480e03b82d12521fc46bdb73d4a0291641cfa0d4e4c0fe21f3a087bc69468",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "namaqualand_boulder_05",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/namaqualand_boulder_05/namaqualand_boulder_05_1k.gltf",
+"sha256": "f8e5fd8fd981e889d621ba4e53170a52c47cd3053b8748ee7025ed1083f36a5f",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "spray_paint_bottles_02",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/spray_paint_bottles_02/spray_paint_bottles_02_1k.gltf",
+"sha256": "7f353c8ed3392e7bc63f30f9a80cb39b3667215e49b3969ab5ab7777e7916ee7",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "brass_vase_02",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/brass_vase_02/brass_vase_02_1k.gltf",
+"sha256": "4680277fd44664e1d60b1cf5f26965c8837d9912f776a083187a35eb883fb3a1",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "fire_hydrant",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/fire_hydrant/fire_hydrant_1k.gltf",
+"sha256": "aaca81b2904e6e5f1fb10a854c7b9a921232624387d1f8757b5c6bdaedcd9eb0",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "standing_chalkboard_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/standing_chalkboard_01/standing_chalkboard_01_1k.gltf",
+"sha256": "95e3a825067d6a96adf1e732ff088485bc8edc1f87e79f707c97a44702be0574",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "coast_land_rocks_02",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/coast_land_rocks_02/coast_land_rocks_02_1k.gltf",
+"sha256": "f99e5073bf2df714da68e09d80d8546ded2aad0b73f50df8d48e732d4a452774",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "brass_pan_01",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/brass_pan_01/brass_pan_01_1k.gltf",
+"sha256": "9860e0d10e9ef94c2b02e120f38f28a177af473759e4da05c74a564cfb0da5e1",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "quiver_tree_02",
+"category": "vegetation",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/quiver_tree_02/quiver_tree_02_1k.gltf",
+"sha256": "c92ea2f60defaa9c134f43ac606bb7564ade348f92b546ba91c87bc6365d1a56",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "fir_sapling",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/fir_sapling/fir_sapling_1k.gltf",
+"sha256": "a9466ca9d8c5b9b2eeeeafd3ce426f8912dcbd98a7281bad8c734833eb35b186",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "modular_pipes",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modular_pipes/modular_pipes_1k.gltf",
+"sha256": "29d55a79397c42309075143336c016f19d731b4ff4b724446ef177fce90878de",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "industrial_wall_lamp",
+"category": "street",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/industrial_wall_lamp/industrial_wall_lamp_1k.gltf",
+"sha256": "5a2c0d8bdb52fe168727f4200818ac0c2adbded32f0b9dc09cfe224249f9e266",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "namaqualand_boulder_04",
+"category": "rock",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/namaqualand_boulder_04/namaqualand_boulder_04_1k.gltf",
+"sha256": "04c858a3bdb22873efa988633e0c0d9d1468055f34c94d47742f75165a192078",
+"owner": null
+},
+{
+"kind": "polyhaven_model",
+"slug": "brass_pot_02",
+"category": "prop",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/brass_pot_02/brass_pot_02_1k.gltf",
+"sha256": "cde8f5999217e71fa6153a7ace0f2c17fb485b9b2b6787993b003b1cc722c06d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete049",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete049_2K-JPG.zip",
+"sha256": "ecffb635133e48f16edf5c5eb173fb8cd18524bef9390e8491e0d11142363422",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Asphalt033",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Asphalt033_2K-JPG.zip",
+"sha256": "ad7193b7635b1c7e20c1b70e3d55d0cf68166dd98c7b4c43850d13ffa1ac1b42",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road012A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road012A_2K-JPG.zip",
+"sha256": "705f28ccad93d963c8ab4fdc7e661ac91b0a728ca27192fc44de9f22801a3e1e",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Asphalt031",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Asphalt031_2K-JPG.zip",
+"sha256": "f2a02ea9ea1fd97d2a6d27f46ebac069a5851e3ae7c73fa991abf563b97786c7",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road007",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road007_2K-JPG.zip",
+"sha256": "3209b2d02601be1e512f4d7ff3f338215967332e21309fd9e16a3542970ae0e4",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road008A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road008A_2K-JPG.zip",
+"sha256": "4bd998093480db7e1b65ad6aeabf5f33499286eb9e585c914f0c0b099b2fe145",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road013A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road013A_2K-JPG.zip",
+"sha256": "8cf3bc394464c919b5b873424b16f6a3be92ca4a81bab83bb88f003320436cd9",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road012B",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road012B_2K-JPG.zip",
+"sha256": "370ec37a5075e50e1f6a6d83f827f6f74ccd376a89142d333e33ffb3be860295",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road009C",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road009C_2K-JPG.zip",
+"sha256": "b5563fa274502e6585f9225af91f65e4c7d834b28d7eb534c416a6e8c599729b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road008B",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road008B_2K-JPG.zip",
+"sha256": "f496426d600350de114080d8c2ed6b7a9c4ea126477cf24ce2b6fe920b5385ac",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Asphalt025C",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Asphalt025C_2K-JPG.zip",
+"sha256": "55674756668d69657b9b4d13d8aeea02a1519161671304cb41d73d077067c980",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road015C",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road015C_2K-JPG.zip",
+"sha256": "90b68d74ef4bfad21e93617516a03dd3cb3c7e02978364cfec1f23b65bc7589c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road011A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road011A_2K-JPG.zip",
+"sha256": "6dc7d4a9df2e7a8b2f0b8468864834c5d7e5c24e3f99b0a1997dd24abfaa7823",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road012C",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road012C_2K-JPG.zip",
+"sha256": "23cac85f18d619f6ae172883bca92cdefe5ab5880ce0e3fcb89958c7510732ed",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Road014A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Road014A_2K-JPG.zip",
+"sha256": "dc55d1e36cdf1166b1ae1a934ba4d4f1dd318e24ae552873e503a28e4939f51a",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete048",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete048_2K-JPG.zip",
+"sha256": "c61a3e7f03c625889c7fd71351a928217a15e81ea26e6f7dda16865b2882e483",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete034",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete034_2K-JPG.zip",
+"sha256": "fafd7cd3aee2b703abbb12b7810ef565ab76ac7ea3b1ea9a73b088e423e670b3",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete047A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete047A_2K-JPG.zip",
+"sha256": "70a9be4b8107d641cbcb9ca3e10b09592c5f95fb8effb4305b1fe2990fac71cc",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete046",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete046_2K-JPG.zip",
+"sha256": "597e009cb504219e85671ec06a375cd0cf030142749bb414990cc3dece477dde",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete042A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete042A_2K-JPG.zip",
+"sha256": "6dfa046e23c907a509e4078b85819380ffb67ab950d7f8d302689b83140ec1fa",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete031",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete031_2K-JPG.zip",
+"sha256": "a346866352d749ff36a298d2d8d783354ba80be4a03b7bf0370d92c89c5d7e56",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete030",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete030_2K-JPG.zip",
+"sha256": "cf129c209f714650e7ad6a9dcf34b1bc31e06192db1ccf3470b754c989a3993c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete044D",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete044D_2K-JPG.zip",
+"sha256": "1cca909b833c5d91ce7bb446296756141d130c08059e896d4c439a35c25c9c6d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete036",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete036_2K-JPG.zip",
+"sha256": "231c1f965748db7ad9541f168393c638ba0e935feb3441f5c0edfb1d9cb12d8b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete032",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete032_2K-JPG.zip",
+"sha256": "beec292ab3eecd7664ddd3c73ba16590ce0babe9dfbc5f8c0a7e23d3a17df8e4",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Concrete045",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Concrete045_2K-JPG.zip",
+"sha256": "06ae5a2253f1965a33b2a29e11332f6bd0717f7047c1292ec520f0fee7a9de81",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Grass005",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Grass005_2K-JPG.zip",
+"sha256": "89183d8dceabc3c23a26978f426e1662143dd2f84f1dc3586a1592d101e5234b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Grass004",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Grass004_2K-JPG.zip",
+"sha256": "d7d3f08e8bb1e59aed0c3dbb85ea0b46d5308481f89b6a3fd62c0ec9e862245b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Grass001",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Grass001_2K-JPG.zip",
+"sha256": "a47570077b55f260a6c54890a560087caffb9eb8b2b78a84f8247ba1966d7d1d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground037",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground037_2K-JPG.zip",
+"sha256": "defa9f880ec692eb3ef5435fd7bc7b8721c0d577f7824ea18ac68537f01ab65b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow015",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow015_2K-JPG.zip",
+"sha256": "6848331836c95df134e38e4e47fac9b5f2e1f2c739aea841cdaf87e8a5de386e",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Grass008",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Grass008_2K-JPG.zip",
+"sha256": "e83f37c63c1f5e3e4ee7d66cdb6b32277108c94e19cab7754595c5c60ed750e7",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Grass006",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Grass006_2K-JPG.zip",
+"sha256": "783f28616ed9043fcc0a9946f9bbfc48fee965f35ced7a5d50595fd18affbd5d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Grass007",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Grass007_2K-JPG.zip",
+"sha256": "36629fd576a993325a8880e1824454ccf9c05ba579e0c8d0922a83dc6e928a2a",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Grass003",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Grass003_2K-JPG.zip",
+"sha256": "7ccb05e97a433f99e31a183a74eeec8a50bf9e13297c6716a3a6a237c7930a59",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Grass002",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Grass002_2K-JPG.zip",
+"sha256": "ee62c9fa9cb5368a92e720dde25c878e42d9c987db507d705a59bf2b237459c8",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground075",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground075_2K-JPG.zip",
+"sha256": "6daac765749ca63525b44b96f60e66f101f90eb2ef5a9769f6702b3dba4fffa9",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground003",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground003_2K-JPG.zip",
+"sha256": "08c1b929c062178b3d5ba48a3dd67d74392c26e271cdb81041fc96b4007df143",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground111",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground111_2K-JPG.zip",
+"sha256": "691ca982a0ca075082c43d4e158310433a795bb68edad580a80adfe2e0a3e3c9",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground110",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground110_2K-JPG.zip",
+"sha256": "61b550147e82350ec12f3f1d92e9ccd3ae6b6bfc8b3f8991cd80b54524c2a515",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground112",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground112_2K-JPG.zip",
+"sha256": "87b5e6a077ada7f40c5058986da6876bea5f8817fa36c9910ed8b2dc37ad0395",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground109",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground109_2K-JPG.zip",
+"sha256": "1f32c5ffa599e32c61405417d9b682dcc23e6ccc38f8a3a09880f204a481e0c8",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground108",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground108_2K-JPG.zip",
+"sha256": "ffc003a159613b9c16f0941b66ccce968fa975eeb504bf345f3630f9f7a732f6",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground106",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground106_2K-JPG.zip",
+"sha256": "97c4b62b7595516a5f1972ab7ea1bd814deb8aa76fa7f319e7fe52c9329e81e5",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Gravel043",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Gravel043_2K-JPG.zip",
+"sha256": "d520aa16697e6b24fed4a6529d51df93970a36fcfb30be5e1171d681b8303665",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground103",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground103_2K-JPG.zip",
+"sha256": "6557e7cd452a1dc0d402c69a13b32f9ae082e7ef3dfab4fb1b49a4ffc7b1afa5",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves009",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves009_2K-JPG.zip",
+"sha256": "20e163a34c3d263d60329ee21f58c746dfff315afe26c94d57e31e536a1cb0dd",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground107",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground107_2K-JPG.zip",
+"sha256": "9a3b0a20a2f3cdbd830b9e24af4c9e5e88fcf167ff1dc7d78cb2a8d30dad2b15",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground079S",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground079S_2K-JPG.zip",
+"sha256": "6d7f7f6c4582bc9696899dcd44d055fc2ce54aab50d94143e35cbac0b52da6b0",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Gravel023",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Gravel023_2K-JPG.zip",
+"sha256": "a6dd0aea7bcda95d6373c823734eda0cfa066e34c0eea9e1e07023926021bab5",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Gravel041",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Gravel041_2K-JPG.zip",
+"sha256": "8d8363a2b5905d2a4b444a5294a462910b598233f5adb57964c905c418364944",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground081",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground081_2K-JPG.zip",
+"sha256": "c61058354610a23dbb1b0a2a456001fab1ccb0ad592fdcc9a566f88b850ec7b1",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Gravel040",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Gravel040_2K-JPG.zip",
+"sha256": "7094774f897dd0fd4d82803a2139338e409d97e5e1b140a5e12a29b126801b5b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground079L",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground079L_2K-JPG.zip",
+"sha256": "aea45c2945fbe2446e2faa9c3951d09747c1e8fd5123dfb8fd083b34b1c21b48",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground091",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground091_2K-JPG.zip",
+"sha256": "8f59e011d0bc326254b040d1e27e3673afae2027eb27504e5d2ff73beadef93c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rocks022",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rocks022_2K-JPG.zip",
+"sha256": "b8aeb44c77ab3274161db81123fb2cb0271563c64a371f8af0660496d8479349",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks113A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks113A_2K-JPG.zip",
+"sha256": "70400f039bbc58aa7b65a6f4bf921b3c75d2174a6e7b27dca167b373f9d369d5",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks106A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks106A_2K-JPG.zip",
+"sha256": "308b946b701e17fa302c9266ebdd05a770fb8fea9ef5c5abb8ed363270b26078",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks105",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks105_2K-JPG.zip",
+"sha256": "15056e8914909386c38a5d8e9a90b42f6bfae2749d2543a7bb423ff0ecf78060",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks108A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks108A_2K-JPG.zip",
+"sha256": "4da8327df19399a1684f86ed9e9545a93c3bb760ad80ad888ed572a2276638fa",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks109A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks109A_2K-JPG.zip",
+"sha256": "20f501e62363eac057037c9114936819f29d164a41e3832741f02bbb29624bda",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks112A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks112A_2K-JPG.zip",
+"sha256": "a75c8966c4aaf739926062be7b73167723ce36376ba92ced16434c9d2ce87ea8",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks107A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks107A_2K-JPG.zip",
+"sha256": "ced3b08724b4e6baf4eb960a7a1082fe7051879ce672352b0afa4144a4ed3730",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks111A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks111A_2K-JPG.zip",
+"sha256": "64057f4c2c2fcb9ba755e73343897b89d5b8f0f655b8dd76f7471d3d253d1377",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks108B",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks108B_2K-JPG.zip",
+"sha256": "eab00d345453e700b2835171f089f9d0d066983585d177783b609d0e865db38c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks109B",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks109B_2K-JPG.zip",
+"sha256": "2902854fb7896ec1f0001b27e8bc3657f6b847afd0dd918797a5c0fa28cec13d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks113B",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks113B_2K-JPG.zip",
+"sha256": "7d4fbe968b535043e556074ce1199c72c806036f06dcb0e6889dee3837a08c37",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bricks110A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bricks110A_2K-JPG.zip",
+"sha256": "73cb40dc59992571faa02b155f463cc2ce84ebdc9944aa0f9e6c2830ff43c200",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade018A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade018A_2K-JPG.zip",
+"sha256": "8cee41a9b44f031bdfb1820e8824ca90d9d329256fb1e0267d12b8dd61aedf0b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "PaintedPlaster006",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=PaintedPlaster006_2K-JPG.zip",
+"sha256": "d0611e8bffe77cb7f9cc37ddbefa13797e4c23038da586af443b3407ce4133f8",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade001",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade001_2K-JPG.zip",
+"sha256": "ab67c6632740268ef336eebc24bee0ec128f2cf2d60889ddeb495f3f67397636",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade017",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade017_2K-JPG.zip",
+"sha256": "3589cadbc6a33a388b66d4a1eab631893cbfa898ca8b5ead92d20ca203218c4f",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade006",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade006_2K-JPG.zip",
+"sha256": "ec17fb47c7983bb0b0075ed2762c9e68662cc8ec5e5e01b806033c41153f6a12",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade009",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade009_2K-JPG.zip",
+"sha256": "37ac14e10297982845f5ec074920dbbb8a96ad45cf64b2d8a477b6d60435f4eb",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade019A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade019A_2K-JPG.zip",
+"sha256": "2611cfe664651230c9f8d028e7ce6b310894d4f2b72ce6133c53c5d48392eb69",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade005",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade005_2K-JPG.zip",
+"sha256": "c380ef7748100ded86a500f0cf7fac24317a520a003a7046a32b665dad91f73f",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade013",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade013_2K-JPG.zip",
+"sha256": "8717995e56b51e06ee7cc1a7ca78c89888f4c54805e45f4e4e1606901c3bf5f1",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade020A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade020A_2K-JPG.zip",
+"sha256": "ce8aa5b8224bf311ff4e09fcc50d27cdad014afe43f25fdf6a5031160262eb85",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade020B",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade020B_2K-JPG.zip",
+"sha256": "ef6e5a7d1c1bc5d82bbd594c543fbc0ca5df767932d988f2dddd5652cec38c09",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Facade002",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Facade002_2K-JPG.zip",
+"sha256": "ac8053bbbbaa7c7f3e4c2d163e826b9ce364a0bdbdc95fd376eaba50509e7b01",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "WoodFloor064",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=WoodFloor064_2K-JPG.zip",
+"sha256": "c14c4b90743232f245afe85abad470613680877dcf7197b80b550f27d9f62d8c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "WoodFloor043",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=WoodFloor043_2K-JPG.zip",
+"sha256": "5f9cab5c67eeeb441a6aa6744f9ebbd56186dfeab4f9c1d924220d3d43b73bdb",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Planks037A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Planks037A_2K-JPG.zip",
+"sha256": "10b25dd182a8b1bd9ee7b662e1fd2677a717cf7566668e23c1b52b95edefdc83",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "WoodFloor040",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=WoodFloor040_2K-JPG.zip",
+"sha256": "5e6c5eec9e971605db738052f032ef667637429961eb4fde408a06866539ce2e",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "WoodFloor041",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=WoodFloor041_2K-JPG.zip",
+"sha256": "f80d5875cfd72a2607d1fc2b8a8dc1272f22d4ef1d1111758b2a0727cc58cdae",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "WoodFloor062",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=WoodFloor062_2K-JPG.zip",
+"sha256": "522ef847dd4259f73af0e89a223c95552ad9b41d7d16f959df5f1441fb115414",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Planks023A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Planks023A_2K-JPG.zip",
+"sha256": "7c9eed3084e7caca76f912dfe379c4614d3f737bfc16a137e2f884208cc7feec",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "WoodFloor039",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=WoodFloor039_2K-JPG.zip",
+"sha256": "0413ffe5d60d724e6bcaf7a86f6ea24c6bc93b743f0ccd9ed7ba53aadf097fe4",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "WoodFloor044",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=WoodFloor044_2K-JPG.zip",
+"sha256": "ecd8d8155dd732b5d4b556c01ca238a24e0dc8e03a61923b806c2945353e4ff6",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Planks039",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Planks039_2K-JPG.zip",
+"sha256": "aa3c061179ba0905634e8e7a0a868782c564c67931265609b99ef12ee39e795f",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "WoodFloor061",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=WoodFloor061_2K-JPG.zip",
+"sha256": "b68acbe6a5d24b82bc1b9a6f7ef59203dbfdc5f1cc63af75c89b4e043e0a04d0",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Planks021",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Planks021_2K-JPG.zip",
+"sha256": "1144764c2d14b55f7f65d21c50febeaf68ae873a7d6bfcaeffa62eaaf3552735",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock064",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock064_2K-JPG.zip",
+"sha256": "225f88f2e8bfdac834027c497115f1f7bb82653a53e904987fa6b071fda94d9c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock063",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock063_2K-JPG.zip",
+"sha256": "c510afdcf7ba0bddf8603ecebfd817d660e8ba5df2f2750e9e8faa884a5b88d2",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock058",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock058_2K-JPG.zip",
+"sha256": "4b6dc8c6a5314957c656785c3a8ff95d721399fab31c9b1b13d90da8683e2f58",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground068",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground068_2K-JPG.zip",
+"sha256": "68762adfb880057de03a2370c20df9566842aa65f87723ebcfcd8b8f7dc8ebe8",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock051",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock051_2K-JPG.zip",
+"sha256": "3494755ee283b120a62e1adf1c46b00aad1436ed21c48882dffb9654e7830d64",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock060",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock060_2K-JPG.zip",
+"sha256": "d130529dd343fd12a6c1e8668a92f7b86367a6e9fefbcb4d827635a19bfff4b0",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock035",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock035_2K-JPG.zip",
+"sha256": "92a770060e3c631fd7733b267f195a450240bd8ae6c5539b814e15e6fb6b1513",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock030",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock030_2K-JPG.zip",
+"sha256": "18992ddc09f8f0cc60eceb875243c0c2449666c662ab7fedbd8bdea4b3d15a99",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock061",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock061_2K-JPG.zip",
+"sha256": "34d15ee39ed72be031adf88d6218e4ddbaf2e6560116ccb3a928e3b64a2228c3",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock020",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock020_2K-JPG.zip",
+"sha256": "e769d6563a137b3d437c7c538fefeea8198f8de41d3b58913a5f4480c0ea27d2",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Rock062",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Rock062_2K-JPG.zip",
+"sha256": "7f6290a24eb86b681c755046b9c5641775525c624b75e4df1eca172aff982c64",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal063",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal063_2K-JPG.zip",
+"sha256": "4c4a995457002ff5288c337254893d3bd42bdd13cecba3e3dadf84e71ebae4a6",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "CorrugatedSteel009",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=CorrugatedSteel009_2K-JPG.zip",
+"sha256": "11d573412820d1ab17eb23c94af98bbd2b8abfce9e5c2cd63f1184eda320eed2",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal049A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal049A_2K-JPG.zip",
+"sha256": "7c9da1f87d9c22306587e428db740e9db7119817af67d04d3b68cd33776511b2",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal055A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal055A_2K-JPG.zip",
+"sha256": "f3d4d3e7b5fbe47ee311f760b22d81fbd677a824f04c2c93a9d9aaa57fc4614f",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal046B",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal046B_2K-JPG.zip",
+"sha256": "b10bffa3d74ce925ee12b9425b077609a1775e1aeebdc2dab2a750c55b882521",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal048A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal048A_2K-JPG.zip",
+"sha256": "9de59c0c606592aa8ae13f35bf298cd9ff24efa08f72852e499208139cead1ec",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal032",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal032_2K-JPG.zip",
+"sha256": "4b8884843c490963d5734be036c35639d064e7a817eb61145322f69c6c19895a",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal061B",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal061B_2K-JPG.zip",
+"sha256": "3709f9e003eb90d28d4ccc2905c082dde45e660f9a03e492cbec8e7f48155399",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal041A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal041A_2K-JPG.zip",
+"sha256": "5a32e213794bef1c603bf0c5376a348a99a73beed04b7c5a2c93a9e086baa8fb",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal053C",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal053C_2K-JPG.zip",
+"sha256": "3253fb542d5b1eec7c584a4a913b482eabe4c257c3acf369539631fdd492b072",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal050A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal050A_2K-JPG.zip",
+"sha256": "c4d0ac0d0c87ae964f5740b24ff39bf708e3f1df56fe3bde873b53fd2f6f7bb2",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Metal046A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Metal046A_2K-JPG.zip",
+"sha256": "519dbb863495458dbc1f1e3d68dd0dce8b6b4c993695ead63f393bc424e30b43",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves008",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves008_2K-JPG.zip",
+"sha256": "13d2ef0723fa9aecde37292633caee814d52f2ad9d47681b8bde9c18912c7774",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground077",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground077_2K-JPG.zip",
+"sha256": "16e7560a2c9b98bc1dabbff896b6b82485298b71e6e609699cbe11135b6541fe",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Leaf001",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Leaf001_2K-JPG.zip",
+"sha256": "5e1dcb8bfa04734cc3964c5f673b002cd03110ecb20a110db9cc20095f87d8bb",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves001",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves001_2K-JPG.zip",
+"sha256": "2601f25b693f239761365cf83930cd27ed62f2d0dc8bbe5c02f06b486b37e04d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves006",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves006_2K-JPG.zip",
+"sha256": "b9e775103b6f29ffe8fea980b5a48b6bd6743db2032ec6e0989d34ddd7ea134d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves007",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves007_2K-JPG.zip",
+"sha256": "16607c0cd41cce9bcf172404cf73e2fa7ba54bd2853470d7a8671415da09a3a1",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves004",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves004_2K-JPG.zip",
+"sha256": "b6e423625e47e33bac9306cece5fdd90973b2b4980cdfc28b9a1034945113ab2",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves003",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves003_2K-JPG.zip",
+"sha256": "a56a945289cec2273faba85ed6c3faa75437e66bbd6bbfcf47d97a23e313af51",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Leaf003",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Leaf003_2K-JPG.zip",
+"sha256": "3cb17f582927953e51361f09494fee54e7fe987c1d9de71e9e00921c95572044",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground011",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground011_2K-JPG.zip",
+"sha256": "9b370edf597641d19f8ffe4b21f5c46f85ee7753e9cb7bfa414bcc1daa3886f6",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves002",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves002_2K-JPG.zip",
+"sha256": "c46b72f3595c925480a2737779724cdd2ed400391c471694b1b876b537ad423b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "ScatteredLeaves005",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=ScatteredLeaves005_2K-JPG.zip",
+"sha256": "ea75e20e53f96a43518e261f18014ad8dc2c60a9bafecd62a50aa5c5d29b67cf",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark016",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark016_2K-JPG.zip",
+"sha256": "711f3be812693ad5595e0b792157c22c3c4de71652e318ccfba3697c4eba9fae",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark014",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark014_2K-JPG.zip",
+"sha256": "2ae21b265b55512521b0c1f161ebaa5bbc9867d8e47327974027d38fb711d7eb",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark015",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark015_2K-JPG.zip",
+"sha256": "37f7938bf76550b60dd4751a993678db6ea155f5cf42303c813bf02271f0c5cb",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark012",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark012_2K-JPG.zip",
+"sha256": "8514e883c1171f64e3190e075dd32ac60599426e5e7d4aa0271c1615ce7549c2",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark001",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark001_2K-JPG.zip",
+"sha256": "bb7b274ed01fa4ec0a5df3d6ce6aa2bd613831f88fe6a747c54f7f3f9a92cc85",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark013",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark013_2K-JPG.zip",
+"sha256": "1dddb9e4121a05cb20f96ee9a0fabc3a2166fbd9443aaca328fbeb147afb6fe9",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark006",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark006_2K-JPG.zip",
+"sha256": "7f83e28d86b8526ae52ead233311e5b8e900273b50527f06895aee917d632410",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark007",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark007_2K-JPG.zip",
+"sha256": "eaa1e1bc2bc829fcf797bd6ff08ac414ede89e13cf42b32fc09bc4f22f185154",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark008",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark008_2K-JPG.zip",
+"sha256": "8b21feef62efcb264a94a55ddb3be2ea7cf1128040f74584ad9fe42fc5264230",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark004",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark004_2K-JPG.zip",
+"sha256": "1ef152366455b01423e1e8498db430fea691bda8cb388f235cbec49bd94eb7ea",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark002",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark002_2K-JPG.zip",
+"sha256": "2f507f82affa4dfc730f4ae67989faee2420a13b446ea45cce34999876f891c9",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Bark003",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Bark003_2K-JPG.zip",
+"sha256": "8a46c556a103194f314bd3e6414746fba7b65a7964cb99e47f8cc65360a9318d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground054",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground054_2K-JPG.zip",
+"sha256": "643e7c8689bac041f17c660eff6a5459bfe0535d4466737beb0e64902b23235a",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground080",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground080_2K-JPG.zip",
+"sha256": "7b8593f653a782eaa31e3cd504594b3eb7f940a742b11d91681ae28c7914f67f",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground093C",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground093C_2K-JPG.zip",
+"sha256": "7f0223582641a1407ff6050029ed46ad3c4e66f21a15ffb51880d092617f9ecf",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground093A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground093A_2K-JPG.zip",
+"sha256": "3277688bb28ba981c7af76a36c88ae4ef26419e3bd2328ff3aeab5cdac0dda1b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground097",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground097_2K-JPG.zip",
+"sha256": "edf4edcc95ef82b23930f92736e6e99f0b93af0885fc6f955c25ce47aad749d6",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground102",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground102_2K-JPG.zip",
+"sha256": "1de6ff2531f524bad88aa3b8497dca920790c611f1b4a442f225b6c2ab5cf0ad",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground078",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground078_2K-JPG.zip",
+"sha256": "f0b7f313a5d504c085e95c5d655914b6ce430de146ab056dd7caeeaaef44abe2",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Ground088",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Ground088_2K-JPG.zip",
+"sha256": "df9e5eb57d12d76a887ece57287683276f37ff9e099b179402fd1a2b30b4a3a4",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow014",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow014_2K-JPG.zip",
+"sha256": "363ceceed3287d14e8d7f7c118a6c9f76370cd3e9930e7ff5cb7bef477ef5330",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow010A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow010A_2K-JPG.zip",
+"sha256": "f1e90798f91d037c568032e08c513b89c3f4a5e3f5b925d80b742eb2dc13e782",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow013",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow013_2K-JPG.zip",
+"sha256": "7719610cde85e63f8bf75e1400e027d02c0ed121b459d48178400798d191502c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow012",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow012_2K-JPG.zip",
+"sha256": "ab66ea41d76ac9aa3f90a890c28e9e97531533902a1f1811ed29beb77ad543aa",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow011",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow011_2K-JPG.zip",
+"sha256": "0eeda21cd16e1b5b27b01a738eda87c2ac9c5f0868f356cefc9662c1e795091f",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow006",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow006_2K-JPG.zip",
+"sha256": "40f7ad9659ffa54312df8cd9ad387bf9522559935d7072f7e73780d9892c71b8",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow008A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow008A_2K-JPG.zip",
+"sha256": "969220731db106a3805cfb94d2ca11833089ab4d2f86298e029b2d9bf38fb830",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow009A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow009A_2K-JPG.zip",
+"sha256": "2ec7a97f4374efe590bd0836cd4e8a2399b75383f1f9d72197e11aa1f5f2765b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow007A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow007A_2K-JPG.zip",
+"sha256": "b1985eec6f3e39971599f3cba45a2daccd8e415aa4b608b9501f37b699902fa1",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow005",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow005_2K-JPG.zip",
+"sha256": "768aa080b299a0edf9c9f04f53a4a9c752392fba39bded5581939e292f9bca8d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Snow004",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Snow004_2K-JPG.zip",
+"sha256": "abcb32c296c7e2904659f784cfd100c917672f500a7197a2672ce5587cdab98e",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Marble012",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Marble012_2K-JPG.zip",
+"sha256": "585c73d1e2dc8747074ef4fa4027795e3556fbe0fa43362c90c90b633f6956db",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Onyx015",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Onyx015_2K-JPG.zip",
+"sha256": "575e6da5c4eb09a3009f8f6ad5ab0126f669c0439dd7ebc30fb813e959185dc8",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Travertine009",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Travertine009_2K-JPG.zip",
+"sha256": "927ca19b99e32ed65be9ae1e4c572a6c4809dc41a8b6026c76338a0359b16959",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Marble016",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Marble016_2K-JPG.zip",
+"sha256": "da551007da2ad2ccd4f18b5b28b93b52e853651b826347729f313c42b06357c3",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Marble021",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Marble021_2K-JPG.zip",
+"sha256": "13a661f0d2ade59d43f97f92f5e9a56f06ebafb68d3671daaba2b4adb320ff41",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Marble006",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Marble006_2K-JPG.zip",
+"sha256": "2a01b2068f8f5e05c4afcd964e3a7648b4b731e4e0b1c59c6f98e8421d729949",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Onyx013",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Onyx013_2K-JPG.zip",
+"sha256": "6db253e4992ed2a02992d4b23dd0ef89951f60d60194e850ef4fc28a98cae98c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Marble014",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Marble014_2K-JPG.zip",
+"sha256": "b03213a1f09aa92a299a3f181c3bf889193514fb10e2c68bea68615603cea5ce",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles074",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles074_2K-JPG.zip",
+"sha256": "8c9439bd30113c9ab4e223cf4e1fb08265d0a34978d02b5b61d7754c68cfc74f",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Marble020",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Marble020_2K-JPG.zip",
+"sha256": "5bc6ccee39b51ac831a3a972b99816837e574d483093d8c5f6268e5056708538",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Onyx011",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Onyx011_2K-JPG.zip",
+"sha256": "711b9b808ea3fb618356dbe233ea53901c8f3d4ec5ae06b46966d0459694fb4c",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles078",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles078_2K-JPG.zip",
+"sha256": "14d2a5404419c7bbb989c31bd0d0ab0b16ffb969967d3dcfd953f9a93947120f",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles141",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles141_2K-JPG.zip",
+"sha256": "aa746dab97b16147d29e39113ed4d8788f165b659c79ee6a585afc721d64c068",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles139",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles139_2K-JPG.zip",
+"sha256": "1770717257e7f26e071fc187913eba12c0a3ca00048842de1a2bdf6a4788f34e",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles143",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles143_2K-JPG.zip",
+"sha256": "d6f5c6f78d06675d4071b981c43da521d07702480d243eea250bd3d6ee1f24fc",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles140",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles140_2K-JPG.zip",
+"sha256": "b10d0c4d953f7a8629e6dafe910cc2f63a576f3ee4bf6a4ea1161a60aa8d7f74",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles142",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles142_2K-JPG.zip",
+"sha256": "e3dde41b3218f8f855bcd8294014847b9c61ac3ad5f72734284220074a2561ac",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles144",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles144_2K-JPG.zip",
+"sha256": "ca329af9114e9037864f20798a141b6154a88cad086c7eb9ed13931c93db212a",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles138",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles138_2K-JPG.zip",
+"sha256": "0c72d152a4f05c5d05474f5ccaac54c500f1f7776a9818f9076b04237cd48c2b",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles107",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles107_2K-JPG.zip",
+"sha256": "fa76887bb33af0972154700126d1f86d01eaed518341ce7411616c1d1202ac55",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "RoofingTiles013A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=RoofingTiles013A_2K-JPG.zip",
+"sha256": "ca9e1f1d6075549728f68a57b64521482d6f1081968be1fa28dc095a46941d2d",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "Tiles133A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=Tiles133A_2K-JPG.zip",
+"sha256": "26524281628dbf41c90e632b2ccb60075ebe357ba1ba11cf10acccabe9006526",
+"owner": null
+},
+{
+"kind": "ambientcg_texture",
+"slug": "RoofingTiles014A",
+"category": "texture",
+"license": "CC0-1.0",
+"url": "https://ambientcg.com/get?file=RoofingTiles014A_2K-JPG.zip",
+"sha256": "419fff88a1080a952a9a5c104f2bdc21cf90b9efb51cd8c33f7e216bd2c437dd",
+"owner": null
+},
+{
+"kind": "fuel_model",
+"slug": "pine_tree",
+"category": "vegetation",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pine%20Tree.zip",
+"sha256": "d436a44229321314e79e4c2ba709dc926e833a5b5d90d16c5d085c2a74576e25",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "playground",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Playground.zip",
+"sha256": "55ef684a233055ac790868b32fb0beaedf11f758f57b7e47526434cba401b1eb",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "storagerack",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/StorageRack.zip",
+"sha256": "8828cfa9ebbcc7652a71e9eb7ae8191190ccd3c0b76c75530b2d7e6abaae2e7e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "oak_tree",
+"category": "vegetation",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Oak%20tree.zip",
+"sha256": "ae128176f707b571d2a2a47a1ab6b80596e81d96402501a64f4f28a49543daa5",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "malevisitoronphone",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/MaleVisitorOnPhone.zip",
+"sha256": "b9d7538433569ddb9e62f21034490ff933a1db6d81a7895fff1a8a7d40742d22",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "construction_cone",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Construction%20Cone.zip",
+"sha256": "a6962fb5f787ba0ee21d0a9f1e96d95dde5160146852abcc45df35b33a46a34e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "cardboard_box",
+"category": "cargo",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Cardboard%20box.zip",
+"sha256": "4376dcd35930893311fad736283a8c0e932c308a0babe5d2e37b2eb5a2f16ed9",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "femalevisitorsit",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/FemaleVisitorSit.zip",
+"sha256": "84d2a9c65c6e8841d9671e9cb871d2c3834ae303a0086d55f5d9e37a9579d1fd",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "femalevisitor",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/FemaleVisitor.zip",
+"sha256": "5454b3bf1ac579851b9874179dcb0c30f6115996be8ad28290f5d0416c88f95e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "malevisitorsit",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/MaleVisitorSit.zip",
+"sha256": "7bba6117aa8b1de518801c9b14a66600026adc28e531f3e58b6c758ca10914d3",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "visitorkidsit",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/VisitorKidSit.zip",
+"sha256": "c913b16f720e9e044ee8f524ba14676a25807ca76f98f2f1bd0d2a15c1362122",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "trashbin",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/TrashBin.zip",
+"sha256": "ff38c8c7d7163145083e75166201a0d8c594c3170451ecf753fc77e173c00de3",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "suv",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/SUV.zip",
+"sha256": "729c066a1a2c1ba75a4453050a3c5022f02ccdfa75a4d4db4bab56104e3a1d54",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "nursedesk",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/NurseDesk.zip",
+"sha256": "d4970ff08cb26cdd110dad167ca6d1b5ff6abba3a7356ca3878c60c9a6fab571",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "prius_hybrid",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Prius%20Hybrid.zip",
+"sha256": "ea5d10f1a2c4e89f8a0441f2c9e623575ecd9a7670c81c3f23bb9204ca32b1ab",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "jersey_barrier",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Jersey%20Barrier.zip",
+"sha256": "8b813dbb19a9c5c24f426d03e389f83d9c37fa5eaf0380e3539929275b8fb0ea",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "standing_person",
+"category": "person",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Standing%20person.zip",
+"sha256": "385c4c518662f75b6c719849a4f47100bac7617058407c7d6db41bf802fc5c5e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "foodcourtbenchshort",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/FoodCourtBenchShort.zip",
+"sha256": "c3e9d82e0fb5c286c43494ab34e41a79940d9ff6afe2913b8a9e8f7d310216d1",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "lampandstand",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/LampAndStand.zip",
+"sha256": "f8610eb71132cc511634937e17fef21f6c15d9ddc9612dbedcd45979566485eb",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "depot",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Depot.zip",
+"sha256": "760ac4a94293a39aaf878243e927608bebdea006ea97e55d95264007548f07de",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "lamp_post",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Lamp%20Post.zip",
+"sha256": "b58e3b135fe981ee889426d7cc7c122c69aa416a4316386320443b431ce27165",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "nurse",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Nurse.zip",
+"sha256": "665e6a4af2462c60dc45ee54d202057c48b6b64eaf3d7fd97c7d0d54236cffc0",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "fountain",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fountain.zip",
+"sha256": "dd4725451f2c5d8973085702a9e42937cdd7e049bab44f93ba1d832765f5e8be",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "gazebo",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Gazebo.zip",
+"sha256": "e1bb0fb708d10c9ccfcba987508b7eeff34c94bb328b3d78b5da124c7a331ca1",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "litterbin",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/LitterBin.zip",
+"sha256": "c642e93ba06627d6e186c7f67bf1113f65c1b7c983c46447bef0c8880909f218",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "opscrubs",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/OpScrubs.zip",
+"sha256": "43a5a827e66e7634de00dd3f92a47a677ccebf020bbf80581b5a3780069b2d6c",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "malevisitorphone",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/MaleVisitorPhone.zip",
+"sha256": "80774e0a177cdfde568a6fd1053aa5f51e1714b8dfdd87e2a7d265de94c28c0e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback_copy",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback%20copy.zip",
+"sha256": "916b9a9fe8ca0982595ed14f226ab70fce104c68d5c19b2d42b249615f0ae778",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback_red_copy",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback%20red%20copy.zip",
+"sha256": "4f8d23823ab44df805d925eb31387aed27836749660af819d52faace769566f1",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "storagerackcovered",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/StorageRackCovered.zip",
+"sha256": "fc94bfaf762d7c39e8a2ed27aa2f2172717d2a005cd416b172357a78fc995426",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "storagerackcoveropen",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/StorageRackCoverOpen.zip",
+"sha256": "5dbaa6e783b1c4e24e62101db6dca0e0074138ce2eb50479fb86eb29efa5c710",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback.zip",
+"sha256": "dcd34e68cf43863991768c3ddbdeb322d6ee8bddaa01aa7da8267bbacfdb60ed",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback_red",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback%20red.zip",
+"sha256": "a99e5e16fabdd15e0fb962ff5294493f45f7a29df8615128cecc082f9fc910cd",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "bus",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Bus.zip",
+"sha256": "39027081c04751263076816193a48bad2927e061bfe6219bcca8f17289c4f1ab",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mb_round_buoy_orange",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/mb_round_buoy_orange.zip",
+"sha256": "728486e08eaf0ad00a282fcbf723d379909932802fc5922b213d9067be26641d",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mb_marker_buoy_red",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/mb_marker_buoy_red.zip",
+"sha256": "698792ca233e04cd1b2491ed3c4df034157abdb4a182e802384e150bac0abe7e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mb_round_buoy_black",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/mb_round_buoy_black.zip",
+"sha256": "c45cff1f7613d273c563d71ea5ebac4eb8844f60127602002ab9d74623caa492",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "vrc_grass_plane_2",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/VRC%20Grass%20Plane%202.zip",
+"sha256": "68359c3f64254b75ac56938043269cd769874c193888110fd8086386c37e9583",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mb_marker_buoy_green",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/mb_marker_buoy_green.zip",
+"sha256": "5f5798d432ffae3971224be0bf6e7f6a9516f515232bf1d3dd049c3089bad6d3",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mb_marker_buoy_white",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/mb_marker_buoy_white.zip",
+"sha256": "6297f6ba3b5d716ad3bd36933bf3908f6d87e4f9f5706e52d0648204684ec5c8",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mb_marker_buoy_black",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/mb_marker_buoy_black.zip",
+"sha256": "45fec6041aaeb29629d4c105b656b71365161bbddc1b4711b0d491fd8e28f492",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "bpcart",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/BPCart.zip",
+"sha256": "68266a1e2d67e64c0e6aa4a6cd563d83d6751f2883b54b4b1f42a88bdfdae4cb",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "walking_person",
+"category": "person",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Walking%20person.zip",
+"sha256": "89cbcc1fd470338823b9cdf82c79aaabd4c86d72935386065deccf1e481a5178",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "bmwcart",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/BMWCart.zip",
+"sha256": "315dbb83a3d93904c67832c1cea9043ea9b1f6949cd6be9120b8c68647c1a0d8",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "falling_rock_1",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Falling%20Rock%201.zip",
+"sha256": "88b38504a76db87266409d658006fe18eb3220937bb0de2d90e945cc0e1ee317",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "electrical_box",
+"category": "cargo",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Electrical%20Box.zip",
+"sha256": "3f553ac7dfb0d7e0411fe030c094714b0fd435b4a21a9a18d70d3d0f479dacad",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "construction_barrel",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Construction%20Barrel.zip",
+"sha256": "3df9417f2478864946eabd064e0ad7d9cd6178eaa96a060886eb560372f36fc9",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "pickup",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pickup.zip",
+"sha256": "fa4d6702828deaef54e50717ddc341e0b9b487eaaea9a0605c91419c1744ab9e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "truckbox",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/TruckBox.zip",
+"sha256": "0d43837bb6482a408941e0f137bc102bee6afa5c50570f79e20fca69e070da07",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "airportbench",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/AirportBench.zip",
+"sha256": "b277f1493f1f99fadd504eb26ec3d20998b0b2c24dac4128b80feb7f760ca2c9",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_wallb_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_WallB_01.zip",
+"sha256": "c7d83fd05e8f5fefbe6033d4a9579741784e5f3a7cfcea4501b01076930c7623",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_clutteringc_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_ClutteringC_01.zip",
+"sha256": "cfa2348112866f2c6f38a9e06bc2340f5e9547e995b6b4ca455e75798c63477a",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_bucket_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_Bucket_01.zip",
+"sha256": "6cf03dc4eefeae6e5daa75d5c07177ac4400f193b1fbcdcb04fd70c89b95add7",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "euro_pallet",
+"category": "cargo",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Euro%20pallet.zip",
+"sha256": "7bff0e331c633b11342032d1dcb5a5d14cae9f9d209a3a4a2c4fd7779a2017c7",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "casual_female",
+"category": "person",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Casual%20female.zip",
+"sha256": "e03944df8f010c7d6cf85fe61b2a9bf2899eed971e73fb76461f4705edeffe5d",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback_blue",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback%20blue.zip",
+"sha256": "1659265c26d026ae5dbb7edf9106acf2a479073ba213da04ca5699fb39b34892",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "office_building",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Office%20Building.zip",
+"sha256": "f96106f12ec5cfcf366d4cbacea8a8a34e4b10beacc75016a44b3115ce098e59",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "falling_rock_2",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Falling%20Rock%202.zip",
+"sha256": "b3bc4d85ae3f2b5ed4dff70b67c0ade3e6e492798420247d40a2d995a539bcd1",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_groundb_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_GroundB_01.zip",
+"sha256": "dacfebe3d70959166fc351954a747d41697c73fd524f6ccfc9f30700a2921104",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "actor_relative_paths",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/actor%20-%20relative%20paths.zip",
+"sha256": "5539ea4c6a92f67483f4a455fbdef5969f7bf97a21785540da06eb90e8c0f9e0",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_palletjackb_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_PalletJackB_01.zip",
+"sha256": "6bf45a3b0c6292e74af62139b5f3f05e2327fa70c029dae7e55867a449ecad2a",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_clutteringa_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_ClutteringA_01.zip",
+"sha256": "481a9b6cee76543a2a358326373370599efc9481d23bcbc37ff0c5e7ce8189c8",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_trashcanc_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_TrashCanC_01.zip",
+"sha256": "deda6f5fe6fab8131a29847cd2e09913af1292d9ea798d2c26460d7123db5085",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "ambulance",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Ambulance.zip",
+"sha256": "ddd47ff6f2942436c36f42123a6d408cb84aa9554920f7b4f82c784d4732046e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "toolbox",
+"category": "cargo",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Toolbox.zip",
+"sha256": "03d38d7b35b7b6ddedf88f735cb4f809b44548c2edb0a372af8a1294adb0434f",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "falling_rock_4",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Falling%20Rock%204.zip",
+"sha256": "cc98eec9f8936aaf35f4e09f51a39a4ac51ea7b6956e22916db77071efca6c1d",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "pallet_standard",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pallet_Standard.zip",
+"sha256": "6f5acc070e8284d486c31bee546d0303b7c5a2abc222e2ea50c3f3e66220d31e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_clutteringd_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_ClutteringD_01.zip",
+"sha256": "7638e63c23db751efc2e0d6275ebf760f0a75a938004bce7c8cc1bde453d4bc4",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "falling_rock_5",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Falling%20Rock%205.zip",
+"sha256": "c90e24da98507e8f1c830a4b8fbd3ab74836dff8d886e5a98c6de78b0fb44594",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "rc_boat",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/RC%20Boat.zip",
+"sha256": "67b85637ebd14044cb124f26e2059139b03506dba9da3605ad2f22c57d8e9cf1",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "falling_rock_3",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Falling%20Rock%203.zip",
+"sha256": "17356f5f9dddf74d94c2a3b5ef45064a173514b82e5b4654e8923a5bbf9753e1",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "falling_rock_6",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Falling%20Rock%206.zip",
+"sha256": "0024d723c7089b8371a6c559bfd69b63d4a3086c10d38208927b2d4d53b7c3fd",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "aws_robomaker_warehouse_lamp_01",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/aws_robomaker_warehouse_Lamp_01.zip",
+"sha256": "3ae203b45b15577c47c5487a133c23349053b8be8f4a34dad1a8d232bb999fe9",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "pallet_rack_section",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pallet_Rack_Section.zip",
+"sha256": "f6bc2af41b6dba1e1b62ae37087c4344be8e82a14032c898d74a514bccc5d712",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "forklift",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Forklift.zip",
+"sha256": "e05ff28c53430d00b6b66a7ce7aa22f11018797941ba711c9fb660df6774fcad",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "house_1",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/House%201.zip",
+"sha256": "7c3e233226d8b80587a1da62397ec15cad271d99b9a9a22d9bc05a4ff86474b7",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "distribution_warehouse",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Distribution_Warehouse.zip",
+"sha256": "2ea77a0563ca087a59e1ff4df920485ec1ef26018fa62d6a530c315aa7bfa4ad",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "gazebo_relative_paths",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Gazebo%20-%20relative%20paths.zip",
+"sha256": "795b73e0e52ae2d6af2221ff2e5c69bf2e8fb3c9e495cd4d82886ebf18db0690",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "collapsed_house",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Collapsed%20House.zip",
+"sha256": "d9fa35138a389e6fbd84be3a293320a0acf9b17f9f1a9e0b2f7a2a28acac9c42",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "foodcourtbenchlong",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/FoodCourtBenchLong.zip",
+"sha256": "0d2a6d2212be6c6ccea37be1db1dbccd41546b4965d0a1280a09000c5348b204",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "medium_rock_fall",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Medium%20Rock%20Fall.zip",
+"sha256": "84184873f3bc9fd8033e94efc5e8493efb949c3dcefa3aa3accd9dca4021db9d",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback_2",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/hatchback_2.zip",
+"sha256": "511744f31a5160926b7251aacfbe604054ba76411c69c2e8a852443bd6ba4572",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "stop_sign",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Stop%20Sign.zip",
+"sha256": "7020faddede97cb62b9a9a4ee39fb7255370d8db1c7fce3c681aef4abd0ddc0e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "small_blue_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Small%20Blue%20Box.zip",
+"sha256": "053f625b7735b66fc463ef260ec71f6815b7a4d9bd3e72e97117d33653a83ed2",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "male_visitor",
+"category": "person",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Male%20visitor.zip",
+"sha256": "5930f629bacd9eccf9554b5a4485a91d65afa7833bfb43ee996e5efef006674b",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "pallet_rack",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pallet_Rack.zip",
+"sha256": "e6ac1aa4e072915df1f39a2ef427f8816ac15b9da175f7ef8d3c41d427626b05",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mine_cart",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Mine%20Cart.zip",
+"sha256": "9a8843a2881a0fe1972ad7c206f63652172ce4d882b2b478689fbc1748bc8266",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "55gal_drum",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/55gal_Drum.zip",
+"sha256": "c0367e5e8f73744a65057371de1ab94fbfe0e3eef38639820798fdf364204ad1",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "house_2",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/House%202.zip",
+"sha256": "47f345d8817b55e669052a65a2aed1b494d3bafd0c1001a1ae9a15c849c75ba5",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "grass_plane",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Grass%20Plane.zip",
+"sha256": "962880f4818647f9a7ed609a896bce07ee430fc4755dbabbbee28dfde4ff1703",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "dumpster",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Dumpster.zip",
+"sha256": "654cca14ad675fb10f33a5b809fa38a4b9ca9b7c07ea64d85e0068f57ee2a405",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "small_rock_fall",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Small%20Rock%20Fall.zip",
+"sha256": "1e633ae56f309ec7439fb505035dbfc8c2779a16b6e7f3e7f04cff5b5cb38c7c",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "dumpster_large",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Dumpster_Large.zip",
+"sha256": "4d89cc21e2564fb6547497d59897f9bd4e8142514f7c2d4ff7326c3c37864b39",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "medium_rock_fall_3",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Medium%20Rock%20Fall%203.zip",
+"sha256": "44dcf5cd1d04dd5d0bb4eda8c84f1576a8e403f2153916514ce386138f2d6823",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "large_crate",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Large%20Crate.zip",
+"sha256": "7fa2c42926bce1c282d34126956b2fa4dc909c4891232c6ee1b8afdf87fc8a18",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "pallet_jack",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pallet_Jack.zip",
+"sha256": "cb7c104e455539a5aa496bb3b5cfe7e333cd0a7f1494a294e2fe83bd8e920e1b",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hospitalpillow",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/HospitalPillow.zip",
+"sha256": "aa8b90c2ad2f2e880514dfcb46772755c6af472168154186ecbed5b8837ebfdd",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "house_3",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/House%203.zip",
+"sha256": "2cf918e4ac19e35b355c99981c398994b8746e3084e2358e5229acbed29c8f5f",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "fire_hydrant",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fire%20hydrant.zip",
+"sha256": "195f61a67e506aca7ca7ec5fd61d45e4aec140da4e86be2bf8a0ac94b7d6ac2d",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "exit_sign",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Exit%20sign.zip",
+"sha256": "b317478c693bb1804d630f6fa330783e81088792a4de8f8a46780d2bf515051f",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hand_cart",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hand_Cart.zip",
+"sha256": "a89fc10049c461ac31af1a4009dc2c07e41e65f5ce948a1d98546a0b15d4824e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "gazebo_flag",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Gazebo%20flag.zip",
+"sha256": "15fbe3c6a03fc4d4cd2273b1651b0e2177d734ba119bb03f35999ed14e88f3c0",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mircart",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/MiRCart.zip",
+"sha256": "cf17d9f525f3e871de6277b0f9d0036eb0bfae885e113ef01e0afaaccff71d0d",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "apartment",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Apartment.zip",
+"sha256": "06a7d5c2d2481473345a6eaf50744ed4a024e1ae9e8dabffdf1808641e9e97a9",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "large_dry_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Large%20Dry%20Box.zip",
+"sha256": "94abb2a381547decbb99637be9325adee2a0e86feef5ea4ab09eabd398442232",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "large_grey_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Large%20Grey%20Box.zip",
+"sha256": "85facb74fee4c07b1a125100058c0696d69713687d460e9588156daa274aed73",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "fire_truck",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fire%20truck.zip",
+"sha256": "c4947b41b0f013758ba3d6056f3c1c02bf0d572615e26059a41f409e2a7ca710",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "postbox",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Postbox.zip",
+"sha256": "61f17fa1e246efb4cc8b556bdb01f54f9c623b6487fe217172b7627e3a9baf13",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "telephone_pole",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Telephone%20pole.zip",
+"sha256": "5d810bb37ed2990d03dac6d653186465f430c9aa918de76f0773fa9859579fa8",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "radio_tower",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Radio%20tower.zip",
+"sha256": "c9b431fd0c5730f9831c3e5b0f38ba45bb3e987ffd762e42ecd3145a21f7d860",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "gas_station",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Gas%20Station.zip",
+"sha256": "1dbd7d77a1aca6c4f4491548a535c2b0878cea6980e3881b7103f01df6193278",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "test_box",
+"category": "cargo",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Test%20box.zip",
+"sha256": "c796d172108a42c21818b340e34422315b18921185b55f579ab772add449b5a9",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "willow_garage",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Willow%20Garage.zip",
+"sha256": "2217563063698ad927731d4bdab1cafedb5291e007b011487b0299b8deb750ca",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "large_crate_handles",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Large%20Crate%20Handles.zip",
+"sha256": "e48314841ba6590846c771dc2f1caba9157c3278b4a63fb56c854036acfb62ab",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "law_office",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Law%20office.zip",
+"sha256": "e2175fdf845c40e265b2711eaae5cb79d296ae17c5edcf01aef1bd0d57daf62a",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "school",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/School.zip",
+"sha256": "72f73deebc26e3694ba5877e92be3f83d4cbf0daca6ec7d37fdb84cde621297a",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "r160_subway_car",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/R160%20Subway%20Car.zip",
+"sha256": "6a8fb9650e1c03c7593a1dd1631e6c06c3c6b5593abf5722e9bda4a602e43a4b",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "first_2015_trash_can",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/FIRST%202015%20trash%20can.zip",
+"sha256": "6cb858ec32d32f23c23665c91db15b6cb8919373dd55f6b1f40af999b0236bb7",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mailbox",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Mailbox.zip",
+"sha256": "fb7b497776e44efdb8e9ee4910e2e0eceeb77a6bfeb3b00f339b25a22a10278b",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "collapsed_industrial_building",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Collapsed%20industrial%20building.zip",
+"sha256": "896ff65311fc67b4f79142223c36ad51b92bb645be4f20cbc71705a1c8a04f81",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "mud_box",
+"category": "cargo",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Mud%20Box.zip",
+"sha256": "cabee7435ee2ca440a9a32a9a81ef52f0a8f16932eac899f84be74e107a6d3cb",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "water_tower",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Water%20tower.zip",
+"sha256": "55d7c58dd88f15c05dcaf7e012eec908f403c1197b73ad5f4bf34f64cd73d57e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "r32_subway_car",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/R32%20Subway%20Car.zip",
+"sha256": "bca9b0a27c2e6ee7db26432265567e4001276eda6125e5414b739941f7e4e77c",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "outsidebench",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/OutsideBench.zip",
+"sha256": "882d3a0f7ee2818134ae11aa44da1ff2bebcbcf4ac1f5007b93aa312ca092c65",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "car_wheel",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Car%20Wheel.zip",
+"sha256": "27dd6c3ae340ffc921ab5a004979aaa977ad9334ee0386885668c80e6757dbf2",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "hospitalbot",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/HospitalBot.zip",
+"sha256": "82befc4199a558e8c45aa7be646d6e9503cdc1c7ffacd81601ff47a6bc6e7384",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "reactor",
+"category": "person",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Reactor.zip",
+"sha256": "5e13fba68a61b0e30fbfb7b54f522371243bd5b09cd5869a50d61f830aed971e",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "speed_limit_sign",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Speed%20limit%20sign.zip",
+"sha256": "0ffba698705eea9ba3a7579e3b99038319510fce8fbcc7fcc7ebc03e217b8914",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "tower_crane",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Tower%20crane.zip",
+"sha256": "94c5fe7b2bc10445590e810cd64f7108a1441e719452af750d391caa44dc211b",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "skybox",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/skybox.zip",
+"sha256": "1c164b6e46ae788c96d0bd311bea6a7b71fb7bebffd0446edd441d513d9ea3bc",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "utility_cart",
+"category": "vehicle",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Utility%20Cart.zip",
+"sha256": "5bd0e75000696a78b91cec6a0df968191e4dca1783dbb6a5c69de4e218d25582",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "drc_practice_orange_jersey_barrier",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/DRC%20Practice:%20Orange%20Jersey%20Barrier.zip",
+"sha256": "56eaa7f58f11436b148f4fe0b12d0627b3e8691c39424ab38b2b49de1a476319",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "parking_garage",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Parking%20garage.zip",
+"sha256": "a26182a6467bd19338d574a7bf2ae8d43c94dfa829eb3faab9bc607dbee04b85",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "exitsign",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/ExitSign.zip",
+"sha256": "41aaf89dfaa26052d0b3a862c842da1e5770e55dd37ef027f0cc6cd447d19cca",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "power_plant",
+"category": "vegetation",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Power%20Plant.zip",
+"sha256": "361618f500a30490aba21f11940e7e56b1dd21f81ed724bb34f699e3158c4134",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "drc_practice_white_jersey_barrier",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/DRC%20Practice:%20White%20Jersey%20Barrier.zip",
+"sha256": "ceccc77eddded27a90d1e9d9ef32647578961505e768dc702defa6e8bc0c3351",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "frc_2016_rockwall",
+"category": "rock",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/FRC%202016%20Rockwall.zip",
+"sha256": "729bc45a5d26859d47617301484020ebbd9f3cd90cc8d96700a323f0a041383d",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "nist_fiducial_barrel",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/NIST%20fiducial%20barrel.zip",
+"sha256": "486da3e29c0d6382bafc922761a63c2c20d4228df4a2bfa9a7cf20cb76c2069c",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "regioneventbox",
+"category": "cargo",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/RegionEventBox.zip",
+"sha256": "4ac2fb23d6931471f6c55b08ca009b6fe580f633f5b1d4191684d45ade33e7e5",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "drc_practice_45_degree_barriers",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/DRC%20Practice:%2045%20degree%20barriers.zip",
+"sha256": "4813faca95b72dd6bd91dfdc0d5f32a644940ab2058358f80c0e3c7a07e87758",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "drc_practice_135_degree_barriers",
+"category": "street",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/DRC%20Practice:%20135%20degree%20barriers.zip",
+"sha256": "1e0190f779baf5efbf4d030dc2a9305db32775b61339c07d18d909d5eaec3a47",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "submarine_buoyant",
+"category": "marine",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Submarine%20(buoyant).zip",
+"sha256": "884f45b441fe5f6b5e4a679701268c0e21369033316bba8d0a1f3d6be82a5ab4",
+"owner": "OpenRobotics"
+},
+{
+"kind": "fuel_model",
+"slug": "actor",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/Mingfei/models/actor.zip",
+"sha256": "edd48c4e609c32e88ab63dc770c1fd0a6c7847d28340a3ce88b65f01ae04e5b4",
+"owner": "Mingfei"
+},
+{
+"kind": "fuel_model",
+"slug": "walking_actor",
+"category": "person",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/chapulina/models/Walking%20actor.zip",
+"sha256": "f7d445777525a8d51527cd07dcc580223970c70efb94381b273e107b58a15384",
+"owner": "chapulina"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback_red_1",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRoboticsTest/models/hatchback_red_1.zip",
+"sha256": "e5bf93064bce06b487821a2b8ae3f5415815a6bdd443ddb1dfc0f8308f6dd784",
+"owner": "OpenRoboticsTest"
+},
+{
+"kind": "fuel_model",
+"slug": "carboard_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/QCforward/models/carboard%20box.zip",
+"sha256": "ec2374d578e0d893dd72f5ce73aad6a42ce5ec2f8b6d82d8ca9e051d867b0e84",
+"owner": "QCforward"
+},
+{
+"kind": "fuel_model",
+"slug": "rescue_randy",
+"category": "person",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRoboticsTest/models/Rescue%20Randy.zip",
+"sha256": "546940233109da2e0aa5b56a57c2315975ac698467e6778465426ff447cffa21",
+"owner": "OpenRoboticsTest"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback_1",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/OpenRoboticsTest/models/hatchback_1.zip",
+"sha256": "58eb85c63197a067a1307e1319ef6cfcdb88a4ce1379bdc84fad38d3d4edfa0c",
+"owner": "OpenRoboticsTest"
+},
+{
+"kind": "fuel_model",
+"slug": "grasspatch",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/hexarotor/models/grasspatch.zip",
+"sha256": "23d8b5eac474368b57d1bea9f831d5bf04ac39e45d7b311422434ad43b0a5d6b",
+"owner": "hexarotor"
+},
+{
+"kind": "fuel_model",
+"slug": "fence",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/athackst/models/fence.zip",
+"sha256": "942926106024e6b73bea73adb10338efa3423cc3b9b5f840208374506b97bdff",
+"owner": "athackst"
+},
+{
+"kind": "fuel_model",
+"slug": "3d_dollhouse_sofa",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/3D_Dollhouse_Sofa.zip",
+"sha256": "6acca58e1bfedd96ae5b425ec82ac958034717cb66a7571cd894774394f98270",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "google_cardboard_original_package",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Google_Cardboard_Original_package.zip",
+"sha256": "a9e6b5b97b93bf180325cc01f5113dd244221172595453614636dbfbdd7a52f5",
+"owner": "GoogleResearch"
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "qwantani_noon_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/qwantani_noon_puresky_4k.hdr",
+"sha256": "5156af85a70bd1516116b8d0c78f346c3ed07bfabcbfddef7cd05521dbbc1742",
+"owner": null
+},
+{
+"kind": "fuel_model",
+"slug": "vtech_cruise_learn_car_25_years",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Vtech_Cruise_Learn_Car_25_Years.zip",
+"sha256": "44998b03e5133ce1ed73f8e149d95e2c0bd0d0af37921ebbc40aefa8cd32aad4",
+"owner": "GoogleResearch"
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "syferfontein_18d_clear_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/syferfontein_18d_clear_puresky_4k.hdr",
+"sha256": "f30416cc649eaae319cc9d489764e2d71e01936a44c989c6a1806d1e11d7b5c8",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "kloofendal_misty_morning_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/kloofendal_misty_morning_puresky_4k.hdr",
+"sha256": "604aa1d0db357a0a786b85047f0e29f73e262afc9da13b79262d9ab5e71e7307",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "qwantani_sunset_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/qwantani_sunset_puresky_4k.hdr",
+"sha256": "10ac5a0327925511e17fb0b6d903899265ffbb2b4a5ebdc9c66abec38778eddb",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "kloofendal_overcast_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/kloofendal_overcast_puresky_4k.hdr",
+"sha256": "77ade807bd208195073a51b970dea574fa70cd80cf666aeedf5cd416ab5c8abd",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "qwantani_dusk_2_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/qwantani_dusk_2_puresky_4k.hdr",
+"sha256": "dbe5f750e4753f51ef8d178553318ad8550035cac0ce5cfab058e76cf8f021d2",
+"owner": null
+},
+{
+"kind": "polyhaven_hdri",
+"slug": "qwantani_night_puresky",
+"category": "hdri",
+"license": "CC0-1.0",
+"url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/qwantani_night_puresky_4k.hdr",
+"sha256": "7f064792a1b9108f4aacd004e8ee86364e98faf2e0a0ee5dfb33a9593da28db3",
+"owner": null
+},
+{
+"kind": "fuel_model",
+"slug": "lovestruck_tieks_glittery_rose_gold_italian_leather_ballet_flats",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Lovestruck_Tieks_Glittery_Rose_Gold_Italian_Leather_Ballet_Flats.zip",
+"sha256": "4656f7897dc11f9941517ed1bf9013a996f1721d5da2c859a270117a6ace7d32",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "nescafe_tasters_choice_instant_coffee_decaf_house_blend_light_7_oz",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Nescafe_Tasters_Choice_Instant_Coffee_Decaf_House_Blend_Light_7_oz.zip",
+"sha256": "67a727776c3870ae0e9f156d257463165ece967701546fa57bcc119b928b16dd",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "3d_dollhouse_swing",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/3D_Dollhouse_Swing.zip",
+"sha256": "1ecd8f427944baa711ca70cd19ca6553d7ac103dbc071c080c588cb3fd945791",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "building_l1",
+"category": "building",
+"license": "Creative Commons Zero v1.0 Universal",
+"url": "https://fuel.gazebosim.org/1.0/shrijitsingh99/models/building_L1.zip",
+"sha256": "e6f8f98201457373d1ded302368088762576c6434a1ad2a7c17ec66dda7b5b0a",
+"owner": "shrijitsingh99"
+},
+{
+"kind": "fuel_model",
+"slug": "paul_frank_dot_lunch_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Paul_Frank_Dot_Lunch_Box.zip",
+"sha256": "f332b7a9e9c6c559efc0758aa3c48457d8b4e2f93acade0c1ccd9771795199e2",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "retail_leadership_summit_ect3zqhyikx",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Retail_Leadership_Summit_eCT3zqHYIkX.zip",
+"sha256": "93f6ab02b26846bfce6f7dac31bd85b5d52d57c5e35fc987ef1f3735fa461a11",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "retail_leadership_summit",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Retail_Leadership_Summit.zip",
+"sha256": "cbde14c7b6e88fe0ff72b7e0eb09018687510a7ad46ada8597e09b9420a50cc3",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_urn_55_mocha",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_Urn_55_Mocha.zip",
+"sha256": "a24ac8d8f3460bad75d8a3d41085de4573a0d019da180c7a1264441c26bf00f4",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "cone_sorting",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/CONE_SORTING.zip",
+"sha256": "740bff5361acf355589c9ae62c57569ab64b5f84fd7da6401cb34c2d22d68284",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_planter_bowl_cole_hardware",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Planter_Bowl_Cole_Hardware.zip",
+"sha256": "90b9647bae9f8741213f2c8599605b649b85fd5aaf616d7b73ba58f3f4248741",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "womens_betty_chukka_boot_in_salt_washed_red_al2yrot9cry",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Womens_Betty_Chukka_Boot_in_Salt_Washed_Red_AL2YrOt9CRy.zip",
+"sha256": "021a75c3b28fee58a79c73383ffa00c5610f7f6bbdc182d39fa5e705ed9d0a60",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_pot_gp9_sand",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Pot_GP9_SAND.zip",
+"sha256": "3e5840755402f44961112edd5cd35048313db1c01f51e1570e73683ff7477dd9",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "pony_c_clamp_1440",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Pony_C_Clamp_1440.zip",
+"sha256": "e1203dc885d7e046ee5c7ad2c9aaa1abbf9209ae09ff985ac1bd1f81920abc80",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "olive_kids_birdie_lunch_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Olive_Kids_Birdie_Lunch_Box.zip",
+"sha256": "d18795f504259382a02ac9ace289b2d5308c9282372283cd3f8d0ded166f9a39",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_gp16amocha",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_GP16AMOCHA.zip",
+"sha256": "03b67411b96d9aa1b9e41b675c49a804c5d797d0bb654039cbf102e8379912ba",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "3d_dollhouse_lamp",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/3D_Dollhouse_Lamp.zip",
+"sha256": "8a3b44f87a83959e595fdd204a966fc867e05de66b26e70e5f9b0833d02ee170",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "school_bus",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/SCHOOL_BUS.zip",
+"sha256": "d1fdfbf364c8aba734e52387f062f16d6203997d4a7253617951fffd9f9d7022",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_saucer_s17mocha",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Saucer_S17MOCHA.zip",
+"sha256": "11d8329799e7d2c32340860da4e857cd249c35d0810169da1ea4f952c51f818b",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "3d_dollhouse_refrigerator",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/3D_Dollhouse_Refrigerator.zip",
+"sha256": "29535cd8c6fa83738f82cb04cc653e461edd2d7f9da488e24ee05841442d1cc1",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_urn_nat",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_URN_NAT.zip",
+"sha256": "3697262d1ab5bae24ba43aa82b1de0a2d44fd2f6df3ef2b0b4ecd241a1974d81",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "sonny_school_bus",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Sonny_School_Bus.zip",
+"sha256": "32efcf256bce3fdc1774b2190f47c9ccbb645c226cb44c3ea63caeeffaf9568c",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_hp_74xl75_remanufactured_ink_cartridges_blacktricolor_2_count",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_HP_74XL75_Remanufactured_Ink_Cartridges_BlackTriColor_2_count.zip",
+"sha256": "5da9f8900c0fbea0737e86ecdbc96097c22a0993bf4fc551559300fa7e7d5632",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_gp16a_coral",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_GP16A_Coral.zip",
+"sha256": "039bdaa94b279d590ffdeba1440706ad0b7b66dae53ae18187e49605e6da38ef",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "cole_hardware_school_bell_solid_brass_38",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Cole_Hardware_School_Bell_Solid_Brass_38.zip",
+"sha256": "22ff0451158a1e3134fd628699fa59f3aa0236bb1d78225c2c8a58e92496afde",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_hp_71_remanufactured_ink_cartridge_black",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_HP_71_Remanufactured_Ink_Cartridge_Black.zip",
+"sha256": "4d55dd7dc78f3adb1f132542d67a9dec246cbb6d69f6d4c68f6652d38fc8e073",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_cl_41_remanufactured_ink_cartridge_tricolor",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_CL_41_Remanufactured_Ink_Cartridge_TriColor.zip",
+"sha256": "8bd958ee3d0985a35dec8f06dd59899d6bfdc0e17741d44877a301b23035f432",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_b4_har",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_B4_Har.zip",
+"sha256": "77717267f190b04016ff21260924d355321c0460bee47b4e8108b7a99c02d2cb",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "cole_hardware_plant_saucer_brown_125",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Cole_Hardware_Plant_Saucer_Brown_125.zip",
+"sha256": "9140e3b10e87363d4499dba631d56507e68a4bc4df5f322e45b1daef87f724c0",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "crunch_girl_scouts_candy_bars_peanut_butter_creme_78_oz_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Crunch_Girl_Scouts_Candy_Bars_Peanut_Butter_Creme_78_oz_box.zip",
+"sha256": "ec11e90b299e4b63cdb682a588aabb24f0fc8b987d4b4a4c35b58f3159566693",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "city_taxi_police_car",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/CITY_TAXI_POLICE_CAR.zip",
+"sha256": "4149e502e7c05a3bd300a363842809a68e11bc335a739b0bc27e73614c0c9e66",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_cli_8y_ink_cartridge_yellow_0623b002",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_CLI_8Y_Ink_Cartridge_Yellow_0623B002.zip",
+"sha256": "96ed2b3856755c2c46eccc131e101ecdcb0f25c35dd4007750a7072e6ce63abc",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_qp6harvest",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_QP6HARVEST.zip",
+"sha256": "586b3ddae7e6027ccfd69cbb31434fe7ba7b228ef797b168d784a4a89abf0a63",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "3d_dollhouse_sink",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/3D_Dollhouse_Sink.zip",
+"sha256": "2b485702242883b7e66edd989376b53d1290ed457e2ecc58a507dda4b17fc3d4",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_pot_gp9aavocado",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Pot_GP9AAvocado.zip",
+"sha256": "d4fa6125dfa71052c619c227d265ae29e837a6ece54f0de501ee1e926cca36fe",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "sapota_threshold_4_ceramic_round_planter_red",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Sapota_Threshold_4_Ceramic_Round_Planter_Red.zip",
+"sha256": "cf8cebacdd9aad1bd62e66ffa6f495a18577c23177c8b4f8f330c3af239ba226",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "car_carrier_train",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/CAR_CARRIER_TRAIN.zip",
+"sha256": "125ca073db04c669b9da74ed71abd1d25f2425a4de55f45da21ceedd1451240c",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "climacool_boat_breeze_ie6cyqsadwn",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/CLIMACOOL_BOAT_BREEZE_IE6CyqSaDwN.zip",
+"sha256": "a8529180c0917ccb7bf14d248ff3cea90bd19bedb00c83bdb9f6be5253b74550",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_planter_pot_qp6ebony",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Planter_Pot_QP6Ebony.zip",
+"sha256": "8bf91ef3b57f2f34283d01228ca45fd9b7b70ede4fdd89e2f7887985e5366304",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "readytouse_rolled_fondant_pure_white_24_oz_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/ReadytoUse_Rolled_Fondant_Pure_White_24_oz_box.zip",
+"sha256": "06183d6fc5d8393f67266d543ec2ab70b9284a6546312353af369c349eb83a69",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "baby_car",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/BABY_CAR.zip",
+"sha256": "68935e8c456e08aa23041d6cb9003099990dd78a45a5cc64f605e56cfeb10ec8",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_plate_s11turquoise",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Plate_S11Turquoise.zip",
+"sha256": "d836536cc606d007e79486d56b6ab96daf473042c579e13758c0a14d0e723271",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_bowl_atlas_low",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Bowl_Atlas_Low.zip",
+"sha256": "f79539db5ddaa155cbe5617f0ef8fc7579fe14eb4e4c743c5bad9fb1581ce2ec",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "3d_dollhouse_happy_brother",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/3D_Dollhouse_Happy_Brother.zip",
+"sha256": "342f6e7276e7debf19d557b35cebef1ecf5763fd9b79ed88e70c5e4c7ab8e2d2",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "hatchback_red_2",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/JShep1/models/hatchback_red_2.zip",
+"sha256": "387524989c3a9b8f9c93bd0dadb185dd53e915f0dd6f927f76fdfdee09ff2885",
+"owner": "JShep1"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_saucer_s20mocha",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Saucer_S20MOCHA.zip",
+"sha256": "f461f4431d339971a29bd8fe13b144e7f58d683baa4ea64a0ab552187eceaeb3",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_planter_pot_gp12aavocado",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Planter_Pot_GP12AAvocado.zip",
+"sha256": "86d36c42aa5645d4780b76e147e022c30b0e8f8bda89b21107c3d956ba02eef4",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ubisoft_rocksmith_real_tone_cable_xbox_360",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ubisoft_RockSmith_Real_Tone_Cable_Xbox_360.zip",
+"sha256": "3320cfa41c43bd192e3040a42c361931cd59ba78f7662d19203414598ca3da6c",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "melissa_doug_traffic_signs_and_vehicles",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Melissa_Doug_Traffic_Signs_and_Vehicles.zip",
+"sha256": "e3740c8b3cd75fa8d218c9d9bb3ebc81f38f2622d3581cf395afa78b0f853443",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "olive_kids_game_on_lunch_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Olive_Kids_Game_On_Lunch_Box.zip",
+"sha256": "332ff2e0eec4dc2291e93209b48a31fc340e62a25892083333972ae578b7ec81",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_dell_series_1_remanufactured_ink_cartridge_tricolor",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Dell_Series_1_Remanufactured_Ink_Cartridge_TriColor.zip",
+"sha256": "84e053c542cb03346efb6265c920848a8169a8b8b11c444bec64faa7e8aee69b",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_urn_55_avocado",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_Urn_55_Avocado.zip",
+"sha256": "066015818d96fc06bfd4b6048021271b1abb9646a9c3f50e31ce63fcffc43f38",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_pgi35_remanufactured_ink_cartridge_black",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_PGI35_Remanufactured_Ink_Cartridge_Black.zip",
+"sha256": "8f465c5fabf31a47b0de1b2edbbe53dc63a92da4831454172c2e2ea277eee084",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_urn_san",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_URN_SAN.zip",
+"sha256": "edccbd98498a55ef9fab2077a30986c587bf4111e1add83ab8710f9097c12ee1",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_dell_series_9_ink_cartridge_black_mk992",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Dell_Series_9_Ink_Cartridge_Black_MK992.zip",
+"sha256": "4035188e2367dd373f142e2934cbabcedf1c62025d529d35788b0f9357d0d064",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_pgi5bk_remanufactured_ink_cartridge_black",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_PGI5BK_Remanufactured_Ink_Cartridge_Black.zip",
+"sha256": "71e4639f58d7fb0acfcd9f5a1d84d06bfeddee8597b9f663a37e6487f5aeb119",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_hp_75_remanufactured_ink_cartridge_tricolor",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_HP_75_Remanufactured_Ink_Cartridge_TriColor.zip",
+"sha256": "2cc2158f1932653b97d5cf56ee87a73780dc1e4be3fe79250cbef290c04827bd",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_hp_98_remanufactured_ink_cartridge_black",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_HP_98_Remanufactured_Ink_Cartridge_Black.zip",
+"sha256": "1df49e1a0a3193fd391888a43427b17fe7a6c10ae25cf60b6574c0c4f646d44d",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "melissa_doug_jumbo_knob_puzzles_barnyard_animals",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Melissa_Doug_Jumbo_Knob_Puzzles_Barnyard_Animals.zip",
+"sha256": "b3c693092b9e907f5b8952a3f6f8a7fa990bf4bf8d23c6f950bcd123f8ecef39",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "starstruck_tieks_glittery_gold_italian_leather_ballet_flats",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Starstruck_Tieks_Glittery_Gold_Italian_Leather_Ballet_Flats.zip",
+"sha256": "e5cb630c3e1b332f937a655a6c4be9a43ddd0052c789501c9ecc8cf27699000e",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "pineapple_maraca_6_pcsset",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/PINEAPPLE_MARACA_6_PCSSET.zip",
+"sha256": "34ab67d8ceb63ce5374d0ffce59b253a115e9409bc630fb6b8fda575f3e3cc1f",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_saucer_sq8cor",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Saucer_SQ8COR.zip",
+"sha256": "67562cecce8afa44a8dd8d4a088627cf16a56d4378b54c2c1b17d000c984bf24",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_saucer_sq1harvest",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Saucer_SQ1HARVEST.zip",
+"sha256": "af7a1ee031858a250a6be00f117b5211110c41c62d0e35da69b39e841c6f1b2f",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_pgi22_remanufactured_ink_cartridge_black",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_PGI22_Remanufactured_Ink_Cartridge_Black.zip",
+"sha256": "c310494fd413ce559ce000d4deb5b4ea6ae55973b1322d0df99b881c5e231d61",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_hp_920xl_920_high_yield_black_and_standard_cmy_color_ink_cartridges",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_HP_920XL_920_High_Yield_Black_and_Standard_CMY_Color_Ink_Cartridges.zip",
+"sha256": "95475208519e0e19803752848d00702e2a41a6f8d97d359b87fb4347c56e3d16",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "cole_hardware_plant_saucer_glazed_9",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Cole_Hardware_Plant_Saucer_Glazed_9.zip",
+"sha256": "aece0b1a6ef46d34c44be2a8991478be3912c85264fe53a17203507e5f97a395",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "house_of_cards_the_complete_first_season_4_discs_dvd",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/House_of_Cards_The_Complete_First_Season_4_Discs_DVD.zip",
+"sha256": "9fe56d9b26c187b3f73ff447b4e9e3c783990e9af56388f1d4f05aa8d0656a84",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_cl211xl_remanufactured_ink_cartridge_tricolor",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_CL211XL_Remanufactured_Ink_Cartridge_TriColor.zip",
+"sha256": "7cb5368f620d05bc4e7ec1c82eb47133805ab912419031637d2e49c8405ef92b",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_qp_harvest",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_QP_Harvest.zip",
+"sha256": "f90cad482cbfb84f0b0f07bf4738d6669646c16df4882b35bb662b4188f1d8c1",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_sb9turquoise",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_SB9Turquoise.zip",
+"sha256": "1f3501486c2e48a7c36a5cc00106801c1acd09f4f2b1031d4f2ee9118559f108",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_qp6coral",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_QP6CORAL.zip",
+"sha256": "7f61cf556f37599e132b6856a5e337a8d4a6b4554bf66b0900398a951b430554",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_hp_932xl_ink_cartridge_black_cn053a",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_HP_932XL_Ink_Cartridge_Black_CN053A.zip",
+"sha256": "b58d0e5aad995bfe4c8ad8e022bba105600c2dd0dc25ea8a887d7353f95909e4",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "speed_boat",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/SPEED_BOAT.zip",
+"sha256": "e8b84757083115ace088636f4362c45e8ae75a927d361149ca3063e905bb284b",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "little_house_on_the_prairie_season_two_5_discs_includes_digital",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Little_House_on_the_Prairie_Season_Two_5_Discs_Includes_Digital.zip",
+"sha256": "be97f5aca486a621f4494a3f537a108edf0201b3c1dca69a0713234ec2073b98",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "now_designs_snack_bags_bicycle_2_count",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Now_Designs_Snack_Bags_Bicycle_2_count.zip",
+"sha256": "ac4d3e810039b6bc5903f6a728e0603266d188fee48e32be64c11a470aecf8f7",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "road_construction_set",
+"category": "street",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/ROAD_CONSTRUCTION_SET.zip",
+"sha256": "d7968b4a71b8181ee70d16b2a8f0bfa44367c80d0d05d921461cd3e981babf81",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "nestl_crunch_girl_scouts_cookie_flavors_caramel_coconut_78_oz_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Nestl_Crunch_Girl_Scouts_Cookie_Flavors_Caramel_Coconut_78_oz_box.zip",
+"sha256": "94f9d132320385149c4acc06c4765710946c76f430518754a7f8e152d322cb23",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "coast_guard_boat",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/COAST_GUARD_BOAT.zip",
+"sha256": "71a9d54d26512faf56892ae241c35f5638b2a2caefb0f02dd154d9d858007147",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_cli_221bk_ink_cartridge_black_2946b001",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_CLI_221BK_Ink_Cartridge_Black_2946B001.zip",
+"sha256": "57ace884433eb1fa827e11081565466e1bf5c134df4fded325cd83d0db4bc787",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_pg_240xl_ink_cartridge_black_5206b001",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_PG_240XL_Ink_Cartridge_Black_5206B001.zip",
+"sha256": "147ca0c078c4e167d0956babc3c6d77af3584d4be8aa35f17ceec21b3ffaa3a7",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_hp_564xl_remanufactured_ink_cartridges_color_cyan_magenta_yellow_3_count",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_HP_564XL_Remanufactured_Ink_Cartridges_Color_Cyan_Magenta_Yellow_3_count.zip",
+"sha256": "e5163cdfcce7afbdb3536c93d2242a3191ec1931625f914d1e547c658e9ee5d9",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "olive_kids_dinosaur_land_lunch_box",
+"category": "cargo",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Olive_Kids_Dinosaur_Land_Lunch_Box.zip",
+"sha256": "e706aec4fca541cab702f288a5461369caf92c3336f754085591398fa3f1ac8f",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_canon_pg21xl_remanufactured_ink_cartridge_black",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Canon_PG21XL_Remanufactured_Ink_Cartridge_Black.zip",
+"sha256": "e4e05cdbb542f89f2fc051bb3f9751f0ba37266e7afe61daf2caa3de29fb3498",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_bowl_turquoise_7",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Bowl_Turquoise_7.zip",
+"sha256": "2fc1e851e08378a3281dae3730ab6acd19a1e4b3adaa57f818d25590f70b33eb",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "office_depot_dell_series_11_remanufactured_ink_cartridge_black",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Office_Depot_Dell_Series_11_Remanufactured_Ink_Cartridge_Black.zip",
+"sha256": "4397fc5d2939f2d3129ab7a5dc2db3b907728684ae57b4a682059603774a3387",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_12_pot_nova",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_12_Pot_Nova.zip",
+"sha256": "e26681c5849b99b66d24bcf2b46941373dc0531b2d06bb5478e6de8ba917b39f",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "guardians_of_the_galaxy_galactic_battlers_rocket_raccoon_figure",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Guardians_of_the_Galaxy_Galactic_Battlers_Rocket_Raccoon_Figure.zip",
+"sha256": "ebfc84fff78303e9a61c2f59e485bd3c23d5e76c31cd934111b0dd42c8586ea7",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "squirtin_barnyard_friends_4pk",
+"category": "building",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Squirtin_Barnyard_Friends_4pk.zip",
+"sha256": "f6ea33525e11a543aa12da2483f032091b656045f43a732fb25070924f0c8063",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "sorting_bus",
+"category": "vehicle",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/SORTING_BUS.zip",
+"sha256": "a840d80be7f447dd8b206b10b350f3f7ac8c939c05f51685aeec3a063deb21e5",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "retail_leadership_summit_tqfcizmt6g0",
+"category": "marine",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Retail_Leadership_Summit_tQFCizMt6g0.zip",
+"sha256": "2cb0fdbac56e05f50797482fcddda1bc87729cca3ef1f271e977a7909e433dc9",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_quadra_sand_qp6",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_Quadra_Sand_QP6.zip",
+"sha256": "aaf130436ce6952f44c1a77bd486d94061deb54c12ab3445da6d570570da593c",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "ecoforms_plant_container_fb6_tur",
+"category": "vegetation",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Ecoforms_Plant_Container_FB6_Tur.zip",
+"sha256": "aab6262ba7cfdf276136fbc7490980a139c3d105494681633ebc461b7d739bd0",
+"owner": "GoogleResearch"
+},
+{
+"kind": "fuel_model",
+"slug": "asics_hyperrocketgirl_sp_5_whitemalibu_blueblack",
+"category": "rock",
+"license": "Creative Commons Attribution 4.0 International",
+"url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/ASICS_HyperRocketgirl_SP_5_WhiteMalibu_BlueBlack.zip",
+"sha256": "68fbe1216ced18ce1e3ae7688c8e77006fa034c8521bf97f9d48b47edf508bda",
+"owner": "GoogleResearch"
+}
+]
+}
