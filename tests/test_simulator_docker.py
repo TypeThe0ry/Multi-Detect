@@ -28,7 +28,7 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
 
     assert plan.image == PINNED_IMAGE
     assert plan.command[0:2] == ("docker", "run")
-    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "default"
+    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "off"
     assert dict(plan.environment)["MULTIDETECT_PX4_DAEMON"] == "1"
     assert "px4_daemon_mode" in plan.to_mapping()
     assert plan.command[-1].endswith("-d")
@@ -96,6 +96,13 @@ def test_logger_mode_is_recorded_and_off_disables_sdlog(tmp_path, monkeypatch, m
         assert environment["PX4_PARAM_SDLOG_BACKEND"] == "0"
     else:
         assert "SDLOG_BACKEND" not in environment
+
+
+def test_logger_mode_is_off_when_environment_is_unset(tmp_path, monkeypatch):
+    monkeypatch.delenv("MULTIDETECT_PX4_LOGGER_MODE", raising=False)
+    plan = build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "unset")
+    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "off"
+    assert dict(plan.environment)["SDLOG_BACKEND"] == "0"
 
 
 def test_logger_mode_rejects_poll_and_unknown_values(tmp_path, monkeypatch):
