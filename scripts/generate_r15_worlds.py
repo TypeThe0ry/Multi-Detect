@@ -1003,8 +1003,13 @@ def main(argv=None):
                     confuser_altitude = float(world["confuser_camera_altitude_m"])
                     ground = math.sqrt(max(1.0, confuser_slant**2 - confuser_altitude**2))
                     views = []
-                    for name, lateral in zip(("front", "oblique", "edge_truncated", "recovery"), (-0.30, -0.10, 0.10, 0.30), strict=True):
-                        views.append({"view": name, "observation_waypoint": {"x_east_m": round(confuser_x - ground, 3), "y_north_m": round(confuser_y + lateral, 3), "z_up_m": 0.0}})
+                    for name, angle_deg in zip(("front", "oblique", "edge_truncated", "recovery"), (0.0, 30.0, 65.0, -30.0), strict=True):
+                        angle = math.radians(angle_deg)
+                        front_east = -math.sin(confuser_yaw)
+                        front_north = math.cos(confuser_yaw)
+                        offset_east = front_east * math.cos(angle) - front_north * math.sin(angle)
+                        offset_north = front_east * math.sin(angle) + front_north * math.cos(angle)
+                        views.append({"view": name, "observation_waypoint": {"x_east_m": round(confuser_x + ground * offset_east, 3), "y_north_m": round(confuser_y + ground * offset_north, 3), "z_up_m": 0.0}})
                     per_view = []
                     for view in views:
                         waypoint = view["observation_waypoint"]
