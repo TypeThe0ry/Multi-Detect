@@ -14,6 +14,7 @@ import gzip
 import json
 import math
 import signal
+import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -157,6 +158,23 @@ def _percentile(values: list[float], percent: float) -> float | None:
     if low == high:
         return ordered[low]
     return ordered[low] + (ordered[high] - ordered[low]) * (rank - low)
+
+
+def _bank_diagnostics(bank_angles_deg: list[float]) -> tuple[int, float | None]:
+    sign_flips = 0
+    previous_sign: int | None = None
+    for angle in bank_angles_deg:
+        sign = 1 if angle > 20.0 else (-1 if angle < -20.0 else 0)
+        if sign == -1 and previous_sign == 1:
+            sign_flips += 1
+        if sign:
+            previous_sign = sign
+    standard_deviation = (
+        statistics.pstdev(bank_angles_deg)
+        if len(bank_angles_deg) >= 2
+        else (0.0 if bank_angles_deg else None)
+    )
+    return sign_flips, standard_deviation
 
 
 def _delta_fw_ring_metrics(
@@ -537,6 +555,7 @@ def _delta_fw_metrics(
     commanded_altitude = start.get("commanded_altitude_m") if start else None
     speeds: list[float] = []
     bank_abs: list[float] = []
+    bank_signed: list[float] = []
     pitch: list[float] = []
     height_error: list[float] = []
     motor_samples = 0
@@ -577,6 +596,7 @@ def _delta_fw_metrics(
                 except (TypeError, ValueError):
                     continue
                 pitch.append(pitch_up)
+                bank_signed.append(bank_angle)
                 bank_abs.append(abs(bank_angle))
             elif kind == "LOCAL_POSITION_NED" and commanded_altitude is not None:
                 try:
@@ -625,6 +645,7 @@ def _delta_fw_metrics(
         motor_saturated_counts[index] / count if count else None
         for index, count in enumerate(motor_counts)
     ]
+    bank_sign_flips, bank_sd = _bank_diagnostics(bank_signed)
     r_limit_deg = float(profile.max_bank_deg)
     metrics = {
         "fw_sustain_duration_s": fw_duration_s if end else None,
@@ -632,6 +653,8 @@ def _delta_fw_metrics(
         "fw_airspeed_p5_mps": _percentile(speeds, 5),
         "fw_airspeed_p95_mps": _percentile(speeds, 95),
         "fw_bank_abs_p95_deg": _percentile(bank_abs, 95),
+        "fw_bank_sign_flips": bank_sign_flips,
+        "fw_bank_sd_deg": bank_sd,
         "fw_pitch_p5_deg": _percentile(pitch, 5),
         "fw_pitch_p95_deg": _percentile(pitch, 95),
         "fw_height_error_p95_m": _percentile(height_error, 95),
@@ -1154,6 +1177,8 @@ def build_plan(
                     "fw_airspeed_p5_mps": None,
                     "fw_airspeed_p95_mps": None,
                     "fw_bank_abs_p95_deg": None,
+                    "fw_bank_sign_flips": None,
+                    "fw_bank_sd_deg": None,
                     "fw_pitch_p5_deg": None,
                     "fw_pitch_p95_deg": None,
                     "fw_height_error_p95_m": None,

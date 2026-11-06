@@ -12,6 +12,18 @@ from scripts import smoke_airframe_flight as smoke
 from scripts.smoke_airframe_flight import evaluate_episode
 
 
+def test_delta_fw_bank_diagnostics_counts_only_opposite_threshold_crossings():
+    flips, standard_deviation = smoke._bank_diagnostics(
+        [21.0, 28.0, 4.0, -5.0, -22.0, -31.0, 0.0, 23.0]
+    )
+
+    assert flips == 1
+    assert standard_deviation == pytest.approx(
+        math.sqrt(sum((value - 2.25) ** 2 for value in [21, 28, 4, -5, -22, -31, 0, 23]) / 8)
+    )
+    assert smoke._bank_diagnostics([]) == (0, None)
+
+
 class _State:
     def __init__(self):
         self.messages = {

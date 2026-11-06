@@ -65,7 +65,6 @@ param set-default FW_P_TC 0.6
 param set-default FW_PR_I 0.963310
 param set-default FW_PR_P 1.605517
 param set-default FW_PSP_OFF 2
-param set-default FW_P_LIM_MIN 1
 param set-default FW_RR_FF 0.892968
 param set-default FW_RR_I 0.892968
 param set-default FW_RR_P 1.785935
@@ -76,7 +75,12 @@ param set-default FW_YR_P 0.291559
 # 无舵面且 SM 约 3.5%；FW_PSP_OFF=2 保持 4018 tailsitter 偏置约定，最终闭环增益仍需 SITL/实测整定。
 # 18-19 m/s 是现有 MAVLink 样本中 PX pitch rotor pair 频繁触底的转折带；工作上限收至 18。
 # 第 31 轮回退交接目标到 15 m/s，前转换推力恢复 0.25；无舵面机型仍须外部验证权限。
-# 第 31 轮回到 r26 干净基线；本轮仅试验最低俯仰限制 +1°，限制控制器压低机头。
+# 第 35 轮只调整横向导航/滚转响应组：实测滚转约 20°/s，降低导航滚转指令斜率并延长
+# NPFG/FW 滚转时间常数，预期减少 ±36°翻转和差动电机触底；不改变气动和判定门限。
+param set-default FW_R_TC 1.0
+param set-default FW_PN_R_SLEW_MAX 20
+param set-default NPFG_PERIOD 20
+param set-default NPFG_ROLL_TC 1.0
 param set-default FW_THR_TRIM 0.32
 param set-default FW_THR_MAX 0.8
 param set-default FW_THR_MIN 0.0
