@@ -791,7 +791,7 @@ def main() -> None:
     # One stretch per site: a per-tile stretch shows up as patches across tile seams.
     sample = np.vstack([np.asarray(Image.open(f).convert("RGB").resize((256, 256))).reshape(-1, 3) for f in sorted(raw.glob("naip_*.png"))]).astype(np.float32)
     stretch = (float(np.percentile(sample, 0.5)), float(np.percentile(sample, 99.7)))
-    tile_px = 1536  # low-cost atlas used for roof sampling; ground tiles keep local resolution
+    tile_px = 2048  # low-cost atlas used for roof sampling; ground tiles keep local resolution
     mosaic = np.zeros((tile_px * nt, tile_px * nt, 4), np.uint8)
     for j in range(nt):
         for i in range(nt):
@@ -805,7 +805,7 @@ def main() -> None:
             rgb8 = (rgb * 255).astype(np.uint8)
             # Rows in the PNG run north to south; UV v=0 is at the south edge.
             tile_distance = math.hypot((-half + (i + 0.5) * TILE_M), (-half + (j + 0.5) * TILE_M))
-            tile_out_px = 2560 if tile_distance <= TILE_M * 0.85 else 2048
+            tile_out_px = 4096 if tile_distance <= TILE_M * 0.85 else 2048
             tile_rgb = rgb8 if tile_out_px == rgb8.shape[0] else np.asarray(Image.fromarray(rgb8).resize((tile_out_px, tile_out_px), Image.LANCZOS))
             Image.fromarray(tile_rgb).save(out / "textures" / f"ground_{i}_{j}.jpg", quality=90, subsampling=0)
             small = np.asarray(Image.fromarray(np.dstack([rgb8, arr[..., 3]])).resize((tile_px, tile_px), Image.LANCZOS))
@@ -1135,7 +1135,7 @@ def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng,
 def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch) -> None:
     """Sharp ground around the takeoff point: the aerial photo sets colour, CC0 photos add fine detail."""
     core_half = 300.0
-    px = 3072
+    px = 8192
     res = 2 * core_half / px
     src_res = TILE_M / tiles[(0, 0)].shape[0]
     # Stitch just the part of the tile mosaic the core needs.
