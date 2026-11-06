@@ -18,6 +18,7 @@ from typing import Any
 
 DEFAULT_DELAY_S = 3.0
 HZ = 100
+CLOCK_TOPIC = "/world/default/clock"
 
 
 def _run(
@@ -110,6 +111,138 @@ def _parse_clock(output: str) -> list[float]:
         if sec:
             values.append(float(sec.group(1)) + float(nsec.group(1) if nsec else 0) / 1e9)
     return values[-10:]
+
+
+def _parse_gz_topic_info(output: str) -> dict[str, Any]:
+    """Parse publisher and subscriber sections from ``gz topic -i``."""
+    sections: dict[str, list[str]] = {"publishers": [], "subscribers": []}
+    current: str | None = None
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        lower = line.lower()
+        if lower.startswith("publishers"):
+            current = "publishers"
+            continue
+        if lower.startswith("subscribers"):
+            current = "subscribers"
+            continue
+        if current is None or not line or line.startswith("["):
+            continue
+        if line.startswith("-"):
+            line = line[1:].strip()
+        sections[current].append(line)
+    return {
+        "publishers": sections["publishers"],
+        "subscribers": sections["subscribers"],
+        "publisher_count": len(sections["publishers"]),
+        "subscriber_count": len(sections["subscribers"]),
+    }
+
+
+_TCP_STATES = {
+    "01": "ESTABLISHED", "02": "SYN_SENT", "03": "SYN_RECV",
+    "04": "FIN_WAIT1", "05": "FIN_WAIT2", "06": "TIME_WAIT",
+    "07": "CLOSE", "08": "CLOSE_WAIT", "09": "LAST_ACK",
+    "0A": "LISTEN", "0B": "CLOSING",
+}
+
+
+def _parse_transport_sockets(output: str) -> dict[str, Any]:
+    sockets: list[dict[str, Any]] = []
+    ss_lines: list[str] = []
+    process_ids: set[int] = set()
+    for raw_line in output.splitlines():
+        if raw_line.startswith("P\t"):
+            fields = raw_line.split("\t", 2)
+            if len(fields) == 3:
+                try:
+                    process_ids.add(int(fields[2]))
+                except ValueError:
+                    pass
+        elif raw_line.startswith("S\t"):
+            fields = raw_line.split("\t", 9)
+            if len(fields) != 10:
+                continue
+            _, group, pid, command, fd, inode, state, queues, local, remote = fields
+            tx_queue, _, rx_queue = queues.partition(":")
+            try:
+                tx_bytes, rx_bytes = int(tx_queue, 16), int(rx_queue, 16)
+                pid_value, fd_value, inode_value = int(pid), int(fd), int(inode)
+            except ValueError:
+                continue
+            sockets.append({
+                "group": group,
+                "pid": pid_value,
+                "process_cmdline": command,
+                "fd": fd_value,
+                "inode": inode_value,
+                "state": state,
+                "state_name": _TCP_STATES.get(state.upper(), "UNKNOWN"),
+                "tx_queue_bytes": tx_bytes,
+                "rx_queue_bytes": rx_bytes,
+                "local_address": local,
+                "remote_address": remote,
+            })
+        elif raw_line.startswith("SS\t"):
+            ss_lines.append(raw_line[3:])
+    return {
+        "sockets": sockets,
+        "process_ids": sorted(process_ids),
+        "ss_available": bool(ss_lines),
+        "ss_output": ss_lines,
+    }
+
+
+def _read_transport_sockets(
+    docker: str,
+    container: str,
+    *,
+    runner: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    """Map PX4/Gazebo TCP sockets to their proc-net rows inside the container."""
+    script = r'''self_pid=$$
+for d in /proc/[0-9]*; do
+  [ -r "$d/cmdline" ] || continue
+  pid=${d##*/}; [ "$pid" = "$self_pid" ] && continue
+  cmd=$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null || true)
+  case "$cmd" in
+    /opt/px4-gazebo/bin/px4\ -i\ 0*) owner=px4 ;;
+    "gz sim"*) owner=gz ;;
+    *) continue ;;
+  esac
+  printf 'P\t%s\t%s\n' "$owner" "$pid"
+  for fd in "$d"/fd/[0-9]*; do
+    link=$(readlink "$fd" 2>/dev/null || true)
+    case "$link" in socket:\[*\]) inode=${link#socket:[}; inode=${inode%]} ;; *) continue ;; esac
+    for net in "$d"/net/tcp "$d"/net/tcp6; do
+      [ -r "$net" ] || continue
+      while read -r sl laddr raddr st tx_queue rx_queue tr tm retr uid timeout row_inode rest; do
+        [ "$sl" = "sl" ] && continue
+        [ -n "$sl" ] || continue
+        [ "$row_inode" = "$inode" ] || continue
+        printf 'S\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$owner" "$pid" "$cmd" "${fd##*/}" "$inode" "$st" "$tx_queue:$rx_queue" "$laddr" "$raddr"
+      done < "$net"
+    done
+  done
+done
+if command -v ss >/dev/null 2>&1; then
+  ss -tanp 2>/dev/null | while IFS= read -r line; do printf 'SS\t%s\n' "$line"; done
+fi'''
+    result = _run(
+        _exec_command(docker, container, "sh", "-c", script),
+        timeout_s=3.0,
+        runner=runner,
+    )
+    result.update(_parse_transport_sockets(str(result.get("stdout", ""))))
+    process_pids = set(result["process_ids"])
+    result["ss_output"] = [
+        line for line in result["ss_output"]
+        if any(re.search(rf"\bpid={pid}(?:,|\))", line) for pid in process_pids)
+    ]
+    result["ss_process_socket_count"] = len(result["ss_output"])
+    result["collection_path"] = "in_container_proc_net"
+    result["sample_wall_time"] = time.time()
+    return result
 
 
 def _load_average() -> list[float] | None:
@@ -372,6 +505,20 @@ def _sample(
             else None
         ),
     }
+    # gz topic creates a transient discovery node; collect transport state first
+    # and mark discovery-thread evidence as potentially probe-affected.
+    sample["gz_clock_topic_info"] = _run(
+        _exec_command(docker, container, "gz", "topic", "-i", "-t", CLOCK_TOPIC),
+        timeout_s=3.0,
+        runner=runner,
+    )
+    sample["gz_clock_topic_info"].update(
+        _parse_gz_topic_info(str(sample["gz_clock_topic_info"].get("stdout", "")))
+    )
+    sample["transport_probe_order"] = ["gz_topic_info", "proc_net_sockets", "process_threads"]
+    sample["transport_sockets"] = _read_transport_sockets(
+        docker, container, runner=runner
+    )
     try:
         sample["process_threads"] = _read_host_threads(
             docker,
@@ -419,7 +566,7 @@ def _sample(
             "-n",
             "1",
             "-t",
-            "/world/default/clock",
+            CLOCK_TOPIC,
         ),
         timeout_s=6.0,
         runner=runner,
@@ -483,6 +630,20 @@ def capture_stall(
                 host_pids=host_pids,
             )
         )
+        # Take the first gdb snapshot before the existing inter-sample delay so
+        # the second snapshot below is separated by the same bounded delay.
+        gdb_output_path = Path(episode_dir) / "px4-clock-stall-gdb.txt"
+        gdb_enabled = gdb_output_path.parent.is_dir()
+        gdb_snapshot_timeout_s = max(0.1, float(gdb_timeout_s) / 2.0)
+        if gdb_enabled:
+            _capture_px4_gdb(
+                document,
+                output_path=gdb_output_path,
+                gdb_path=gdb_path,
+                timeout_s=gdb_snapshot_timeout_s,
+                runner=runner,
+                snapshot_label="before_delay",
+            )
         sleep(max(0.0, float(delay_s)))
         document["samples"].append(
             _sample(
@@ -495,6 +656,16 @@ def capture_stall(
                 host_pids=host_pids,
             )
         )
+        if gdb_enabled:
+            _capture_px4_gdb(
+                document,
+                output_path=gdb_output_path,
+                gdb_path=gdb_path,
+                timeout_s=gdb_snapshot_timeout_s,
+                runner=runner,
+                snapshot_label="after_delay",
+                append=True,
+            )
     except BaseException as error:
         document["capture_error"] = f"{type(error).__name__}: {error}"
     # Collect syscall details only after both timed samples are complete.
@@ -516,13 +687,6 @@ def capture_stall(
     try:
         if not episode_dir.is_dir():
             raise FileNotFoundError(f"episode directory is unavailable: {episode_dir}")
-        _capture_px4_gdb(
-            document,
-            output_path=gdb_output_path,
-            gdb_path=gdb_path,
-            timeout_s=gdb_timeout_s,
-            runner=runner,
-        )
         document["gdb_output_path"] = str(gdb_output_path)
         document["analysis"] = analyze_capture(document)
         document["path"] = str(primary_path)
@@ -570,6 +734,8 @@ def _capture_px4_gdb(
     gdb_path: str,
     timeout_s: float,
     runner: Callable[..., Any] | None,
+    snapshot_label: str = "snapshot",
+    append: bool = False,
 ) -> None:
     samples = document.get("samples") or []
     host_pid_values = [
@@ -579,7 +745,8 @@ def _capture_px4_gdb(
         for pid in ((sample.get("process_threads") or {}).get("host_pids") or [])
     ]
     pid = sorted(set(host_pid_values))[0] if host_pid_values else None
-    gdb: dict[str, Any] = {"pid": pid, "timeout_s": timeout_s}
+    gdb: dict[str, Any] = document.get("gdb") or {"pid": pid, "timeout_s": timeout_s, "snapshots": []}
+    snapshot: dict[str, Any] = {"label": snapshot_label, "pid": pid, "timeout_s": timeout_s}
     if pid is None:
         statuses = {sample.get("px4_process_status") for sample in samples}
         if "gone" in statuses:
@@ -589,10 +756,12 @@ def _capture_px4_gdb(
         else:
             status, detail = "unavailable", "no PX4 host PID was captured"
         gdb.update({"status": status, "error": detail})
-        output_path.write_text(f"PX4 gdb not run: {detail}.\n", encoding="utf-8")
+        content = f"PX4 gdb not run: {detail}.\n"
+        snapshot.update({"status": status, "error": detail})
     elif not Path(gdb_path).is_file() and shutil.which(gdb_path) is None:
         gdb.update({"status": "unavailable", "error": f"gdb not found: {gdb_path}"})
-        output_path.write_text(gdb["error"] + "\n", encoding="utf-8")
+        content = gdb["error"] + "\n"
+        snapshot.update({"status": "unavailable", "error": gdb["error"]})
     else:
         command = [
             gdb_path, "-p", str(pid), "-batch", "-nx",
@@ -603,10 +772,26 @@ def _capture_px4_gdb(
         result = _run(command, timeout_s=timeout_s, runner=runner)
         content = str(result.get("stdout", ""))
         stderr = str(result.get("stderr", ""))
-        output_path.write_text(content + ("\n" if content and stderr else "") + stderr, encoding="utf-8")
-        gdb.update({"status": "timeout" if result.get("timed_out") else ("ok" if result.get("returncode") == 0 else "failed"),
-                    "command": command, "returncode": result.get("returncode"),
-                    "timed_out": bool(result.get("timed_out")), "error": result.get("error")})
+        snapshot.update({
+            "status": "timeout" if result.get("timed_out") else ("ok" if result.get("returncode") == 0 else "failed"),
+            "command": command,
+            "returncode": result.get("returncode"),
+            "timed_out": bool(result.get("timed_out")),
+            "error": result.get("error"),
+        })
+        content += ("\n" if content and stderr else "") + stderr
+    prefix = f"=== GDB {snapshot_label} ===\n"
+    mode = "a" if append else "w"
+    with output_path.open(mode, encoding="utf-8") as stream:
+        stream.write(prefix + content + ("\n" if content and not content.endswith("\n") else ""))
+    gdb["snapshots"] = [*gdb.get("snapshots", []), snapshot]
+    statuses = [row.get("status") for row in gdb["snapshots"]]
+    gdb["status"] = (
+        "ok" if statuses and all(status == "ok" for status in statuses)
+        else "timeout" if "timeout" in statuses
+        else next((status for status in statuses if status not in (None, "ok")), snapshot.get("status"))
+    )
+    gdb["pid"] = pid
     gdb["output_path"] = str(output_path)
     document["gdb"] = gdb
 
@@ -677,6 +862,97 @@ def _counter(text: str, key: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _socket_rows(sample: dict[str, Any]) -> list[dict[str, Any]]:
+    value = sample.get("transport_sockets") or {}
+    rows = value.get("sockets") if isinstance(value, dict) else None
+    return [row for row in rows or [] if isinstance(row, dict)]
+
+
+def _socket_rx_changes(first: dict[str, Any], second: dict[str, Any]) -> list[dict[str, Any]]:
+    before = {
+        (row.get("group"), row.get("pid"), row.get("inode"), row.get("local_address"), row.get("remote_address")): row
+        for row in _socket_rows(first)
+    }
+    after = {
+        (row.get("group"), row.get("pid"), row.get("inode"), row.get("local_address"), row.get("remote_address")): row
+        for row in _socket_rows(second)
+    }
+    changes: list[dict[str, Any]] = []
+    for key in sorted(before.keys() | after.keys(), key=str):
+        left, right = before.get(key), after.get(key)
+        rx_before = left.get("rx_queue_bytes") if left else None
+        rx_after = right.get("rx_queue_bytes") if right else None
+        changes.append({
+            "group": (right or left).get("group"),
+            "pid": (right or left).get("pid"),
+            "inode": (right or left).get("inode"),
+            "local_address": (right or left).get("local_address"),
+            "remote_address": (right or left).get("remote_address"),
+            "state_before": left.get("state_name", left.get("state")) if left else None,
+            "state_after": right.get("state_name", right.get("state")) if right else None,
+            "rx_queue_before": rx_before,
+            "rx_queue_after": rx_after,
+            "rx_queue_delta": (
+                int(rx_after) - int(rx_before)
+                if isinstance(rx_before, int) and isinstance(rx_after, int)
+                else None
+            ),
+        })
+    return changes
+
+
+def _gdb_blocks(document: dict[str, Any]) -> list[tuple[str, str]]:
+    gdb = document.get("gdb") or {}
+    output_path = gdb.get("output_path") or document.get("gdb_output_path")
+    if not output_path:
+        return []
+    try:
+        output = Path(output_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    markers = list(re.finditer(r"^=== GDB ([^=\n]+) ===\s*$", output, flags=re.MULTILINE))
+    if not markers:
+        return [("snapshot", output)]
+    blocks: list[tuple[str, str]] = []
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(output)
+        blocks.append((marker.group(1).strip(), output[marker.end():end]))
+    return blocks
+
+
+def _gdb_clock_thread_classifications(document: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    reception: dict[tuple[int, str], dict[str, Any]] = {}
+    callback: dict[tuple[int, str], dict[str, Any]] = {}
+    for snapshot, output in _gdb_blocks(document):
+        blocks = re.split(r"(?=^Thread\s+\d+\s+\(LWP\s+)", output, flags=re.MULTILINE)
+        for block in blocks:
+            match = re.match(r"Thread\s+\d+\s+\(LWP\s+(\d+)(?:\s+[^)]*)?\)", block)
+            if not match:
+                continue
+            tid = int(match.group(1))
+            frames = re.findall(r"^\s*#\d+\s+.*$", block, flags=re.MULTILINE)
+            lower = block.lower()
+            is_reception = any(token in lower for token in ("runreceptiontask", "recvmsgupdate", "zmq_msg_recv"))
+            is_callback = "px4_clock_settime" in lower or "pthread_cond_broadcast" in lower
+            if is_reception:
+                key = (tid, snapshot)
+                reception[key] = {
+                    "tid": tid,
+                    "snapshot": snapshot,
+                    "state": "polling" if re.search(r"\b(?:poll|zmq_poll)\s*\(", lower) else "receiving",
+                    "top_frames": frames[:8],
+                }
+            if is_callback:
+                key = (tid, snapshot)
+                callback[key] = {
+                    "tid": tid,
+                    "snapshot": snapshot,
+                    "state": "blocked" if "pthread_cond_broadcast" in lower else "callback_active",
+                    "top_frames": frames[:8],
+                }
+    return {"reception": list(reception.values()), "callback": list(callback.values())}
+
+
 def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
     """State which explanations the two samples support, with evidence limits."""
     samples = document.get("samples") if isinstance(document.get("samples"), list) else []
@@ -738,6 +1014,36 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
         address: threads for address, threads in futex_addresses.items() if len(threads) > 1
     }
     clock_thread_top_frames = _gdb_clock_thread_frames(document, blocked_threads)
+    gdb_roles = _gdb_clock_thread_classifications(document)
+    socket_rx_changes = _socket_rx_changes(first, second)
+    socket_rx_totals = {
+        group: [
+            sum(int(row.get("rx_queue_bytes", 0)) for row in _socket_rows(sample) if row.get("group") == group)
+            for sample in (first, second)
+        ]
+        for group in ("px4", "gz")
+    }
+    socket_rx_deltas = {
+        group: socket_rx_totals[group][1] - socket_rx_totals[group][0]
+        for group in socket_rx_totals
+    }
+    topic_info = [sample.get("gz_clock_topic_info") or {} for sample in (first, second)]
+    reception_threads = gdb_roles["reception"]
+    callback_threads = gdb_roles["callback"]
+    reception_poll_tids = {
+        tid for tid in {row.get("tid") for row in reception_threads}
+        if len({row.get("snapshot") for row in reception_threads
+                if row.get("tid") == tid and row.get("state") == "polling"}) >= 2
+    }
+    callback_blocked_tids = {
+        tid for tid in {row.get("tid") for row in callback_threads}
+        if len({row.get("snapshot") for row in callback_threads
+                if row.get("tid") == tid and row.get("state") == "blocked"}) >= 2
+    }
+    reception_polling = any(row.get("state") == "polling" for row in reception_threads)
+    callback_blocked_candidate = any(row.get("state") == "blocked" for row in callback_threads)
+    callback_blocked = bool(callback_blocked_tids)
+    messages_stopped_arriving = bool(gz_advanced is True and reception_poll_tids)
     px4_client_failures = []
     for sample_index, sample in enumerate(samples[:2]):
         for key, value in sample.items():
@@ -811,6 +1117,32 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
         "px4_blocked_threads": blocked_threads,
         "shared_futex_addresses": shared_futexes,
         "clock_thread_top_frames": clock_thread_top_frames,
+        "clock_reception_threads": reception_threads,
+        "clock_callback_threads": callback_threads,
+        "reception_thread_classification": (
+            "messages_stopped_arriving" if messages_stopped_arriving else
+            ("callback_blocked" if callback_blocked else
+             "callback_blocked_candidate_single_snapshot" if callback_blocked_candidate else
+             "messages_stopped_arriving_candidate" if gz_advanced is True and reception_polling else "unknown")
+        ),
+        "callback_thread_classification": (
+            "callback_blocked" if callback_blocked else
+            "callback_blocked_candidate_single_snapshot" if callback_blocked_candidate else "not_observed"
+        ),
+        "transport_topic_info": topic_info,
+        "transport_socket_rx_queue_bytes": socket_rx_totals,
+        "transport_socket_rx_queue_delta_bytes": socket_rx_deltas,
+        "transport_socket_rx_queue_changes": socket_rx_changes,
+        "transport_probe_can_disturb_state": True,
+        "transport_probe_note": (
+            "gz topic -i registers and leaves a transient node. Discovery threads may show "
+            "OnEndRegistration caused by this probe; transport discovery was read before "
+            "thread/socket state, so those discovery frames are probe-affected and should "
+            "not be treated as the stall itself."
+        ),
+        "messages_stopped_arriving": messages_stopped_arriving,
+        "callback_blocked": callback_blocked,
+        "callback_blocked_candidate": callback_blocked_candidate,
         "px4_client_failures": px4_client_failures,
         "px4_runnable_clock_driver_threads_with_high_wait": starved_drivers,
         "cgroup_cpu_throttling_increased": throttled,
@@ -821,11 +1153,14 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
                 gz_advanced is True and driver_coverage_complete and not px4_progress
             ),
             "px4_thread_block": gz_advanced is True and px4_blocked,
+            "messages_stopped_arriving": messages_stopped_arriving,
+            "callback_blocked": callback_blocked,
             "scheduling_starvation": len(starved_drivers) >= 2,
         },
         "limits": [
             "Gazebo clock advancing while PX4 clock-driving threads are idle supports a bridge/lockstep boundary, but cannot separate bridge input loss from a PX4-side blocked thread.",
             "Host load per CPU and cgroup counters are context; starvation support comes from runnable clock-driving threads' scheduler wait and on-CPU deltas.",
+            "The gz topic -i transport probe is stateful: it briefly registers a node and may produce OnEndRegistration discovery frames; those frames are reported as probe-affected.",
         ],
     }
 
@@ -841,11 +1176,11 @@ def _gdb_clock_thread_frames(
         output = Path(output_path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
-    blocks = re.split(r"(?=^Thread\s+\d+\s+)", output, flags=re.MULTILINE)
+    blocks = re.split(r"(?=^Thread\s+\d+\s+\(LWP\s+)", output, flags=re.MULTILINE)
     blocked_tids = {int(row["tid"]) for row in blocked_threads if isinstance(row.get("tid"), int)}
     summaries: list[dict[str, Any]] = []
     for block in blocks:
-        match = re.match(r"Thread\s+\d+\s+\(LWP\s+(\d+)\)", block)
+        match = re.match(r"Thread\s+\d+\s+\(LWP\s+(\d+)(?:\s+[^)]*)?\)", block)
         if not match or int(match.group(1)) not in blocked_tids:
             continue
         frames = re.findall(r"^\s*#\d+\s+.*$", block, flags=re.MULTILINE)
