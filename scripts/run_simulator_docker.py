@@ -702,6 +702,10 @@ def build_docker_simulator_plan(
             "MULTIDETECT_PX4_LOGGER_MODE must be default, poll, or off"
         )
     container_environment["MULTIDETECT_PX4_LOGGER_MODE"] = logger_mode
+    # Without -d, PX4's shell reads EOF from /dev/null and prints its prompt in a
+    # tight loop.  Same switch as 263f2b95 on the main branch.
+    daemon_mode = os.environ.get("MULTIDETECT_PX4_DAEMON", "1").strip() != "0"
+    container_environment["MULTIDETECT_PX4_DAEMON"] = "1" if daemon_mode else "0"
     if logger_mode == "off":
         container_environment["SDLOG_BACKEND"] = "0"
         container_environment["PX4_PARAM_SDLOG_BACKEND"] = "0"
@@ -832,7 +836,8 @@ def build_docker_simulator_plan(
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
             gpu_gz_wrapper,
-            f"exec /opt/px4-gazebo/bin/px4 -i {sim_instance if selected_network_mode == 'host' else 0} -s etc/init.d-posix/rcS",
+            f"exec /opt/px4-gazebo/bin/px4 -i {sim_instance if selected_network_mode == 'host' else 0} -s etc/init.d-posix/rcS"
+            + (" -d" if daemon_mode else ""),
         )
     )
     network_tokens = (
