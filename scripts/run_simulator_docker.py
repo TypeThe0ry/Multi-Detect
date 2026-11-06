@@ -50,6 +50,7 @@ DEFAULT_GPU_AVOID = ("0", "3")
 NVIDIA_EGL_VENDOR_FILE = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 PX4_LOGGER_MODE_ENV = "MULTIDETECT_PX4_LOGGER_MODE"
+PX4_DAEMON_MODE_ENV = "MULTIDETECT_PX4_DAEMON"
 
 
 def resolve_px4_logger_mode(value: str | None = None) -> str:
@@ -59,6 +60,15 @@ def resolve_px4_logger_mode(value: str | None = None) -> str:
     if mode not in {"default", "off"}:
         raise DockerSimulatorPlanError(f"{PX4_LOGGER_MODE_ENV} must be default or off")
     return mode
+
+
+def resolve_px4_daemon_mode(value: str | int | bool | None = None) -> bool:
+    """Resolve whether PX4 should run without the interactive ``pxh`` shell."""
+    raw = os.environ.get(PX4_DAEMON_MODE_ENV, "1") if value is None else value
+    normalized = str(raw).strip().lower()
+    if normalized not in {"0", "1"}:
+        raise DockerSimulatorPlanError(f"{PX4_DAEMON_MODE_ENV} must be 0 or 1")
+    return normalized == "1"
 
 
 # SIM-only PX4 parameters, applied by rcS from PX4_PARAM_* before
@@ -409,6 +419,8 @@ class DockerSimulatorPlan:
                 "airframe_profile_id": self.airframe_profile_id,
             },
             "environment": dict(self.environment),
+            "px4_logger_mode": dict(self.environment).get(PX4_LOGGER_MODE_ENV, "default"),
+            "px4_daemon_mode": dict(self.environment).get(PX4_DAEMON_MODE_ENV, "1") == "1",
             "gpu_render": self.gpu_render,
             "gpu_device": self.gpu_device,
             "gpu_devices": list(self.gpu_devices),
@@ -644,6 +656,8 @@ def build_docker_simulator_plan(
     }
     logger_mode = resolve_px4_logger_mode()
     container_environment[PX4_LOGGER_MODE_ENV] = logger_mode
+    daemon_mode = resolve_px4_daemon_mode()
+    container_environment[PX4_DAEMON_MODE_ENV] = "1" if daemon_mode else "0"
     if logger_mode == "off":
         container_environment["SDLOG_BACKEND"] = "0"
         container_environment["PX4_PARAM_SDLOG_BACKEND"] = "0"
@@ -772,7 +786,8 @@ def build_docker_simulator_plan(
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
             gpu_gz_wrapper,
-            f"exec /opt/px4-gazebo/bin/px4 -i {sim_instance if selected_network_mode == 'host' else 0} -s etc/init.d-posix/rcS",
+            f"exec /opt/px4-gazebo/bin/px4 -i {sim_instance if selected_network_mode == 'host' else 0} -s etc/init.d-posix/rcS"
+            + (" -d" if daemon_mode else ""),
         )
     )
     network_tokens = (

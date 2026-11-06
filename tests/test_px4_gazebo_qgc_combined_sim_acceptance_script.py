@@ -1077,6 +1077,8 @@ def test_linux_container_startup_payload_is_normalized_to_lf() -> None:
     )
 
     assert here_string < lf_normalization < telemetry_substitution < docker_run
+    assert 'PX4_DAEMON=${MULTIDETECT_PX4_DAEMON:-1}' in text
+    assert 'PX4_DAEMON_ARG=-d' in text
 
 
 def test_exact_qgc_pid_hwnd_capture_reads_only_the_owned_client_rectangle() -> None:

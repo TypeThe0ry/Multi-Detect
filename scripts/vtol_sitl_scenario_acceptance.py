@@ -39,9 +39,17 @@ from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario, load_scenario_manifest
 
 try:  # run as a script (scripts/ on sys.path) or imported as scripts.<module>
-    from run_simulator_docker import SIM_SENSOR_PARAMETERS, SIM_STARTUP_PATCHES
+    from run_simulator_docker import (
+        SIM_SENSOR_PARAMETERS,
+        SIM_STARTUP_PATCHES,
+        resolve_px4_daemon_mode,
+    )
 except ImportError:  # pragma: no cover - package-style import
-    from scripts.run_simulator_docker import SIM_SENSOR_PARAMETERS, SIM_STARTUP_PATCHES
+    from scripts.run_simulator_docker import (
+        SIM_SENSOR_PARAMETERS,
+        SIM_STARTUP_PATCHES,
+        resolve_px4_daemon_mode,
+    )
 
 try:
     from pymavlink import mavutil
@@ -96,6 +104,7 @@ def _startup_command(mavlink_port: int) -> str:
         "/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; "
         + SIM_STARTUP_PATCHES
         + "exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS"
+        + (" -d" if resolve_px4_daemon_mode() else "")
     )
 
 

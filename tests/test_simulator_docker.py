@@ -29,6 +29,9 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
     assert plan.image == PINNED_IMAGE
     assert plan.command[0:2] == ("docker", "run")
     assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "default"
+    assert dict(plan.environment)["MULTIDETECT_PX4_DAEMON"] == "1"
+    assert "px4_daemon_mode" in plan.to_mapping()
+    assert plan.command[-1].endswith("-d")
     assert ("--cap-drop", "ALL") == plan.command[
         plan.command.index("--cap-drop") : plan.command.index("--cap-drop") + 2
     ]
@@ -100,6 +103,24 @@ def test_logger_mode_rejects_poll_and_unknown_values(tmp_path, monkeypatch):
         monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", mode)
         with pytest.raises(DockerSimulatorPlanError, match="default or off"):
             build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / mode)
+
+
+@pytest.mark.parametrize(("mode", "expected"), [("1", True), ("0", False)])
+def test_px4_daemon_mode_controls_startup_and_is_recorded(
+    tmp_path, monkeypatch, mode, expected
+):
+    monkeypatch.setenv("MULTIDETECT_PX4_DAEMON", mode)
+    plan = build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / f"daemon-{mode}")
+    environment = dict(plan.environment)
+    assert environment["MULTIDETECT_PX4_DAEMON"] == mode
+    assert plan.to_mapping()["px4_daemon_mode"] is expected
+    assert plan.command[-1].endswith(" -d") is expected
+
+
+def test_px4_daemon_mode_rejects_values_other_than_zero_or_one(tmp_path, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_PX4_DAEMON", "true")
+    with pytest.raises(DockerSimulatorPlanError, match="must be 0 or 1"):
+        build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "invalid-daemon")
 
 
 def test_gimbal_airframe_uses_px4_gimbal_model_without_starting_docker(tmp_path: Path) -> None:

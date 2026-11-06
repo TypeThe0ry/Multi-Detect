@@ -85,6 +85,7 @@ from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_SCRIPT_ROOT,
     _split_gpu_list,
     build_docker_simulator_plan,
+    resolve_px4_daemon_mode,
     resolve_px4_logger_mode,
 )
 from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context  # noqa: E402
@@ -303,6 +304,7 @@ class CollectionPlan:
         result = asdict(self)
         result["linux_primitive_clock_stall_timeout_s"] = _linux_primitive_clock_stall_timeout_s()
         result["px4_logger_mode"] = resolve_px4_logger_mode()
+        result["px4_daemon_mode"] = resolve_px4_daemon_mode()
         altitude, source = _takeoff_altitude_for_plan(self)
         result["takeoff_altitude_m"] = altitude
         result["takeoff_altitude_source"] = source
@@ -4090,6 +4092,7 @@ def run_episode(
     )
     recorder.meta["provenance"]["config_snapshot"] = config_snapshot
     recorder.meta["provenance"]["px4_logger_mode"] = resolve_px4_logger_mode()
+    recorder.meta["provenance"]["px4_daemon_mode"] = resolve_px4_daemon_mode()
     recorder.meta["provenance"]["linux_primitive_clock_stall_timeout_s"] = (
         _linux_primitive_clock_stall_timeout_s()
     )

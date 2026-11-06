@@ -14,6 +14,7 @@ def test_session_plan_enables_browser_viewer() -> None:
     assert world.name == "urban_inspection_multirotor_001.sdf"
     assert VIEWER_IMAGE in command
     assert "HEADLESS=1" in command
+    assert command[-1].endswith("-d")
     assert "DISPLAY=:99" in command
     assert "127.0.0.1:6080:6080/tcp" in command
     assert any("Xvfb :99" in token for token in command)
