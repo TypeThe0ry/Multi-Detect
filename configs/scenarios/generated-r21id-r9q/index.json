@@ -1,0 +1,591 @@
+{
+  "schema_version": 1,
+  "generator": "multidetect.simulator.world_gen",
+  "asset_mode": "fuel_v1",
+  "seed": 20261126,
+  "count": 4,
+  "split_ratios": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "held_out_target_combos": [
+    {
+      "category": "stop_sign",
+      "color": "red",
+      "slug": "stop_sign",
+      "split": "test"
+    },
+    {
+      "category": "suv",
+      "color": null,
+      "slug": "suv",
+      "split": "test"
+    },
+    {
+      "category": "person",
+      "color": null,
+      "slug": "walking_person",
+      "split": "test"
+    },
+    {
+      "category": "pickup",
+      "color": null,
+      "slug": "pickup",
+      "split": "test"
+    },
+    {
+      "category": "postbox",
+      "color": null,
+      "slug": "postbox",
+      "split": "test"
+    },
+    {
+      "category": "person",
+      "color": null,
+      "slug": "standing_person",
+      "split": "test"
+    }
+  ],
+  "worlds": [
+    {
+      "world_id": "gen_r21id_r9q_w0000",
+      "split": "train",
+      "seed": 20261126,
+      "task_text": "找到轿车并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "hatchback",
+        "category": "car",
+        "color": null
+      },
+      "world_file": "gen_r21id_r9q_w0000.sdf",
+      "true_target_id": "target_true_gen_r21id_r9q_w0000",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到轿车并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "overcast_flat",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "mailbox"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 18.0,
+        "ground_distance_m": 80.565,
+        "slant_distance_m": 82.551,
+        "target_short_side_px": "12-16",
+        "target_short_side_px_estimate": 14.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "r9p-yield-20261106",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r9q_w0000",
+        "confuser_observation": {
+          "camera_altitude_m": 3.0,
+          "slant_distance_m": 5.5,
+          "mailbox_size_m": [
+            0.133416,
+            0.355085,
+            1.067241
+          ],
+          "mailbox_yaw_rad": 1.570796,
+          "route_views": [
+            "front",
+            "oblique",
+            "edge_truncated",
+            "recovery"
+          ],
+          "per_view": [
+            {
+              "view": "front",
+              "minimum_short_side_px": 17.48
+            },
+            {
+              "view": "oblique",
+              "minimum_short_side_px": 15.82
+            },
+            {
+              "view": "edge_truncated",
+              "minimum_short_side_px": 15.82
+            },
+            {
+              "view": "recovery",
+              "minimum_short_side_px": 17.48
+            }
+          ],
+          "qualifying_frames_per_view": {
+            "front": 8,
+            "oblique": 8,
+            "edge_truncated": 8,
+            "recovery": 8
+          },
+          "mesh_scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "builder_min_box_side_px": 8,
+          "builder_min_box_px": 8,
+          "builder_min_area_px": 4,
+          "source_mesh_size_m": [
+            0.133416,
+            0.355085,
+            1.067241
+          ]
+        }
+      },
+      "r9q_direction": "car->mailbox",
+      "task_text_variants": [
+        {
+          "requested_category": "hatchback",
+          "task_text": "找到轿车并记录位置",
+          "task_text_en": "Find the car and record its position."
+        },
+        {
+          "requested_category": "mailbox",
+          "task_text": "找到邮箱并记录位置",
+          "task_text_en": "Find the mailbox and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r9q_w0001",
+      "split": "train",
+      "seed": 20261127,
+      "task_text": "找到轿车并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "hatchback",
+        "category": "car",
+        "color": null
+      },
+      "world_file": "gen_r21id_r9q_w0001.sdf",
+      "true_target_id": "target_true_gen_r21id_r9q_w0001",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到轿车并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "morning_low_sun",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "mailbox"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 20.0,
+        "ground_distance_m": 69.408,
+        "slant_distance_m": 72.232,
+        "target_short_side_px": "16-24",
+        "target_short_side_px_estimate": 16.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "r9p-yield-20261106",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r9q_w0001",
+        "confuser_observation": {
+          "camera_altitude_m": 3.0,
+          "slant_distance_m": 5.8,
+          "mailbox_size_m": [
+            0.133416,
+            0.355085,
+            1.067241
+          ],
+          "mailbox_yaw_rad": 1.570796,
+          "route_views": [
+            "front",
+            "oblique",
+            "edge_truncated",
+            "recovery"
+          ],
+          "per_view": [
+            {
+              "view": "front",
+              "minimum_short_side_px": 16.14
+            },
+            {
+              "view": "oblique",
+              "minimum_short_side_px": 14.69
+            },
+            {
+              "view": "edge_truncated",
+              "minimum_short_side_px": 14.69
+            },
+            {
+              "view": "recovery",
+              "minimum_short_side_px": 16.14
+            }
+          ],
+          "qualifying_frames_per_view": {
+            "front": 8,
+            "oblique": 8,
+            "edge_truncated": 8,
+            "recovery": 8
+          },
+          "mesh_scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "builder_min_box_side_px": 8,
+          "builder_min_box_px": 8,
+          "builder_min_area_px": 4,
+          "source_mesh_size_m": [
+            0.133416,
+            0.355085,
+            1.067241
+          ]
+        }
+      },
+      "r9q_direction": "car->mailbox",
+      "task_text_variants": [
+        {
+          "requested_category": "hatchback",
+          "task_text": "找到轿车并记录位置",
+          "task_text_en": "Find the car and record its position."
+        },
+        {
+          "requested_category": "mailbox",
+          "task_text": "找到邮箱并记录位置",
+          "task_text_en": "Find the mailbox and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r9q_w0002",
+      "split": "train",
+      "seed": 20261128,
+      "task_text": "找到轿车并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "hatchback",
+        "category": "car",
+        "color": null
+      },
+      "world_file": "gen_r21id_r9q_w0002.sdf",
+      "true_target_id": "target_true_gen_r21id_r9q_w0002",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到轿车并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "haze",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "mailbox"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 16.0,
+        "ground_distance_m": 87.449,
+        "slant_distance_m": 88.901,
+        "target_short_side_px": "12-16",
+        "target_short_side_px_estimate": 13.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "r9p-yield-20261106",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r9q_w0002",
+        "confuser_observation": {
+          "camera_altitude_m": 3.0,
+          "slant_distance_m": 5.4,
+          "mailbox_size_m": [
+            0.133416,
+            0.355085,
+            1.067241
+          ],
+          "mailbox_yaw_rad": 1.570796,
+          "route_views": [
+            "front",
+            "oblique",
+            "edge_truncated",
+            "recovery"
+          ],
+          "per_view": [
+            {
+              "view": "front",
+              "minimum_short_side_px": 17.98
+            },
+            {
+              "view": "oblique",
+              "minimum_short_side_px": 16.24
+            },
+            {
+              "view": "edge_truncated",
+              "minimum_short_side_px": 16.24
+            },
+            {
+              "view": "recovery",
+              "minimum_short_side_px": 17.98
+            }
+          ],
+          "qualifying_frames_per_view": {
+            "front": 8,
+            "oblique": 8,
+            "edge_truncated": 8,
+            "recovery": 8
+          },
+          "mesh_scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "builder_min_box_side_px": 8,
+          "builder_min_box_px": 8,
+          "builder_min_area_px": 4,
+          "source_mesh_size_m": [
+            0.133416,
+            0.355085,
+            1.067241
+          ]
+        }
+      },
+      "r9q_direction": "car->mailbox",
+      "task_text_variants": [
+        {
+          "requested_category": "hatchback",
+          "task_text": "找到轿车并记录位置",
+          "task_text_en": "Find the car and record its position."
+        },
+        {
+          "requested_category": "mailbox",
+          "task_text": "找到邮箱并记录位置",
+          "task_text_en": "Find the mailbox and record its position."
+        }
+      ]
+    },
+    {
+      "world_id": "gen_r21id_r9q_w0003",
+      "split": "train",
+      "seed": 20261129,
+      "task_text": "找到轿车并记录位置",
+      "task_text_en": "Find the car and record its position.",
+      "asset_mode": "fuel_v1",
+      "target_combo": {
+        "slug": "hatchback",
+        "category": "car",
+        "color": null
+      },
+      "world_file": "gen_r21id_r9q_w0003.sdf",
+      "true_target_id": "target_true_gen_r21id_r9q_w0003",
+      "task_kind": "find",
+      "expected_count": 1,
+      "find_task_text": "找到轿车并记录位置",
+      "find_task_text_en": "Find the car and record its position.",
+      "appearance": "noon_clear",
+      "hard_case_profile": "identity_hard_negative",
+      "paired_confusers": [
+        "mailbox"
+      ],
+      "view_geometry": {
+        "paired_same_world": true,
+        "camera_altitude_m": 22.0,
+        "ground_distance_m": 60.32,
+        "slant_distance_m": 64.206,
+        "target_short_side_px": "16-24",
+        "target_short_side_px_estimate": 18.0,
+        "camera_intrinsics": {
+          "width": 1280,
+          "height": 960,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "camera_pitch_rad": -0.42,
+        "geometry_reference": "r9p-yield-20261106",
+        "visible_fraction": [
+          0.45,
+          0.65,
+          0.85,
+          1.0
+        ],
+        "occlusion_types": [
+          "none",
+          "building",
+          "guardrail",
+          "pipe_line"
+        ],
+        "view_angles_deg": [
+          0,
+          35,
+          90,
+          145
+        ],
+        "identity_sequence": [
+          "front",
+          "oblique",
+          "edge_truncated",
+          "recovery"
+        ],
+        "target_id": "target_true_gen_r21id_r9q_w0003",
+        "confuser_observation": {
+          "camera_altitude_m": 3.0,
+          "slant_distance_m": 6.0,
+          "mailbox_size_m": [
+            0.133416,
+            0.355085,
+            1.067241
+          ],
+          "mailbox_yaw_rad": 1.570796,
+          "route_views": [
+            "front",
+            "oblique",
+            "edge_truncated",
+            "recovery"
+          ],
+          "per_view": [
+            {
+              "view": "front",
+              "minimum_short_side_px": 15.36
+            },
+            {
+              "view": "oblique",
+              "minimum_short_side_px": 14.04
+            },
+            {
+              "view": "edge_truncated",
+              "minimum_short_side_px": 14.04
+            },
+            {
+              "view": "recovery",
+              "minimum_short_side_px": 15.36
+            }
+          ],
+          "qualifying_frames_per_view": {
+            "front": 8,
+            "oblique": 8,
+            "edge_truncated": 8,
+            "recovery": 8
+          },
+          "mesh_scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "builder_min_box_side_px": 8,
+          "builder_min_box_px": 8,
+          "builder_min_area_px": 4,
+          "source_mesh_size_m": [
+            0.133416,
+            0.355085,
+            1.067241
+          ]
+        }
+      },
+      "r9q_direction": "car->mailbox",
+      "task_text_variants": [
+        {
+          "requested_category": "hatchback",
+          "task_text": "找到轿车并记录位置",
+          "task_text_en": "Find the car and record its position."
+        },
+        {
+          "requested_category": "mailbox",
+          "task_text": "找到邮箱并记录位置",
+          "task_text_en": "Find the mailbox and record its position."
+        }
+      ]
+    }
+  ],
+  "appearance_presets": [
+    "overcast_flat",
+    "morning_low_sun",
+    "haze",
+    "noon_clear"
+  ],
+  "profile": "r21id-r9q"
+}
