@@ -165,16 +165,18 @@ def _gimbal(model, meshes: Path):
     _element(yaw_link, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(yaw_link, GIMBAL_YAW_MASS, GIMBAL_CHILD_INERTIA)
     _visual(yaw_link, "yaw_arm", (0, 0, -0.045), "box", {"size": "0.02 0.02 0.09"}, "0.12 0.12 0.12 1")
-    # PX4 gz-gimbal uses the upstream yaw/roll axis signs.  The command topics
-    # carry positive MAVLink angles; keeping these signs aligned avoids a
-    # fixed 180-degree mirror in the reported device attitude.
+    # PX4 GZGimbal converts the Gazebo FLU quaternion to FRD as
+    # q_ENU_to_NED * q_gimbal_FLU * inverse(q_FLU_to_FRD). For the relative
+    # joint rotation this is S^-1 J S with S=Rx(pi): yaw -Z and pitch -Y
+    # report positive command angles, while roll X is unchanged. Use +X for
+    # roll so positive commands also report positive roll.
     _revolute_joint(model, "c11_yaw_joint", "c11_mount_link", "c11_yaw_link", "0 0 -1", lower=-2 * math.pi, upper=2 * math.pi)
 
     roll_link = _element(model, "link", name="c11_roll_link")
     _element(roll_link, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(roll_link, GIMBAL_ROLL_MASS, GIMBAL_CHILD_INERTIA)
     _visual(roll_link, "roll_arm", (0, 0, -0.08), "box", {"size": "0.08 0.02 0.02"}, "0.12 0.12 0.12 1")
-    _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "-1 0 0", pose="0 0 -0.08 0 0 0", lower=-0.785398, upper=0.785398)
+    _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "1 0 0", pose="0 0 -0.08 0 0 0", lower=-0.785398, upper=0.785398)
 
     camera = _element(model, "link", name="camera_link")
     # Joint poses below are expressed in the child frame, so this link must share
@@ -187,7 +189,7 @@ def _gimbal(model, meshes: Path):
         position=(0, 0, 0),
     )
     _visual(camera, "camera_body", (0.11, 0, -0.08), "box", {"size": "0.08 0.06 0.05"}, "0.08 0.08 0.08 1")
-    _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 1 0", pose="-0.04 0 -0.08 0 0 0", lower=-2.35619, upper=0.7854)
+    _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 -1 0", pose="-0.04 0 -0.08 0 0 0", lower=-2.35619, upper=0.7854)
     # The optical centre clears both the C11 shell and the camera-body visual.
     camera_pose = "0.16 0 -0.08 0 0 0"
     sensor = _element(camera, "sensor", name="camera", type="camera")
@@ -277,18 +279,18 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
             wrapped_model.append(item)
     for item in camera_plugins:
         wrapped_model.append(item)
-    # PX4 的 gz 云台桥用 camera_link 上的 camera_imu 估计云台姿态并上报
-    # GIMBAL_DEVICE_ATTITUDE_STATUS；与上游 gimbal 模型一致，位姿与相机传感器相同。
+    # PX4 GZGimbal converts camera_imu FLU attitude into FRD. Keep the IMU
+    # aligned with camera_link: a 180-degree yaw here conjugates pitch/roll
+    # rotations and reverses their reported signs.
     camera_link = wrapped_model.find("link[@name='camera_link']")
     camera_sensor = camera_link.find("sensor[@name='camera']")
     imu = _element(camera_link, "sensor", name="camera_imu", type="imu")
     _element(imu, "gz_frame_id", "camera_link")
     _element(imu, "always_on", 1)
     _element(imu, "update_rate", 250)
-    # The IMU is already attached to camera_link.  Reusing the optical sensor
-    # pose here translated it a second time and made the PX4 gimbal bridge
-    # report a frame that was not the articulated camera frame.
-    _element(imu, "pose", "0 0 0 0 0 3.141592653589793")
+    # The IMU is already attached to camera_link; zero pose avoids both a
+    # duplicate optical-center offset and the old 180-degree attitude mirror.
+    _element(imu, "pose", "0 0 0 0 0 0")
     _odometry_publisher(wrapped_model)
     _gimbal_joint_state_publisher(wrapped_model)
     ET.indent(wrapper, space="  ")

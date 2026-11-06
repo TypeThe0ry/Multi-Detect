@@ -1112,9 +1112,11 @@ PX4 的 shell 从 /dev/null 读到 EOF 后不停打印 `pxh>`（单次飞行约 
 
 ## 2026-11-06：云台偏航和出生朝向结论
 
+本段后续的模型符号结论已由本节末尾的“云台轴符号回归”修订：早先记录中的 roll=`-1 0 0` 和 IMU yaw=π 是基于未纳入生成器的手工模型修改，不能代表生成结果；pitch=`0 -1 0` 的方向保留并纳入生成器。
+
 任务 A 的根因是 `GIMBAL_DEVICE_ATTITUDE_STATUS.flags & 64` 的地球系偏航。现有三个读数路径原先都按“设备偏航 - 机体偏航”得到相对偏航：collector 的 `_gimbal_attitude_angles_deg`、`sim_teacher.executor._gimbal_angles_deg`，以及 `onboard_runtime/vehicle.py` 的 `PymavlinkVehicle.ingest`。后者把结果放入 `VehicleState.gimbal_angles_deg`；动态相机运动估计器会消费这组角度。未提供校正参数时，这些路径的行为保持原样，真机默认校正为 0°。
 
-仿真配置新增 `camera.gimbal.simulation_yaw_correction = "spawn_yaw_deg"`。采集器从 runtime 的 `vehicle.spawn_pose.yaw_rad` 计算 `-yaw_deg`，只传给仿真自检、仿真执行器和仿真观测；因此默认出生朝向（场景 ENU yaw 0°，PX4 机体读数约 90°）校正为 0°，w0016 的出生 yaw 45° 校正为 -45°，原来约 45° 的误差被消掉。仿真观测若带有 Gazebo `gimbal_joint_state` sidecar，则直接使用关节角作为相机角，避免 camera_imu 的出生姿态参考污染 AI 观测。4° 自检容差没有改变。测试覆盖了出生机体 yaw 90°（对应场景 yaw 0°）、45°，以及未配置时的旧行为。没有修改 PX4 参数、气动模型或 `orientation_reference_frame`；也没有依据 PX4 GZGimbal 源码作未经验证的 SDF 配置推断。
+仿真配置新增 `camera.gimbal.simulation_yaw_correction = "spawn_yaw_deg"`。采集器从 runtime 的 `vehicle.spawn_pose.yaw_rad` 计算 `-yaw_deg`，只传给仿真自检、仿真执行器和仿真观测；因此默认出生朝向（场景 ENU yaw 0°，PX4 机体读数约 90°）校正为 0°，w0016 的出生 yaw 45° 校正为 -45°，原来约 45° 的误差被消掉。仿真观测若带有 Gazebo `gimbal_joint_state` sidecar，则直接使用关节角作为相机角，避免 camera_imu 的出生姿态参考污染 AI 观测。4° 自检容差没有改变。测试覆盖了出生机体 yaw 90°（对应场景 yaw 0°）、45°，以及未配置时的旧行为。没有修改 PX4 参数、气动模型或 `orientation_reference_frame`。
 
 任务 B 的 SDF 计算如下。`c11_pitch_joint` 的轴改为 `(0,-1,0)`；在 FLU 中，指令/关节角 `-0.785398 rad`（-45°）把相机光轴 `camera_link` 的 +X 变为 `(0.707107, 0, -0.707107)`，即机体前方下 45°。profile 的 `body_to_camera_rotation` 和 MC/FW 矩阵改为单位阵，并在 `profile_camera_mount_rotation` 中把云台 pitch 命令取反映射到 FRD；因此同一光轴在 FRD 为 `(0.707107, 0, 0.707107)`。理想悬停姿态（PX4 roll/pitch 约 0°、yaw 90°）的世界 NED 光轴为 `(0, 0.707107, 0.707107)`；理想 FW 姿态（roll/pitch/yaw 0°）为 `(0.707107, 0, 0.707107)`。两者的 down 分量都是 `0.707107`，下视 45°，不会出现悬停朝上。
 
@@ -1123,3 +1125,11 @@ PX4 的 shell 从 /dev/null 读到 EOF 后不停打印 `pxh>`（单次飞行约 
 符号约定已对齐：`motion_intent.py` 的相机射线使用 FRD/NED，云台 pitch 在 profile 关节映射处按 SDF FLU→FRD 轴向取反；`profile_mount_pitch_down_rad` 现在把 MC/FW 的默认云台角计入 AI `CameraModel` 的地面投影。两种模式均为下视 45°。以已知姿态代入 `camera_ray_from_profile`，MC（姿态 roll/pitch 0°、yaw 90°）得到 NED `(0, 0.707107, 0.707107)`；FW（roll/pitch/yaw 0°）得到 `(0.707107, 0, 0.707107)`，down 正值说明光线都与地面相交。观测中的 joint sidecar 保留实际关节角；当前 CameraModel 使用模式默认角而不是随每帧关节角更新，若任务改变云台角度，仍需把动态射线接入策略投影。`GroundProjector` 的静态真实相机外参仍把 `mount_pitch_down_deg > 0` 定义为向下，`onboard_runtime/vehicle.py` 的新增仿真偏航校正参数默认关闭，不改变真机路径。相机模型位置仍固定在 C11 挂点，故 self-occlusion 使用的相机中心和射线没有被移回机体原点；云台 sidecar 只替换角度读数，不绕过遮挡判定。
 
 未确定事项：第 42 轮没有在新 SDF 上重新飞行，且其 steps 没有逐帧保存 Gazebo 关节 sidecar，所以不能声称新模型已通过完整起飞、转换、过速恢复、返航和着陆门禁；真实云台硬件的 mount calibration 仍需实机数据确认。
+
+### 云台轴符号回归
+
+复查 `.tmp/smoke-gimbal-imu` 和 `.tmp/ai-mission-gimbal` 的 `episode.json` 后，确认关节角是 −45.6°，而 PX4 回读俯仰约 +45.5°；关节和镜头方向正确，错误在读数符号。上一轮只改了 `simulation/gazebo/models/delta_tailsitter_gimbal_cam/model.sdf`，生成器仍输出 pitch=`0 1 0`，seg overlay 也仍是旧轴，因此重生成会丢失修复，AI 任务也没有使用到手改结果。
+
+现在所有包装 SDF 和分割 overlay 都由 `scripts/generate_delta_tailsitter_model.py` 生成。云台使用 yaw=`0 0 -1`、roll=`1 0 0`、pitch=`0 -1 0`，`camera_imu` pose 为 `0 0 0 0 0 0`。依据 PX4 上游 `src/modules/simulation/gz_bridge/GZGimbal.cpp` 的姿态转换，Gazebo FLU 姿态转 FRD 时相对关节旋转按 `S⁻¹ J S` 变换，`S=Rx(π)`：Z、Y 轴符号反转，X 轴不变。因此 yaw 的 −Z 和 pitch 的 −Y 让正命令读成正值；roll 必须是 +X，−X 会让读数反号。camera_imu 与 camera_link 对齐，不应再附加 180° yaw；该偏航会共轭翻转 pitch/roll 读数。SDF 单测对 model 与 seg overlay 都计算了 `(pitch=-45°, roll=+10°, yaw=+20°)` 的组合读数符号，并验证 pitch −45° 时相机 +X 光轴在 FLU 中指向下方。
+
+已运行生成器和相关离线 pytest；本轮未启动 SITL，也未使用 Docker，故只确认生成物与数学/结构单测，不声称飞行通过。没有改动飞行参数或气动模型。

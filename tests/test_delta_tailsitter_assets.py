@@ -41,6 +41,28 @@ def _numbers(text):
     return tuple(float(x) for x in text.split())
 
 
+def _mat_mul(a, b):
+    return tuple(
+        sum(a[row * 3 + k] * b[k * 3 + col] for k in range(3))
+        for row in range(3)
+        for col in range(3)
+    )
+
+
+def _axis_rotation(axis, angle):
+    x, y, z = axis
+    c, s = math.cos(angle), math.sin(angle)
+    if x:
+        return (1, 0, 0, 0, c, -x * s, 0, x * s, c)
+    if y:
+        return (c, 0, y * s, 0, 1, 0, -y * s, 0, c)
+    return (c, -z * s, 0, z * s, c, 0, 0, 0, 1)
+
+
+def _transform_vector(matrix, vector):
+    return tuple(sum(matrix[row * 3 + col] * vector[col] for col in range(3)) for row in range(3))
+
+
 def _model(directory):
     return ET.parse(directory / "model.sdf").getroot().find("model")
 
@@ -351,12 +373,56 @@ def test_gimbal_camera_sits_on_the_c11_mount():
 
 
 def test_gimbal_axes_and_imu_use_px4_frame_contract():
-    model = _model(GIMBAL_WRAPPER_DIR)
-    assert _numbers(model.findtext("joint[@name='c11_yaw_joint']/axis/xyz")) == (0, 0, -1)
-    assert _numbers(model.findtext("joint[@name='c11_roll_joint']/axis/xyz")) == (-1, 0, 0)
-    assert _numbers(model.findtext("joint[@name='c11_pitch_joint']/axis/xyz")) == (0, -1, 0)
-    assert float(model.findtext("joint[@name='c11_pitch_joint']/axis/initial_position")) == 0.0
-    assert _numbers(model.findtext("link[@name='camera_link']/sensor[@name='camera_imu']/pose")) == pytest.approx((0, 0, 0, 0, 0, math.pi), abs=1e-9)
+    gazebo_root = ROOT / "simulation/gazebo"
+    paths = (
+        gazebo_root / "models/delta_tailsitter_gimbal_cam/model.sdf",
+        gazebo_root / "model-overlays/delta_tailsitter_gimbal_cam_seg/model.sdf",
+    )
+    for path in paths:
+        model = ET.parse(path).getroot().find("model")
+        assert model is not None
+        axes = {
+            name: _numbers(model.findtext(f"joint[@name='{name}']/axis/xyz"))
+            for name in ("c11_yaw_joint", "c11_roll_joint", "c11_pitch_joint")
+        }
+        assert axes == {
+            "c11_yaw_joint": (0, 0, -1),
+            "c11_roll_joint": (1, 0, 0),
+            "c11_pitch_joint": (0, -1, 0),
+        }
+        assert float(model.findtext("joint[@name='c11_pitch_joint']/axis/initial_position")) == 0.0
+        imu_pose = model.findtext("link[@name='camera_link']/sensor[@name='camera_imu']/pose")
+        assert _numbers(imu_pose) == (0, 0, 0, 0, 0, 0)
+
+        # PX4 GZGimbal's FLU->FRD basis change is S^-1 J S, S=Rx(pi).
+        # The selected axes map command rotations to (+yaw,+roll,+pitch) in
+        # FRD. With the pitch command -45 degrees, physical FLU camera +X
+        # points down; FRD flips that vertical component to positive down.
+        pitch = math.radians(-45)
+        pitch_joint = _axis_rotation(axes["c11_pitch_joint"], pitch)
+        optical_flu = _transform_vector(pitch_joint, (1, 0, 0))
+        assert optical_flu[2] < 0
+        assert optical_flu == pytest.approx((math.sqrt(0.5), 0, -math.sqrt(0.5)))
+
+        commands = {"c11_yaw_joint": 20, "c11_roll_joint": 10, "c11_pitch_joint": -45}
+        joint = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        for name in ("c11_yaw_joint", "c11_roll_joint", "c11_pitch_joint"):
+            joint = _mat_mul(joint, _axis_rotation(axes[name], math.radians(commands[name])))
+        s = _axis_rotation((1, 0, 0), math.pi)
+        reported = _mat_mul(_mat_mul(s, joint), s)  # Rx(pi)^-1 == Rx(pi)
+        reported_rpy = (
+            math.degrees(math.atan2(reported[7], reported[8])),
+            math.degrees(math.asin(-reported[6])),
+            math.degrees(math.atan2(reported[3], reported[0])),
+        )
+        assert reported_rpy == pytest.approx((14.0, -44.1, 10.1), abs=0.2)
+        assert all(
+            value * commands[key] > 0
+            for value, key in zip(
+                reported_rpy,
+                ("c11_roll_joint", "c11_pitch_joint", "c11_yaw_joint"),
+            )
+        )
 
 
 @pytest.mark.parametrize("directory", [WRAPPER_DIR, OVERLAY_DIR])
