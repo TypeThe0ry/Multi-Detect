@@ -60,15 +60,19 @@ def test_generated_r9r_pair_balance_mesh_source_size_and_projection_floor():
         assert scales and all(scale == (1.0, 1.0, 1.0) for scale in scales)
 
         pose = confuser["pose"]
-        for view, predicted in zip(observation["views"], geometry["per_view"], strict=True):
+        expected_route_angles = (0.0, 30.0, 65.0, -30.0)
+        for view, predicted, expected_angle in zip(
+            observation["views"], geometry["per_view"], expected_route_angles, strict=True,
+        ):
             point = view["observation_waypoint"]
             dx = float(point["x_east_m"]) - float(pose["x_east_m"])
             dy = float(point["y_north_m"]) - float(pose["y_north_m"])
             distance = math.hypot(dx, dy)
-            # +local-Y is the source mesh front and points toward the camera.
+            # +local-Y is the source mesh front; each route must use its declared azimuth.
             front_east = -math.sin(float(pose["yaw_rad"]))
             front_north = math.cos(float(pose["yaw_rad"]))
-            assert (front_east * dx + front_north * dy) / distance > 0.95
+            front_angle = math.degrees(math.acos(max(-1.0, min(1.0, (front_east * dx + front_north * dy) / distance))))
+            assert math.isclose(front_angle, abs(expected_angle), abs_tol=0.1)
             yaw = math.degrees(math.atan2(float(pose["x_east_m"]) - point["x_east_m"], float(pose["y_north_m"]) - point["y_north_m"]))
             bbox = project_target_bbox(
                 target_ned=(float(pose["y_north_m"]), float(pose["x_east_m"]), 0.0),

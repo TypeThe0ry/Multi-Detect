@@ -131,19 +131,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 17.98
+              "minimum_short_side_px": 15.91
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.24
+              "minimum_short_side_px": 33.67
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.24
+              "minimum_short_side_px": 43.42
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 17.98
+              "minimum_short_side_px": 33.67
             }
           ],
           "qualifying_frames_per_view": {
@@ -263,19 +263,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 14.68
+              "minimum_short_side_px": 14.42
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 14.68
+              "minimum_short_side_px": 30.63
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.15
+              "minimum_short_side_px": 39.5
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 17.57
+              "minimum_short_side_px": 30.62
             }
           ],
           "qualifying_frames_per_view": {
@@ -395,19 +395,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 15.98
+              "minimum_short_side_px": 13.22
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 14.79
+              "minimum_short_side_px": 28.15
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 13.55
+              "minimum_short_side_px": 36.31
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 13.32
+              "minimum_short_side_px": 28.15
             }
           ],
           "qualifying_frames_per_view": {
@@ -527,19 +527,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 15.22
+              "minimum_short_side_px": 15.12
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.86
+              "minimum_short_side_px": 32.06
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 18.45
+              "minimum_short_side_px": 41.35
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 19.97
+              "minimum_short_side_px": 32.06
             }
           ],
           "qualifying_frames_per_view": {
@@ -659,19 +659,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 18.08
+              "minimum_short_side_px": 13.79
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.81
+              "minimum_short_side_px": 29.33
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 15.49
+              "minimum_short_side_px": 37.83
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 14.13
+              "minimum_short_side_px": 29.33
             }
           ],
           "qualifying_frames_per_view": {
@@ -791,19 +791,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 16.7
-            },
-            {
-              "view": "oblique",
               "minimum_short_side_px": 15.5
             },
             {
+              "view": "oblique",
+              "minimum_short_side_px": 32.84
+            },
+            {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.6
+              "minimum_short_side_px": 42.36
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 18.25
+              "minimum_short_side_px": 32.85
             }
           ],
           "qualifying_frames_per_view": {
@@ -923,19 +923,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 17.98
+              "minimum_short_side_px": 15.91
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.24
+              "minimum_short_side_px": 33.67
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.24
+              "minimum_short_side_px": 43.42
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 17.98
+              "minimum_short_side_px": 33.67
             }
           ],
           "qualifying_frames_per_view": {
@@ -1055,19 +1055,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 14.68
+              "minimum_short_side_px": 14.42
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 14.68
+              "minimum_short_side_px": 30.63
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.15
+              "minimum_short_side_px": 39.5
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 17.57
+              "minimum_short_side_px": 30.62
             }
           ],
           "qualifying_frames_per_view": {
@@ -1187,19 +1187,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 15.98
+              "minimum_short_side_px": 13.22
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 14.79
+              "minimum_short_side_px": 28.15
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 13.55
+              "minimum_short_side_px": 36.31
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 13.32
+              "minimum_short_side_px": 28.15
             }
           ],
           "qualifying_frames_per_view": {
@@ -1319,19 +1319,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 15.22
+              "minimum_short_side_px": 15.12
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.86
+              "minimum_short_side_px": 32.06
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 18.45
+              "minimum_short_side_px": 41.35
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 19.97
+              "minimum_short_side_px": 32.06
             }
           ],
           "qualifying_frames_per_view": {
@@ -1451,19 +1451,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 18.08
+              "minimum_short_side_px": 13.79
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.81
+              "minimum_short_side_px": 29.33
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 15.49
+              "minimum_short_side_px": 37.83
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 14.13
+              "minimum_short_side_px": 29.33
             }
           ],
           "qualifying_frames_per_view": {
@@ -1583,19 +1583,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 16.7
-            },
-            {
-              "view": "oblique",
               "minimum_short_side_px": 15.5
             },
             {
+              "view": "oblique",
+              "minimum_short_side_px": 32.84
+            },
+            {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.6
+              "minimum_short_side_px": 42.36
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 18.25
+              "minimum_short_side_px": 32.85
             }
           ],
           "qualifying_frames_per_view": {
@@ -1715,19 +1715,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 17.98
+              "minimum_short_side_px": 15.91
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.24
+              "minimum_short_side_px": 33.67
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.24
+              "minimum_short_side_px": 43.42
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 17.98
+              "minimum_short_side_px": 33.67
             }
           ],
           "qualifying_frames_per_view": {
@@ -1847,19 +1847,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 14.68
+              "minimum_short_side_px": 14.42
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 14.68
+              "minimum_short_side_px": 30.63
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.15
+              "minimum_short_side_px": 39.5
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 17.57
+              "minimum_short_side_px": 30.62
             }
           ],
           "qualifying_frames_per_view": {
@@ -1979,19 +1979,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 15.98
+              "minimum_short_side_px": 13.22
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 14.79
+              "minimum_short_side_px": 28.15
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 13.55
+              "minimum_short_side_px": 36.31
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 13.32
+              "minimum_short_side_px": 28.15
             }
           ],
           "qualifying_frames_per_view": {
@@ -2111,19 +2111,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 15.22
+              "minimum_short_side_px": 15.12
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.86
+              "minimum_short_side_px": 32.06
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 18.45
+              "minimum_short_side_px": 41.35
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 19.97
+              "minimum_short_side_px": 32.06
             }
           ],
           "qualifying_frames_per_view": {
@@ -2243,19 +2243,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 18.08
+              "minimum_short_side_px": 13.79
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.81
+              "minimum_short_side_px": 29.33
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 15.49
+              "minimum_short_side_px": 37.83
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 14.13
+              "minimum_short_side_px": 29.33
             }
           ],
           "qualifying_frames_per_view": {
@@ -2375,19 +2375,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 16.7
-            },
-            {
-              "view": "oblique",
               "minimum_short_side_px": 15.5
             },
             {
+              "view": "oblique",
+              "minimum_short_side_px": 32.84
+            },
+            {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.6
+              "minimum_short_side_px": 42.36
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 18.25
+              "minimum_short_side_px": 32.85
             }
           ],
           "qualifying_frames_per_view": {
@@ -2507,19 +2507,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 17.98
+              "minimum_short_side_px": 15.91
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.24
+              "minimum_short_side_px": 33.67
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.24
+              "minimum_short_side_px": 43.42
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 17.98
+              "minimum_short_side_px": 33.67
             }
           ],
           "qualifying_frames_per_view": {
@@ -2639,19 +2639,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 14.68
+              "minimum_short_side_px": 14.42
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 14.68
+              "minimum_short_side_px": 30.63
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.15
+              "minimum_short_side_px": 39.5
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 17.57
+              "minimum_short_side_px": 30.62
             }
           ],
           "qualifying_frames_per_view": {
@@ -2771,19 +2771,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 15.98
+              "minimum_short_side_px": 13.22
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 14.79
+              "minimum_short_side_px": 28.15
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 13.55
+              "minimum_short_side_px": 36.31
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 13.32
+              "minimum_short_side_px": 28.15
             }
           ],
           "qualifying_frames_per_view": {
@@ -2903,19 +2903,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 15.22
+              "minimum_short_side_px": 15.12
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.86
+              "minimum_short_side_px": 32.06
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 18.45
+              "minimum_short_side_px": 41.35
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 19.97
+              "minimum_short_side_px": 32.06
             }
           ],
           "qualifying_frames_per_view": {
@@ -3035,19 +3035,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 18.08
+              "minimum_short_side_px": 13.79
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 16.81
+              "minimum_short_side_px": 29.33
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 15.49
+              "minimum_short_side_px": 37.83
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 14.13
+              "minimum_short_side_px": 29.33
             }
           ],
           "qualifying_frames_per_view": {
@@ -3167,19 +3167,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 16.7
-            },
-            {
-              "view": "oblique",
               "minimum_short_side_px": 15.5
             },
             {
+              "view": "oblique",
+              "minimum_short_side_px": 32.84
+            },
+            {
               "view": "edge_truncated",
-              "minimum_short_side_px": 16.6
+              "minimum_short_side_px": 42.36
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 18.25
+              "minimum_short_side_px": 32.85
             }
           ],
           "qualifying_frames_per_view": {
@@ -3299,19 +3299,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 25.49
+              "minimum_short_side_px": 25.5
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 25.5
+              "minimum_short_side_px": 34.1
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 25.5
+              "minimum_short_side_px": 33.22
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 25.49
+              "minimum_short_side_px": 34.1
             }
           ],
           "qualifying_frames_per_view": {
@@ -3431,19 +3431,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 22.11
+              "minimum_short_side_px": 22.09
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 22.38
+              "minimum_short_side_px": 29.62
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 22.64
+              "minimum_short_side_px": 28.86
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 22.89
+              "minimum_short_side_px": 29.63
             }
           ],
           "qualifying_frames_per_view": {
@@ -3563,19 +3563,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 20.26
+              "minimum_short_side_px": 19.54
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 20.06
+              "minimum_short_side_px": 26.27
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 19.86
+              "minimum_short_side_px": 25.59
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 19.65
+              "minimum_short_side_px": 26.27
             }
           ],
           "qualifying_frames_per_view": {
@@ -3695,19 +3695,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 24.52
+              "minimum_short_side_px": 23.66
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 24.81
+              "minimum_short_side_px": 31.69
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 25.09
+              "minimum_short_side_px": 30.87
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 25.37
+              "minimum_short_side_px": 31.69
             }
           ],
           "qualifying_frames_per_view": {
@@ -3827,19 +3827,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 22.24
+              "minimum_short_side_px": 20.73
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 22.03
+              "minimum_short_side_px": 27.84
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 21.81
+              "minimum_short_side_px": 27.12
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 21.59
+              "minimum_short_side_px": 27.84
             }
           ],
           "qualifying_frames_per_view": {
@@ -3963,15 +3963,15 @@
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 18.49
+              "minimum_short_side_px": 24.88
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 18.64
+              "minimum_short_side_px": 24.24
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 18.83
+              "minimum_short_side_px": 24.88
             }
           ],
           "qualifying_frames_per_view": {
@@ -4091,19 +4091,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 25.49
+              "minimum_short_side_px": 25.5
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 25.5
+              "minimum_short_side_px": 34.1
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 25.5
+              "minimum_short_side_px": 33.22
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 25.49
+              "minimum_short_side_px": 34.1
             }
           ],
           "qualifying_frames_per_view": {
@@ -4223,19 +4223,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 22.11
+              "minimum_short_side_px": 22.09
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 22.38
+              "minimum_short_side_px": 29.62
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 22.64
+              "minimum_short_side_px": 28.86
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 22.89
+              "minimum_short_side_px": 29.63
             }
           ],
           "qualifying_frames_per_view": {
@@ -4355,19 +4355,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 20.26
+              "minimum_short_side_px": 19.54
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 20.06
+              "minimum_short_side_px": 26.27
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 19.86
+              "minimum_short_side_px": 25.59
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 19.65
+              "minimum_short_side_px": 26.27
             }
           ],
           "qualifying_frames_per_view": {
@@ -4487,19 +4487,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 24.52
+              "minimum_short_side_px": 23.66
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 24.81
+              "minimum_short_side_px": 31.69
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 25.09
+              "minimum_short_side_px": 30.87
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 25.37
+              "minimum_short_side_px": 31.69
             }
           ],
           "qualifying_frames_per_view": {
@@ -4619,19 +4619,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 22.24
+              "minimum_short_side_px": 20.73
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 22.03
+              "minimum_short_side_px": 27.84
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 21.81
+              "minimum_short_side_px": 27.12
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 21.59
+              "minimum_short_side_px": 27.84
             }
           ],
           "qualifying_frames_per_view": {
@@ -4755,15 +4755,15 @@
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 18.49
+              "minimum_short_side_px": 24.88
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 18.64
+              "minimum_short_side_px": 24.24
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 18.83
+              "minimum_short_side_px": 24.88
             }
           ],
           "qualifying_frames_per_view": {
@@ -4883,19 +4883,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 25.49
+              "minimum_short_side_px": 25.5
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 25.5
+              "minimum_short_side_px": 34.1
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 25.5
+              "minimum_short_side_px": 33.22
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 25.49
+              "minimum_short_side_px": 34.1
             }
           ],
           "qualifying_frames_per_view": {
@@ -5015,19 +5015,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 22.11
+              "minimum_short_side_px": 22.09
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 22.38
+              "minimum_short_side_px": 29.62
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 22.64
+              "minimum_short_side_px": 28.86
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 22.89
+              "minimum_short_side_px": 29.63
             }
           ],
           "qualifying_frames_per_view": {
@@ -5147,19 +5147,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 20.26
+              "minimum_short_side_px": 19.54
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 20.06
+              "minimum_short_side_px": 26.27
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 19.86
+              "minimum_short_side_px": 25.59
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 19.65
+              "minimum_short_side_px": 26.27
             }
           ],
           "qualifying_frames_per_view": {
@@ -5279,19 +5279,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 24.52
+              "minimum_short_side_px": 23.66
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 24.81
+              "minimum_short_side_px": 31.69
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 25.09
+              "minimum_short_side_px": 30.87
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 25.37
+              "minimum_short_side_px": 31.69
             }
           ],
           "qualifying_frames_per_view": {
@@ -5411,19 +5411,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 22.24
+              "minimum_short_side_px": 20.73
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 22.03
+              "minimum_short_side_px": 27.84
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 21.81
+              "minimum_short_side_px": 27.12
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 21.59
+              "minimum_short_side_px": 27.84
             }
           ],
           "qualifying_frames_per_view": {
@@ -5547,15 +5547,15 @@
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 18.49
+              "minimum_short_side_px": 24.88
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 18.64
+              "minimum_short_side_px": 24.24
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 18.83
+              "minimum_short_side_px": 24.88
             }
           ],
           "qualifying_frames_per_view": {
@@ -5675,19 +5675,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 25.49
+              "minimum_short_side_px": 25.5
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 25.5
+              "minimum_short_side_px": 34.1
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 25.5
+              "minimum_short_side_px": 33.22
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 25.49
+              "minimum_short_side_px": 34.1
             }
           ],
           "qualifying_frames_per_view": {
@@ -5807,19 +5807,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 22.11
+              "minimum_short_side_px": 22.09
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 22.38
+              "minimum_short_side_px": 29.62
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 22.64
+              "minimum_short_side_px": 28.86
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 22.89
+              "minimum_short_side_px": 29.63
             }
           ],
           "qualifying_frames_per_view": {
@@ -5939,19 +5939,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 20.26
+              "minimum_short_side_px": 19.54
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 20.06
+              "minimum_short_side_px": 26.27
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 19.86
+              "minimum_short_side_px": 25.59
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 19.65
+              "minimum_short_side_px": 26.27
             }
           ],
           "qualifying_frames_per_view": {
@@ -6071,19 +6071,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 24.52
+              "minimum_short_side_px": 23.66
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 24.81
+              "minimum_short_side_px": 31.69
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 25.09
+              "minimum_short_side_px": 30.87
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 25.37
+              "minimum_short_side_px": 31.69
             }
           ],
           "qualifying_frames_per_view": {
@@ -6203,19 +6203,19 @@
           "per_view": [
             {
               "view": "front",
-              "minimum_short_side_px": 22.24
+              "minimum_short_side_px": 20.73
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 22.03
+              "minimum_short_side_px": 27.84
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 21.81
+              "minimum_short_side_px": 27.12
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 21.59
+              "minimum_short_side_px": 27.84
             }
           ],
           "qualifying_frames_per_view": {
@@ -6339,15 +6339,15 @@
             },
             {
               "view": "oblique",
-              "minimum_short_side_px": 18.49
+              "minimum_short_side_px": 24.88
             },
             {
               "view": "edge_truncated",
-              "minimum_short_side_px": 18.64
+              "minimum_short_side_px": 24.24
             },
             {
               "view": "recovery",
-              "minimum_short_side_px": 18.83
+              "minimum_short_side_px": 24.88
             }
           ],
           "qualifying_frames_per_view": {
