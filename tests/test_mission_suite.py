@@ -86,6 +86,22 @@ def test_build_command_uses_same_interpreter_and_absolute_paths(work_tmp):
     assert command[command.index("--max-episode-s") + 1] == "120"
 
 
+def test_keep_px4_ulog_selects_default_only_when_mode_is_unset(work_tmp, monkeypatch, capsys):
+    scenario = suite.ROOT / "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
+    base = [
+        "--scenario", str(scenario), "--teacher", "explore", "--episodes", "1",
+        "--steps-per-episode", "1", "--out", str(work_tmp / "collector-out"), "--dry-run",
+        "--keep-px4-ulog",
+    ]
+    monkeypatch.delenv("MULTIDETECT_PX4_LOGGER_MODE", raising=False)
+    assert collector.main(base) == 0
+    assert '"px4_logger_mode": "default"' in capsys.readouterr().out
+
+    monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", "off")
+    assert collector.main(base) == 0
+    assert '"px4_logger_mode": "off"' in capsys.readouterr().out
+
+
 def test_k1_command_keeps_legacy_slot_arguments_absent(work_tmp):
     command = suite.build_command(_mission(), work_tmp / "onboard.json", work_tmp / "campaign", work_tmp / "report.json")
     assert not {"--control-port", "--telemetry-port", "--container-prefix", "--operator-port"} & set(command)

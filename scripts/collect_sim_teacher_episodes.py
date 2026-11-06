@@ -1152,6 +1152,14 @@ class DockerSimEnvironment:
             timeout=30,
             check=False,
         )
+        if listing.returncode != 0:
+            self._progress(
+                "px4_ulog_unavailable",
+                container=self.name,
+                status="not_found_or_unavailable",
+                error=listing.stderr.strip() or None,
+            )
+            return []
         destination = Path(self.plan.out) / "jobs" / self.name / "px4-ulog"
         copied: list[str] = []
         for remote in sorted(line.strip() for line in listing.stdout.splitlines() if line.strip()):
@@ -1166,7 +1174,12 @@ class DockerSimEnvironment:
             )
             if result.returncode == 0:
                 copied.append(str(local))
-        self._progress("px4_ulog_copied", container=self.name, files=copied)
+        self._progress(
+            "px4_ulog_copied" if copied else "px4_ulog_unavailable",
+            container=self.name,
+            files=copied,
+            status="copied" if copied else "not_found",
+        )
         return copied
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -1187,10 +1200,18 @@ class DockerSimEnvironment:
                         "samples": len(evidence.get("samples", [])),
                     }
         if self.started and self.plan.keep_px4_ulog:
-            try:
-                self.copy_px4_ulogs()
-            except (OSError, subprocess.SubprocessError) as error:
-                self._progress("px4_ulog_copy_failed", container=self.name, error=str(error))
+            if resolve_px4_logger_mode() == "off":
+                self._progress("px4_ulog_disabled", container=self.name, status="disabled")
+            else:
+                try:
+                    self.copy_px4_ulogs()
+                except (OSError, subprocess.SubprocessError) as error:
+                    self._progress(
+                        "px4_ulog_unavailable",
+                        container=self.name,
+                        status="copy_failed",
+                        error=str(error),
+                    )
         if self.started and exc_type is not None:
             # Keep the container's own last words: a PX4 that never sends a
             # heartbeat leaves nothing else behind once the container is removed.
@@ -4092,6 +4113,11 @@ def run_episode(
     )
     recorder.meta["provenance"]["config_snapshot"] = config_snapshot
     recorder.meta["provenance"]["px4_logger_mode"] = resolve_px4_logger_mode()
+    recorder.meta["provenance"]["px4_ulog_status"] = (
+        "disabled"
+        if resolve_px4_logger_mode() == "off"
+        else "requested" if plan.keep_px4_ulog else "not_requested"
+    )
     recorder.meta["provenance"]["px4_daemon_mode"] = resolve_px4_daemon_mode()
     recorder.meta["provenance"]["linux_primitive_clock_stall_timeout_s"] = (
         _linux_primitive_clock_stall_timeout_s()
@@ -5266,6 +5292,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
+    # Keeping a ULog is an explicit request for the logger.  Preserve the
+    # global default-off policy for ordinary runs, while making this opt-in
+    # flag useful when the caller has not selected a mode itself.
+    if args.keep_px4_ulog and "MULTIDETECT_PX4_LOGGER_MODE" not in os.environ:
+        os.environ["MULTIDETECT_PX4_LOGGER_MODE"] = "default"
     if args.episodes < 1 or args.steps_per_episode < 1:
         raise SystemExit("--episodes and --steps-per-episode must be positive")
     if args.video_hz < 0.0 or args.video_max_gb <= 0.0:
