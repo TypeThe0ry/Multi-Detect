@@ -103,6 +103,39 @@ def test_sensor_frame_timeout_reports_reader_state():
         )
 
 
+def test_strict_sensor_snapshot_refreshes_px4_watermark_while_waiting():
+    class Reader:
+        def __init__(self):
+            self.latest = SimpleNamespace(received_monotonic_ns=2, sensor_stamp_ns=150)
+            self.frames_received = 1
+            self.frames_dropped = 0
+            self.done = __import__("threading").Event()
+            self.error = None
+            self._thread = None
+            self.requests = []
+
+        def request(self, stamp):
+            self.requests.append(stamp)
+            if stamp == 200:
+                self.latest = SimpleNamespace(received_monotonic_ns=3, sensor_stamp_ns=200)
+
+        def raise_if_failed(self):
+            return None
+
+    watermarks = iter((100, 200, 200))
+    reader = Reader()
+    sample = collector._fresh_sensor_snapshot(
+        reader,
+        previous_ns=1,
+        timeout_s=0.1,
+        min_sensor_stamp_ns=100,
+        current_min_sensor_stamp_ns=lambda: next(watermarks, 200),
+        poll_interval_s=0.001,
+    )
+    assert sample.sensor_stamp_ns == 200
+    assert reader.requests == [100, 200]
+
+
 def test_sensor_frame_timeout_can_make_one_bounded_reconnect():
     class Reader:
         def __init__(self, sample=None):
