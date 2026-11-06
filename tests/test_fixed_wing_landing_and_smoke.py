@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from multidetect.autonomy.airframe_profile import AirframeProfile
 from scripts import collect_sim_teacher_episodes as collector
-from scripts.smoke_airframe_flight import evaluate_episode
+from scripts.smoke_airframe_flight import evaluate_episode, required_evidence_fields
 
 
 class _State:
@@ -183,6 +183,53 @@ def test_smoke_evaluation_takes_rtl_from_px4_statustext(tmp_path: Path):
         "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
     )
     assert evaluate_episode(tmp_path, profile, 5.0)["rtl_entered"] is True
+
+
+def test_multirotor_smoke_does_not_require_airspeed_or_rtl(tmp_path: Path):
+    profile = AirframeProfile.from_json(Path("configs/airframes/x500_mono_cam.json"))
+    rows = [
+        {"message_type": "LOCAL_POSITION_NED", "x": 0.4, "y": 0.3, "z": -5.0},
+        {"message_type": "EXTENDED_SYS_STATE", "landed_state": 2, "vtol_state": 0},
+        {"message_type": "EXTENDED_SYS_STATE", "landed_state": 1, "vtol_state": 0},
+    ]
+    (tmp_path / "mavlink.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
+    )
+    result = evaluate_episode(tmp_path, profile, 5.0)
+    assert result["loiter_airspeed_in_range"] is None
+    assert result["rtl_required"] is False
+    assert result["rtl_success"] is None
+    required = required_evidence_fields(profile, "multirotor")
+    assert "loiter_airspeed_in_range" not in required
+    assert "rtl_entered" not in required
+    assert {"takeoff_success", "landed", "frames_aligned", "stayed_in_area"} <= set(required)
+
+
+def test_fixed_wing_land_skips_command_when_already_landed():
+    calls = []
+
+    class Executor:
+        def land(self):
+            calls.append("land")
+            raise AssertionError("must not send a second landing command")
+
+    reader = SimpleNamespace(
+        state=SimpleNamespace(
+            messages={
+                "EXTENDED_SYS_STATE": {"landed_state": 1, "vtol_state": 0},
+                "VFR_HUD": {"airspeed": 0.0},
+            },
+            received_monotonic_ns={
+                "EXTENDED_SYS_STATE": __import__("time").monotonic_ns(),
+            },
+        ),
+    )
+    reader.state.get = reader.state.messages.get
+    reader.raise_if_failed = lambda: None
+    result = collector._fixed_wing_or_vtol_land_and_wait(Executor(), reader, timeout_s=1.0)
+    assert result["status"] == "landed"
+    assert result["already_landed"] is True
+    assert calls == []
 
 
 def test_smoke_evaluation_needs_touchdown_after_flight_and_a_real_rtl(tmp_path: Path):

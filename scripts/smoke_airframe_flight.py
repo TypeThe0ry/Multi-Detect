@@ -188,9 +188,16 @@ def evaluate_episode(
     measured_speeds = loiter_speeds or airspeeds
     # The low side is the stall margin and stays strict; right after a transition
     # or turn the measured airspeed can briefly overshoot the profile maximum.
-    in_range = bool(measured_speeds) and all(
-        profile.min_airspeed_mps <= speed <= profile.max_airspeed_mps * AIRSPEED_OVERSHOOT_ALLOWANCE
-        for speed in measured_speeds
+    in_range = (
+        True
+        if profile.category == "multirotor"
+        else bool(measured_speeds)
+        and all(
+            profile.min_airspeed_mps
+            <= speed
+            <= profile.max_airspeed_mps * AIRSPEED_OVERSHOOT_ALLOWANCE
+            for speed in measured_speeds
+        )
     )
     reposition_errors: list[float] = []
     for row in steps:
@@ -222,7 +229,9 @@ def evaluate_episode(
         "launch_climb_success": (launch_detected and takeoff_success) if launch_required else True,
         "launch_status_texts": launch_texts,
         "transition_success": transition_success,
-        "loiter_airspeed_in_range": in_range,
+        "loiter_airspeed_in_range": (
+            None if profile.category == "multirotor" else in_range
+        ),
         "loiter_airspeed_mps": measured_speeds,
         # Guided fixed-wing commands return on PX4's ACK, so the per-step deltas
         # are short-horizon samples, not route accuracy.
@@ -230,12 +239,28 @@ def evaluate_episode(
         "max_distance_from_origin_m": max(horizontal) if horizontal else None,
         "stayed_in_area": bool(horizontal) and max(horizontal) <= MAX_SMOKE_RANGE_M,
         "rtl_entered": rtl_entered,
-        "rtl_success": rtl_entered,
+        "rtl_success": rtl_entered if profile.category != "multirotor" else None,
+        "rtl_required": profile.category != "multirotor",
         "landed": landed,
         "camera_frames": camera_frames,
         "frames_aligned": bool(aligned) and all(aligned),
         "failure_reason": failure,
     }
+
+
+def required_evidence_fields(profile: AirframeProfile, takeoff_method: str) -> tuple[str, ...]:
+    required = (
+        "takeoff_success",
+        "transition_success",
+        "landed",
+        "frames_aligned",
+        "stayed_in_area",
+    )
+    if profile.category != "multirotor":
+        required += ("loiter_airspeed_in_range", "rtl_entered")
+    if takeoff_method in {"hand", "catapult"}:
+        required += ("launch_detected", "launch_climb_success")
+    return required
 
 
 ALIASES = {
@@ -439,17 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     if episodes:
         parsed = evaluate_episode(episodes[-1].parent, profile, DEFAULT_TAKEOFF_ALTITUDE_M)
         result["judgement"].update(parsed)
-        required = (
-            "takeoff_success",
-            "transition_success",
-            "loiter_airspeed_in_range",
-            "rtl_entered",
-            "landed",
-            "frames_aligned",
-            "stayed_in_area",
-        )
-        if plan["takeoff_method"] in {"hand", "catapult"}:
-            required += ("launch_detected", "launch_climb_success")
+        required = required_evidence_fields(profile, plan["takeoff_method"])
         result["status"] = (
             "pass"
             if completed.returncode == 0
