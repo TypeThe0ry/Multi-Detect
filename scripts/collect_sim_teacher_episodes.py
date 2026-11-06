@@ -229,7 +229,7 @@ RTL_MODE_CONFIRM_S = 10.0
 FIXED_WING_MIN_OPERATING_ALT_M = 30.0
 VTOL_TRANSITION_MARGIN_M = 10.0
 MAV_CMD_DO_LAND_START = 189
-ARM_MAX_ATTEMPTS = 6
+ARM_MAX_ATTEMPTS = 30
 ARM_RETRY_INTERVAL_S = 1.0
 EPISODE_PROGRESS_STALL_TIMEOUT_S = 180.0
 # The delta tailsitter Gazebo model currently runs at about 0.17x real time.
@@ -4354,7 +4354,6 @@ def _fresh_sensor_snapshot(
     timeout_s: float,
     *,
     min_sensor_stamp_ns: int | None = None,
-    current_min_sensor_stamp_ns: Callable[[], int | None] | None = None,
     poll_interval_s: float = 0.02,
     reconnect: Callable[[], SensorStreamReader | None] | None = None,
     max_reconnects: int = 0,
@@ -4365,20 +4364,13 @@ def _fresh_sensor_snapshot(
     recorded in the observation instead of refusing the step.  ``previous_ns``
     is a host monotonic receive watermark; ``min_sensor_stamp_ns`` is the
     optional Gazebo/PX4 lockstep watermark and prevents consuming a backlog
-    frame captured before the pose used for this observation. Strict smoke can
-    also supply a live watermark because the PX4 clock may advance while the
-    sensor server is draining queued frames.
+    frame captured before the pose used for this observation. The requested
+    simulation watermark is fixed for this wait, even while PX4 advances.
     """
     reconnects = 0
     reconnect_error: str | None = None
     while True:
-        required_stamp_ns = min_sensor_stamp_ns
-        if current_min_sensor_stamp_ns is not None:
-            current_stamp_ns = current_min_sensor_stamp_ns()
-            if current_stamp_ns is not None:
-                required_stamp_ns = max(required_stamp_ns or 0, int(current_stamp_ns))
-        requested_stamp_ns = required_stamp_ns
-        reader.request(0 if required_stamp_ns is None else required_stamp_ns)
+        reader.request(0 if min_sensor_stamp_ns is None else min_sensor_stamp_ns)
         deadline = time.monotonic() + timeout_s
         restarted = False
         while time.monotonic() < deadline:
@@ -4399,19 +4391,12 @@ def _fresh_sensor_snapshot(
                     reconnect_error = f"{type(exc).__name__}: {exc}"
                 break
             sample = reader.latest
-            if current_min_sensor_stamp_ns is not None:
-                current_stamp_ns = current_min_sensor_stamp_ns()
-                if current_stamp_ns is not None:
-                    required_stamp_ns = max(required_stamp_ns or 0, int(current_stamp_ns))
-                    if required_stamp_ns > (requested_stamp_ns or 0):
-                        reader.request(required_stamp_ns)
-                        requested_stamp_ns = required_stamp_ns
             if (
                 sample is not None
                 and sample.received_monotonic_ns > previous_ns
                 and (
-                    required_stamp_ns is None
-                    or int(sample.sensor_stamp_ns) >= int(required_stamp_ns)
+                    min_sensor_stamp_ns is None
+                    or int(sample.sensor_stamp_ns) >= int(min_sensor_stamp_ns)
                 )
             ):
                 return sample
@@ -4430,10 +4415,10 @@ def _fresh_sensor_snapshot(
         reader_done = getattr(reader, "done", None)
         reader_error = getattr(reader, "error", None)
         diagnostics = {
-            "min_sensor_stamp_ns": required_stamp_ns,
+            "min_sensor_stamp_ns": min_sensor_stamp_ns,
             "sensor_watermark_lag_s": (
-                round(max(0, int(required_stamp_ns) - int(latest_stamp_ns)) / 1e9, 3)
-                if required_stamp_ns is not None and latest_stamp_ns is not None
+                round(max(0, int(min_sensor_stamp_ns) - int(latest_stamp_ns)) / 1e9, 3)
+                if min_sensor_stamp_ns is not None and latest_stamp_ns is not None
                 else None
             ),
             "previous_received_monotonic_ns": previous_ns,
@@ -5764,11 +5749,6 @@ def run_episode(
                     time.monotonic_ns(),
                     sensor_frame_wait_s,
                     min_sensor_stamp_ns=pose_sim_stamp_ns,
-                    current_min_sensor_stamp_ns=(
-                        lambda: _pose_sim_stamp_ns(_snapshot_mavlink_state(mav_reader.state))
-                    )
-                    if strict_delta_smoke
-                    else None,
                     poll_interval_s=plan.sensor_poll_interval_s,
                     reconnect=_reconnect_sensor_stream,
                     max_reconnects=1,
@@ -6030,11 +6010,6 @@ def run_episode(
                     primitive_end_ns,
                     sensor_frame_wait_s,
                     min_sensor_stamp_ns=after_pose_sim_stamp_ns,
-                    current_min_sensor_stamp_ns=(
-                        lambda: _pose_sim_stamp_ns(_snapshot_mavlink_state(mav_reader.state))
-                    )
-                    if strict_delta_smoke
-                    else None,
                     poll_interval_s=plan.sensor_poll_interval_s,
                 )
                 timing["post_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)

@@ -129,16 +129,22 @@ def test_sensor_frame_timeout_reports_px4_watermark_lag():
     assert '"sensor_watermark_lag_s": 13.948' in str(error.value)
 
 
-def test_strict_sensor_snapshot_refreshes_px4_watermark_while_waiting():
+def test_sensor_snapshot_keeps_request_watermark_fixed_while_px4_advances():
     class Reader:
         def __init__(self):
-            self.latest = SimpleNamespace(received_monotonic_ns=2, sensor_stamp_ns=150)
+            self.px4_stamp_ns = 100
+            self._latest = SimpleNamespace(received_monotonic_ns=2, sensor_stamp_ns=150)
             self.frames_received = 1
             self.frames_dropped = 0
             self.done = __import__("threading").Event()
             self.error = None
             self._thread = None
             self.requests = []
+
+        @property
+        def latest(self):
+            self.px4_stamp_ns = 200
+            return self._latest
 
         def request(self, stamp):
             self.requests.append(stamp)
@@ -148,18 +154,38 @@ def test_strict_sensor_snapshot_refreshes_px4_watermark_while_waiting():
         def raise_if_failed(self):
             return None
 
-    watermarks = iter((100, 200, 200))
     reader = Reader()
     sample = collector._fresh_sensor_snapshot(
         reader,
         previous_ns=1,
         timeout_s=0.1,
         min_sensor_stamp_ns=100,
-        current_min_sensor_stamp_ns=lambda: next(watermarks, 200),
         poll_interval_s=0.001,
     )
-    assert sample.sensor_stamp_ns == 200
-    assert reader.requests == [100, 200]
+    assert sample.sensor_stamp_ns == 150
+    assert reader.requests == [100]
+    assert reader.px4_stamp_ns == 200
+
+
+def test_sensor_snapshot_rejects_frame_below_fixed_request_watermark():
+    class Reader:
+        latest = SimpleNamespace(received_monotonic_ns=2, sensor_stamp_ns=99)
+        frames_received = 1
+        frames_dropped = 0
+        done = __import__("threading").Event()
+        error = None
+        _thread = None
+
+        def request(self, stamp):
+            assert stamp == 100
+
+        def raise_if_failed(self):
+            return None
+
+    with pytest.raises(TimeoutError, match='"min_sensor_stamp_ns": 100'):
+        collector._fresh_sensor_snapshot(
+            Reader(), previous_ns=1, timeout_s=0.0, min_sensor_stamp_ns=100
+        )
 
 
 def test_sensor_frame_timeout_can_make_one_bounded_reconnect():

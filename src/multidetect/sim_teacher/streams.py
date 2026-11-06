@@ -433,8 +433,8 @@ class MavlinkReader:
     # with nothing on the wire is a delivery gap, not a slow stream.
     VEHICLE_GAP_MS = 1_000
     VEHICLE_GAPS_KEPT = 16
-    POSE_HISTORY_MS = 5_000
-    POSE_HISTORY_MAX_SAMPLES = 1_024
+    POSE_HISTORY_MS = 30_000
+    POSE_HISTORY_MAX_SAMPLES = 16_384
     TRACKED = frozenset(
         {
             "LOCAL_POSITION_NED",
