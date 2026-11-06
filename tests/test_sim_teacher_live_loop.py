@@ -495,7 +495,104 @@ def test_wait_prearm_health_times_out_with_named_failures(monkeypatch) -> None:
         raise_if_failed=lambda: None,
     )
     with pytest.raises(TimeoutError, match="manual_control_input, communication_links, system"):
-        collector._wait_prearm_health(reader, timeout_s=0.02)
+        collector._wait_prearm_health(reader, timeout_s=0.02, max_wall_s=0.02)
+
+
+def test_wait_prearm_health_uses_sim_time_and_has_a_wall_ceiling(monkeypatch) -> None:
+    import pytest
+
+    collector = _collector_module()
+
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 100.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def monotonic_ns(self) -> int:
+            return int(self.now * 1_000_000_000)
+
+        def sleep(self, seconds: float) -> None:
+            self.now += seconds
+
+    clock = FakeClock()
+    monkeypatch.setattr(collector, "time", clock)
+    monkeypatch.setattr(collector, "_progress", lambda *args, **kwargs: None)
+
+    class SlowReader:
+        def __init__(self) -> None:
+            self.state = MavlinkState(
+                messages={
+                    "SYS_STATUS": {
+                        "onboard_control_sensors_present": 16384,
+                        "onboard_control_sensors_health": 0,
+                    },
+                    "LOCAL_POSITION_NED": {"time_boot_ms": 0},
+                }
+            )
+
+        def raise_if_failed(self) -> None:
+            # Sim time advances at 0.2x host time, then the position check clears.
+            position = self.state.messages["LOCAL_POSITION_NED"]
+            position["time_boot_ms"] += 20
+            if position["time_boot_ms"] >= 980:
+                self.state.messages["SYS_STATUS"]["onboard_control_sensors_health"] = 16384
+
+    reader = SlowReader()
+    result = collector._wait_prearm_health(
+        reader,
+        timeout_s=1.0,
+        max_wall_s=10.0,
+        warmup_s=0.0,
+    )
+
+    assert result["ready"] is True
+    assert clock.now - 100.0 == pytest.approx(4.9, abs=0.2)
+
+
+def test_wait_prearm_health_stops_at_wall_ceiling_when_sim_clock_is_frozen(monkeypatch) -> None:
+    import pytest
+
+    collector = _collector_module()
+
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 100.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def monotonic_ns(self) -> int:
+            return int(self.now * 1_000_000_000)
+
+        def sleep(self, seconds: float) -> None:
+            self.now += seconds
+
+    clock = FakeClock()
+    monkeypatch.setattr(collector, "time", clock)
+    monkeypatch.setattr(collector, "_progress", lambda *args, **kwargs: None)
+    reader = SimpleNamespace(
+        state=MavlinkState(
+            messages={
+                "SYS_STATUS": {
+                    "onboard_control_sensors_present": 16384,
+                    "onboard_control_sensors_health": 0,
+                },
+                "LOCAL_POSITION_NED": {"time_boot_ms": 1000},
+            }
+        ),
+        raise_if_failed=lambda: None,
+    )
+
+    with pytest.raises(TimeoutError, match="xy_position_control"):
+        collector._wait_prearm_health(
+            reader,
+            timeout_s=1.0,
+            max_wall_s=0.35,
+            warmup_s=0.0,
+        )
+    assert clock.now - 100.0 == pytest.approx(0.4)
 
 
 @pytest.mark.usefixtures("require_loopback_sockets")
