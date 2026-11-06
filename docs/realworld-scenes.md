@@ -84,3 +84,33 @@ $PY scripts/realworld/shoot_scene.py simulation/gazebo/worlds/rw_suburb_davis__c
 | Vantor（原 Maxar）30 cm | 经销商报价，存档约 $22~55/km²，常见最小 25 km² | 同上，25 km² 约 $550~1400 |
 | Cesium ion Commercial | $149/月（个人），$524/月（团队） | 3D Tiles 托管和处理 |
 | Google Photorealistic 3D Tiles | 论坛报告约 $6/千次根请求，未核实 | 不建议：论坛称条款禁止缓存、离线和训练机器学习，需核对原条款 |
+
+## 验证结果（2026-11-06）
+
+螺旋桨：`verify_prop_spin.py` 不接 PX4，直接发电机指令。x500、x500_gimbal、rc_cessna、standard_vtol、tiltrotor、quadtailsitter、advanced_plane 和三角翼两版全部通过：每个转子有转速，相机画面也有变化。飞行中的转速记录在每次飞行的 `rotors_in_flight.json`，rc_cessna、x500_gimbal 和三角翼没有飞过这些世界。
+
+PX4 冒烟飞行，机器负载约 200，实际 RTF 约 0.2~0.3（现有世界的 VTOL 基线同样慢）：
+
+| 机型 | 世界 | 结果 |
+|---|---|---|
+| standard_vtol | 戴维斯 clear_noon | 通过 |
+| standard_vtol | 博尔德 partly_cloudy | 通过 |
+| quadtailsitter | 爱荷华 clear_noon | 通过 |
+| tiltrotor | 圣克鲁斯 overcast | 通过 |
+| advanced_plane | 爱荷华 morning | 飞完并自动着陆，之后的 land 命令报错，判失败 |
+| x500 | 爱荷华、戴维斯 | 起飞、重定位（误差约 0.5 m）、降落都正常；冒烟门禁是给固定翼/VTOL 写的（要求 RTL 和盘旋空速），判失败 |
+| standard_vtol | 爱荷华 | 3 次都失败：2 次起飞前 `height estimate not stable`，1 次飞行中相机流 15 s 无帧 |
+
+未解决：
+- 爱荷华世界的 VTOL 解锁失败，原因未查清。同一世界 quadtailsitter 通过，海拔 318 m 不像主因。
+- 约 10 次飞行里有 2 次相机流 15 s 无帧（x500 戴维斯 1 次，VTOL 爱荷华 1 次）。不确定来自世界还是整机负载，项目里也在查卡顿。
+
+## 接下来
+
+重启后不用恢复什么：下载都已完成，数据在 `/data`，没有常驻服务。
+
+1. 查爱荷华 VTOL 的高度估计问题和相机流卡顿。
+2. 三角翼分支合并后跑 `delta_tailsitter_*` 飞行。
+3. 把 `library` 里还没用上的模型接进场景（目前世界只用了约 20 种 Fuel 模型）。
+4. 贴地视角的细节：路面沿用航拍的地方偏糊，正午屋顶偏亮。
+5. 美国以外的地点需要付费影像，见上面的清单。
