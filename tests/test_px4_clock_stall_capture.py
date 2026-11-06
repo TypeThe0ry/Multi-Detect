@@ -7,7 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.px4_clock_stall_capture import _read_host_threads, analyze_capture, capture_stall
+from scripts.px4_clock_stall_capture import (
+    _capture_px4_gdb,
+    _read_host_threads,
+    analyze_capture,
+    capture_stall,
+)
 
 
 def _thread(
@@ -136,6 +141,8 @@ def test_capture_uses_owner_cmdline_absolute_commands_and_independent_timeouts(
     assert all(timeout == 10.0 for command, timeout in calls if command in thread_commands)
     assert "self_pid=$$" in thread_commands[0][-1]
     assert saved["samples"][0]["host_load_per_core"] is not None
+    assert saved["gdb"]["status"] == "unavailable"
+    assert Path(saved["gdb_output_path"]).is_file()
 
 
 def test_host_proc_thread_reader_parses_fake_proc_tree_and_stat_comm_delimiter(
@@ -261,6 +268,78 @@ def test_analyze_capture_does_not_infer_starvation_from_load_or_throttling() -> 
     assert result["gz_clock_advanced"] is False
     assert result["cgroup_cpu_throttling_increased"] is True
     assert result["supports"]["scheduling_starvation"] is False
+
+
+def test_analyze_capture_reports_gone_shared_futexes_and_canned_gdb_frames(tmp_path: Path) -> None:
+    output = tmp_path / "px4-clock-stall-gdb.txt"
+    output.write_text(
+        "Thread 4 (LWP 101):\n"
+        "#0  __futex_abstimed_wait_cancelable64 () at futex-internal.c:57\n"
+        "#1  pthread_cond_wait () from /lib/libpthread.so.0\n"
+        "Thread 5 (LWP 102):\n"
+        "#0  poll () from /lib/libc.so.6\n"
+    )
+    blocked = _thread(tid=101, name="", state="S", wchan="futex_wait")
+    blocked["syscall"] = "202 0x7ffd1234, 0, 0, 0, 0, 0"
+    sibling = _thread(tid=102, name="", state="S", wchan="futex_wait")
+    sibling["syscall"] = "202 0x7ffd1234, 0, 0, 0, 0, 0"
+    result = analyze_capture({
+        "samples": [_sample(clock=1.0, threads=[blocked, sibling])],
+        "gdb": {"output_path": str(output)},
+    })
+
+    assert result["shared_futex_addresses"]["0x7ffd1234"][1]["tid"] == 102
+    assert result["clock_thread_top_frames"] == [
+        {
+            "tid": 101,
+            "top_frames": [
+                "#0  __futex_abstimed_wait_cancelable64 () at futex-internal.c:57",
+                "#1  pthread_cond_wait () from /lib/libpthread.so.0",
+            ],
+        },
+        {"tid": 102, "top_frames": ["#0  poll () from /lib/libc.so.6"]},
+    ]
+
+
+def test_analyze_capture_marks_process_gone_instead_of_empty_thread_verdict() -> None:
+    samples = [_sample(clock=None, threads=[]), _sample(clock=None, threads=[])]
+    samples[0]["px4_process_status"] = "gone"
+    result = analyze_capture({"samples": samples})
+
+    assert result["px4_process_status"] == "px4_gone"
+    assert result["px4_gone"] is True
+
+
+def test_gdb_timeout_keeps_partial_output_and_records_failure(tmp_path: Path) -> None:
+    output = tmp_path / "px4-clock-stall-gdb.txt"
+    document = {
+        "samples": [
+            {
+                "process_threads": {
+                    "collection_path": "host_proc",
+                    "host_pids": [321],
+                    "threads": {"px4": [_thread(pid=321, tid=321)]},
+                }
+            }
+        ]
+    }
+
+    def runner(command, **kwargs):
+        assert command == [
+            "/usr/bin/gdb", "-p", "321", "-batch", "-nx",
+            "-ex", "set sysroot /proc/321/root",
+            "-ex", "set pagination off",
+            "-ex", "thread apply all bt 16",
+        ]
+        assert kwargs["timeout"] == 30.0
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"], output="partial backtrace")
+
+    _capture_px4_gdb(
+        document, output_path=output, gdb_path="/usr/bin/gdb", timeout_s=30.0, runner=runner
+    )
+
+    assert document["gdb"]["status"] == "timeout"
+    assert "partial backtrace" in output.read_text()
 
 
 def test_capture_records_timeout_as_unknown_and_persists_to_fallback(tmp_path: Path) -> None:
