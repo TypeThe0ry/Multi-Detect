@@ -19,6 +19,7 @@ from typing import Any
 DEFAULT_DELAY_S = 3.0
 HZ = 100
 CLOCK_TOPIC = "/world/default/clock"
+WORLD_STATS_TOPIC = "/world/default/stats"
 
 
 def _run(
@@ -111,6 +112,20 @@ def _parse_clock(output: str) -> list[float]:
         if sec:
             values.append(float(sec.group(1)) + float(nsec.group(1) if nsec else 0) / 1e9)
     return values[-10:]
+
+
+def _parse_world_stats(output: str) -> dict[str, Any]:
+    paused = re.search(r"\bpaused\s*:\s*(true|false)\b", output, re.IGNORECASE)
+    sim_time_values: list[float] = []
+    for block in re.findall(r"\bsim(?:_time)?\s*\{([^}]*)\}", output):
+        sec = re.search(r"\bsec\s*:\s*(-?\d+)", block)
+        nsec = re.search(r"\bnsec\s*:\s*(-?\d+)", block)
+        if sec:
+            sim_time_values.append(float(sec.group(1)) + float(nsec.group(1) if nsec else 0) / 1e9)
+    return {
+        "paused": paused.group(1).lower() == "true" if paused else None,
+        "sim_time_s": sim_time_values[-10:],
+    }
 
 
 def _parse_gz_topic_info(output: str) -> dict[str, Any]:
@@ -536,14 +551,16 @@ def _sample(
         )
     sample["captured_wall_time"] = sample["process_threads"].get("sample_wall_time", time.time())
     process_threads = sample["process_threads"].get("threads") or {}
-    if process_threads.get("px4"):
-        sample["px4_process_status"] = "present"
-    elif sample["process_threads"].get("returncode") == 0 and not sample["process_threads"].get("error"):
-        sample["px4_process_status"] = "gone"
-    elif "docker top failed" in str(sample["process_threads"].get("fallback_reason", "")):
-        sample["px4_process_status"] = "docker_top_failed"
-    else:
-        sample["px4_process_status"] = "unknown"
+    for group in ("px4", "gz"):
+        if process_threads.get(group):
+            status = "present"
+        elif sample["process_threads"].get("returncode") == 0 and not sample["process_threads"].get("error"):
+            status = "gone"
+        elif "docker top failed" in str(sample["process_threads"].get("fallback_reason", "")):
+            status = "docker_top_failed"
+        else:
+            status = "unknown"
+        sample[f"{group}_process_status"] = status
     for key, paths in (
         ("cpu_stat", "/sys/fs/cgroup/cpu.stat /sys/fs/cgroup/cpu/cpu.stat"),
         ("memory_events", "/sys/fs/cgroup/memory.events /sys/fs/cgroup/memory/memory.events"),
@@ -576,6 +593,17 @@ def _sample(
     )
     sample["gz_clock"]["latest_sim_time_s"] = (
         sample["gz_clock"]["sim_time_s"][-1] if sample["gz_clock"]["sim_time_s"] else None
+    )
+    sample["gz_world_stats"] = _run(
+        _exec_command(
+            docker, container, "timeout", "3s", "gz", "topic", "-e", "-n", "1",
+            "-t", WORLD_STATS_TOPIC,
+        ),
+        timeout_s=4.0,
+        runner=runner,
+    )
+    sample["gz_world_stats"].update(
+        _parse_world_stats(str(sample["gz_world_stats"].get("stdout", "")))
     )
     sample["px4_work_queue_status"] = _run(
         _exec_command(
@@ -630,15 +658,22 @@ def capture_stall(
                 host_pids=host_pids,
             )
         )
-        # Take the first gdb snapshot before the existing inter-sample delay so
-        # the second snapshot below is separated by the same bounded delay.
+        # Split the existing gdb time budget across PX4 and Gazebo snapshots.
         gdb_output_path = Path(episode_dir) / "px4-clock-stall-gdb.txt"
         gdb_enabled = gdb_output_path.parent.is_dir()
-        gdb_snapshot_timeout_s = max(0.1, float(gdb_timeout_s) / 2.0)
+        gdb_snapshot_timeout_s = max(0.1, float(gdb_timeout_s) / 4.0)
         if gdb_enabled:
             _capture_px4_gdb(
                 document,
                 output_path=gdb_output_path,
+                gdb_path=gdb_path,
+                timeout_s=gdb_snapshot_timeout_s,
+                runner=runner,
+                snapshot_label="before_delay",
+            )
+            _capture_gz_gdb(
+                document,
+                output_path=gdb_output_path.with_name("px4-clock-stall-gz-gdb.txt"),
                 gdb_path=gdb_path,
                 timeout_s=gdb_snapshot_timeout_s,
                 runner=runner,
@@ -660,6 +695,15 @@ def capture_stall(
             _capture_px4_gdb(
                 document,
                 output_path=gdb_output_path,
+                gdb_path=gdb_path,
+                timeout_s=gdb_snapshot_timeout_s,
+                runner=runner,
+                snapshot_label="after_delay",
+                append=True,
+            )
+            _capture_gz_gdb(
+                document,
+                output_path=gdb_output_path.with_name("px4-clock-stall-gz-gdb.txt"),
                 gdb_path=gdb_path,
                 timeout_s=gdb_snapshot_timeout_s,
                 runner=runner,
@@ -688,6 +732,9 @@ def capture_stall(
         if not episode_dir.is_dir():
             raise FileNotFoundError(f"episode directory is unavailable: {episode_dir}")
         document["gdb_output_path"] = str(gdb_output_path)
+        document["gz_gdb_output_path"] = str(
+            gdb_output_path.with_name("px4-clock-stall-gz-gdb.txt")
+        )
         document["analysis"] = analyze_capture(document)
         document["path"] = str(primary_path)
         primary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
@@ -698,7 +745,11 @@ def capture_stall(
             fallback_gdb_path = fallback_path.with_name("px4-clock-stall-gdb.txt")
             if not document.get("gdb"):
                 _capture_px4_gdb(document, output_path=fallback_gdb_path, gdb_path=gdb_path, timeout_s=gdb_timeout_s, runner=runner)
+            fallback_gz_gdb_path = fallback_path.with_name("px4-clock-stall-gz-gdb.txt")
+            if not document.get("gz_gdb"):
+                _capture_gz_gdb(document, output_path=fallback_gz_gdb_path, gdb_path=gdb_path, timeout_s=gdb_timeout_s, runner=runner)
             document["gdb_output_path"] = str(fallback_gdb_path)
+            document["gz_gdb_output_path"] = str(fallback_gz_gdb_path)
             document["analysis"] = analyze_capture(document)
             document["path"] = str(fallback_path)
             fallback_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
@@ -737,26 +788,81 @@ def _capture_px4_gdb(
     snapshot_label: str = "snapshot",
     append: bool = False,
 ) -> None:
+    _capture_process_gdb(
+        document,
+        output_path=output_path,
+        gdb_path=gdb_path,
+        timeout_s=timeout_s,
+        runner=runner,
+        snapshot_label=snapshot_label,
+        append=append,
+        group="px4",
+        document_key="gdb",
+        display_name="PX4",
+    )
+
+
+def _capture_gz_gdb(
+    document: dict[str, Any],
+    *,
+    output_path: Path,
+    gdb_path: str,
+    timeout_s: float,
+    runner: Callable[..., Any] | None,
+    snapshot_label: str = "snapshot",
+    append: bool = False,
+) -> None:
+    _capture_process_gdb(
+        document,
+        output_path=output_path,
+        gdb_path=gdb_path,
+        timeout_s=timeout_s,
+        runner=runner,
+        snapshot_label=snapshot_label,
+        append=append,
+        group="gz",
+        document_key="gz_gdb",
+        display_name="Gazebo",
+    )
+
+
+def _capture_process_gdb(
+    document: dict[str, Any],
+    *,
+    output_path: Path,
+    gdb_path: str,
+    timeout_s: float,
+    runner: Callable[..., Any] | None,
+    snapshot_label: str,
+    append: bool,
+    group: str,
+    document_key: str,
+    display_name: str,
+) -> None:
     samples = document.get("samples") or []
     host_pid_values = [
         int(pid)
         for sample in samples
         if (sample.get("process_threads") or {}).get("collection_path") == "host_proc"
         for pid in ((sample.get("process_threads") or {}).get("host_pids") or [])
+        if any(
+            int(row.get("pid", -1)) == int(pid)
+            for row in (((sample.get("process_threads") or {}).get("threads") or {}).get(group, []))
+        )
     ]
     pid = sorted(set(host_pid_values))[0] if host_pid_values else None
-    gdb: dict[str, Any] = document.get("gdb") or {"pid": pid, "timeout_s": timeout_s, "snapshots": []}
+    gdb: dict[str, Any] = document.get(document_key) or {"pid": pid, "timeout_s": timeout_s, "snapshots": []}
     snapshot: dict[str, Any] = {"label": snapshot_label, "pid": pid, "timeout_s": timeout_s}
     if pid is None:
-        statuses = {sample.get("px4_process_status") for sample in samples}
+        statuses = {sample.get(f"{group}_process_status") for sample in samples}
         if "gone" in statuses:
-            status, detail = "px4_gone", "docker top succeeded but found no PX4 process"
+            status, detail = f"{group}_gone", f"docker top succeeded but found no {display_name} process"
         elif "docker_top_failed" in statuses:
             status, detail = "docker_top_failed", "cannot determine PX4 PID because docker top failed"
         else:
-            status, detail = "unavailable", "no PX4 host PID was captured"
+            status, detail = "unavailable", f"no {display_name} host PID was captured"
         gdb.update({"status": status, "error": detail})
-        content = f"PX4 gdb not run: {detail}.\n"
+        content = f"{display_name} gdb not run: {detail}.\n"
         snapshot.update({"status": status, "error": detail})
     elif not Path(gdb_path).is_file() and shutil.which(gdb_path) is None:
         gdb.update({"status": "unavailable", "error": f"gdb not found: {gdb_path}"})
@@ -793,7 +899,7 @@ def _capture_px4_gdb(
     )
     gdb["pid"] = pid
     gdb["output_path"] = str(output_path)
-    document["gdb"] = gdb
+    document[document_key] = gdb
 
 
 def _keyed_threads(sample: dict[str, Any], group: str) -> dict[tuple[int, int], dict[str, Any]]:
@@ -1098,6 +1204,10 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
         for sample in (first, second)
         if isinstance(sample.get("host_load_per_core"), list)
     ]
+    world_pause_states = [
+        (sample.get("gz_world_stats") or {}).get("paused")
+        for sample in samples[:2]
+    ]
     return {
         "gz_clock_advanced": gz_advanced,
         "px4_process_status": "px4_gone" if px4_gone else next(
@@ -1107,6 +1217,11 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
         ),
         "px4_gone": px4_gone,
         "gz_clock_samples_s": [gz_first, gz_second],
+        "gz_world_paused_samples": world_pause_states,
+        "gz_world_pause_state_observed": any(state is not None for state in world_pause_states),
+        "gz_world_stopped_while_unpaused": (
+            gz_advanced is False and world_pause_states == [False, False]
+        ),
         "sample_interval_s": sample_interval_s,
         "thread_deltas": deltas,
         "clock_driver_threads": clock_drivers,
@@ -1161,6 +1276,7 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
             "Gazebo clock advancing while PX4 clock-driving threads are idle supports a bridge/lockstep boundary, but cannot separate bridge input loss from a PX4-side blocked thread.",
             "Host load per CPU and cgroup counters are context; starvation support comes from runnable clock-driving threads' scheduler wait and on-CPU deltas.",
             "The gz topic -i transport probe is stateful: it briefly registers a node and may produce OnEndRegistration discovery frames; those frames are reported as probe-affected.",
+            "WorldStatistics pause state is sampled read-only and may be unavailable if the stats topic does not publish during the stall.",
         ],
     }
 
