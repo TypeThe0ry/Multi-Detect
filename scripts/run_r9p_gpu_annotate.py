@@ -40,6 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--imgsz", type=int, default=1280)
     parser.add_argument("--confidence", type=float, default=0.05)
+    parser.add_argument(
+        "--confusable-negative-view-cap", type=int, default=None,
+        help="optional per-view cap for each confusable negative pair",
+    )
     args = parser.parse_args(argv)
 
     campaign = args.campaign.resolve()
@@ -75,6 +79,10 @@ def main(argv: list[str] | None = None) -> int:
         "--proposals", str(proposals), "--confusable-negatives", "--task-text-variants",
         "--crop-policy", "none", "--min-visible-fraction", "0.3", "--confirm-min-side-px", "8",
     ]
+    if args.confusable_negative_view_cap is not None:
+        builder_command.extend([
+            "--confusable-negative-view-cap", str(args.confusable_negative_view_cap),
+        ])
     (output / "run.json").write_text(json.dumps({
         "schema_version": 1,
         "created_utc": datetime.now(timezone.utc).isoformat(),
