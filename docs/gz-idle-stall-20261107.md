@@ -38,3 +38,36 @@
 
 - `tests/test_px4_clock_stall_capture.py`：14 passed。
 - `python scripts/run_onboard_gate.py -q -p no:warnings`：PASS（pytest 通过，176 s）。
+
+## r9r 首次完整 stall capture（2026-11-07）
+
+证据目录：`artifacts/r21id-r9rb/episodes/gen_r21id_r9r_w0003/ep-0/attempt-0/episodes/episode-0000-536f4b08/`。该目录只读。本节以 capture JSON、PX4 GDB 和 Gazebo GDB 两份快照为依据。
+
+### 探针结果与分类
+
+- 两次 `/world/default/clock` 订阅均以 `timeout 5s` 返回 124，stdout 为空；`/world/default/stats` 订阅均以 `timeout 3s` 返回 124，stdout 为空。因此 `gz_clock_advanced=unknown`，stats 中 `paused` 没有输入可解析，`gz_world_paused_samples=[null,null]`。这不是 parser 把已收到的 pause 字段漏掉，也不能解释成 world 未暂停。
+- 命令使用的 `/world/default/stats` 是预期 WorldStatistics topic；采集超时不是宿主 `subprocess` 的 4 秒 timeout（命令自己的 3 秒 `timeout` 先到）。当时 load average 约 230–244；高负载可能使探针来不及完成发现/收消息，但单次 capture 不能证明这是唯一原因。更关键的是 gz runner 两次都卡在 transport `PublishStats` 路径，因而 stats 本身也可能无法送出。采集没有取得消息，所以无法用解析器验证这次运行的 pause 字段格式。
+- `reception_thread_classification=unknown` 是旧分类器对缺失 clock 样本的保守结果。两份 PX4 GDB 快照都识别到同一 reception thread 在 `poll -> zmq_poll -> NodeShared::RunReceptionTask`；由于无法证明 gz clock 同时前进，不能判定“消息停止到达”。`callback_thread_classification=not_observed` 表示两次栈中都没出现 `px4_clock_settime` 或分类器关注的条件广播栈，不代表 callback 一定正常。
+- 修正 capture 顺序：先采集进程/线程和 GDB，再运行会注册 Gazebo transport node 的 `gz topic` 探针，减少探针对 gz transport 锁栈的干扰；接收线程存在而 clock 样本未知时，现在输出 `reception_polling_clock_unknown`，保留观测而不越过证据下结论。WorldStatistics parser 也接受 `pause` 与 `paused` 两种字段名。该修正仅改变诊断采集，不改变仿真。
+
+### 手读 gz GDB 栈
+
+两个快照（间隔约 23.7 秒）中，gz 主线程均在 `pthread_mutex_lock -> NodeShared::CheckSubscriberInfo -> Node::Publisher::Publish -> SimulationRunner::PublishStats -> SimulationRunner::Step -> Run`。这是 runner 在发布 stats 时等待 Gazebo Transport 内部 mutex；栈没有给出锁持有者，因此可确认 mutex 等待，不能确认是死锁、谁持锁或锁竞争来源。runner 位于 `PublishStats`，尚不能说 physics 计算本身阻塞在传感器回调或 PX4 lockstep 同步上。
+
+渲染侧有约 15 个 Ogre `SceneManager::_updateWorkerThread` 在 `pthread_barrier_wait`；CameraStream 的 GStreamer 线程在 `nanosleep`，其余 appsrc/queue/x264 工作线程在条件变量等待。后者与暂时没有新帧相容，但不证明它们阻塞 runner。栈没有 CUDA、EGL 或 GPU 驱动调用，也没有 PX4 lockstep 栈。因而证据指向 gz runner 的 transport 发布 mutex 等待，不能归因于 GPU、渲染传感器、或 PX4 同步。
+
+这份 GDB 是在旧采集顺序下取得：同一 sample 的 `gz topic -i`、clock 和 stats 探针先于 GDB 执行，且 `gz topic -i` 会注册瞬态 discovery node。因此不能排除探针对 transport mutex 状态的影响；此前无法判断这条锁等待在无探针时是否已经存在。新的顺序先取 GDB，再启动 topic probes，后续复现可检验这一点。
+
+### 与 28-head stall 对照
+
+28-head count-cones 的 PX4 capture 也记录到 reception thread 在 `poll`、clock 探针超时、无 callback 栈，故两次在“PX4 未收到可见 clock 更新”的可观测边界相似。28-head 没有 gz GDB，且没有有效 world stats；无法比较 runner 是否也停在 `PublishStats` mutex，不能称 Gazebo 内部状态相同。28-head 本身只证明 PX4/Gazebo 进程存活而 PX4 clock 不推进；它既未确认暂停状态，也未区分 gz 内部停顿位置。
+
+### 假设与可证伪观察
+
+单一工作假设：这次 stall 可能是 gz `PublishStats` 路径上的 Gazebo Transport mutex 长时间无法取得，使 runner 停在 `Step`，进而停止推进仿真时间。现有证据支持“快照时正在等待该 mutex”，但由于 topic 探针先于 GDB、且锁持有者未知，**尚不足以确认它是根因**。若无 topic 探针污染的复现 capture 显示 runner 在两个快照中持续越过 `PublishStats`/`Step`，而 PX4 clock 仍停止，则该假设被反驳。当前证据不支持 GPU 等待、渲染线程反压或 PX4 lockstep 作为直接原因。
+
+### 验证
+
+- 更新 `tests/test_px4_clock_stall_capture.py`，覆盖 `pause` 字段解析、未知 clock 下 reception poll 分类和 topic 探针顺序。
+- `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp /data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python -m pytest tests/test_px4_clock_stall_capture.py -q -p no:xdist`：15 passed。
+- `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp /data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python scripts/run_onboard_gate.py -q -p no:warnings`：PASS（236 s）。
