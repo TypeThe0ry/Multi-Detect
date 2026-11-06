@@ -177,6 +177,9 @@ def _gimbal(model, meshes: Path):
     _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "-1 0 0", pose="0 0 -0.08 0 0 0", lower=-0.785398, upper=0.785398)
 
     camera = _element(model, "link", name="camera_link")
+    # Joint poses below are expressed in the child frame, so this link must share
+    # the yaw/roll links' origin; otherwise the chain and sensor sit at base_link.
+    _element(camera, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(
         camera,
         CAMERA_MASS,

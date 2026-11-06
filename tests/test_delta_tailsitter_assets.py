@@ -338,6 +338,18 @@ def test_articulated_payload_links_have_solver_safe_mass_and_inertia():
             assert float(link.findtext(f"inertial/inertia/{field}")) >= 1e-8
 
 
+def test_gimbal_camera_sits_on_the_c11_mount():
+    model = _model(GIMBAL_WRAPPER_DIR)
+    mount = _numbers(model.findtext("link[@name='c11_mount_link']/pose"))
+    for name in ("c11_yaw_link", "c11_roll_link", "camera_link"):
+        link = model.find(f"link[@name='{name}']")
+        assert link.find("pose").get("relative_to") == "base_link"
+        assert _numbers(link.findtext("pose")) == pytest.approx(mount)
+    # The depth camera follows camera_link, so it stays colocated with the RGB sensor.
+    depth_pose = model.find("link[@name='depth_camera_link']/pose")
+    assert depth_pose.get("relative_to") == "camera_link"
+
+
 def test_gimbal_axes_and_imu_use_px4_frame_contract():
     model = _model(GIMBAL_WRAPPER_DIR)
     assert _numbers(model.findtext("joint[@name='c11_yaw_joint']/axis/xyz")) == (0, 0, -1)

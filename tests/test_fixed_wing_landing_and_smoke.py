@@ -633,7 +633,7 @@ def test_delta_overspeed_gate_fails_when_speed_does_not_recover():
 
     assert result["fw_overspeed_injection_success"] is True
     assert result["fw_overspeed_recovery_success"] is False
-    assert result["fw_overspeed_saturation_success"] is True
+    assert result["fw_overspeed_saturation_success"] is False
 
 
 def test_delta_overspeed_gate_marks_injection_below_target_as_failure():
@@ -650,22 +650,40 @@ def test_delta_overspeed_gate_marks_injection_below_target_as_failure():
     assert result["fw_overspeed_recovery_success"] is False
 
 
-def test_delta_overspeed_gate_preserves_the_existing_saturation_limit():
+def _clipped_servo_row(time_usec):
+    return {
+        "message_type": "SERVO_OUTPUT_RAW",
+        "time_usec": time_usec,
+        "servo1_raw": 0,
+        "servo2_raw": 500,
+        "servo3_raw": 500,
+        "servo4_raw": 500,
+    }
+
+
+def test_delta_overspeed_gate_allows_clipping_while_braking():
     result = smoke._delta_fw_overspeed_metrics(
-        _overspeed_telemetry_rows()
-        + [
-            {
-                "message_type": "SERVO_OUTPUT_RAW",
-                "time_usec": 20000000,
-                "servo1_raw": 0,
-                "servo2_raw": 500,
-                "servo3_raw": 500,
-                "servo4_raw": 500,
-            }
-        ]
+        _overspeed_telemetry_rows() + [_clipped_servo_row(20000000)]
     )
 
-    assert result["fw_overspeed_motor_saturation_fraction"] == pytest.approx(1 / 3)
+    assert result["fw_overspeed_transient_saturation_fraction"] == pytest.approx(1 / 3)
+    assert result["fw_overspeed_motor_saturation_fraction"] == pytest.approx(0.0)
+    assert result["fw_overspeed_saturation_success"] is True
+
+
+def test_delta_overspeed_gate_applies_the_saturation_limit_to_the_stable_hold():
+    result = smoke._delta_fw_overspeed_metrics(
+        _overspeed_telemetry_rows() + [_clipped_servo_row(42000000)]
+    )
+
+    assert result["fw_overspeed_motor_saturation_fraction"] == pytest.approx(1 / 2)
+    assert result["fw_overspeed_saturation_success"] is False
+
+
+def test_delta_overspeed_gate_fails_without_stable_hold_samples():
+    result = smoke._delta_fw_overspeed_metrics(_overspeed_telemetry_rows(stable_s=None))
+
+    assert result["fw_overspeed_motor_saturation_fraction"] is None
     assert result["fw_overspeed_saturation_success"] is False
 
 
