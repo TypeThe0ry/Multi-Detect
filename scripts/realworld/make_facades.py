@@ -135,12 +135,12 @@ def weathered(arr: np.ndarray, seed: int, contrast: float = 1.0) -> np.ndarray:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     items = {
-        "glass_a": glass((118, 142, 158), (70, 76, 82), seed=1),
-        "glass_b": glass((140, 152, 156), (96, 100, 104), seed=2),
+        "glass_a": glass((142, 164, 178), (82, 88, 94), seed=1),
+        "glass_b": glass((158, 170, 174), (104, 108, 112), seed=2),
         "storefront_a": storefront(seed=13),
         "storefront_b": storefront(((190, 178, 160), (70, 60, 52)), seed=14),
-        "office_a": weathered(window_layer(wall(("Concrete034", "Concrete"), (0.88, 0.87, 0.84)), 6, 1.45, 2.0, 0.8, frame=(45, 46, 48), seed=3, blinds=0.5), 3, .92),
-        "office_b": weathered(window_layer(wall(("Concrete034", "Concrete"), (0.72, 0.79, 0.82)), 5, 1.55, 2.0, 0.8, frame=(55, 58, 62), seed=31, blinds=0.35), 31, .9),
+        "office_a": weathered(window_layer(wall(("Concrete034", "Concrete"), (0.98, 0.97, 0.94)), 6, 1.45, 2.0, 0.8, frame=(52, 53, 55), seed=3, blinds=0.5), 3, .96),
+        "office_b": weathered(window_layer(wall(("Concrete034", "Concrete"), (0.88, 0.92, 0.94)), 5, 1.55, 2.0, 0.8, frame=(62, 65, 68), seed=31, blinds=0.35), 31, .95),
         "brick_mid": window_layer(wall(("Bricks0",), (0.95, 0.9, 0.86), (150, 92, 76)), 4, 1.3, 1.9, 0.9, frame=(235, 232, 225), seed=4),
         "brick_mid_b": weathered(window_layer(wall(("Bricks0",), (0.72, 0.62, 0.58), (125, 77, 66)), 5, 1.25, 1.85, 0.9, frame=(218, 216, 210), seed=34), 34, .95),
         "concrete_mid": window_layer(wall(("Concrete03", "Concrete"), (1.05, 1.03, 1.0)), 5, 1.5, 1.8, 0.9, frame=(80, 80, 82), seed=5),

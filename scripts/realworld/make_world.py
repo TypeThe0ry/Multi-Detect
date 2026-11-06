@@ -27,15 +27,15 @@ OUT = Path(os.environ.get("RW_WORLD_OUT", ROOT / "simulation/gazebo/worlds"))
 # Sun direction points from the sun; ambient models sky light since Ogre2 has no GI here.
 GUST_PERIOD_S = 18.0
 WEATHER = {
-    "partly_cloudy": {"sky": "cloudy", "ambient": (0.34, 0.35, 0.38), "bg": (0.62, 0.74, 0.92), "sun": (-0.30, 0.35, -0.88), "i": 0.62, "dif": (1, 0.97, 0.92), "shadows": True},
-    "clear_noon": {"sky": "noon", "ambient": (0.30, 0.32, 0.35), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.68, "dif": (1, 0.98, 0.93), "shadows": True},
-    "morning": {"sky": "sunrise", "ambient": (0.34, 0.33, 0.36), "bg": (0.82, 0.76, 0.68), "sun": (-0.75, -0.20, -0.42), "i": 0.68, "dif": (1, 0.82, 0.62), "shadows": True},
-    "evening": {"sky": "sunset", "ambient": (0.30, 0.27, 0.30), "bg": (0.80, 0.60, 0.48), "sun": (0.80, 0.15, -0.28), "i": 0.60, "dif": (1, 0.62, 0.40), "shadows": True},
-    "overcast": {"sky": "overcast", "ambient": (0.48, 0.49, 0.52), "bg": (0.72, 0.74, 0.77), "sun": (0.2, 0.15, -0.95), "i": 0.20, "dif": (0.9, 0.92, 0.95), "shadows": False},
-    "rain": {"sky": "overcast", "ambient": (0.38, 0.40, 0.44), "bg": (0.48, 0.51, 0.55), "sun": (0.2, 0.15, -0.95), "i": 0.12, "dif": (0.8, 0.84, 0.9), "shadows": False, "rain": True, "wind": (5.0, 2.0)},
+    "partly_cloudy": {"sky": "cloudy", "ambient": (0.42, 0.43, 0.46), "bg": (0.62, 0.74, 0.92), "sun": (-0.30, 0.35, -0.88), "i": 0.76, "dif": (1, 0.97, 0.92), "shadows": True},
+    "clear_noon": {"sky": "noon", "ambient": (0.40, 0.42, 0.45), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.82, "dif": (1, 0.98, 0.93), "shadows": True},
+    "morning": {"sky": "sunrise", "ambient": (0.40, 0.39, 0.42), "bg": (0.82, 0.76, 0.68), "sun": (-0.75, -0.20, -0.42), "i": 0.76, "dif": (1, 0.82, 0.62), "shadows": True},
+    "evening": {"sky": "sunset", "ambient": (0.36, 0.33, 0.36), "bg": (0.80, 0.60, 0.48), "sun": (0.80, 0.15, -0.28), "i": 0.68, "dif": (1, 0.62, 0.40), "shadows": True},
+    "overcast": {"sky": "overcast", "ambient": (0.52, 0.53, 0.56), "bg": (0.72, 0.74, 0.77), "sun": (0.2, 0.15, -0.95), "i": 0.24, "dif": (0.9, 0.92, 0.95), "shadows": False},
+    "rain": {"sky": "overcast", "ambient": (0.43, 0.45, 0.49), "bg": (0.48, 0.51, 0.55), "sun": (0.2, 0.15, -0.95), "i": 0.16, "dif": (0.8, 0.84, 0.9), "shadows": False, "rain": True, "wind": (5.0, 2.0)},
     "dusk": {"sky": "dusk", "ambient": (0.17, 0.19, 0.27), "bg": (0.20, 0.24, 0.36), "sun": (0.85, 0.1, -0.12), "i": 0.25, "dif": (0.9, 0.6, 0.5), "shadows": True},
     "night": {"sky": "night", "ambient": (0.06, 0.07, 0.11), "bg": (0.015, 0.02, 0.04), "sun": (0.3, 0.2, -0.9), "i": 0.04, "dif": (0.6, 0.7, 1), "shadows": False, "lamps": True},
-    "windy": {"sky": "clear", "ambient": (0.38, 0.40, 0.43), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.74, "dif": (1, 0.98, 0.93), "shadows": True, "wind": (9.0, 3.0)},
+    "windy": {"sky": "clear", "ambient": (0.44, 0.46, 0.49), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.86, "dif": (1, 0.98, 0.93), "shadows": True, "wind": (9.0, 3.0)},
 }
 
 

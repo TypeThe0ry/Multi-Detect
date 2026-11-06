@@ -284,7 +284,7 @@ def densify_ring_at(ring: LineString, cutter: LineString) -> np.ndarray:
     return np.array(out)
 
 
-def add_building(bins, roof_bin, roof_detail_bin, coll, b, terrain, half: float) -> None:
+def add_building(bins, roof_bin, parapet_bin, equipment_bins, coll, b, terrain, half: float) -> None:
     poly, tags, h, mn, facade = b["poly"], b["tags"], b["h"], b["min_h"], b["facade"]
     ext = np.array(poly.exterior.coords)
     base = float(terrain.z(ext[:, 0], ext[:, 1]).min()) - 0.3
@@ -350,8 +350,7 @@ def add_building(bins, roof_bin, roof_detail_bin, coll, b, terrain, half: float)
                 roof_bin.add(vv, vt, idx.astype(np.int64))
         except (ValueError, IndexError):
             continue
-    # Flat roofs get a low parapet and a few service units.  They are deliberately
-    # merged into the building mesh so the silhouette survives distant views.
+    # Keep roof equipment small and separate from the parapet material.
     if rid is None and poly.area > 25:
         rr = random.Random(int(b["id"]) ^ 0x5EED)
         ring = np.asarray(poly.exterior.coords)
@@ -362,14 +361,19 @@ def add_building(bins, roof_bin, roof_detail_bin, coll, b, terrain, half: float)
                 continue
             mid = (a + bb) / 2
             yaw = math.atan2(d[1], d[0])
-            add_box(roof_detail_bin, (mid[0], mid[1], eave + 0.20), (L, 0.18, 0.40), yaw)
+            add_box(parapet_bin, (mid[0], mid[1], eave + 0.20), (L, 0.18, 0.40), yaw)
         minx, miny, maxx, maxy = poly.bounds
-        for _ in range(1 + int(rr.random() * 3)):
-            w, d, hh = rr.uniform(0.8, 1.8), rr.uniform(0.7, 1.5), rr.uniform(0.7, 1.5)
-            for _try in range(8):
+        count = min(16, max(1, int(poly.area / 450)))
+        rect = poly.minimum_rotated_rectangle
+        edge = np.asarray(rect.exterior.coords)[1] - np.asarray(rect.exterior.coords)[0]
+        base_yaw = math.atan2(edge[1], edge[0])
+        for _ in range(count):
+            w, d, hh = rr.uniform(1.0, 3.0), rr.uniform(1.0, 2.6), rr.uniform(1.0, 2.5)
+            for _try in range(24):
                 x, y = rr.uniform(minx, maxx), rr.uniform(miny, maxy)
                 if poly.contains(Point(x, y).buffer(max(w, d) / 2)):
-                    add_box(roof_detail_bin, (x, y, eave + hh / 2 + 0.05), (w, d, hh), rr.uniform(-math.pi, math.pi))
+                    color_bin = equipment_bins[rr.randrange(len(equipment_bins))]
+                    add_box(color_bin, (x, y, eave + hh / 2 + 0.05), (w, d, hh), base_yaw + rr.uniform(-0.12, 0.12))
                     break
     # Collision prism uses the same footprint with a flat top at the eave.
     try:
@@ -560,10 +564,11 @@ def rasterize(polys, half: float, res: float) -> np.ndarray:
     return np.asarray(img) > 0
 
 
-def pbr_visual(name: str, mesh_uri: str, albedo: str, rough: float = 0.9, metal: float = 0.0, double: bool = False, normal: str | None = None) -> str:
+def pbr_visual(name: str, mesh_uri: str, albedo: str, rough: float = 0.9, metal: float = 0.0, double: bool = False, normal: str | None = None, transparency: float = 0.0) -> str:
     extra = "<double_sided>true</double_sided>" if double else ""
     normal_xml = f"<normal_map>{normal}</normal_map>" if normal else ""
-    return (f'<visual name="{name}"><cast_shadows>{"false" if "ground" in name or "road" in name or "mark" in name else "true"}</cast_shadows><geometry><mesh><uri>{mesh_uri}</uri></mesh></geometry>'
+    transparency_xml = f"<transparency>{transparency:.2f}</transparency>" if transparency else ""
+    return (f'<visual name="{name}"><cast_shadows>{"false" if "ground" in name or "road" in name or "mark" in name else "true"}</cast_shadows>{transparency_xml}<geometry><mesh><uri>{mesh_uri}</uri></mesh></geometry>'
             f"<material><diffuse>1 1 1 1</diffuse><specular>0.05 0.05 0.05 1</specular>{extra}<pbr><metal><albedo_map>{albedo}</albedo_map>"
             f"{normal_xml}<roughness>{rough}</roughness><metalness>{metal}</metalness></metal></pbr></material></visual>")
 
@@ -579,12 +584,13 @@ def road_texture(src: Path | None, mosaic: np.ndarray, polys, half: float, out: 
         for g in p.geoms if hasattr(p, "geoms") else [p]:
             if g.geom_type == "Polygon":
                 d.polygon([((x + half) / res, (y + half) / res) for x, y in g.exterior.coords], fill=255)
-    m = np.asarray(mask, np.float32) > 0
+    # The atlas is flipped vertically to match OBJ v=0 at the south edge.
+    m = np.flipud(np.asarray(mask, np.float32)) > 0
     if m.any():
-        aerial = mosaic[..., :3][m].mean(axis=0)
-        target = np.array([aerial[0] * 0.72, aerial[1] * 0.73, aerial[2] * 0.76])
-        mean = base.reshape(-1, 3).mean(axis=0)
-        base *= target / np.maximum(mean, 1.0) * 0.72
+        aerial = np.median(mosaic[..., :3][m], axis=0)
+        target = aerial.astype(np.float32)
+        median = np.median(base.reshape(-1, 3), axis=0)
+        base *= target / np.maximum(median, 1.0)
     rng = np.random.default_rng(seed)
     noise = rng.normal(0, 1, (size // 16, size // 16)).astype(np.float32)
     noise = np.asarray(Image.fromarray(noise, mode="F").resize((size, size), Image.BICUBIC))
@@ -827,14 +833,6 @@ def main() -> None:
             write_obj(out / "meshes" / f"ground_{i}_{j}.obj", v, vt, nrm.reshape(-1, 3), f)
             vis_xml.append(pbr_visual(f"ground_{i}_{j}", f"model://{name}/meshes/ground_{i}_{j}.obj", f"model://{name}/textures/ground_{i}_{j}.jpg", 0.95))
     roof_atlas = Image.fromarray(mosaic[..., :3]).resize((1024, 1024), Image.LANCZOS)
-    roof_draw = ImageDraw.Draw(roof_atlas)
-    for b in buildings:
-        tint = parse_colour(b["tags"].get("roof:colour") or b["tags"].get("roof:color"))
-        if tint is not None:
-            fill = tuple(int(c * 255) for c in tint)
-            roof_draw.polygon([((x + half) / (2 * half) * roof_atlas.width,
-                                (half - y) / (2 * half) * roof_atlas.height)
-                               for x, y in b["poly"].exterior.coords], fill=fill)
     roof_atlas.save(out / "textures" / "roof_mosaic.jpg", quality=88)
     print("ground done", flush=True)
 
@@ -954,17 +952,17 @@ def main() -> None:
         drape(water_polys, terrain_road, 0.08, 18.0, wb, cell=12.0)
         tris = wb.write(out / "meshes" / "water.obj")
         water = np.zeros((512, 512, 3), np.uint8); wrng = np.random.default_rng(42)
-        water[..., 0], water[..., 1], water[..., 2] = 35, 92, 118
+        water[..., 0], water[..., 1], water[..., 2] = 38, 78, 74
         wave = wrng.normal(0, 1, (64, 64)).astype(np.float32)
         wave = np.asarray(Image.fromarray(wave, mode="F").resize((512, 512), Image.BICUBIC))
-        water = np.clip(water.astype(np.float32) + wave[..., None] * np.array([3, 8, 10]), 0, 255).astype(np.uint8)
+        water = np.clip(water.astype(np.float32) + wave[..., None] * np.array([3, 7, 6]), 0, 255).astype(np.uint8)
         Image.fromarray(water).save(out / "textures" / "water.jpg", quality=92)
         gy, gx = np.gradient(wave); nrm = np.dstack([-gx * 0.12, -gy * 0.12, np.ones_like(wave)])
         nrm = np.clip((nrm / np.linalg.norm(nrm, axis=2, keepdims=True) * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
         Image.fromarray(nrm).save(out / "textures" / "water_normal.png")
-        vis_xml.append(pbr_visual("water", f"model://{name}/meshes/water.obj", f"model://{name}/textures/water.jpg", 0.12, 0.05, True, f"model://{name}/textures/water_normal.png"))
+        vis_xml.append(pbr_visual("water", f"model://{name}/meshes/water.obj", f"model://{name}/textures/water.jpg", 0.12, 0.05, True, f"model://{name}/textures/water_normal.png", 0.55))
         print("water", tris, flush=True)
-    for lab, polys, col in (("white", marks_white, (232, 232, 228)), ("yellow", marks_yellow, (222, 178, 60))):
+    for lab, polys, col in (("white", marks_white, (216, 216, 211)), ("yellow", marks_yellow, (205, 170, 68))):
         if polys:
             b = MeshBin()
             drape(polys, terrain_road, 0.05, 4.0, b, cell=30.0)
@@ -990,9 +988,9 @@ def main() -> None:
         bins.setdefault(b["facade"], MeshBin())
         if b["front"]:
             bins.setdefault(b["front"], MeshBin())
-    roof_bin, roof_detail_bin, coll_bin = MeshBin(), MeshBin(), MeshBin()
+    roof_bin, parapet_bin, equipment_bins, coll_bin = MeshBin(), MeshBin(), [MeshBin() for _ in range(3)], MeshBin()
     for b in buildings:
-        add_building(bins, roof_bin, roof_detail_bin, coll_bin, b, terrain, half)
+        add_building(bins, roof_bin, parapet_bin, equipment_bins, coll_bin, b, terrain, half)
     for fac, bin_ in bins.items():
         tris = bin_.write(out / "meshes" / f"facade_{fac}.obj")
         src_fac = out / "textures" / f"facade_{fac}.jpg"
@@ -1004,11 +1002,19 @@ def main() -> None:
     if roof_bin.count:
         roof_bin.write(out / "meshes" / "roofs.obj")
         vis_xml.append(pbr_visual("roofs", f"model://{name}/meshes/roofs.obj", f"model://{name}/textures/roof_mosaic.jpg", 0.9))
-    if roof_detail_bin.count:
-        tris = roof_detail_bin.write(out / "meshes" / "roof_details.obj")
-        Image.new("RGB", (128, 128), (142, 142, 136)).save(out / "textures" / "roof_details.jpg", quality=90)
-        vis_xml.append(pbr_visual("roof_details", f"model://{name}/meshes/roof_details.obj", f"model://{name}/textures/roof_details.jpg", 0.78))
-        print("roof details", tris, flush=True)
+    detail_specs = [("parapet", parapet_bin, (142, 142, 136))]
+    equipment_colors = ((168, 165, 155), (118, 126, 128), (188, 184, 171))
+    detail_specs.extend(
+        (f"equipment_{i}", bin_, color)
+        for i, (bin_, color) in enumerate(zip(equipment_bins, equipment_colors))
+    )
+    for detail, bin_, color in detail_specs:
+        if not bin_.count:
+            continue
+        tris = bin_.write(out / "meshes" / f"roof_{detail}.obj")
+        Image.new("RGB", (64, 64), color).save(out / "textures" / f"roof_{detail}.jpg", quality=90)
+        vis_xml.append(pbr_visual(f"roof_{detail}", f"model://{name}/meshes/roof_{detail}.obj", f"model://{name}/textures/roof_{detail}.jpg", 0.78))
+        print(f"roof {detail}", tris, flush=True)
     if coll_bin.count:
         coll_bin.write(out / "meshes" / "buildings_collision.obj")
         coll_xml.append(f'<collision name="buildings"><geometry><mesh><uri>model://{name}/meshes/buildings_collision.obj</uri></mesh></geometry></collision>')
@@ -1060,12 +1066,13 @@ def main() -> None:
             triangle_total += sum(1 for line in mesh_path.open() if line.startswith("f "))
         except OSError:
             pass
-    print(f"texture_decoded_with_mips={texture_decoded / 2**30:.3f} GiB triangles={triangle_total}", flush=True)
+    texture_decoded_gib = texture_decoded / 2**30
+    print(f"texture_decoded_with_mips={texture_decoded_gib:.3f}/3.000 GiB triangles={triangle_total}", flush=True)
 
     scene.update({"site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
                   "stats": {"buildings": len(buildings), "trees": len(trees), "road_km": sum(r["line"].length for r in road_lines) / 1000,
                             "water_polygons": len(water_polys), "bridges": sum(len(v) for v in bridge_features.values()),
-                            "texture_decoded_gib": round(texture_decoded / 2**30, 3), "triangles": triangle_total},
+                            "texture_decoded_gib": round(texture_decoded_gib, 3), "texture_budget_gib": 3.0, "triangles": triangle_total},
                   "footprints": [[round(v, 1) for v in b["poly"].bounds] + [round(b["h"], 1)] for b in buildings]})
     scene_path = SCENE_ROOT / "sites" / name / "scene.json"
     scene_path.parent.mkdir(parents=True, exist_ok=True)
