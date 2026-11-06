@@ -9,10 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import os
 from PIL import Image, ImageDraw, ImageFilter
 
 LIB = Path("/data/datasets/multidetect-sim-assets/library")
-OUT = LIB / "facades"
+OUT = Path(os.environ.get("RW_FACADE_OUT", LIB / "facades"))
 PX = 1024
 M = PX / 12.8
 
@@ -121,6 +122,16 @@ def lap_siding(color, seed=0) -> np.ndarray:
     return np.clip(a, 0, 255)
 
 
+def weathered(arr: np.ndarray, seed: int, contrast: float = 1.0) -> np.ndarray:
+    """Add low-frequency staining and restrained exposure so noon facades retain detail."""
+    rng = np.random.default_rng(seed)
+    n = rng.normal(0, 1, (32, 32)).astype(np.float32)
+    n = np.asarray(Image.fromarray(n, mode="F").resize((PX, PX), Image.BICUBIC))
+    out = arr * (1.0 + n[..., None] * 0.025)
+    out = (out - 128.0) * contrast + 128.0
+    return np.clip(out, 0, 248)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     items = {
@@ -128,16 +139,22 @@ def main() -> None:
         "glass_b": glass((140, 152, 156), (96, 100, 104), seed=2),
         "storefront_a": storefront(seed=13),
         "storefront_b": storefront(((190, 178, 160), (70, 60, 52)), seed=14),
-        "office_a": window_layer(wall(("Concrete034", "Concrete"), (0.95, 0.94, 0.9)), 6, 1.45, 2.0, 0.8, frame=(45, 46, 48), seed=3, blinds=0.5),
+        "office_a": weathered(window_layer(wall(("Concrete034", "Concrete"), (0.88, 0.87, 0.84)), 6, 1.45, 2.0, 0.8, frame=(45, 46, 48), seed=3, blinds=0.5), 3, .92),
+        "office_b": weathered(window_layer(wall(("Concrete034", "Concrete"), (0.72, 0.79, 0.82)), 5, 1.55, 2.0, 0.8, frame=(55, 58, 62), seed=31, blinds=0.35), 31, .9),
         "brick_mid": window_layer(wall(("Bricks0",), (0.95, 0.9, 0.86), (150, 92, 76)), 4, 1.3, 1.9, 0.9, frame=(235, 232, 225), seed=4),
+        "brick_mid_b": weathered(window_layer(wall(("Bricks0",), (0.72, 0.62, 0.58), (125, 77, 66)), 5, 1.25, 1.85, 0.9, frame=(218, 216, 210), seed=34), 34, .95),
         "concrete_mid": window_layer(wall(("Concrete03", "Concrete"), (1.05, 1.03, 1.0)), 5, 1.5, 1.8, 0.9, frame=(80, 80, 82), seed=5),
         "stucco_mid": window_layer(wall(("Concrete04", "Concrete"), (1.1, 1.02, 0.9), (205, 190, 165)), 4, 1.2, 1.7, 0.9, frame=(245, 245, 240), seed=6),
+        "stucco_mid_b": weathered(window_layer(wall(("Concrete04", "Concrete"), (0.78, 0.86, 0.82), (174, 193, 180)), 4, 1.25, 1.75, 0.9, frame=(238, 239, 233), seed=36), 36, .93),
         "siding_a": window_layer(lap_siding((206, 203, 190), 7), 3, 1.15, 1.35, 0.95, frame=(248, 248, 245), seed=7),
         "siding_b": window_layer(lap_siding((160, 172, 180), 8), 3, 1.15, 1.35, 0.95, frame=(248, 248, 245), seed=8),
+        "siding_c": weathered(window_layer(lap_siding((188, 164, 143), 28), 3, 1.12, 1.35, 0.95, frame=(244, 242, 232), seed=28), 28, .94),
         "stucco_a": window_layer(wall(("Concrete04", "Concrete"), (1.15, 1.05, 0.88), (216, 200, 170)), 3, 1.2, 1.3, 0.95, frame=(240, 240, 235), seed=9),
         "brick_low": window_layer(wall(("Bricks0",), (0.92, 0.85, 0.82), (140, 88, 72)), 3, 1.1, 1.35, 0.95, frame=(240, 238, 232), seed=10),
+        "brick_low_b": weathered(window_layer(wall(("Bricks0",), (0.68, 0.76, 0.72), (112, 116, 104)), 3, 1.1, 1.35, 0.95, frame=(232, 232, 225), seed=40), 40, .94),
         "metal_a": corrugated((168, 172, 174), 11),
         "metal_b": corrugated((120, 134, 146), 12),
+        "metal_c": corrugated((158, 134, 105), 41),
     }
     for name, arr in items.items():
         # Rows in a JPEG run top down; UV v=0 is bottom of the wall, so the image stays upright.

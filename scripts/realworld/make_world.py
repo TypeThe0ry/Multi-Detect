@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import sys
 import xml.etree.ElementTree as ET
@@ -17,23 +18,24 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 
-ASSET_ROOT = Path("/data/datasets/multidetect-sim-assets")
-RESOLVED = ROOT / "artifacts/cache/gz-fuel/resolved"
+DATA_ROOT = Path("/data/datasets/multidetect-sim-assets")
+SCENE_ROOT = Path(os.environ.get("RW_SCENE_ROOT", DATA_ROOT))
+RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
 CATALOG = {a["slug"]: a for a in json.loads((ROOT / "configs/sim-assets/fuel-catalog.json").read_text())["assets"]}
-OUT = ROOT / "simulation/gazebo/worlds"
+OUT = Path(os.environ.get("RW_WORLD_OUT", ROOT / "simulation/gazebo/worlds"))
 
 # Sun direction points from the sun; ambient models sky light since Ogre2 has no GI here.
 GUST_PERIOD_S = 18.0
 WEATHER = {
-    "partly_cloudy": {"sky": "cloudy", "ambient": (0.46, 0.47, 0.50), "bg": (0.62, 0.74, 0.92), "sun": (-0.30, 0.35, -0.88), "i": 0.8, "dif": (1, 0.97, 0.92), "shadows": True},
-    "clear_noon": {"sky": "noon", "ambient": (0.42, 0.44, 0.47), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.95, "dif": (1, 0.98, 0.93), "shadows": True},
-    "morning": {"sky": "sunrise", "ambient": (0.42, 0.42, 0.46), "bg": (0.82, 0.76, 0.68), "sun": (-0.75, -0.20, -0.42), "i": 0.95, "dif": (1, 0.82, 0.62), "shadows": True},
-    "evening": {"sky": "sunset", "ambient": (0.36, 0.33, 0.36), "bg": (0.80, 0.60, 0.48), "sun": (0.80, 0.15, -0.28), "i": 0.85, "dif": (1, 0.62, 0.40), "shadows": True},
-    "overcast": {"sky": "overcast", "ambient": (0.72, 0.73, 0.75), "bg": (0.72, 0.74, 0.77), "sun": (0.2, 0.15, -0.95), "i": 0.40, "dif": (0.9, 0.92, 0.95), "shadows": False},
-    "rain": {"sky": "overcast", "ambient": (0.50, 0.52, 0.56), "bg": (0.48, 0.51, 0.55), "sun": (0.2, 0.15, -0.95), "i": 0.22, "dif": (0.8, 0.84, 0.9), "shadows": False, "rain": True, "wind": (5.0, 2.0)},
+    "partly_cloudy": {"sky": "cloudy", "ambient": (0.34, 0.35, 0.38), "bg": (0.62, 0.74, 0.92), "sun": (-0.30, 0.35, -0.88), "i": 0.62, "dif": (1, 0.97, 0.92), "shadows": True},
+    "clear_noon": {"sky": "noon", "ambient": (0.30, 0.32, 0.35), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.68, "dif": (1, 0.98, 0.93), "shadows": True},
+    "morning": {"sky": "sunrise", "ambient": (0.34, 0.33, 0.36), "bg": (0.82, 0.76, 0.68), "sun": (-0.75, -0.20, -0.42), "i": 0.68, "dif": (1, 0.82, 0.62), "shadows": True},
+    "evening": {"sky": "sunset", "ambient": (0.30, 0.27, 0.30), "bg": (0.80, 0.60, 0.48), "sun": (0.80, 0.15, -0.28), "i": 0.60, "dif": (1, 0.62, 0.40), "shadows": True},
+    "overcast": {"sky": "overcast", "ambient": (0.48, 0.49, 0.52), "bg": (0.72, 0.74, 0.77), "sun": (0.2, 0.15, -0.95), "i": 0.20, "dif": (0.9, 0.92, 0.95), "shadows": False},
+    "rain": {"sky": "overcast", "ambient": (0.38, 0.40, 0.44), "bg": (0.48, 0.51, 0.55), "sun": (0.2, 0.15, -0.95), "i": 0.12, "dif": (0.8, 0.84, 0.9), "shadows": False, "rain": True, "wind": (5.0, 2.0)},
     "dusk": {"sky": "dusk", "ambient": (0.17, 0.19, 0.27), "bg": (0.20, 0.24, 0.36), "sun": (0.85, 0.1, -0.12), "i": 0.25, "dif": (0.9, 0.6, 0.5), "shadows": True},
     "night": {"sky": "night", "ambient": (0.06, 0.07, 0.11), "bg": (0.015, 0.02, 0.04), "sun": (0.3, 0.2, -0.9), "i": 0.04, "dif": (0.6, 0.7, 1), "shadows": False, "lamps": True},
-    "windy": {"sky": "clear", "ambient": (0.55, 0.57, 0.60), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 1.1, "dif": (1, 0.98, 0.93), "shadows": True, "wind": (9.0, 3.0)},
+    "windy": {"sky": "clear", "ambient": (0.38, 0.40, 0.43), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.74, "dif": (1, 0.98, 0.93), "shadows": True, "wind": (9.0, 3.0)},
 }
 
 
@@ -185,7 +187,7 @@ def obstacle_boxes(scene: dict, site: str, radius: float = 350.0, limit: int = 8
 
     The merged building mesh keeps exact collision; these only add coarse bounds at low entity cost.
     """
-    dem = np.load(ASSET_ROOT / "sites" / site / "raw" / "dem.npy")
+    dem = np.load(DATA_ROOT / "sites" / site / "raw" / "dem.npy")
     half = scene["size_m"] / 2
     n = dem.shape[0]
     near = sorted(scene["footprints"], key=lambda f: math.hypot((f[0] + f[2]) / 2, (f[1] + f[3]) / 2))
@@ -217,12 +219,22 @@ def street_lights(objects: list[dict], limit=24) -> str:
 
 
 def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "") -> Path:
-    scene = json.loads((ASSET_ROOT / "sites" / site / "scene.json").read_text())
+    scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
     w = WEATHER[weather]
     wname = f"{site}__{weather}{name_suffix}"
     amb = " ".join(f"{v:.3f}" for v in w["ambient"])
     bg = " ".join(f"{v:.3f}" for v in w["bg"])
     sd = w["sun"]
+    provenance = RESOLVED / "rw_sky" / "provenance.json"
+    try:
+        bright = json.loads(provenance.read_text()).get(w["sky"], {}).get("brightest_direction")
+        if bright and math.hypot(bright[0], bright[1]) > 1e-4:
+            horiz = np.array([bright[0], bright[1]], float)
+            horiz /= np.linalg.norm(horiz)
+            horizontal_mag = math.hypot(w["sun"][0], w["sun"][1])
+            sd = (float(horiz[0] * horizontal_mag), float(horiz[1] * horizontal_mag), w["sun"][2])
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
     dif = " ".join(map(str, w["dif"]))
     parts = [
         f'<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.0</real_time_factor></physics>',
@@ -275,10 +287,10 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
 def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> Path:
     """Scenario bundle with a real DEM, so geolocation and terrain checks see the true ground."""
     wid = world.stem
-    scene = json.loads((ASSET_ROOT / "sites" / site / "scene.json").read_text())
-    sim = ROOT / "simulation"
+    scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
+    sim = Path(os.environ.get("RW_SIM_OUT", ROOT / "simulation"))
     half = scene["size_m"] / 2
-    raw = ASSET_ROOT / "sites" / site / "raw"
+    raw = DATA_ROOT / "sites" / site / "raw"
     dem = np.load(raw / "dem.npy")
     n = dem.shape[0]
     spacing = 50.0

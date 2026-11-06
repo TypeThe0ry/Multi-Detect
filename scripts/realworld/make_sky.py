@@ -53,6 +53,16 @@ def tonemap(img: np.ndarray, gain: float) -> np.ndarray:
     return (s * 255).astype(np.uint8)
 
 
+def brightest_direction(img: np.ndarray) -> list[float]:
+    """Return the +X east/+Y north unit vector for the brightest HDRI region."""
+    lum = img[..., :3].mean(axis=2)
+    y, x = np.unravel_index(int(np.argmax(cv2.GaussianBlur(lum, (0, 0), 8))), lum.shape)
+    az = (x / img.shape[1]) * 2 * np.pi
+    el = (0.5 - y / img.shape[0]) * np.pi
+    ce = np.cos(el)
+    return [float(np.sin(az) * ce), float(np.cos(az) * ce), float(np.sin(el))]
+
+
 def fetch_hdri(slug: str) -> Path:
     dest = ASSET_ROOT / "library/polyhaven/hdri" / f"{slug}_4k.hdr"
     if not dest.exists():
@@ -78,7 +88,8 @@ def main() -> None:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         small = cv2.resize(img, (4096, 2048), interpolation=cv2.INTER_AREA)
         cv2.imwrite(str(out / f"{preset}.jpg"), cv2.cvtColor(tonemap(small, gain), cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
-        used[preset] = {"hdri": slug, "license": "CC0-1.0", "source": "https://polyhaven.com/a/" + slug}
+        used[preset] = {"hdri": slug, "license": "CC0-1.0", "source": "https://polyhaven.com/a/" + slug,
+                        "brightest_direction": brightest_direction(img)}
         print(preset, slug, flush=True)
     (out / "provenance.json").write_text(json.dumps(used, indent=2))
 

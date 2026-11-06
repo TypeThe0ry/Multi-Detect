@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import shutil
 from pathlib import Path
@@ -33,8 +34,9 @@ from instancing import Merger  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 CFG = json.loads((ROOT / "configs/sim-assets/realworld-sites.json").read_text())
 ASSET_ROOT = Path(CFG["asset_root"])
+SCENE_ROOT = Path(os.environ.get("RW_SCENE_ROOT", ASSET_ROOT))
 LIB = ASSET_ROOT / "library"
-RESOLVED = ROOT / "artifacts/cache/gz-fuel/resolved"
+RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
 DEM_RES = 2.0
 TILE_M = 1000
 PAD_R = 25.0
@@ -208,12 +210,30 @@ def building_height(tags: dict, kind: str, rng: random.Random, area: float) -> t
 def facade_for(tags: dict, h: float, rng: random.Random) -> str:
     b = tags.get("building", tags.get("building:part", "yes"))
     if b in {"warehouse", "industrial", "hangar", "shed", "garage", "garages", "barn", "farm_auxiliary", "silo", "storage_tank"}:
-        return rng.choice(["metal_a", "metal_b"])
+        return rng.choice(["metal_a", "metal_b", "metal_c"])
     if b in {"house", "detached", "residential", "semidetached_house", "bungalow", "cabin", "terrace"} or h < 10:
-        return rng.choice(["siding_a", "siding_b", "stucco_a", "brick_low"])
+        return rng.choice(["siding_a", "siding_b", "stucco_a", "brick_low", "siding_c", "brick_low_b"])
     if h > 28:
-        return rng.choice(["glass_a", "glass_b", "office_a"])
-    return rng.choice(["office_a", "brick_mid", "concrete_mid", "stucco_mid"])
+        return rng.choice(["glass_a", "glass_b", "office_a", "office_b"])
+    return rng.choice(["office_a", "office_b", "brick_mid", "brick_mid_b", "concrete_mid", "stucco_mid", "stucco_mid_b"])
+
+
+def parse_colour(value: str | None) -> tuple[float, float, float] | None:
+    if not value:
+        return None
+    names = {"white": (1, 1, 1), "black": (.08, .08, .08), "red": (.72, .18, .12), "blue": (.18, .35, .62),
+             "green": (.22, .48, .25), "yellow": (.82, .68, .20), "brown": (.45, .27, .16), "gray": (.55, .55, .53), "grey": (.55, .55, .53)}
+    s = str(value).strip().lower()
+    if s in names:
+        return names[s]
+    if s.startswith("#") and len(s) in {4, 7}:
+        if len(s) == 4:
+            s = "#" + "".join(c * 2 for c in s[1:])
+        try:
+            return tuple(int(s[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        except ValueError:
+            return None
+    return None
 
 
 GABLED = {"house", "detached", "semidetached_house", "bungalow", "cabin", "residential", "terrace", "barn", "farm", "church", "garage", "yes"}
@@ -264,7 +284,7 @@ def densify_ring_at(ring: LineString, cutter: LineString) -> np.ndarray:
     return np.array(out)
 
 
-def add_building(bins, roof_bin, coll, b, terrain, half: float) -> None:
+def add_building(bins, roof_bin, roof_detail_bin, coll, b, terrain, half: float) -> None:
     poly, tags, h, mn, facade = b["poly"], b["tags"], b["h"], b["min_h"], b["facade"]
     ext = np.array(poly.exterior.coords)
     base = float(terrain.z(ext[:, 0], ext[:, 1]).min()) - 0.3
@@ -330,6 +350,27 @@ def add_building(bins, roof_bin, coll, b, terrain, half: float) -> None:
                 roof_bin.add(vv, vt, idx.astype(np.int64))
         except (ValueError, IndexError):
             continue
+    # Flat roofs get a low parapet and a few service units.  They are deliberately
+    # merged into the building mesh so the silhouette survives distant views.
+    if rid is None and poly.area > 25:
+        rr = random.Random(int(b["id"]) ^ 0x5EED)
+        ring = np.asarray(poly.exterior.coords)
+        for a, bb in zip(ring, np.roll(ring, -1, axis=0)):
+            d = bb - a
+            L = float(np.linalg.norm(d))
+            if L < 1.0:
+                continue
+            mid = (a + bb) / 2
+            yaw = math.atan2(d[1], d[0])
+            add_box(roof_detail_bin, (mid[0], mid[1], eave + 0.20), (L, 0.18, 0.40), yaw)
+        minx, miny, maxx, maxy = poly.bounds
+        for _ in range(1 + int(rr.random() * 3)):
+            w, d, hh = rr.uniform(0.8, 1.8), rr.uniform(0.7, 1.5), rr.uniform(0.7, 1.5)
+            for _try in range(8):
+                x, y = rr.uniform(minx, maxx), rr.uniform(miny, maxy)
+                if poly.contains(Point(x, y).buffer(max(w, d) / 2)):
+                    add_box(roof_detail_bin, (x, y, eave + hh / 2 + 0.05), (w, d, hh), rr.uniform(-math.pi, math.pi))
+                    break
     # Collision prism uses the same footprint with a flat top at the eave.
     try:
         verts, idx = triangulate(poly)
@@ -386,6 +427,62 @@ def drape(polys, terrain, offset: float, tex_m: float, out: MeshBin, cell: float
                 flip = cross2(vv[ff[:, 1]] - vv[ff[:, 0]], vv[ff[:, 2]] - vv[ff[:, 0]]) < 0
                 ff[flip] = ff[flip][:, ::-1]
                 out.add(v3, vv / tex_m, ff)
+
+
+def drape_features(features, terrain, tex_m: float, out: MeshBin, cell: float = 14.0) -> None:
+    """Drape (polygon, extra_z) features while retaining per-feature bridge height."""
+    for poly, extra_z in features:
+        if poly.is_empty:
+            continue
+        minx, miny, maxx, maxy = poly.bounds
+        for x in np.arange(minx, maxx, 64.0):
+            for y in np.arange(miny, maxy, 64.0):
+                clip = poly.intersection(box(x, y, x + 64.0, y + 64.0))
+                for p in clip.geoms if hasattr(clip, "geoms") else [clip]:
+                    if p.geom_type != "Polygon" or p.area < 0.02:
+                        continue
+                    try:
+                        verts, idx = triangulate(p)
+                    except ValueError:
+                        continue
+                    vv, ff = subdivide(verts, idx.astype(np.int64), cell)
+                    z = terrain.z(vv[:, 0], vv[:, 1]) + float(extra_z)
+                    v3 = np.column_stack([vv, z])
+                    flip = cross2(vv[ff[:, 1]] - vv[ff[:, 0]], vv[ff[:, 2]] - vv[ff[:, 0]]) < 0
+                    ff[flip] = ff[flip][:, ::-1]
+                    out.add(v3, vv / tex_m, ff)
+
+
+def add_box(bin_: MeshBin, center, size, yaw: float = 0.0, z0: float | None = None) -> None:
+    """Add a closed, flat-shaded box to a mesh bin."""
+    x, y, z = map(float, center)
+    sx, sy, sz = map(float, size)
+    z0 = z - sz / 2 if z0 is None else float(z0)
+    z1 = z0 + sz
+    c, s = math.cos(yaw), math.sin(yaw)
+    uv = np.array([[0, 0], [1, 0], [1, 1], [0, 1]] * 6, float)
+    corners = np.array([[-sx / 2, -sy / 2], [sx / 2, -sy / 2], [sx / 2, sy / 2], [-sx / 2, sy / 2]])
+    corners = (np.array([[c, -s], [s, c]]) @ corners.T).T + [x, y]
+    low, high = np.c_[corners, np.full(4, z0)], np.c_[corners, np.full(4, z1)]
+    faces = [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7), (4, 5, 6, 7), (3, 2, 1, 0)]
+    v = np.vstack([low, high])[np.asarray(faces).reshape(-1)]
+    f = np.arange(len(v)).reshape(-1, 4)
+    tri = np.vstack([f[:, [0, 1, 2]], f[:, [0, 2, 3]]])
+    bin_.add(v, uv, tri)
+
+
+def add_line_prism(bin_: MeshBin, points: list[tuple[float, float, float]], width: float, height: float = 0.04) -> None:
+    """Create a thin rectangular prism along a polyline, with small sag at wire midpoints."""
+    for a, b in zip(points, points[1:]):
+        p0, p1 = np.array(a, float), np.array(b, float)
+        d = p1[:2] - p0[:2]
+        L = np.linalg.norm(d)
+        if L < 0.2:
+            continue
+        n = np.array([-d[1], d[0]]) / L * width / 2
+        q = np.array([[p0[0] + n[0], p0[1] + n[1]], [p1[0] + n[0], p1[1] + n[1]],
+                      [p1[0] - n[0], p1[1] - n[1]], [p0[0] - n[0], p0[1] - n[1]]])
+        add_box(bin_, (q[:, 0].mean(), q[:, 1].mean(), (p0[2] + p1[2]) / 2), (L, width, height), math.atan2(d[1], d[0]))
 
 
 def subdivide(v: np.ndarray, f: np.ndarray, max_len: float) -> tuple[np.ndarray, np.ndarray]:
@@ -463,11 +560,48 @@ def rasterize(polys, half: float, res: float) -> np.ndarray:
     return np.asarray(img) > 0
 
 
-def pbr_visual(name: str, mesh_uri: str, albedo: str, rough: float = 0.9, metal: float = 0.0, double: bool = False) -> str:
+def pbr_visual(name: str, mesh_uri: str, albedo: str, rough: float = 0.9, metal: float = 0.0, double: bool = False, normal: str | None = None) -> str:
     extra = "<double_sided>true</double_sided>" if double else ""
+    normal_xml = f"<normal_map>{normal}</normal_map>" if normal else ""
     return (f'<visual name="{name}"><cast_shadows>{"false" if "ground" in name or "road" in name or "mark" in name else "true"}</cast_shadows><geometry><mesh><uri>{mesh_uri}</uri></mesh></geometry>'
             f"<material><diffuse>1 1 1 1</diffuse><specular>0.05 0.05 0.05 1</specular>{extra}<pbr><metal><albedo_map>{albedo}</albedo_map>"
-            f"<roughness>{rough}</roughness><metalness>{metal}</metalness></metal></pbr></material></visual>")
+            f"{normal_xml}<roughness>{rough}</roughness><metalness>{metal}</metalness></metal></pbr></material></visual>")
+
+
+def road_texture(src: Path | None, mosaic: np.ndarray, polys, half: float, out: Path, seed: int) -> None:
+    """Blend aerial road colour into a scanned asphalt atlas and add scale cues."""
+    size = 1024
+    base = np.asarray(Image.open(src).convert("RGB").resize((size, size), Image.LANCZOS), np.float32) if src else np.full((size, size, 3), 72, np.float32)
+    mask = Image.new("L", (mosaic.shape[1], mosaic.shape[0]), 0)
+    d = ImageDraw.Draw(mask)
+    res = 2 * half / mosaic.shape[0]
+    for p in polys:
+        for g in p.geoms if hasattr(p, "geoms") else [p]:
+            if g.geom_type == "Polygon":
+                d.polygon([((x + half) / res, (y + half) / res) for x, y in g.exterior.coords], fill=255)
+    m = np.asarray(mask, np.float32) > 0
+    if m.any():
+        aerial = mosaic[..., :3][m].mean(axis=0)
+        target = np.array([aerial[0] * 0.72, aerial[1] * 0.73, aerial[2] * 0.76])
+        mean = base.reshape(-1, 3).mean(axis=0)
+        base *= target / np.maximum(mean, 1.0) * 0.72
+    rng = np.random.default_rng(seed)
+    noise = rng.normal(0, 1, (size // 16, size // 16)).astype(np.float32)
+    noise = np.asarray(Image.fromarray(noise, mode="F").resize((size, size), Image.BICUBIC))
+    base *= (1.0 + np.clip(noise[..., None] * 0.035, -0.10, 0.10))
+    pim = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8))
+    pd = ImageDraw.Draw(pim, "RGBA")
+    for _ in range(16):
+        x, y = int(rng.integers(0, size)), int(rng.integers(0, size))
+        w, h = int(rng.integers(25, 170)), int(rng.integers(8, 34))
+        pd.rounded_rectangle((x, y, min(size, x + w), min(size, y + h)), radius=4, fill=(35, 38, 40, int(rng.integers(25, 75))))
+    for _ in range(22):
+        x, y = int(rng.integers(0, size)), int(rng.integers(0, size))
+        pts = [(x, y)]
+        for _ in range(int(rng.integers(2, 6))):
+            x += int(rng.integers(-45, 46)); y += int(rng.integers(10, 80)); pts.append((x, y))
+        pd.line(pts, fill=(25, 26, 26, int(rng.integers(70, 155))), width=int(rng.integers(1, 4)))
+    pim.save(out, quality=90, subsampling=0)
 
 
 def main() -> None:
@@ -533,6 +667,11 @@ def main() -> None:
     # ---- Roads
     # Footpaths stay as the aerial shows them; ribbons there read as cartoon strips.
     road_polys: dict[str, list] = {"major": [], "minor": [], "track": [], "rail": []}
+    bridge_features: dict[str, list] = {"major": [], "minor": [], "track": []}
+    sidewalk_polys, curb_polys = [], []
+    water_polys = []
+    utility_lines, fence_lines = [], []
+    rail_lines = []
     marks_white, marks_yellow, road_lines = [], [], []
     for w in osm.ways:
         t = w["tags"]
@@ -548,8 +687,25 @@ def main() -> None:
             if lanes and not t.get("width"):
                 width = max(width, lanes * 3.4)
             cat = "track" if hw == "track" or t.get("surface") in {"gravel", "dirt", "unpaved", "ground"} else ("major" if hw in {"motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link", "primary_link"} else "minor")
-            road_polys[cat].append(ls.buffer(width / 2, cap_style="flat", join_style="round", quad_segs=3))
-            road_lines.append({"line": ls, "class": hw, "width": width, "oneway": t.get("oneway") == "yes", "name": t.get("name", "")})
+            bridge = t.get("bridge") in {"yes", "viaduct", "aqueduct"}
+            layer = parse_len(t.get("layer")) or 0.0
+            elev = max(3.5, layer * 4.5) if bridge else 0.0
+            road_poly = ls.buffer(width / 2, cap_style="flat", join_style="round", quad_segs=3)
+            (bridge_features[cat] if bridge else road_polys[cat]).append((road_poly, elev) if bridge else road_poly)
+            road_lines.append({"line": ls, "class": hw, "width": width, "oneway": t.get("oneway") == "yes", "name": t.get("name", ""), "bridge": bridge, "elev": elev, "tags": t})
+            sw = t.get("sidewalk")
+            want_sw = sw in {"both", "left", "right", "separate", "yes"} or (sw is None and kind in {"urban", "suburb", "coast"} and hw in {"residential", "tertiary", "secondary", "primary", "living_street"})
+            if want_sw and not bridge:
+                for side in (1, -1):
+                    if sw in {"left", "right"} and ((sw == "left") != (side > 0)):
+                        continue
+                    try:
+                        off = ls.parallel_offset(width / 2 + 0.75, "left" if side > 0 else "right", join_style=2)
+                        if off.geom_type == "LineString":
+                            sidewalk_polys.append(off.buffer(1.15, cap_style="flat", join_style="round"))
+                            curb_polys.append(off.buffer(0.13, cap_style="flat", join_style="round"))
+                    except (ValueError, shapely.errors.GEOSException):
+                        pass
             if hw in MARKED and ls.length > 25 and t.get("surface") not in {"gravel", "dirt", "unpaved"}:
                 if t.get("oneway") == "yes" or (lanes or 2) > 2:
                     marks_white += dashes(ls, 3.0, 6.0, 0.14)
@@ -565,6 +721,23 @@ def main() -> None:
                             marks_white.append(off.buffer(0.07, cap_style="flat"))
         elif "railway" in t and t["railway"] in {"rail", "light_rail", "tram"}:
             road_polys["rail"].append(ls.buffer(1.8, cap_style="flat", quad_segs=2))
+            rail_lines.append(ls)
+        if t.get("power") in {"line", "minor_line"}:
+            utility_lines.append((ls, t))
+        if t.get("barrier") in {"fence", "wall"}:
+            fence_lines.append((ls, t))
+        if t.get("natural") == "coastline" or t.get("waterway") == "riverbank":
+            if w["closed"]:
+                water_polys.append(Polygon(w["pts"]).buffer(0))
+    for w in osm.ways:
+        t = w["tags"]
+        if t.get("natural") == "water" and w["closed"]:
+            water_polys.append(Polygon(w["pts"]).buffer(0).intersection(area))
+        if t.get("waterway") == "riverbank" and w["closed"]:
+            water_polys.append(Polygon(w["pts"]).buffer(0).intersection(area))
+    for r in osm.rel_polys:
+        if r["tags"].get("natural") == "water" or r["tags"].get("waterway") == "riverbank":
+            water_polys.append(r["poly"].intersection(area))
     for r in osm.ways:
         t = r["tags"]
         if t.get("aeroway") in {"runway", "apron", "taxiway"} and r["closed"]:
@@ -598,7 +771,7 @@ def main() -> None:
     print({k: len(v) for k, v in road_polys.items()}, "marks", len(marks_white), len(marks_yellow), flush=True)
 
     # Terrain visual: settle the ground slightly under roads so ribbons never z-fight.
-    all_road = [p for k in road_polys for p in road_polys[k]]
+    all_road = [p for k in road_polys for p in road_polys[k]] + [p for k in bridge_features for p, _ in bridge_features[k]]
     road_mask = rasterize(all_road, half, DEM_RES)
     n = terrain.h.shape[0]
     rm = np.zeros_like(terrain.h)
@@ -618,7 +791,7 @@ def main() -> None:
     # One stretch per site: a per-tile stretch shows up as patches across tile seams.
     sample = np.vstack([np.asarray(Image.open(f).convert("RGB").resize((256, 256))).reshape(-1, 3) for f in sorted(raw.glob("naip_*.png"))]).astype(np.float32)
     stretch = (float(np.percentile(sample, 0.5)), float(np.percentile(sample, 99.7)))
-    tile_px = 2048  # per-tile share of the roof mosaic; ground tiles keep full resolution
+    tile_px = 1536  # low-cost atlas used for roof sampling; ground tiles keep local resolution
     mosaic = np.zeros((tile_px * nt, tile_px * nt, 4), np.uint8)
     for j in range(nt):
         for i in range(nt):
@@ -631,7 +804,10 @@ def main() -> None:
             rgb = np.clip(rgb * np.array([1.02, 1.0, 0.95]), 0, 1)
             rgb8 = (rgb * 255).astype(np.uint8)
             # Rows in the PNG run north to south; UV v=0 is at the south edge.
-            Image.fromarray(rgb8).save(out / "textures" / f"ground_{i}_{j}.jpg", quality=90, subsampling=0)
+            tile_distance = math.hypot((-half + (i + 0.5) * TILE_M), (-half + (j + 0.5) * TILE_M))
+            tile_out_px = 2560 if tile_distance <= TILE_M * 0.85 else 2048
+            tile_rgb = rgb8 if tile_out_px == rgb8.shape[0] else np.asarray(Image.fromarray(rgb8).resize((tile_out_px, tile_out_px), Image.LANCZOS))
+            Image.fromarray(tile_rgb).save(out / "textures" / f"ground_{i}_{j}.jpg", quality=90, subsampling=0)
             small = np.asarray(Image.fromarray(np.dstack([rgb8, arr[..., 3]])).resize((tile_px, tile_px), Image.LANCZOS))
             mosaic[(nt - 1 - j) * tile_px: (nt - j) * tile_px, i * tile_px: (i + 1) * tile_px] = small
             x0, y0 = -half + i * TILE_M, -half + j * TILE_M
@@ -650,7 +826,16 @@ def main() -> None:
                            np.c_[idx[:-1, :-1].ravel(), idx[1:, 1:].ravel(), idx[1:, :-1].ravel()]])
             write_obj(out / "meshes" / f"ground_{i}_{j}.obj", v, vt, nrm.reshape(-1, 3), f)
             vis_xml.append(pbr_visual(f"ground_{i}_{j}", f"model://{name}/meshes/ground_{i}_{j}.obj", f"model://{name}/textures/ground_{i}_{j}.jpg", 0.95))
-    Image.fromarray(mosaic[..., :3]).save(out / "textures" / "roof_mosaic.jpg", quality=90)
+    roof_atlas = Image.fromarray(mosaic[..., :3]).resize((1024, 1024), Image.LANCZOS)
+    roof_draw = ImageDraw.Draw(roof_atlas)
+    for b in buildings:
+        tint = parse_colour(b["tags"].get("roof:colour") or b["tags"].get("roof:color"))
+        if tint is not None:
+            fill = tuple(int(c * 255) for c in tint)
+            roof_draw.polygon([((x + half) / (2 * half) * roof_atlas.width,
+                                (half - y) / (2 * half) * roof_atlas.height)
+                               for x, y in b["poly"].exterior.coords], fill=fill)
+    roof_atlas.save(out / "textures" / "roof_mosaic.jpg", quality=88)
     print("ground done", flush=True)
 
     # Collision terrain, 8 m grid.
@@ -667,8 +852,8 @@ def main() -> None:
     coll_xml.append(f'<collision name="ground"><geometry><mesh><uri>model://{name}/meshes/ground_collision.obj</uri></mesh></geometry></collision>')
 
     # ---- Road meshes
-    road_tex = {"major": ("Asphalt025C", 6.0, 0.9), "minor": ("Asphalt031", 6.0, 0.9), 
-                "track": ("Ground037", 5.0, 1.0), "rail": ("Ground037", 3.0, 1.0)}
+    road_tex = {"major": ("Asphalt025C", 6.0, 0.92), "minor": ("Asphalt031", 5.0, 0.88),
+                "track": ("Ground037", 4.0, 0.98), "rail": ("Ground037", 3.0, 0.92)}
     for cat, polys in road_polys.items():
         if not polys:
             continue
@@ -677,13 +862,108 @@ def main() -> None:
         tris = b.write(out / "meshes" / f"road_{cat}.obj")
         src = next((LIB / "ambientcg" / road_tex[cat][0]).glob("*_Color.jpg"), None) if (LIB / "ambientcg" / road_tex[cat][0]).exists() else None
         tex = f"road_{cat}.jpg"
-        if src:
-            # The CC0 scans are lighter than sunlit aerial asphalt.
-            Image.open(src).convert("RGB").resize((1024, 1024), Image.LANCZOS).point(lambda c: int(c * 0.72)).save(out / "textures" / tex, quality=88)
-        else:
-            Image.new("RGB", (8, 8), (70, 70, 72)).save(out / "textures" / tex)
+        road_texture(src, mosaic, polys, half, out / "textures" / tex, sum(map(ord, cat)) + len(polys))
         vis_xml.append(pbr_visual(f"road_{cat}", f"model://{name}/meshes/road_{cat}.obj", f"model://{name}/textures/{tex}", road_tex[cat][2]))
         print("road", cat, tris, flush=True)
+    for cat, features in bridge_features.items():
+        if not features:
+            continue
+        b = MeshBin()
+        drape_features(features, terrain_road, road_tex[cat][1], b)
+        tris = b.write(out / "meshes" / f"bridge_{cat}.obj")
+        tex = f"road_{cat}.jpg"
+        vis_xml.append(pbr_visual(f"bridge_{cat}", f"model://{name}/meshes/bridge_{cat}.obj", f"model://{name}/textures/{tex}", 0.82))
+        print("bridge", cat, tris, flush=True)
+    if sidewalk_polys:
+        b = MeshBin(); drape(sidewalk_polys, terrain_road, 0.17, 3.0, b, cell=8.0)
+        tris = b.write(out / "meshes" / "sidewalk.obj")
+        Image.new("RGB", (128, 128), (150, 153, 148)).save(out / "textures" / "sidewalk.jpg", quality=90)
+        vis_xml.append(pbr_visual("sidewalk", f"model://{name}/meshes/sidewalk.obj", f"model://{name}/textures/sidewalk.jpg", 0.86))
+        print("sidewalk", tris, flush=True)
+    if curb_polys:
+        b = MeshBin(); drape(curb_polys, terrain_road, 0.31, 2.0, b, cell=5.0)
+        tris = b.write(out / "meshes" / "curb.obj")
+        Image.new("RGB", (64, 64), (178, 178, 170)).save(out / "textures" / "curb.jpg", quality=90)
+        vis_xml.append(pbr_visual("curb", f"model://{name}/meshes/curb.obj", f"model://{name}/textures/curb.jpg", 0.8))
+    # Bridge decks have structural piers and simple safety rails at both edges.
+    bridge_bin = MeshBin()
+    for cat, features in bridge_features.items():
+        for poly, elev in features:
+            line = max((r["line"] for r in road_lines if r.get("bridge") and r["line"].buffer(r["width"] / 2).intersects(poly)), key=lambda q: q.length, default=None)
+            if line is None:
+                continue
+            for side in (-1, 1):
+                try:
+                    edge = line.parallel_offset(line.length and (next(r["width"] for r in road_lines if r.get("bridge") and r["line"] is line) / 2 + 0.35) or 1.0, "left" if side > 0 else "right")
+                except (StopIteration, ValueError, shapely.errors.GEOSException):
+                    edge = line
+                pts = [(p[0], p[1], terrain.z(p[0], p[1]) + elev + 1.05) for p in edge.coords]
+                add_line_prism(bridge_bin, pts, 0.12, 1.0)
+            npiers = max(1, int(line.length / 28.0))
+            for k in range(1, npiers + 1):
+                p = line.interpolate(line.length * k / (npiers + 1))
+                add_box(bridge_bin, (p.x, p.y, terrain.z(p.x, p.y) + elev / 2), (0.8, 0.8, max(1.0, elev)))
+    if bridge_bin.count:
+        tris = bridge_bin.write(out / "meshes" / "bridge_details.obj")
+        Image.new("RGB", (64, 64), (105, 108, 110)).save(out / "textures" / "bridge_details.jpg", quality=90)
+        vis_xml.append(pbr_visual("bridge_details", f"model://{name}/meshes/bridge_details.obj", f"model://{name}/textures/bridge_details.jpg", 0.72, 0.15))
+        print("bridge details", tris, flush=True)
+    if rail_lines:
+        rail_bin = MeshBin()
+        for line in rail_lines:
+            for side in (-1, 1):
+                try:
+                    edge = line.parallel_offset(0.72, "left" if side > 0 else "right")
+                except (ValueError, shapely.errors.GEOSException):
+                    edge = line
+                pts = [(p[0], p[1], terrain.z(p[0], p[1]) + 0.20) for p in edge.coords]
+                add_line_prism(rail_bin, pts, 0.09, 0.12)
+            for s in np.arange(0.0, line.length, 1.8):
+                p = line.interpolate(s); q = line.interpolate(min(line.length, s + 0.1))
+                add_box(rail_bin, (p.x, p.y, terrain.z(p.x, p.y) + 0.08), (2.0, 0.18, 0.16), math.atan2(q.y - p.y, q.x - p.x))
+        tris = rail_bin.write(out / "meshes" / "rail_details.obj")
+        Image.new("RGB", (64, 64), (72, 76, 80)).save(out / "textures" / "rail_details.jpg", quality=90)
+        vis_xml.append(pbr_visual("rail_details", f"model://{name}/meshes/rail_details.obj", f"model://{name}/textures/rail_details.jpg", 0.42, 0.72))
+    if utility_lines:
+        power_bin = MeshBin()
+        for line, _tags in utility_lines:
+            coords = list(line.coords)
+            pts = [(x, y, terrain.z(x, y) + 8.5) for x, y in coords]
+            for a0, b0 in zip(pts, pts[1:]):
+                mid = ((a0[0] + b0[0]) / 2, (a0[1] + b0[1]) / 2, min(a0[2], b0[2]) - 1.0)
+                add_line_prism(power_bin, [a0, mid, b0], 0.035, 0.035)
+        for ntag in osm.node_tags:
+            if ntag["tags"].get("power") in {"pole", "tower"}:
+                add_box(power_bin, (ntag["x"], ntag["y"], terrain.z(ntag["x"], ntag["y"]) + 4.25), (0.18, 0.18, 8.5))
+        if power_bin.count:
+            tris = power_bin.write(out / "meshes" / "power_lines.obj")
+            Image.new("RGB", (32, 32), (42, 43, 40)).save(out / "textures" / "power_lines.jpg", quality=90)
+            vis_xml.append(pbr_visual("power_lines", f"model://{name}/meshes/power_lines.obj", f"model://{name}/textures/power_lines.jpg", 0.48, 0.7))
+            print("power", tris, flush=True)
+    if fence_lines:
+        fence_bin = MeshBin()
+        for line, tags in fence_lines:
+            h = 1.8 if tags.get("barrier") == "fence" else 2.2
+            pts = [(x, y, terrain.z(x, y) + h / 2) for x, y in line.coords]
+            add_line_prism(fence_bin, pts, 0.08, h)
+        tris = fence_bin.write(out / "meshes" / "fences.obj")
+        Image.new("RGB", (32, 32), (105, 98, 83)).save(out / "textures" / "fences.jpg", quality=90)
+        vis_xml.append(pbr_visual("fences", f"model://{name}/meshes/fences.obj", f"model://{name}/textures/fences.jpg", 0.82))
+    if water_polys:
+        wb = MeshBin(); water_polys = [p for p in water_polys if not p.is_empty and p.area > 2]
+        drape(water_polys, terrain_road, 0.08, 18.0, wb, cell=12.0)
+        tris = wb.write(out / "meshes" / "water.obj")
+        water = np.zeros((512, 512, 3), np.uint8); wrng = np.random.default_rng(42)
+        water[..., 0], water[..., 1], water[..., 2] = 35, 92, 118
+        wave = wrng.normal(0, 1, (64, 64)).astype(np.float32)
+        wave = np.asarray(Image.fromarray(wave, mode="F").resize((512, 512), Image.BICUBIC))
+        water = np.clip(water.astype(np.float32) + wave[..., None] * np.array([3, 8, 10]), 0, 255).astype(np.uint8)
+        Image.fromarray(water).save(out / "textures" / "water.jpg", quality=92)
+        gy, gx = np.gradient(wave); nrm = np.dstack([-gx * 0.12, -gy * 0.12, np.ones_like(wave)])
+        nrm = np.clip((nrm / np.linalg.norm(nrm, axis=2, keepdims=True) * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
+        Image.fromarray(nrm).save(out / "textures" / "water_normal.png")
+        vis_xml.append(pbr_visual("water", f"model://{name}/meshes/water.obj", f"model://{name}/textures/water.jpg", 0.12, 0.05, True, f"model://{name}/textures/water_normal.png"))
+        print("water", tris, flush=True)
     for lab, polys, col in (("white", marks_white, (232, 232, 228)), ("yellow", marks_yellow, (222, 178, 60))):
         if polys:
             b = MeshBin()
@@ -693,24 +973,42 @@ def main() -> None:
             vis_xml.append(pbr_visual(f"mark_{lab}", f"model://{name}/meshes/mark_{lab}.obj", f"model://{name}/textures/mark_{lab}.png", 0.7))
 
     # ---- Buildings meshes
+    facade_dir = Path(os.environ.get("RW_FACADE_OUT", LIB / "facades"))
+    for b in buildings:
+        tint = parse_colour(b["tags"].get("building:colour") or b["tags"].get("building:color"))
+        if tint is not None:
+            base_fac = b["facade"]
+            variant = f"{base_fac}_tag_{b['id']}"
+            src = facade_dir / f"{base_fac}.jpg"
+            if src.exists():
+                im = np.asarray(Image.open(src).convert("RGB").resize((768, 768), Image.LANCZOS), np.float32)
+                im *= np.array(tint)[None, None, :] * 1.55
+                Image.fromarray(np.clip(im, 0, 255).astype(np.uint8)).save(out / "textures" / f"facade_{variant}.jpg", quality=90)
+                b["facade"] = variant
     bins: dict[str, MeshBin] = {}
     for b in buildings:
         bins.setdefault(b["facade"], MeshBin())
         if b["front"]:
             bins.setdefault(b["front"], MeshBin())
-    roof_bin, coll_bin = MeshBin(), MeshBin()
+    roof_bin, roof_detail_bin, coll_bin = MeshBin(), MeshBin(), MeshBin()
     for b in buildings:
-        add_building(bins, roof_bin, coll_bin, b, terrain, half)
-    facade_dir = LIB / "facades"
+        add_building(bins, roof_bin, roof_detail_bin, coll_bin, b, terrain, half)
     for fac, bin_ in bins.items():
         tris = bin_.write(out / "meshes" / f"facade_{fac}.obj")
-        shutil.copy(facade_dir / f"{fac}.jpg", out / "textures" / f"facade_{fac}.jpg")
+        src_fac = out / "textures" / f"facade_{fac}.jpg"
+        if not src_fac.exists():
+            Image.open(facade_dir / f"{fac}.jpg").resize((768, 768), Image.LANCZOS).save(src_fac, quality=90)
         glass = fac.startswith("glass")
         vis_xml.append(pbr_visual(f"facade_{fac}", f"model://{name}/meshes/facade_{fac}.obj", f"model://{name}/textures/facade_{fac}.jpg", 0.45 if glass else 0.85, 0.0))
         print("facade", fac, tris, flush=True)
     if roof_bin.count:
         roof_bin.write(out / "meshes" / "roofs.obj")
         vis_xml.append(pbr_visual("roofs", f"model://{name}/meshes/roofs.obj", f"model://{name}/textures/roof_mosaic.jpg", 0.9))
+    if roof_detail_bin.count:
+        tris = roof_detail_bin.write(out / "meshes" / "roof_details.obj")
+        Image.new("RGB", (128, 128), (142, 142, 136)).save(out / "textures" / "roof_details.jpg", quality=90)
+        vis_xml.append(pbr_visual("roof_details", f"model://{name}/meshes/roof_details.obj", f"model://{name}/textures/roof_details.jpg", 0.78))
+        print("roof details", tris, flush=True)
     if coll_bin.count:
         coll_bin.write(out / "meshes" / "buildings_collision.obj")
         coll_xml.append(f'<collision name="buildings"><geometry><mesh><uri>model://{name}/meshes/buildings_collision.obj</uri></mesh></geometry></collision>')
@@ -748,10 +1046,30 @@ def main() -> None:
         f'<?xml version="1.0"?><sdf version="1.9"><model name="{name}"><static>true</static><link name="terrain">'
         + "".join(coll_xml) + "".join(vis_xml) + "</link></model></sdf>\n")
 
+    texture_decoded = 0
+    for tex_path in (out / "textures").iterdir():
+        try:
+            with Image.open(tex_path) as im:
+                channels = len(im.getbands())
+                texture_decoded += im.width * im.height * channels * 4 * 4 // 3
+        except (OSError, ValueError):
+            continue
+    triangle_total = 0
+    for mesh_path in (out / "meshes").glob("*.obj"):
+        try:
+            triangle_total += sum(1 for line in mesh_path.open() if line.startswith("f "))
+        except OSError:
+            pass
+    print(f"texture_decoded_with_mips={texture_decoded / 2**30:.3f} GiB triangles={triangle_total}", flush=True)
+
     scene.update({"site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
-                  "stats": {"buildings": len(buildings), "trees": len(trees), "road_km": sum(r["line"].length for r in road_lines) / 1000},
+                  "stats": {"buildings": len(buildings), "trees": len(trees), "road_km": sum(r["line"].length for r in road_lines) / 1000,
+                            "water_polygons": len(water_polys), "bridges": sum(len(v) for v in bridge_features.values()),
+                            "texture_decoded_gib": round(texture_decoded / 2**30, 3), "triangles": triangle_total},
                   "footprints": [[round(v, 1) for v in b["poly"].bounds] + [round(b["h"], 1)] for b in buildings]})
-    (ASSET_ROOT / "sites" / name / "scene.json").write_text(json.dumps(scene, ensure_ascii=False))
+    scene_path = SCENE_ROOT / "sites" / name / "scene.json"
+    scene_path.parent.mkdir(parents=True, exist_ok=True)
+    scene_path.write_text(json.dumps(scene, ensure_ascii=False))
     print({k: (len(v) if isinstance(v, list) else v) for k, v in scene.items() if k != "footprints"}, flush=True)
 
 
@@ -817,7 +1135,7 @@ def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng,
 def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch) -> None:
     """Sharp ground around the takeoff point: the aerial photo sets colour, CC0 photos add fine detail."""
     core_half = 300.0
-    px = 8192
+    px = 3072
     res = 2 * core_half / px
     src_res = TILE_M / tiles[(0, 0)].shape[0]
     # Stitch just the part of the tile mosaic the core needs.
