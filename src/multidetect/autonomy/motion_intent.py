@@ -91,7 +91,12 @@ def profile_camera_mount_rotation(
         angles.update({str(key): float(value) for key, value in gimbal_angles_deg.items()})
     result = tuple(float(value) for value in base)
     for axis in gimbal.get("joint_order", ("yaw", "roll", "pitch")):
-        result = _mat_mul(result, _axis_rotation(str(axis), float(angles.get(axis, 0.0))))
+        angle = float(angles.get(axis, 0.0))
+        # The Gazebo pitch joint's FLU +Y axis maps to body FRD -Y. Keep the
+        # profile angle in the SDF/MAVLink command convention.
+        if str(axis) == "pitch":
+            angle = -angle
+        result = _mat_mul(result, _axis_rotation(str(axis), angle))
     return result
 
 
@@ -110,6 +115,15 @@ def profile_mount_pitch_down_rad(
     if rotations and (mode is None or mode.lower() not in rotations):
         return float(default)
     matrix = rotations[mode.lower()] if rotations else profile.camera.body_to_camera_rotation
+    gimbal = getattr(profile.camera, "gimbal", {})
+    if gimbal.get("enabled") and mode is not None:
+        defaults = gimbal.get("default_angles_deg", {})
+        if isinstance(defaults, Mapping) and isinstance(defaults.get(mode.lower()), Mapping):
+            matrix = profile_camera_mount_rotation(
+                profile,
+                mode=mode,
+                gimbal_angles_deg=defaults[mode.lower()],
+            )
     r = [float(value) for value in matrix]
     if abs(r[4] - 1.0) > 1e-6 or any(abs(r[i]) > 1e-6 for i in (1, 3, 5, 7)):
         return float(default)

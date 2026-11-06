@@ -7,11 +7,12 @@ from pathlib import Path
 import pytest
 
 from multidetect.autonomy.airframe_profile import AirframeProfile
-from multidetect.autonomy.motion_intent import camera_ray_from_profile
+from multidetect.autonomy.motion_intent import camera_ray_from_profile, profile_mount_pitch_down_rad
 from multidetect.autonomy.capability_contract import capabilities_for_airframe
 from multidetect.autonomy.motion_intent import AirframeMotionAdapter, MotionIntent
 from multidetect.sim_teacher import ActionPrimitive, execute_gimbal_action
 from multidetect.sim_teacher.streams import MavlinkState, SensorSample, build_observation
+from multidetect.sim_teacher.streams import gimbal_angles_from_joint_state
 from multidetect.simulator.camera_projection import pixel_camera_ray
 from scripts import collect_sim_teacher_episodes as collector
 
@@ -29,6 +30,7 @@ def test_delta_model_exposes_three_gimbal_joints_and_standard_sensor_links():
     assert model.find("link[@name='depth_camera_link']/sensor[@name='depth_camera']") is not None
     topics = {plugin.findtext("sub_topic") for plugin in model.findall("plugin") if plugin.findtext("sub_topic")}
     assert {"command/gimbal_yaw", "command/gimbal_roll", "command/gimbal_pitch"} <= topics
+    assert model.findtext("joint[@name='c11_pitch_joint']/axis/xyz") == "0 -1 0"
 
 
 def test_profile_camera_ray_applies_live_gimbal_pitch_only_when_sampled():
@@ -42,8 +44,33 @@ def test_profile_camera_ray_applies_live_gimbal_pitch_only_when_sampled():
         attitude_deg=(0, 0, 0), profile=profile, mode="mc",
         gimbal_angles_deg={"yaw": 0, "roll": 0, "pitch": -45},
     )
-    assert math.asin(nominal[2]) == pytest.approx(math.radians(-20), abs=1e-6)
-    assert math.asin(live[2]) < math.asin(nominal[2])
+    assert math.asin(nominal[2]) == pytest.approx(0.0, abs=1e-6)
+    assert math.asin(live[2]) == pytest.approx(math.radians(45), abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("mode", "attitude", "expected_ray"),
+    [
+        ("mc", (0.0, 0.0, 90.0), (0.0, math.sqrt(0.5), math.sqrt(0.5))),
+        ("fw", (0.0, 0.0, 0.0), (math.sqrt(0.5), 0.0, math.sqrt(0.5))),
+    ],
+)
+def test_negative_45_gimbal_pitch_points_down_in_hover_and_fw(mode, attitude, expected_ray):
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    ray = camera_ray_from_profile(
+        320, 240, fx=270, fy=270, cx=320, cy=240,
+        attitude_deg=attitude, profile=profile, mode=mode,
+        gimbal_angles_deg={"yaw": 0, "roll": 0, "pitch": -45},
+    )
+    assert ray == pytest.approx(expected_ray, abs=1e-6)
+
+
+@pytest.mark.parametrize("mode", ["mc", "fw"])
+def test_ground_projection_mount_pitch_includes_gimbal_mode_default(mode):
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    assert profile_mount_pitch_down_rad(profile, 0.18, mode=mode) == pytest.approx(
+        math.radians(45), abs=1e-6
+    )
 
 
 @pytest.mark.parametrize(
@@ -75,6 +102,30 @@ def test_gimbal_earth_frame_yaw_is_compared_in_vehicle_frame():
     status = {"q": q, "flags": 64}
     actual = collector._gimbal_attitude_angles_deg(status, vehicle_yaw_deg=40.0)
     assert actual == pytest.approx({"yaw": 0.0, "roll": 0.0, "pitch": 0.0}, abs=1e-6)
+
+
+def test_gazebo_joint_state_is_used_for_simulation_angles():
+    assert gimbal_angles_from_joint_state(
+        {"fresh": True, "position_rad": {"yaw": 0.0, "roll": 0.0, "pitch": -math.pi / 4}}
+    ) == pytest.approx({"yaw": 0.0, "roll": 0.0, "pitch": -45.0})
+
+
+@pytest.mark.parametrize("spawn_body_yaw_deg", [90.0, 45.0])
+def test_sim_gimbal_spawn_yaw_correction_keeps_relative_yaw_at_zero(spawn_body_yaw_deg):
+    raw_yaw_deg = 90.0
+    q = (math.cos(math.radians(raw_yaw_deg) / 2), 0.0, 0.0,
+         math.sin(math.radians(raw_yaw_deg) / 2))
+    status = {"q": q, "flags": 64}
+    correction = spawn_body_yaw_deg - 90.0
+    actual = collector._gimbal_attitude_angles_deg(
+        status,
+        vehicle_yaw_deg=spawn_body_yaw_deg,
+        yaw_correction_deg=correction,
+    )
+    assert actual["yaw"] == pytest.approx(0.0, abs=1e-6)
+    assert collector._gimbal_attitude_angles_deg(
+        status, vehicle_yaw_deg=spawn_body_yaw_deg
+    )["yaw"] == pytest.approx(90.0 - spawn_body_yaw_deg, abs=1e-6)
 
 
 def test_gimbal_command_wait_uses_fresh_fake_device_telemetry(monkeypatch):

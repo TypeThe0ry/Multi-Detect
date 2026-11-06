@@ -443,6 +443,19 @@ def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> Airfr
     raise ValueError(f"unknown airframe profile: {airframe}")
 
 
+def _simulation_gimbal_yaw_correction_deg(plan: CollectionPlan) -> float | None:
+    """Return the opt-in Gazebo camera-IMU yaw correction for this episode."""
+    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    gimbal = getattr(getattr(profile, "camera", None), "gimbal", {})
+    if not isinstance(gimbal, Mapping) or gimbal.get("simulation_yaw_correction") != "spawn_yaw_deg":
+        return None
+    try:
+        runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
+        yaw_rad = runtime["vehicle"]["spawn_pose"]["yaw_rad"]
+        return -math.degrees(float(yaw_rad))
+    except (OSError, TypeError, ValueError, KeyError):
+        return None
+
 def _default_px4_logger_mode(airframe: str) -> str:
     """Disable PX4 ULog for delta tailsitters; preserve other airframe defaults."""
     profile = _airframe_profile(airframe)
@@ -3094,7 +3107,10 @@ def _plain_record(value: Any) -> Any:
 
 
 def _gimbal_attitude_angles_deg(
-    status: Any, *, vehicle_yaw_deg: float | None = None
+    status: Any,
+    *,
+    vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0,
 ) -> dict[str, float] | None:
     """Decode the device quaternion, converting earth-frame yaw to body yaw."""
     q = _field(status, "q", None)
@@ -3114,13 +3130,26 @@ def _gimbal_attitude_angles_deg(
     flags = int(_field(status, "flags", 0) or 0)
     if vehicle_yaw_deg is not None and flags & 64:
         yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
-    return {"yaw": yaw_deg, "roll": math.degrees(roll), "pitch": math.degrees(pitch)}
+    yaw_deg = (yaw_deg + float(yaw_correction_deg) + 180.0) % 360.0 - 180.0
+    return {
+        "yaw": yaw_deg,
+        "roll": math.degrees(roll),
+        "pitch": math.degrees(pitch),
+    }
 
 
 def _gimbal_attitude_error_deg(
-    status: Any, target: Mapping[str, float], *, vehicle_yaw_deg: float | None = None
+    status: Any,
+    target: Mapping[str, float],
+    *,
+    vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0,
 ) -> dict[str, float] | None:
-    actual = _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw_deg)
+    actual = _gimbal_attitude_angles_deg(
+        status,
+        vehicle_yaw_deg=vehicle_yaw_deg,
+        yaw_correction_deg=yaw_correction_deg,
+    )
     if actual is None:
         return None
     return {
@@ -3136,6 +3165,7 @@ def _command_and_wait_gimbal(
     *,
     timeout_s: float = 15.0,
     tolerance_deg: float = 4.0,
+    yaw_correction_deg: float = 0.0,
 ) -> dict[str, Any]:
     """Acquire gimbal-manager control, command pitch/yaw, and verify fresh telemetry."""
     sender = getattr(getattr(connection, "mav", None), "command_long_send", None)
@@ -3217,14 +3247,29 @@ def _command_and_wait_gimbal(
             math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
         )
         error = (
-            _gimbal_attitude_error_deg(status, target, vehicle_yaw_deg=vehicle_yaw_deg)
+            _gimbal_attitude_error_deg(
+                status,
+                target,
+                vehicle_yaw_deg=vehicle_yaw_deg,
+                yaw_correction_deg=yaw_correction_deg,
+            )
             if received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns
             else None
         )
         if error is not None:
             last_error = error
             if max(error.values()) <= tolerance_deg:
-                return {"status": "reached", "target_deg": dict(target), "actual_deg": _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw_deg), "error_deg": error, "tolerance_deg": tolerance_deg}
+                return {
+                    "status": "reached",
+                    "target_deg": dict(target),
+                    "actual_deg": _gimbal_attitude_angles_deg(
+                        status,
+                        vehicle_yaw_deg=vehicle_yaw_deg,
+                        yaw_correction_deg=yaw_correction_deg,
+                    ),
+                    "error_deg": error,
+                    "tolerance_deg": tolerance_deg,
+                }
         time.sleep(0.05)
     return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error,
             "configure_ack": configure_ack, "command_ack": ack,
@@ -4820,6 +4865,7 @@ def run_episode(
             sensor_process = _make_sensor_process(plan, environment)
             depth_binding = None
             runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
+            simulation_gimbal_yaw_correction_deg = _simulation_gimbal_yaw_correction_deg(plan)
             # Must match _sensor_command: non-x500 airframes always stream the
             # registered depth camera even when the scenario omits it.
             declares_depth = any(
@@ -5090,6 +5136,7 @@ def run_episode(
                     ),
                     airframe_profile=profile,
                     telemetry_reader=mav_reader,
+                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
                     # Fixed-wing/VTOL command durations follow PX4's lockstep
                     # clock; a separate wall ceiling is enforced by callbacks
                     # below so a stalled simulator still terminates.
@@ -5633,6 +5680,7 @@ def run_episode(
                         mav_reader,
                         {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
                         tolerance_deg=4.0,
+                        yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
                     )
                     after_sample = _request_fresh_sensor_sample(
                     sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s
@@ -5710,6 +5758,7 @@ def run_episode(
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
                         else None
                     ),
+                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],
@@ -5862,6 +5911,7 @@ def run_episode(
                                     build_observation(
                                         sample,
                                         aligned,
+                                        gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                                         camera_info={
                                             **DEFAULT_CAMERA_INFO,
                                             "width": plan.rgb_size[0],
@@ -5921,6 +5971,7 @@ def run_episode(
                                 build_observation(
                                     sample,
                                     aligned,
+                                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                                     camera_info={
                                         **DEFAULT_CAMERA_INFO,
                                         "width": plan.rgb_size[0],
@@ -5966,6 +6017,7 @@ def run_episode(
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
                         else None
                     ),
+                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],

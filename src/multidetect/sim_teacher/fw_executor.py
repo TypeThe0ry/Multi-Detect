@@ -58,6 +58,7 @@ class FixedWingVtolExecutor:
         telemetry_reader: Any = None,
         gimbal_timeout_s: float = 15.0,
         gimbal_tolerance_deg: float = 4.0,
+        gimbal_yaw_correction_deg: float = 0.0,
     ) -> None:
         normalized = airframe.strip().lower().replace("-", "_")
         # Profile IDs are intentionally accepted here so the collector can
@@ -116,6 +117,7 @@ class FixedWingVtolExecutor:
         self.telemetry_reader = telemetry_reader
         self.gimbal_timeout_s = float(gimbal_timeout_s)
         self.gimbal_tolerance_deg = float(gimbal_tolerance_deg)
+        self.gimbal_yaw_correction_deg = float(gimbal_yaw_correction_deg)
 
     @staticmethod
     def _ok(result: Any) -> bool:
@@ -480,6 +482,7 @@ class FixedWingVtolExecutor:
                 clock=self._clock,
                 timeout_s=self.gimbal_timeout_s,
                 tolerance_deg=self.gimbal_tolerance_deg,
+                yaw_correction_deg=self.gimbal_yaw_correction_deg,
             )
         started = self._clock()
         origin = self._commanded
@@ -588,6 +591,7 @@ class FixedWingVtolExecutor:
                     clock=self._clock,
                     timeout_s=self.gimbal_timeout_s,
                     tolerance_deg=self.gimbal_tolerance_deg,
+                    yaw_correction_deg=self.gimbal_yaw_correction_deg,
                 )
             centre = command.target_ned or self._commanded
             altitude = -centre[2]

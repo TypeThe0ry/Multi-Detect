@@ -1100,13 +1100,26 @@ PX4 的 shell 从 /dev/null 读到 EOF 后不停打印 `pxh>`（单次飞行约 
 主分支 263f2b95 已改成默认 `-d`。这里只移植了这个开关，整个提交和本分支冲突，后续合并时取主分支版本。
 是否就是卡死的原因还没证实，靠后续飞行看。
 
-## 云台偏航和出生朝向（未解决）
+## 云台偏航和出生朝向
 
-PX4 的云台偏航读数只在出生朝向为默认值（ENU yaw 0）时正确。camera_imu 默认以出生姿态为参考，所以 w0016（出生朝向 45°）读数固定偏 44°，
-云台关节本身是对的（Gazebo 关节角约 0）。云台版的 AI 任务卡在这一步，起飞后的云台自检不过。
+此前 PX4 的云台偏航读数只在出生朝向为默认值（ENU yaw 0）时正确。camera_imu 以出生姿态为参考，所以 w0016（出生朝向 45°）读数固定偏约 44°，
+云台关节本身是对的（Gazebo 关节角约 0）。云台版 AI 任务因此卡在起飞后的云台自检。
 
 试过但失败的两个改法：`orientation_reference_frame` 设 ENU 后，读数不再依赖出生朝向，但固定差 180°（传感器 pose 带的 180° 偏航不再被抵消）；
 再加 `heading_deg=180` 没有效果。这两次都已回退，模型回到通过第 40–42 轮时的状态。
 
-下一步：不再靠 SDF 猜。自检改用 Gazebo 关节角（或在指令前按关节角 0 标定偏差），并核对 `onboard_runtime/vehicle.py` 里 AI 用来算相机外参的云台角
-是否也受影响。真机不走 Gazebo IMU，不受这个问题影响，修复不能带到真机路径。
+这次修复和验证范围见下方 2026-11-06 结论。真机不走 Gazebo IMU，校正默认关闭。
+
+## 2026-11-06：云台偏航和出生朝向结论
+
+任务 A 的根因是 `GIMBAL_DEVICE_ATTITUDE_STATUS.flags & 64` 的地球系偏航。现有三个读数路径原先都按“设备偏航 - 机体偏航”得到相对偏航：collector 的 `_gimbal_attitude_angles_deg`、`sim_teacher.executor._gimbal_angles_deg`，以及 `onboard_runtime/vehicle.py` 的 `PymavlinkVehicle.ingest`。后者把结果放入 `VehicleState.gimbal_angles_deg`；动态相机运动估计器会消费这组角度。未提供校正参数时，这些路径的行为保持原样，真机默认校正为 0°。
+
+仿真配置新增 `camera.gimbal.simulation_yaw_correction = "spawn_yaw_deg"`。采集器从 runtime 的 `vehicle.spawn_pose.yaw_rad` 计算 `-yaw_deg`，只传给仿真自检、仿真执行器和仿真观测；因此默认出生朝向（场景 ENU yaw 0°，PX4 机体读数约 90°）校正为 0°，w0016 的出生 yaw 45° 校正为 -45°，原来约 45° 的误差被消掉。仿真观测若带有 Gazebo `gimbal_joint_state` sidecar，则直接使用关节角作为相机角，避免 camera_imu 的出生姿态参考污染 AI 观测。4° 自检容差没有改变。测试覆盖了出生机体 yaw 90°（对应场景 yaw 0°）、45°，以及未配置时的旧行为。没有修改 PX4 参数、气动模型或 `orientation_reference_frame`；也没有依据 PX4 GZGimbal 源码作未经验证的 SDF 配置推断。
+
+任务 B 的 SDF 计算如下。`c11_pitch_joint` 的轴改为 `(0,-1,0)`；在 FLU 中，指令/关节角 `-0.785398 rad`（-45°）把相机光轴 `camera_link` 的 +X 变为 `(0.707107, 0, -0.707107)`，即机体前方下 45°。profile 的 `body_to_camera_rotation` 和 MC/FW 矩阵改为单位阵，并在 `profile_camera_mount_rotation` 中把云台 pitch 命令取反映射到 FRD；因此同一光轴在 FRD 为 `(0.707107, 0, 0.707107)`。理想悬停姿态（PX4 roll/pitch 约 0°、yaw 90°）的世界 NED 光轴为 `(0, 0.707107, 0.707107)`；理想 FW 姿态（roll/pitch/yaw 0°）为 `(0.707107, 0, 0.707107)`。两者的 down 分量都是 `0.707107`，下视 45°，不会出现悬停朝上。
+
+用 `.tmp/smoke-gimbal-42/episodes/episode-0000-90201d69/steps.jsonl` 的每帧姿态、中心像素和 `-45°` 指令重算，6 个观测的世界 NED 光轴 down 角为 48.16–49.42°（roll/pitch 使理想 45° 略有变化）。对应 RGB 帧中地面始终占据主要区域，地平线在 `000000_before`/`000001_before` 的上方或在 `000002_before` 中斜穿上半部，和下视约 48–49° 一致。第 42 轮帧是在旧模型和旧观测字段下采集的，因此它验证的是方向趋势，不是新 SDF 的飞行回归；本轮没有启动 SITL。
+
+符号约定已对齐：`motion_intent.py` 的相机射线使用 FRD/NED，云台 pitch 在 profile 关节映射处按 SDF FLU→FRD 轴向取反；`profile_mount_pitch_down_rad` 现在把 MC/FW 的默认云台角计入 AI `CameraModel` 的地面投影。两种模式均为下视 45°。以已知姿态代入 `camera_ray_from_profile`，MC（姿态 roll/pitch 0°、yaw 90°）得到 NED `(0, 0.707107, 0.707107)`；FW（roll/pitch/yaw 0°）得到 `(0.707107, 0, 0.707107)`，down 正值说明光线都与地面相交。观测中的 joint sidecar 保留实际关节角；当前 CameraModel 使用模式默认角而不是随每帧关节角更新，若任务改变云台角度，仍需把动态射线接入策略投影。`GroundProjector` 的静态真实相机外参仍把 `mount_pitch_down_deg > 0` 定义为向下，`onboard_runtime/vehicle.py` 的新增仿真偏航校正参数默认关闭，不改变真机路径。相机模型位置仍固定在 C11 挂点，故 self-occlusion 使用的相机中心和射线没有被移回机体原点；云台 sidecar 只替换角度读数，不绕过遮挡判定。
+
+未确定事项：第 42 轮没有在新 SDF 上重新飞行，且其 steps 没有逐帧保存 Gazebo 关节 sidecar，所以不能声称新模型已通过完整起飞、转换、过速恢复、返航和着陆门禁；真实云台硬件的 mount calibration 仍需实机数据确认。

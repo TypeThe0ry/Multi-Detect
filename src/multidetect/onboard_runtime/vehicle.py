@@ -270,6 +270,7 @@ class PymavlinkVehicle:
         target_component: int | None = None,
         write_timeout_s: float = 0.05,
         clock: Callable[[], float] = _precise_monotonic,
+        gimbal_yaw_correction_deg: float = 0.0,
     ) -> None:
         if not isinstance(endpoint, str) or not endpoint.strip():
             raise ValueError("MAVLink endpoint must be nonempty")
@@ -288,6 +289,7 @@ class PymavlinkVehicle:
         self.target_system = target_system
         self.target_component = target_component
         self._clock = clock
+        self._gimbal_yaw_correction_deg = float(gimbal_yaw_correction_deg)
         self._write_timeout_s = write_timeout_s
         self._state = VehicleState()
         self._state_lock = threading.Lock()
@@ -419,7 +421,10 @@ class PymavlinkVehicle:
                 flags = int(message.get("flags", 0) or 0)
                 if angles is not None and flags & 64 and state.attitude_deg is not None:
                     angles = dict(angles)
-                    angles["yaw"] = (angles["yaw"] - state.attitude_deg[2] + 180.0) % 360.0 - 180.0
+                    angles["yaw"] = (
+                        angles["yaw"] - state.attitude_deg[2]
+                        + self._gimbal_yaw_correction_deg + 180.0
+                    ) % 360.0 - 180.0
                 if angles is not None and (
                     state.gimbal_observed_monotonic is None
                     or stamp >= state.gimbal_observed_monotonic

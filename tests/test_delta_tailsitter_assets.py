@@ -354,7 +354,7 @@ def test_gimbal_axes_and_imu_use_px4_frame_contract():
     model = _model(GIMBAL_WRAPPER_DIR)
     assert _numbers(model.findtext("joint[@name='c11_yaw_joint']/axis/xyz")) == (0, 0, -1)
     assert _numbers(model.findtext("joint[@name='c11_roll_joint']/axis/xyz")) == (-1, 0, 0)
-    assert _numbers(model.findtext("joint[@name='c11_pitch_joint']/axis/xyz")) == (0, 1, 0)
+    assert _numbers(model.findtext("joint[@name='c11_pitch_joint']/axis/xyz")) == (0, -1, 0)
     assert float(model.findtext("joint[@name='c11_pitch_joint']/axis/initial_position")) == 0.0
     assert _numbers(model.findtext("link[@name='camera_link']/sensor[@name='camera_imu']/pose")) == pytest.approx((0, 0, 0, 0, 0, math.pi), abs=1e-9)
 

@@ -55,38 +55,38 @@
   "camera": {
     "mount": "gimbal",
     "body_to_camera_rotation": [
-      0.939692620786,
+      1.0,
       0.0,
-      0.342020143326,
+      0.0,
       0.0,
       1.0,
       0.0,
-      -0.342020143326,
       0.0,
-      0.939692620786
+      0.0,
+      1.0
     ],
     "attitude_rotations": {
       "mc": [
-        0.939692620786,
+        1.0,
         0.0,
-        0.342020143326,
+        0.0,
         0.0,
         1.0,
         0.0,
-        -0.342020143326,
         0.0,
-        0.939692620786
+        0.0,
+        1.0
       ],
       "fw": [
-        0.939692620786,
+        1.0,
         0.0,
-        0.342020143326,
+        0.0,
         0.0,
         1.0,
         0.0,
-        -0.342020143326,
         0.0,
-        0.939692620786
+        0.0,
+        1.0
       ]
     },
     "gimbal": {
@@ -97,10 +97,11 @@
       "joint_order": ["yaw", "roll", "pitch"],
       "default_angles_deg": {
         "mc": {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
-        "fw": {"yaw": 0.0, "roll": 0.0, "pitch": 45.0}
+        "fw": {"yaw": 0.0, "roll": 0.0, "pitch": -45.0}
       },
       "stabilization_reference": "world_horizon",
-      "angle_source": "GIMBAL_DEVICE_ATTITUDE_STATUS or Gazebo joint state"
+      "angle_source": "GIMBAL_DEVICE_ATTITUDE_STATUS or Gazebo joint state",
+      "simulation_yaw_correction": "spawn_yaw_deg"
     }
   },
   "endurance": {

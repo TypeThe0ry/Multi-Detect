@@ -61,7 +61,12 @@ def _gimbal_profile_limits(profile: Any) -> tuple[bool, Mapping[str, Any]]:
     return False, {}
 
 
-def _gimbal_angles_deg(status: Any, *, vehicle_yaw_deg: float | None = None) -> dict[str, float] | None:
+def _gimbal_angles_deg(
+    status: Any,
+    *,
+    vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, float] | None:
     q = status.get("q") if isinstance(status, Mapping) else getattr(status, "q", None)
     if not isinstance(q, (list, tuple)) or len(q) < 4:
         return None
@@ -77,6 +82,7 @@ def _gimbal_angles_deg(status: Any, *, vehicle_yaw_deg: float | None = None) -> 
     flags = int(status.get("flags", 0) if isinstance(status, Mapping) else getattr(status, "flags", 0) or 0)
     if vehicle_yaw_deg is not None and flags & 64:
         yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
+    yaw_deg = (yaw_deg + float(yaw_correction_deg) + 180.0) % 360.0 - 180.0
     return {
         "roll": math.degrees(math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
         "pitch": math.degrees(math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))),
@@ -93,6 +99,7 @@ def execute_gimbal_action(
     clock: callable = time.monotonic,
     timeout_s: float = 15.0,
     tolerance_deg: float = 4.0,
+    yaw_correction_deg: float = 0.0,
 ) -> ExecutionResult:
     """Acquire the MAVLink gimbal-manager lease and require a fresh readback."""
     started = clock()
@@ -213,7 +220,11 @@ def execute_gimbal_action(
         if status is not None and isinstance(received, Mapping) and received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns:
             attitude = state.get("ATTITUDE") if callable(getattr(state, "get", None)) else None
             raw_yaw = getattr(attitude, "yaw", attitude.get("yaw", 0.0) if isinstance(attitude, Mapping) else 0.0)
-            actual = _gimbal_angles_deg(status, vehicle_yaw_deg=math.degrees(float(raw_yaw)))
+            actual = _gimbal_angles_deg(
+                status,
+                vehicle_yaw_deg=math.degrees(float(raw_yaw)),
+                yaw_correction_deg=yaw_correction_deg,
+            )
             if actual is not None:
                 last_error = {
                     axis: abs((actual[axis] - target[axis] + 180.0) % 360.0 - 180.0)
@@ -377,6 +388,7 @@ class PymavlinkPrimitiveExecutor:
         telemetry_reader: Any = None,
         gimbal_timeout_s: float = 15.0,
         gimbal_tolerance_deg: float = 4.0,
+        gimbal_yaw_correction_deg: float = 0.0,
     ) -> None:
         validate_local_endpoint(endpoint)
         if stream_hz <= 2.0 or not math.isfinite(stream_hz):
@@ -405,6 +417,7 @@ class PymavlinkPrimitiveExecutor:
         self.telemetry_reader = telemetry_reader
         self.gimbal_timeout_s = float(gimbal_timeout_s)
         self.gimbal_tolerance_deg = float(gimbal_tolerance_deg)
+        self.gimbal_yaw_correction_deg = float(gimbal_yaw_correction_deg)
 
     def _mav(self) -> Any:
         mav = getattr(self.vehicle, "mav", None)
@@ -470,6 +483,7 @@ class PymavlinkPrimitiveExecutor:
                 clock=self._clock,
                 timeout_s=self.gimbal_timeout_s,
                 tolerance_deg=self.gimbal_tolerance_deg,
+                yaw_correction_deg=self.gimbal_yaw_correction_deg,
             )
         start_time = self._clock()
         wall_start = self._wall_clock()

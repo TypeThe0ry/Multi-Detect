@@ -380,7 +380,12 @@ def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
     return sorted(samples, key=lambda sample: sample["received_monotonic_s"])
 
 
-def gimbal_angles_from_status(status: Any) -> dict[str, float] | None:
+def gimbal_angles_from_status(
+    status: Any,
+    *,
+    vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, float] | None:
     """Decode MAVLink gimbal-device quaternion into yaw/roll/pitch degrees."""
     q = status.get("q") if isinstance(status, Mapping) else _field(status, "q", None)
     if not isinstance(q, (list, tuple)) or len(q) < 4:
@@ -393,11 +398,33 @@ def gimbal_angles_from_status(status: Any) -> dict[str, float] | None:
     if not math.isfinite(norm) or norm <= 1e-9:
         return None
     w, x, y, z = (value / norm for value in (w, x, y, z))
+    yaw_deg = math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
+    flags = int(_field(status, "flags", 0) or 0)
+    if vehicle_yaw_deg is not None and flags & 64:
+        yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
+    yaw_deg = (yaw_deg + float(yaw_correction_deg) + 180.0) % 360.0 - 180.0
     return {
         "roll": math.degrees(math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
         "pitch": math.degrees(math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))),
-        "yaw": math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))),
+        "yaw": yaw_deg,
     }
+
+
+def gimbal_angles_from_joint_state(joint_state: Any) -> dict[str, float] | None:
+    """Decode the Gazebo joint sidecar as authoritative simulation angles."""
+    if not isinstance(joint_state, Mapping) or joint_state.get("fresh") is False:
+        return None
+    positions = joint_state.get("position_rad")
+    if not isinstance(positions, Mapping):
+        return None
+    try:
+        result = {
+            axis: math.degrees(float(positions[axis]))
+            for axis in ("yaw", "roll", "pitch")
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+    return result if all(math.isfinite(value) for value in result.values()) else None
 
 
 class MavlinkReader:
@@ -863,6 +890,7 @@ def build_observation(
     *,
     camera_info: Mapping[str, object] | None = None,
     ground_agl_max_age_s: float | None = None,
+    gimbal_yaw_correction_deg: float | None = None,
 ) -> dict[str, Any]:
     local, attitude, global_pos, gps = (
         mavlink.get(name)
@@ -886,7 +914,23 @@ def build_observation(
     vtol_state = _field(extended_state, "vtol_state", None)
     gimbal_status = mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
     gimbal_observed_ns = mavlink.received_monotonic_ns.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
-    gimbal_angles = gimbal_angles_from_status(gimbal_status)
+    gimbal_angles = gimbal_angles_from_status(
+        gimbal_status,
+        vehicle_yaw_deg=(
+            math.degrees(float(_field(attitude, "yaw", 0.0)))
+            if gimbal_yaw_correction_deg is not None
+            else None
+        ),
+        yaw_correction_deg=float(gimbal_yaw_correction_deg or 0.0),
+    )
+    sidecar = getattr(sensor, "joint_state", None)
+    joint_angles = (
+        gimbal_angles_from_joint_state(sidecar.get("gimbal_joint_state"))
+        if isinstance(sidecar, Mapping)
+        else None
+    )
+    if joint_angles is not None:
+        gimbal_angles = joint_angles
     landed = (
         landed_state == 1
         if isinstance(landed_state, int)
@@ -1045,4 +1089,5 @@ __all__ = [
     "simulation_stamp_skew_ms",
     "build_observation",
     "gimbal_angles_from_status",
+    "gimbal_angles_from_joint_state",
 ]
