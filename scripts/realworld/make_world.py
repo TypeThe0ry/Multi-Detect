@@ -304,7 +304,7 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> 
     out = ROOT / "configs/scenarios/realworld" / ("" if airframe == "x500_mono_cam" else airframe)
     out.mkdir(parents=True, exist_ok=True)
     # Sensor contract comes from the mainline multirotor scenario; only world bindings change.
-    template = {"x500_mono_cam": "urban_inspection_multirotor_001", "standard_vtol_mono_cam": "river_rescue_vtol_001", "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001",
+    template = {"x500_mono_cam": "urban_inspection_multirotor_001", "x500_gimbal": "urban_inspection_multirotor_001", "standard_vtol_mono_cam": "river_rescue_vtol_001", "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001",
                 "tiltrotor_mono_cam": "airframes/tiltrotor_mono_cam_001", "quadtailsitter_mono_cam": "airframes/quadtailsitter_mono_cam_001",
                 "advanced_plane_mono_cam": "airframes/advanced_plane_mono_cam_001"}[airframe]
     runtime = json.loads((ROOT / f"configs/scenarios/{template}.runtime.json").read_text())
