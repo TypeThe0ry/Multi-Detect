@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_farm_iowa__clear_noon",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_farm_iowa__clear_noon.runtime.json",
+   "sha256": "42ec9de06b4f9a9f934fc038233f1a9f57b5500b17697b6462cb52af28cc9e09"
+  },
+  "truth": {
+   "path": "rw_farm_iowa__clear_noon.truth.json",
+   "sha256": "304623831e9ae3504ae3988e6438c590188d3ac55946f35553dbc0c3f51e3ce7"
+  },
+  "expectations": {
+   "path": "rw_farm_iowa__clear_noon.expectations.json",
+   "sha256": "7cce3e6ca93e5d4eeec8ac5d5da0e328a94ecdcfd3096a272dcad64eb538406a"
+  }
+ }
+}

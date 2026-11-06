@@ -235,6 +235,8 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
         ET.tostring(ET.fromstring((RESOLVED / site / "model.sdf").read_text()).find("model"), encoding="unicode").replace(f'<model name="{site}">', '<model name="rw_terrain">', 1),
     ]
     parts[4] = parts[4].replace("__SKY__", "")
+    # A real box under the pad: the coarse terrain mesh gives jittery contact at rest.
+    parts.append('<model name="rw_pad"><static>true</static><pose>0 0 -0.5 0 0 0</pose><link name="l"><collision name="c"><geometry><box><size>40 40 1</size></box></geometry></collision></link></model>')
     sky_tex = f"model://rw_sky/{w['sky']}.jpg"
     parts.append(f'<model name="rw_sky_dome"><static>true</static><link name="l"><visual name="dome"><cast_shadows>false</cast_shadows><geometry><mesh><uri>model://rw_sky/dome.obj</uri></mesh></geometry>'
                  f'<material><lighting>false</lighting><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>1 1 1 1</emissive><double_sided>true</double_sided>'
