@@ -9,6 +9,7 @@ import pytest
 
 from scripts.px4_clock_stall_capture import (
     _capture_px4_gdb,
+    _parse_world_stats,
     _parse_gz_topic_info,
     _parse_transport_sockets,
     _read_host_threads,
@@ -108,13 +109,14 @@ def test_capture_uses_owner_cmdline_absolute_commands_and_independent_timeouts(
     ]
     assert len(saved["samples"][0]["process_threads"]["threads"]["gz"]) == 1
     commands = [command for command, _ in calls]
-    assert len(commands) == 20
+    assert len(commands) == 22
     assert all("pxh" not in command for command in commands)
     gz_commands = [command for command in commands if "gz" in command]
-    assert len(gz_commands) == 4
+    assert len(gz_commands) == 6
     assert [command[3:] for command in gz_commands] == [
         ["gz", "topic", "-i", "-t", "/world/default/clock"],
         ["timeout", "5s", "gz", "topic", "-e", "-n", "1", "-t", "/world/default/clock"],
+        ["timeout", "3s", "gz", "topic", "-e", "-n", "1", "-t", "/world/default/stats"],
     ] * 2
     assert saved["samples"][0]["transport_probe_order"] == [
         "gz_topic_info", "proc_net_sockets", "process_threads"
@@ -154,6 +156,15 @@ def test_capture_uses_owner_cmdline_absolute_commands_and_independent_timeouts(
         "before_delay", "after_delay"
     ]
     assert Path(saved["gdb_output_path"]).is_file()
+    assert saved["gz_gdb"]["status"] == "unavailable"
+    assert Path(saved["gz_gdb_output_path"]).is_file()
+
+
+def test_world_stats_parser_reads_pause_flag_and_sim_time() -> None:
+    result = _parse_world_stats("paused: true\nsim { sec: 49 nsec: 116000000 }\n")
+    assert result == {"paused": True, "sim_time_s": [49.116]}
+
+    assert _parse_world_stats("sim { sec: 50 nsec: 0 }\n")["paused"] is None
 
 
 def test_host_proc_thread_reader_parses_fake_proc_tree_and_stat_comm_delimiter(
