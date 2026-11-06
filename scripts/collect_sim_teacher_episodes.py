@@ -149,6 +149,10 @@ DEFAULT_TELEMETRY_PORT = 14541
 # 180 s (run_simulator_docker.GAZEBO_WORLD_ATTEMPTS); wait past that.
 DEFAULT_HEARTBEAT_TIMEOUT_S = 240.0
 DEFAULT_PREARM_HEALTH_TIMEOUT_S = 45.0
+# Linux SITL can advance PX4's clock much more slowly than host time under load.
+# Wait for the nominal budget in PX4 time, but never wait indefinitely on a
+# frozen simulator. Windows retains the established wall-clock behavior.
+PREARM_HEALTH_HARD_WALL_CEILING_S = 900.0
 DEFAULT_OFFBOARD_ENTER_TIMEOUT_S = 30.0
 LAND_BASE_TIMEOUT_S = 60.0
 LAND_MIN_TIMEOUT_S = 120.0
@@ -2623,6 +2627,7 @@ def _wait_prearm_health(
     reader: MavlinkReader,
     timeout_s: float,
     *,
+    max_wall_s: float = PREARM_HEALTH_HARD_WALL_CEILING_S,
     heartbeat_connection: Any | None = None,
     mavutil_module: Any | None = None,
     setpoint: callable | None = None,
@@ -2634,12 +2639,27 @@ def _wait_prearm_health(
     healthy ``SYS_STATUS`` snapshot, no recent ``Preflight Fail`` text, and a
     ten second heartbeat warm-up before declaring the vehicle ready.
     """
-    deadline = time.monotonic() + timeout_s
-    started = time.monotonic()
+    wall_started = time.monotonic()
+    budget_clock = (
+        time.monotonic
+        if os.name == "nt"
+        else _SimClock(reader, wall=time.monotonic)
+    )
+    started = budget_clock()
+    deadline = started + float(timeout_s)
+    wall_deadline = wall_started + (
+        float(timeout_s) if os.name == "nt" else max(0.0, float(max_wall_s))
+    )
     last_report = 0.0
     last_snapshot: dict[str, Any] | None = None
-    while time.monotonic() < deadline:
+    while True:
         reader.raise_if_failed()
+        wall_now = time.monotonic()
+        budget_now = budget_clock()
+        if wall_now >= wall_deadline:
+            break
+        if budget_now >= deadline:
+            break
         snapshot = _prearm_health_snapshot(reader.state)
         if snapshot != last_snapshot:
             last_snapshot = snapshot
@@ -2655,7 +2675,7 @@ def _wait_prearm_health(
         if source == "SYS_STATUS":
             # SYS_STATUS has no arming_check_error_flags.  Require the
             # heartbeat warm-up and silence after the last preflight failure.
-            warm = time.monotonic() - started >= max(0.0, float(warmup_s))
+            warm = budget_now - started >= max(0.0, float(warmup_s))
             recent_failure = (
                 time.monotonic_ns() - int(getattr(reader.state, "last_preflight_failure_ns", 0))
             ) / 1e9 < 5.0
@@ -2670,11 +2690,10 @@ def _wait_prearm_health(
         if ready:
             _progress("prearm_health_ok", **snapshot)
             result = dict(snapshot)
-            result["heartbeat_warmup_s"] = time.monotonic() - started
+            result["heartbeat_warmup_s"] = budget_now - started
             return result
-        now = time.monotonic()
-        if now - last_report >= 5.0:
-            last_report = now
+        if wall_now - last_report >= 5.0:
+            last_report = wall_now
             _progress(
                 "prearm_health_waiting",
                 source=None if snapshot is None else snapshot["source"],
@@ -4384,6 +4403,9 @@ def run_episode(
             prearm_health = _wait_prearm_health(
                 mav_reader,
                 _episode_budget(started, plan.max_episode_s, DEFAULT_PREARM_HEALTH_TIMEOUT_S),
+                max_wall_s=_episode_budget(
+                    started, plan.max_episode_s, PREARM_HEALTH_HARD_WALL_CEILING_S
+                ),
                 heartbeat_connection=telemetry_connection,
                 mavutil_module=mavutil,
             )
