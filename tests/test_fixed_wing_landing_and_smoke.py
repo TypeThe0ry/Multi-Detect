@@ -650,6 +650,18 @@ def test_delta_overspeed_gate_marks_injection_below_target_as_failure():
     assert result["fw_overspeed_recovery_success"] is False
 
 
+def test_delta_overspeed_gate_uses_the_peak_reported_by_the_injection_step():
+    rows = _overspeed_telemetry_rows(injection_peak=21.1)
+    for row in rows:
+        if row.get("message_type") == "VFR_HUD" and row.get("airspeed") == 21.1:
+            row["airspeed"] = 20.9
+
+    result = smoke._delta_fw_overspeed_metrics(rows)
+
+    assert result["fw_overspeed_peak_mps"] == pytest.approx(21.1)
+    assert result["fw_overspeed_injection_success"] is True
+
+
 def _clipped_servo_row(time_usec):
     return {
         "message_type": "SERVO_OUTPUT_RAW",

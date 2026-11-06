@@ -342,12 +342,15 @@ def _delta_fw_overspeed_metrics(mavlink: list[dict[str, Any]]) -> dict[str, Any]
                 motor_counts[index] += 1
                 motor_saturated_counts[index] += int(saturated[index])
 
+    # The step stops on its own airspeed reading, which VFR_HUD's lower rate can miss.
     injected_peak = max(injection_speeds, default=None)
-    if injected_peak is None and injection_end is not None:
+    if injection_end is not None:
         try:
-            injected_peak = float(injection_end.get("peak_airspeed_mps"))
+            reported_peak = float(injection_end.get("peak_airspeed_mps"))
         except (TypeError, ValueError):
             pass
+        else:
+            injected_peak = max(injected_peak or reported_peak, reported_peak)
     recovery_s = None
     if end is not None:
         try:

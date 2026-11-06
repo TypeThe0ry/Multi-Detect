@@ -110,9 +110,10 @@ PINNED_IMAGE = (
 )
 DEFAULT_TIMEOUT_S = 300.0
 SENSOR_FRAME_WAIT_S = 15.0
-# The frame watermark is PX4's pose time, but frames carry Gazebo's clock.  At the
-# delta smoke's 0.15-0.2x real time those clocks have been seen 7-14 s apart, which
-# takes over a minute of wall time to close.  The frame must still reach the watermark.
+# Delivered frames match PX4 pose time exactly, but under heavy host load the frame
+# server's callbacks have been seen 7-14 sim seconds behind.  At the delta smoke's
+# 0.15-0.2x real time that backlog takes over a minute of wall time to clear.  The
+# frame must still reach the watermark.
 DELTA_SMOKE_SENSOR_FRAME_WAIT_S = 120.0
 DEFAULT_RGB_SIZE = (640, 480)
 DEFAULT_DEPTH_SIZE = (320, 240)
@@ -5593,7 +5594,9 @@ def run_episode(
                 _progress("takeoff_reached", method=takeoff_method)
                 if profile.camera.mount == "gimbal":
                     hover_stability = _wait_for_stable_mc_hover(mav_reader)
-                    before_sample = _request_fresh_sensor_sample(sensor_reader, mav_reader)
+                    before_sample = _request_fresh_sensor_sample(
+                    sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s
+                )
                     before_measurement = _gimbal_measurement_snapshot(
                         mav_reader, before_sample
                     )
@@ -5615,7 +5618,9 @@ def run_episode(
                         {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
                         tolerance_deg=4.0,
                     )
-                    after_sample = _request_fresh_sensor_sample(sensor_reader, mav_reader)
+                    after_sample = _request_fresh_sensor_sample(
+                    sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s
+                )
                     after_measurement = _gimbal_measurement_snapshot(
                         mav_reader, after_sample
                     )
