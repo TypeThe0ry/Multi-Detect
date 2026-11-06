@@ -110,6 +110,10 @@ PINNED_IMAGE = (
 )
 DEFAULT_TIMEOUT_S = 300.0
 SENSOR_FRAME_WAIT_S = 15.0
+# The frame watermark is PX4's pose time, but frames carry Gazebo's clock.  At the
+# delta smoke's 0.15-0.2x real time those clocks have been seen 7-14 s apart, which
+# takes over a minute of wall time to close.  The frame must still reach the watermark.
+DELTA_SMOKE_SENSOR_FRAME_WAIT_S = 120.0
 DEFAULT_RGB_SIZE = (640, 480)
 DEFAULT_DEPTH_SIZE = (320, 240)
 DEFAULT_DEPTH_ENCODING = "UINT16_MM"
@@ -767,7 +771,7 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         "python3",
         "/workspace/scripts/sim_teacher_frame_server.py",
         "--request-timeout-s",
-        f"{min(60.0, max(5.0, SENSOR_FRAME_WAIT_S + 2.0)):.3f}",
+        f"{DELTA_SMOKE_SENSOR_FRAME_WAIT_S + 2.0:.3f}",
         "--world",
         world,
         "--model-instance",
@@ -4605,12 +4609,15 @@ def run_episode(
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=initial_reason)
         return recorder.episode_dir
     strict_delta_smoke = False
+    sensor_frame_wait_s = SENSOR_FRAME_WAIT_S
     if plan.smoke_flight:
         smoke_profile = _airframe_profile(plan.airframe)
         strict_delta_smoke = bool(
             smoke_profile is not None
             and smoke_profile.id in DELTA_TAILSITTER_SMOKE_PROFILES
         )
+        if strict_delta_smoke:
+            sensor_frame_wait_s = DELTA_SMOKE_SENSOR_FRAME_WAIT_S
         policy = _SmokeFlightPolicy(strict_delta_smoke=strict_delta_smoke)
         task_text = (
             "delta tailsitter 冒烟飞行：起飞、转换、120 秒盘旋、到点重定位、返航、降落"
@@ -5665,7 +5672,7 @@ def run_episode(
                 before_sample = _fresh_sensor_snapshot(
                     sensor_reader,
                     time.monotonic_ns(),
-                    SENSOR_FRAME_WAIT_S,
+                    sensor_frame_wait_s,
                     min_sensor_stamp_ns=pose_sim_stamp_ns,
                     poll_interval_s=plan.sensor_poll_interval_s,
                     reconnect=_reconnect_sensor_stream,
@@ -5923,7 +5930,7 @@ def run_episode(
                 after_sample = _fresh_sensor_snapshot(
                     sensor_reader,
                     primitive_end_ns,
-                    SENSOR_FRAME_WAIT_S,
+                    sensor_frame_wait_s,
                     min_sensor_stamp_ns=after_pose_sim_stamp_ns,
                     poll_interval_s=plan.sensor_poll_interval_s,
                 )
