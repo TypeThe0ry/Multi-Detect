@@ -1309,6 +1309,12 @@ def _failure_class_from_episode(episode: dict[str, object]) -> str:
         return "sensor_stream_stall"
     if "sensor stream produced no frame within" in str(episode.get("failure", "")):
         return "sensor_stream_stall"
+    failure = str(episode.get("failure", ""))
+    if (
+        int(episode.get("step_count", 0) or 0) == 0
+        and "did not confirm armed heartbeat" in failure
+    ):
+        return "arming_failure"
     return "flight"
 
 

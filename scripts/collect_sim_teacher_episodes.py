@@ -4431,6 +4431,11 @@ def _fresh_sensor_snapshot(
         reader_error = getattr(reader, "error", None)
         diagnostics = {
             "min_sensor_stamp_ns": required_stamp_ns,
+            "sensor_watermark_lag_s": (
+                round(max(0, int(required_stamp_ns) - int(latest_stamp_ns)) / 1e9, 3)
+                if required_stamp_ns is not None and latest_stamp_ns is not None
+                else None
+            ),
             "previous_received_monotonic_ns": previous_ns,
             "frames_received": getattr(reader, "frames_received", None),
             "frames_dropped": getattr(reader, "frames_dropped", None),

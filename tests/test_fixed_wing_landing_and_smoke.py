@@ -256,6 +256,15 @@ def test_smoke_classifies_sensor_stream_stall_separately_from_flight():
     )
 
 
+def test_smoke_classifies_preflight_arm_denial_separately_from_flight():
+    assert smoke._failure_class_from_episode(
+        {
+            "step_count": 0,
+            "failure": "TimeoutError: PX4 did not confirm armed heartbeat after 6 bounded attempts (command_id=400, last_ack=1)",
+        }
+    ) == "arming_failure"
+
+
 def test_smoke_requires_an_episode_artifact_even_when_collector_exits_zero(tmp_path, monkeypatch, capsys):
     class _Child:
         returncode = 0

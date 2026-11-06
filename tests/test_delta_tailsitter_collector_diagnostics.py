@@ -94,13 +94,39 @@ def test_delta_fw_ring_metrics_loads_recorder_jsonl_files(tmp_path):
 def test_sensor_frame_timeout_reports_reader_state():
     reader = collector.SensorStreamReader(io.BytesIO(b""))
 
-    with pytest.raises(TimeoutError, match=r'"frames_received": 0'):
+    with pytest.raises(TimeoutError, match=r'"frames_received": 0') as error:
         collector._fresh_sensor_snapshot(
             reader,
             previous_ns=0,
             timeout_s=0.0,
             min_sensor_stamp_ns=123,
         )
+    assert '"sensor_watermark_lag_s": null' in str(error.value)
+
+
+def test_sensor_frame_timeout_reports_px4_watermark_lag():
+    class Reader:
+        latest = SimpleNamespace(received_monotonic_ns=1, sensor_stamp_ns=100_552_000_000)
+        frames_received = 93
+        frames_dropped = 92
+        done = __import__("threading").Event()
+        error = None
+        _thread = None
+
+        def request(self, _stamp):
+            return None
+
+        def raise_if_failed(self):
+            return None
+
+    with pytest.raises(TimeoutError) as error:
+        collector._fresh_sensor_snapshot(
+            Reader(),
+            previous_ns=0,
+            timeout_s=0.0,
+            min_sensor_stamp_ns=114_500_000_000,
+        )
+    assert '"sensor_watermark_lag_s": 13.948' in str(error.value)
 
 
 def test_strict_sensor_snapshot_refreshes_px4_watermark_while_waiting():
