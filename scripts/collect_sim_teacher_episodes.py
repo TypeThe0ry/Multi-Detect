@@ -4030,6 +4030,22 @@ def _wait_px4_mode(
     }
 
 
+def _delta_native_rtl_requested() -> bool:
+    """Diagnostic switch: let PX4's RTL do its own back-transition and landing."""
+    return os.environ.get("MULTIDETECT_DELTA_NATIVE_RTL") == "1"
+
+
+def _wait_native_rtl_landing(reader: MavlinkReader, *, timeout_s: float = 3600.0) -> dict[str, Any]:
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_s:
+        reader.raise_if_failed()
+        state = _flight_state_snapshot(reader.state)
+        if state.get("landed_state") == 1:
+            return {"status": "landed", "method": "native_rtl", "elapsed_s": time.monotonic() - started}
+        time.sleep(0.2)
+    raise TimeoutError(f"native RTL did not land within {timeout_s:.0f} s")
+
+
 def _wait_near_home(reader: MavlinkReader, *, radius_m: float, timeout_s: float) -> dict[str, Any]:
     """Wait until the local position is within ``radius_m`` of home (horizontal)."""
     started = time.monotonic()
@@ -6070,7 +6086,11 @@ def run_episode(
                 recorder.meta["rtl_mode"] = rtl_mode
                 _progress("rtl", **rtl_mode)
                 profile = _airframe_profile(plan.airframe)
-                if profile is not None and profile.category in {"fixed_wing", "vtol"}:
+                if (
+                    profile is not None
+                    and profile.category in {"fixed_wing", "vtol"}
+                    and not (strict_delta_smoke and _delta_native_rtl_requested())
+                ):
                     # Let RTL bring the aircraft back over home before the landing
                     # (mission or VTOL back-transition) replaces it.
                     _progress(
@@ -6083,7 +6103,9 @@ def run_episode(
                     )
             # Fixed-wing/VTOL use their physical landing lifecycle. x500 uses
             # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
-            if plan.airframe == "x500_mono_cam":
+            if strict_delta_smoke and _delta_native_rtl_requested():
+                land_result = _wait_native_rtl_landing(mav_reader)
+            elif plan.airframe == "x500_mono_cam":
                 land_result = _land_and_wait(
                     executor,
                     mav_reader,
