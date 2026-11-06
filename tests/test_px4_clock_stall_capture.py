@@ -119,8 +119,20 @@ def test_capture_uses_owner_cmdline_absolute_commands_and_independent_timeouts(
         ["timeout", "3s", "gz", "topic", "-e", "-n", "1", "-t", "/world/default/stats"],
     ] * 2
     assert saved["samples"][0]["transport_probe_order"] == [
-        "gz_topic_info", "proc_net_sockets", "process_threads"
+        "proc_net_sockets", "process_threads", "gz_topic_info"
     ]
+    assert saved["samples"][1]["transport_probe_order"] == [
+        "proc_net_sockets", "process_threads", "gz_topic_info"
+    ]
+    first_topic_call = next(
+        index for index, command in enumerate(commands) if "gz topic" in " ".join(command)
+    )
+    first_sample_px4_probe_call = max(
+        index for index, command in enumerate(commands)
+        if index < first_topic_call
+        and any("px4-listener" in part or "px4-work_queue" in part for part in command)
+    )
+    assert first_sample_px4_probe_call < first_topic_call
     work_queue_commands = [
         command for command in commands if any("px4-work_queue" in part for part in command)
     ]
@@ -165,6 +177,10 @@ def test_world_stats_parser_reads_pause_flag_and_sim_time() -> None:
     assert result == {"paused": True, "sim_time_s": [49.116]}
 
     assert _parse_world_stats("sim { sec: 50 nsec: 0 }\n")["paused"] is None
+    assert _parse_world_stats("pause: false\nsim_time { sec: 51 nsec: 2 }\n") == {
+        "paused": False,
+        "sim_time_s": [51.000000002],
+    }
 
 
 def test_host_proc_thread_reader_parses_fake_proc_tree_and_stat_comm_delimiter(
@@ -368,6 +384,25 @@ def test_analyze_capture_separates_polling_reception_from_blocked_callback(
     assert result["transport_socket_rx_queue_changes"][0]["rx_queue_delta"] == -4
     assert result["transport_socket_rx_queue_delta_bytes"]["px4"] == -4
     assert result["transport_probe_can_disturb_state"] is True
+
+
+def test_analyze_capture_names_polling_reception_when_clock_probe_times_out(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "gdb.txt"
+    output.write_text(
+        "=== GDB before_delay ===\nThread 2 (LWP 201 \"px4\"):\n"
+        "#0 poll ()\n#1 gz::transport::v13::NodeShared::RunReceptionTask()\n"
+        "=== GDB after_delay ===\nThread 2 (LWP 201 \"px4\"):\n"
+        "#0 poll ()\n#1 gz::transport::v13::NodeShared::RunReceptionTask()\n"
+    )
+    samples = [_sample(clock=None, threads=[]), _sample(clock=None, threads=[])]
+    for sample in samples:
+        sample["gz_clock"]["timed_out"] = True
+    result = analyze_capture({"samples": samples, "gdb": {"output_path": str(output)}})
+    assert result["gz_clock_advanced"] == "unknown"
+    assert result["reception_thread_classification"] == "reception_polling_clock_unknown"
+    assert result["callback_thread_classification"] == "not_observed"
 
 
 def test_gdb_classifies_clock_callback_block_separately(tmp_path: Path) -> None:

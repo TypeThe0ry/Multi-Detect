@@ -115,7 +115,8 @@ def _parse_clock(output: str) -> list[float]:
 
 
 def _parse_world_stats(output: str) -> dict[str, Any]:
-    paused = re.search(r"\bpaused\s*:\s*(true|false)\b", output, re.IGNORECASE)
+    # Gazebo has emitted both `paused` and `pause` in text/proto renderings.
+    paused = re.search(r"\b(?:paused|pause)\s*:\s*(true|false)\b", output, re.IGNORECASE)
     sim_time_values: list[float] = []
     for block in re.findall(r"\bsim(?:_time)?\s*\{([^}]*)\}", output):
         sec = re.search(r"\bsec\s*:\s*(-?\d+)", block)
@@ -506,6 +507,7 @@ def _sample(
     load_average: list[float] | None = None,
     proc_root: str | Path = "/proc",
     host_pids: Iterable[int] | None = None,
+    collect_gz_topics: bool = True,
 ) -> dict[str, Any]:
     runner = subprocess.run if runner is None else runner
     host_load = _load_average() if load_average is None else load_average
@@ -520,17 +522,10 @@ def _sample(
             else None
         ),
     }
-    # gz topic creates a transient discovery node; collect transport state first
-    # and mark discovery-thread evidence as potentially probe-affected.
-    sample["gz_clock_topic_info"] = _run(
-        _exec_command(docker, container, "gz", "topic", "-i", "-t", CLOCK_TOPIC),
-        timeout_s=3.0,
-        runner=runner,
-    )
-    sample["gz_clock_topic_info"].update(
-        _parse_gz_topic_info(str(sample["gz_clock_topic_info"].get("stdout", "")))
-    )
-    sample["transport_probe_order"] = ["gz_topic_info", "proc_net_sockets", "process_threads"]
+    # procfs and socket reads do not register a Gazebo transport node. Keep
+    # them ahead of any gz topic probe so a later GDB snapshot is not polluted
+    # by the probe's discovery/mutex activity.
+    sample["transport_probe_order"] = ["proc_net_sockets", "process_threads"]
     sample["transport_sockets"] = _read_transport_sockets(
         docker, container, runner=runner
     )
@@ -571,19 +566,45 @@ def _sample(
             timeout_s=1.5,
             runner=runner,
         )
+    sample["px4_work_queue_status"] = _run(
+        _exec_command(
+            docker, container, "/opt/px4-gazebo/bin/px4-work_queue", "status"
+        ),
+        timeout_s=4.0,
+        runner=runner,
+    )
+    for topic in ("sensor_combined", "vehicle_status"):
+        sample[f"px4_listener_{topic}"] = _run(
+            _exec_command(docker, container, "/opt/px4-gazebo/bin/px4-listener", topic),
+            timeout_s=3.0,
+            runner=runner,
+        )
+    if collect_gz_topics:
+        _collect_gz_topic_probes(sample, docker, container, runner=runner)
+    return sample
+
+
+def _collect_gz_topic_probes(
+    sample: dict[str, Any],
+    docker: str,
+    container: str,
+    *,
+    runner: Callable[..., Any] | None = None,
+) -> None:
+    """Collect transport topic data after process/GDB evidence when possible."""
+    sample["gz_clock_topic_info"] = _run(
+        _exec_command(docker, container, "gz", "topic", "-i", "-t", CLOCK_TOPIC),
+        timeout_s=3.0,
+        runner=runner,
+    )
+    sample["gz_clock_topic_info"].update(
+        _parse_gz_topic_info(str(sample["gz_clock_topic_info"].get("stdout", "")))
+    )
+    sample["transport_probe_order"].append("gz_topic_info")
     sample["gz_clock"] = _run(
         _exec_command(
-            docker,
-            container,
-            "timeout",
-            "5s",
-            "gz",
-            "topic",
-            "-e",
-            "-n",
-            "1",
-            "-t",
-            CLOCK_TOPIC,
+            docker, container, "timeout", "5s", "gz", "topic", "-e", "-n", "1",
+            "-t", CLOCK_TOPIC,
         ),
         timeout_s=6.0,
         runner=runner,
@@ -605,20 +626,6 @@ def _sample(
     sample["gz_world_stats"].update(
         _parse_world_stats(str(sample["gz_world_stats"].get("stdout", "")))
     )
-    sample["px4_work_queue_status"] = _run(
-        _exec_command(
-            docker, container, "/opt/px4-gazebo/bin/px4-work_queue", "status"
-        ),
-        timeout_s=4.0,
-        runner=runner,
-    )
-    for topic in ("sensor_combined", "vehicle_status"):
-        sample[f"px4_listener_{topic}"] = _run(
-            _exec_command(docker, container, "/opt/px4-gazebo/bin/px4-listener", topic),
-            timeout_s=3.0,
-            runner=runner,
-        )
-    return sample
 
 
 def capture_stall(
@@ -647,17 +654,17 @@ def capture_stall(
         "samples": [],
     }
     try:
-        document["samples"].append(
-            _sample(
-                docker,
-                container,
-                label="deadline",
-                runner=runner,
-                load_average=load_average,
-                proc_root=proc_root,
-                host_pids=host_pids,
-            )
+        first_sample = _sample(
+            docker,
+            container,
+            label="deadline",
+            runner=runner,
+            load_average=load_average,
+            proc_root=proc_root,
+            host_pids=host_pids,
+            collect_gz_topics=False,
         )
+        document["samples"].append(first_sample)
         # Split the existing gdb time budget across PX4 and Gazebo snapshots.
         gdb_output_path = Path(episode_dir) / "px4-clock-stall-gdb.txt"
         gdb_enabled = gdb_output_path.parent.is_dir()
@@ -679,18 +686,19 @@ def capture_stall(
                 runner=runner,
                 snapshot_label="before_delay",
             )
+        _collect_gz_topic_probes(first_sample, docker, container, runner=runner)
         sleep(max(0.0, float(delay_s)))
-        document["samples"].append(
-            _sample(
-                docker,
-                container,
-                label=f"after_{delay_s:g}s",
-                runner=runner,
-                load_average=load_average,
-                proc_root=proc_root,
-                host_pids=host_pids,
-            )
+        second_sample = _sample(
+            docker,
+            container,
+            label=f"after_{delay_s:g}s",
+            runner=runner,
+            load_average=load_average,
+            proc_root=proc_root,
+            host_pids=host_pids,
+            collect_gz_topics=False,
         )
+        document["samples"].append(second_sample)
         if gdb_enabled:
             _capture_px4_gdb(
                 document,
@@ -710,6 +718,7 @@ def capture_stall(
                 snapshot_label="after_delay",
                 append=True,
             )
+        _collect_gz_topic_probes(second_sample, docker, container, runner=runner)
     except BaseException as error:
         document["capture_error"] = f"{type(error).__name__}: {error}"
     # Collect syscall details only after both timed samples are complete.
@@ -1238,7 +1247,9 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
             "messages_stopped_arriving" if messages_stopped_arriving else
             ("callback_blocked" if callback_blocked else
              "callback_blocked_candidate_single_snapshot" if callback_blocked_candidate else
-             "messages_stopped_arriving_candidate" if gz_advanced is True and reception_polling else "unknown")
+             "messages_stopped_arriving_candidate" if gz_advanced is True and reception_polling else
+             "reception_polling_clock_unknown" if gz_advanced == "unknown" and reception_polling else
+             "unknown")
         ),
         "callback_thread_classification": (
             "callback_blocked" if callback_blocked else
