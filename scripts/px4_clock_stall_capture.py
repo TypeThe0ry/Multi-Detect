@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -270,9 +271,13 @@ def _read_host_threads(
                     "read_wall_time": time.time(),
                 }
             )
-    if not rows:
+    if not rows and not re.search(r"(?im)^\s*PID\s+COMMAND\s*$", str(top.get("stdout", ""))):
+        if top.get("error") or top.get("timed_out") or top.get("returncode") != 0:
+            raise RuntimeError(
+                f"docker top failed: {top.get('error') or top.get('stderr') or top}"
+            )
         raise RuntimeError("host proc read found no PX4 or Gazebo threads")
-    sample_wall_time = min(float(row["read_wall_time"]) for row in rows)
+    sample_wall_time = min((float(row["read_wall_time"]) for row in rows), default=time.time())
     return {
         "command": [docker, "top", container, "-eo", "pid,args"],
         "timeout_s": 3.0,
@@ -383,6 +388,15 @@ def _sample(
             fallback_reason=f"{type(error).__name__}: {error}",
         )
     sample["captured_wall_time"] = sample["process_threads"].get("sample_wall_time", time.time())
+    process_threads = sample["process_threads"].get("threads") or {}
+    if process_threads.get("px4"):
+        sample["px4_process_status"] = "present"
+    elif sample["process_threads"].get("returncode") == 0 and not sample["process_threads"].get("error"):
+        sample["px4_process_status"] = "gone"
+    elif "docker top failed" in str(sample["process_threads"].get("fallback_reason", "")):
+        sample["px4_process_status"] = "docker_top_failed"
+    else:
+        sample["px4_process_status"] = "unknown"
     for key, paths in (
         ("cpu_stat", "/sys/fs/cgroup/cpu.stat /sys/fs/cgroup/cpu/cpu.stat"),
         ("memory_events", "/sys/fs/cgroup/memory.events /sys/fs/cgroup/memory/memory.events"),
@@ -445,6 +459,8 @@ def capture_stall(
     host_pids: Iterable[int] | None = None,
     px4_clock_diagnostics: dict[str, Any] | None = None,
     reason: str = "PX4 simulation clock stalled",
+    gdb_path: str = "/usr/bin/gdb",
+    gdb_timeout_s: float = 30.0,
 ) -> dict[str, Any]:
     """Capture two samples and persist them; every failure becomes data."""
     document: dict[str, Any] = {
@@ -481,6 +497,9 @@ def capture_stall(
         )
     except BaseException as error:
         document["capture_error"] = f"{type(error).__name__}: {error}"
+    # Collect syscall details only after both timed samples are complete.
+    for sample in document["samples"]:
+        _add_px4_syscalls(sample, proc_root=proc_root)
     try:
         document["analysis"] = analyze_capture(document)
     except BaseException as error:
@@ -488,6 +507,7 @@ def capture_stall(
 
     episode_dir = Path(episode_dir)
     primary_path = episode_dir / "px4-clock-stall-capture.json"
+    gdb_output_path = episode_dir / "px4-clock-stall-gdb.txt"
     fallback_path = (
         episode_dir.parent
         / "px4-clock-stall-captures"
@@ -496,12 +516,26 @@ def capture_stall(
     try:
         if not episode_dir.is_dir():
             raise FileNotFoundError(f"episode directory is unavailable: {episode_dir}")
+        _capture_px4_gdb(
+            document,
+            output_path=gdb_output_path,
+            gdb_path=gdb_path,
+            timeout_s=gdb_timeout_s,
+            runner=runner,
+        )
+        document["gdb_output_path"] = str(gdb_output_path)
+        document["analysis"] = analyze_capture(document)
         document["path"] = str(primary_path)
         primary_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     except BaseException as error:
         document["write_error"] = f"{type(error).__name__}: {error}"
         try:
             fallback_path.parent.mkdir(parents=True, exist_ok=True)
+            fallback_gdb_path = fallback_path.with_name("px4-clock-stall-gdb.txt")
+            if not document.get("gdb"):
+                _capture_px4_gdb(document, output_path=fallback_gdb_path, gdb_path=gdb_path, timeout_s=gdb_timeout_s, runner=runner)
+            document["gdb_output_path"] = str(fallback_gdb_path)
+            document["analysis"] = analyze_capture(document)
             document["path"] = str(fallback_path)
             fallback_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
         except BaseException as fallback_error:
@@ -516,6 +550,65 @@ def capture_stall(
                 document["temp_write_error"] = f"{type(temp_error).__name__}: {temp_error}"
                 document.pop("path", None)
     return document
+
+
+def _add_px4_syscalls(sample: dict[str, Any], *, proc_root: str | Path) -> None:
+    root = Path(proc_root)
+    thread_groups = ((sample.get("process_threads") or {}).get("threads") or {})
+    for thread in thread_groups.get("px4", []):
+        path = root / str(thread.get("pid")) / "task" / str(thread.get("tid")) / "syscall"
+        try:
+            thread["syscall"] = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError as error:
+            thread["syscall_error"] = f"{type(error).__name__}: {error}"
+
+
+def _capture_px4_gdb(
+    document: dict[str, Any],
+    *,
+    output_path: Path,
+    gdb_path: str,
+    timeout_s: float,
+    runner: Callable[..., Any] | None,
+) -> None:
+    samples = document.get("samples") or []
+    host_pid_values = [
+        int(pid)
+        for sample in samples
+        if (sample.get("process_threads") or {}).get("collection_path") == "host_proc"
+        for pid in ((sample.get("process_threads") or {}).get("host_pids") or [])
+    ]
+    pid = sorted(set(host_pid_values))[0] if host_pid_values else None
+    gdb: dict[str, Any] = {"pid": pid, "timeout_s": timeout_s}
+    if pid is None:
+        statuses = {sample.get("px4_process_status") for sample in samples}
+        if "gone" in statuses:
+            status, detail = "px4_gone", "docker top succeeded but found no PX4 process"
+        elif "docker_top_failed" in statuses:
+            status, detail = "docker_top_failed", "cannot determine PX4 PID because docker top failed"
+        else:
+            status, detail = "unavailable", "no PX4 host PID was captured"
+        gdb.update({"status": status, "error": detail})
+        output_path.write_text(f"PX4 gdb not run: {detail}.\n", encoding="utf-8")
+    elif not Path(gdb_path).is_file() and shutil.which(gdb_path) is None:
+        gdb.update({"status": "unavailable", "error": f"gdb not found: {gdb_path}"})
+        output_path.write_text(gdb["error"] + "\n", encoding="utf-8")
+    else:
+        command = [
+            gdb_path, "-p", str(pid), "-batch", "-nx",
+            "-ex", f"set sysroot /proc/{pid}/root",
+            "-ex", "set pagination off",
+            "-ex", "thread apply all bt 16",
+        ]
+        result = _run(command, timeout_s=timeout_s, runner=runner)
+        content = str(result.get("stdout", ""))
+        stderr = str(result.get("stderr", ""))
+        output_path.write_text(content + ("\n" if content and stderr else "") + stderr, encoding="utf-8")
+        gdb.update({"status": "timeout" if result.get("timed_out") else ("ok" if result.get("returncode") == 0 else "failed"),
+                    "command": command, "returncode": result.get("returncode"),
+                    "timed_out": bool(result.get("timed_out")), "error": result.get("error")})
+    gdb["output_path"] = str(output_path)
+    document["gdb"] = gdb
 
 
 def _keyed_threads(sample: dict[str, Any], group: str) -> dict[tuple[int, int], dict[str, Any]]:
@@ -616,6 +709,46 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
 
     deltas = _thread_deltas(first, second)
     px4_deltas = [row for row in deltas if row["group"] == "px4"]
+    px4_gone = any(sample.get("px4_process_status") == "gone" for sample in samples[:2])
+    all_px4_threads = [
+        row
+        for sample in samples[:2]
+        for row in (((sample.get("process_threads") or {}).get("threads") or {}).get("px4") or [])
+    ]
+    blocked_threads = [
+        {
+            "pid": row.get("pid"), "tid": row.get("tid"), "name": row.get("name"),
+            "state": row.get("state"), "wchan": row.get("wchan"),
+            "syscall": row.get("syscall"),
+        }
+        for row in all_px4_threads
+        if str(row.get("state", "")).startswith(("S", "D"))
+        and row.get("wchan") not in (None, "", "0", "?")
+    ]
+    futex_addresses: dict[str, list[dict[str, Any]]] = {}
+    for row in all_px4_threads:
+        syscall = str(row.get("syscall", ""))
+        # x86_64 futex syscall: 202 futex(uaddr, ...); retain the address only.
+        match = re.match(r"\s*202\s+0x([0-9a-fA-F]+)", syscall)
+        if match:
+            futex_addresses.setdefault("0x" + match.group(1).lower(), []).append(
+                {"pid": row.get("pid"), "tid": row.get("tid"), "name": row.get("name")}
+            )
+    shared_futexes = {
+        address: threads for address, threads in futex_addresses.items() if len(threads) > 1
+    }
+    clock_thread_top_frames = _gdb_clock_thread_frames(document, blocked_threads)
+    px4_client_failures = []
+    for sample_index, sample in enumerate(samples[:2]):
+        for key, value in sample.items():
+            if key.startswith("px4_listener_") or key == "px4_work_queue_status":
+                if isinstance(value, dict) and value.get("returncode") not in (None, 0):
+                    px4_client_failures.append({
+                        "sample": sample_index,
+                        "probe": key,
+                        "returncode": value.get("returncode"),
+                        "stderr": value.get("stderr", ""),
+                    })
     driver_names = {"wq:rate_ctrl", "wkr_hrt", "wq:INS0"}
     clock_drivers = [row for row in px4_deltas if row.get("name") in driver_names]
     driver_names_seen = {str(row.get("name")) for row in clock_drivers}
@@ -661,6 +794,12 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
     ]
     return {
         "gz_clock_advanced": gz_advanced,
+        "px4_process_status": "px4_gone" if px4_gone else next(
+            (sample.get("px4_process_status") for sample in samples[:2]
+             if sample.get("px4_process_status") in ("present", "docker_top_failed")),
+            "unknown",
+        ),
+        "px4_gone": px4_gone,
         "gz_clock_samples_s": [gz_first, gz_second],
         "sample_interval_s": sample_interval_s,
         "thread_deltas": deltas,
@@ -669,6 +808,10 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
         "px4_thread_progress": px4_progress,
         "px4_threads_appear_blocked": px4_blocked,
         "px4_blocked_clock_driver_threads": blocked_drivers,
+        "px4_blocked_threads": blocked_threads,
+        "shared_futex_addresses": shared_futexes,
+        "clock_thread_top_frames": clock_thread_top_frames,
+        "px4_client_failures": px4_client_failures,
         "px4_runnable_clock_driver_threads_with_high_wait": starved_drivers,
         "cgroup_cpu_throttling_increased": throttled,
         "host_load_observed": host_load,
@@ -685,6 +828,29 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
             "Host load per CPU and cgroup counters are context; starvation support comes from runnable clock-driving threads' scheduler wait and on-CPU deltas.",
         ],
     }
+
+
+def _gdb_clock_thread_frames(
+    document: dict[str, Any], blocked_threads: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    gdb = document.get("gdb") or {}
+    output_path = gdb.get("output_path") or document.get("gdb_output_path")
+    if not output_path:
+        return []
+    try:
+        output = Path(output_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    blocks = re.split(r"(?=^Thread\s+\d+\s+)", output, flags=re.MULTILINE)
+    blocked_tids = {int(row["tid"]) for row in blocked_threads if isinstance(row.get("tid"), int)}
+    summaries: list[dict[str, Any]] = []
+    for block in blocks:
+        match = re.match(r"Thread\s+\d+\s+\(LWP\s+(\d+)\)", block)
+        if not match or int(match.group(1)) not in blocked_tids:
+            continue
+        frames = re.findall(r"^\s*#\d+\s+.*$", block, flags=re.MULTILINE)
+        summaries.append({"tid": int(match.group(1)), "top_frames": frames[:4]})
+    return summaries
 
 
 def main(argv: list[str] | None = None) -> int:
