@@ -289,6 +289,10 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     # pose here translated it a second time and made the PX4 gimbal bridge
     # report a frame that was not the articulated camera frame.
     _element(imu, "pose", "0 0 0 0 0 3.141592653589793")
+    # By default gz reports orientation relative to the spawn pose, which made the
+    # PX4 gimbal bridge read a fixed yaw error in any world not spawning at yaw 0.
+    frame = _element(_element(imu, "imu"), "orientation_reference_frame")
+    _element(frame, "localization", "ENU")
     _odometry_publisher(wrapped_model)
     _gimbal_joint_state_publisher(wrapped_model)
     ET.indent(wrapper, space="  ")

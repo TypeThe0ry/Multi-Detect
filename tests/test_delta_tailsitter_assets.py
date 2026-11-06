@@ -338,6 +338,12 @@ def test_articulated_payload_links_have_solver_safe_mass_and_inertia():
             assert float(link.findtext(f"inertial/inertia/{field}")) >= 1e-8
 
 
+def test_gimbal_imu_reports_orientation_in_the_world_frame():
+    model = _model(GIMBAL_WRAPPER_DIR)
+    imu = model.find("link[@name='camera_link']/sensor[@name='camera_imu']")
+    assert imu.findtext("imu/orientation_reference_frame/localization") == "ENU"
+
+
 def test_gimbal_camera_sits_on_the_c11_mount():
     model = _model(GIMBAL_WRAPPER_DIR)
     mount = _numbers(model.findtext("link[@name='c11_mount_link']/pose"))
