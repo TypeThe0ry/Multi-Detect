@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -65,12 +66,53 @@ def test_negative_45_gimbal_pitch_points_down_in_hover_and_fw(mode, attitude, ex
     assert ray == pytest.approx(expected_ray, abs=1e-6)
 
 
-@pytest.mark.parametrize("mode", ["mc", "fw"])
-def test_ground_projection_mount_pitch_includes_gimbal_mode_default(mode):
+@pytest.mark.parametrize(("mode", "expected_deg"), [("mc", 20.0), ("fw", 45.0)])
+def test_ground_projection_mount_pitch_includes_gimbal_mode_default(mode, expected_deg):
     profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
     assert profile_mount_pitch_down_rad(profile, 0.18, mode=mode) == pytest.approx(
-        math.radians(45), abs=1e-6
+        math.radians(expected_deg), abs=1e-6
     )
+
+
+def test_onboard_gimbal_self_check_returns_to_mc_search_angle(monkeypatch):
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    calls = []
+
+    def command(_connection, _reader, target, **kwargs):
+        calls.append((dict(target), kwargs))
+        return {"status": "reached", "target_deg": dict(target)}
+
+    monkeypatch.setattr(collector, "_command_and_wait_gimbal", command)
+    result = collector._return_onboard_gimbal_to_search_angle(
+        SimpleNamespace(teacher="onboard"), profile, object(), object(), strict_delta_smoke=False
+    )
+    assert result["status"] == "reached"
+    assert calls[0][0] == {"yaw": 0.0, "roll": 0.0, "pitch": -20.0}
+
+
+def test_onboard_gimbal_search_angle_failure_raises(monkeypatch):
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    monkeypatch.setattr(
+        collector,
+        "_command_and_wait_gimbal",
+        lambda *_args, **_kwargs: {"status": "timeout", "target_deg": {"pitch": -20.0}},
+    )
+    with pytest.raises(RuntimeError, match="did not return"):
+        collector._return_onboard_gimbal_to_search_angle(
+            SimpleNamespace(teacher="onboard"), profile, object(), object(), strict_delta_smoke=False
+        )
+
+
+def test_strict_delta_smoke_does_not_restore_gimbal_search_angle(monkeypatch):
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    monkeypatch.setattr(
+        collector,
+        "_command_and_wait_gimbal",
+        lambda *_args, **_kwargs: pytest.fail("strict smoke must not issue a restore command"),
+    )
+    assert collector._return_onboard_gimbal_to_search_angle(
+        SimpleNamespace(teacher="onboard"), profile, object(), object(), strict_delta_smoke=True
+    ) is None
 
 
 @pytest.mark.parametrize(
@@ -353,3 +395,45 @@ def test_observation_exposes_live_gimbal_angles():
     assert observation["gimbal"]["angles_deg"] == pytest.approx(
         {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}
     )
+
+
+def test_ai_camera_ray_uses_actual_gimbal_joint_angle():
+    profile = AirframeProfile.from_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    sensor = SensorSample(
+        rgb=b"",
+        width=1,
+        height=1,
+        depth=None,
+        camera_info={},
+        pose={},
+        velocity=[],
+        sensor_stamp_ns=1,
+        received_monotonic_ns=10,
+        received_wall_time=0.0,
+        joint_state={
+            "gimbal_joint_state": {
+                "fresh": True,
+                "position_rad": {"yaw": 0.0, "roll": 0.0, "pitch": -math.radians(20.0)},
+            }
+        },
+    )
+    state = MavlinkState(
+        messages={
+            "LOCAL_POSITION_NED": {"x": 0, "y": 0, "z": -10},
+            "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+            "GLOBAL_POSITION_INT": {"lat": 0, "lon": 0, "relative_alt": 10000},
+            "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10, "eph": 100},
+        },
+        received_monotonic_ns={"LOCAL_POSITION_NED": 10},
+    )
+    observation = build_observation(sensor, state)
+    ray = camera_ray_from_profile(
+        320, 240,
+        fx=270, fy=270, cx=320, cy=240,
+        attitude_deg=(0, 0, 0),
+        profile=profile,
+        mode="mc",
+        gimbal_angles_deg=observation["gimbal"]["angles_deg"],
+    )
+    assert observation["gimbal"]["angles_deg"]["pitch"] == pytest.approx(-20.0)
+    assert math.asin(ray[2]) == pytest.approx(math.radians(20.0), abs=1e-6)

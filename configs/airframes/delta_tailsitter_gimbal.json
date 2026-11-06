@@ -96,7 +96,7 @@
       "base_position_m": [0.046, 0.0, 0.388],
       "joint_order": ["yaw", "roll", "pitch"],
       "default_angles_deg": {
-        "mc": {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
+        "mc": {"yaw": 0.0, "roll": 0.0, "pitch": -20.0},
         "fw": {"yaw": 0.0, "roll": 0.0, "pitch": -45.0}
       },
       "stabilization_reference": "world_horizon",

@@ -3276,6 +3276,35 @@ def _command_and_wait_gimbal(
             "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, "tolerance_deg": tolerance_deg}
 
 
+def _return_onboard_gimbal_to_search_angle(
+    plan: CollectionPlan,
+    profile: AirframeProfile,
+    connection: Any,
+    reader: Any,
+    *,
+    strict_delta_smoke: bool,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, Any] | None:
+    """Restore onboard search framing after the diagnostic -45-degree check."""
+    if plan.teacher != "onboard" or strict_delta_smoke:
+        return None
+    gimbal = profile.camera.gimbal
+    defaults = gimbal.get("default_angles_deg", {}) if isinstance(gimbal, Mapping) else {}
+    target = defaults.get("mc") if isinstance(defaults, Mapping) else None
+    if not isinstance(target, Mapping):
+        raise RuntimeError("gimbal MC search angle is missing from the airframe profile")
+    result = _command_and_wait_gimbal(
+        connection,
+        reader,
+        {axis: float(target[axis]) for axis in ("yaw", "roll", "pitch")},
+        tolerance_deg=4.0,
+        yaw_correction_deg=yaw_correction_deg,
+    )
+    if result.get("status") != "reached":
+        raise RuntimeError(f"gimbal did not return to onboard search angle: {result}")
+    return result
+
+
 def _wait_for_stable_mc_hover(
     reader: MavlinkReader,
     *,
@@ -5706,6 +5735,22 @@ def run_episode(
                     recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
                     if gimbal_result["status"] != "reached":
                         raise RuntimeError(f"gimbal target not reached: {gimbal_result}")
+                    search_angle_result = _return_onboard_gimbal_to_search_angle(
+                        plan,
+                        profile,
+                        vehicle,
+                        mav_reader,
+                        strict_delta_smoke=strict_delta_smoke,
+                        yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                    )
+                    if search_angle_result is not None:
+                        recorder.meta["gimbal_search_angle"] = search_angle_result
+                        recorder.record_mavlink(
+                            {"message_type": "gimbal_search_angle_result", **search_angle_result}
+                        )
+                        recorder.episode_path.write_text(
+                            json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                        )
                     if not hover_mission:
                         transition = executor._invoke(
                             "vtol_transition", "FW", timeout_s=executor._timeout()

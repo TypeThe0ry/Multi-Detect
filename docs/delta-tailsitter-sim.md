@@ -73,9 +73,34 @@ PX4_FRD = (x_base, -y_base, -z_base)
 
 云台角度约定是云台底座坐标中的 yaw、roll、pitch（弧度话题值），相机外参按
 `机体→云台底座 + 实时关节角` 计算。SDF 云台关节零位为中立位，不预置 −45°；
-`delta_tailsitter_gimbal.json` 中 MC 默认 −45°、FW 默认 +45° 是任务/MNT 目标参考角，
-应由 PX4 指令设置。上游云台也未配置非零 `initial_position`。没有实时关节样本的旧固定
+`delta_tailsitter_gimbal.json` 中 MC 默认 −20°、FW 默认 −45° 是任务搜索/MNT 目标参考角，
+应由 PX4 指令设置。FW 保持 −45°，因为固定翼前飞的现有成像/外参参考仍使用该下视角；
+MC 改为 −20° 以匹配身份任务的搜索视角。上游云台也未配置非零 `initial_position`。没有实时关节样本的旧固定
 相机调用仍使用原矩阵。
+
+## 身份视角调查与 AI 任务云台复位
+
+检查 `configs/training` 中可见的训练配置，没有身份模型训练样本的相机俯角字段；因此不能
+从模型训练配置直接断言 MobileCLIP/身份模型实际训练视角。身份任务的生成场景配置记录了
+相机俯角，事实分布如下（取各目录的
+`*.teacher_intent.json` 的 `observation.camera_pitch_rad`，换算为向下角度）：R20 为
+10.313°、14.324°、20.054°、24.064°、27.502°（20 个世界，均值 19.538°）；R21ID、
+R21ID-R3、R21ID-R4 各自全部为 24.064°（分别 24、72、24 个世界）；R21ID-R5 为
+7.356°–26.161°（12 个世界，均值 18.490°）。因此场景配置覆盖约 7°–28° 的俯视，
+大量样本集中在约 20°–24°；没有配置证据表明模型只见过精确 −20°，也没有仅凭这些
+配置证明 −45° 会导致 SUV/救护车误识别。`.tmp/ai-repeat-gimbal/report.json` 的现象仍是
+待实验验证的视角假设。
+
+云台版 AI 任务启动时仍先以 `−45°` 做自检；自检通过后，非严格冒烟的 onboard 任务会
+读取 profile 的 MC 默认角并发送 `yaw=0°、roll=0°、pitch=−20°`，等待新鲜姿态回读在
+4° 内确认到位，失败就中止任务并报错。严格 Delta 冒烟路径保持只测 `−45°` 且不复位。
+FW 默认角仍是 `−45°`，所以 FW 任务不会被这条 MC 搜索复位改变。
+
+AI 外参路径已核对：每个仿真观测从 Gazebo joint sidecar（缺失时回退到
+`GIMBAL_DEVICE_ATTITUDE_STATUS`）写入 `observation.gimbal.angles_deg`；onboard policy 的
+`camera_ray_from_profile` 将这组实际角度传给 `profile_camera_mount_rotation`，因此使用的是
+回位后的实测角，而不是静态 `−45°` 常量。相关离线单测覆盖实际角度读取、复位成功、复位
+失败报错和严格冒烟不复位。本轮未启动 Docker/SITL，不能据此声称飞行通过。
 
 碰撞仅一个机身盒与四个半径 12 mm 的接触球；球的最低点在同一平面，机身盒比它们
 高 5 mm。场景将 CG 放在地面上方 0.411 m，初始离地 2 mm 后落稳。地面摩擦初值
