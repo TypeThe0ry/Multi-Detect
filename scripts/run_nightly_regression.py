@@ -402,6 +402,11 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         if args.workers > 1:
             cmd += ["--workers", str(args.workers)]
         if name == "e2e": cmd = [sys.executable, str(ROOT / "scripts/run_e2e_operator_suite.py"), "--suite", str(config), "--out", str(suite_out), "--episodes", str(counts[name])]
+        # Reusing a campaign output must collect any episode left without a
+        # final status after an interrupted process. Completed episodes remain
+        # reusable inside the campaign runner.
+        if name != "e2e":
+            cmd.append("--retry-failed-episodes")
         plans.append((name, cmd, suite_out))
     if args.dry_run:
         print(json.dumps({

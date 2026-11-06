@@ -145,6 +145,19 @@ def retry_failed_episodes(out: Path) -> list[Path]:
     return archived
 
 
+def unique_retry_targets(
+    failed: list[tuple[int | None, int | None]], completed_indices: set[int]
+) -> list[tuple[int | None, int | None]]:
+    """Return one retry per logical index, excluding indexes already completed."""
+    unique = {}
+    for episode_index, seed in failed:
+        if episode_index is not None and episode_index in completed_indices:
+            continue
+        key = ("index", episode_index) if episode_index is not None else ("seed", seed)
+        unique.setdefault(key, (episode_index, seed))
+    return list(unique.values())
+
+
 def _expert_reference(campaign: Path, world: str) -> dict[str, Any] | None:
     """Fraction of expert episodes on ``world`` whose teacher reached the hold state."""
     if not campaign.is_dir():
@@ -239,14 +252,36 @@ def main(argv: list[str] | None = None) -> int:
         retry_targets: list[tuple[int | None, int | None]] = []
         if args.retry_failed_episodes and out.is_dir():
             failed = []
+            completed_indices = {
+                index
+                for episode in sorted((out / "episodes").glob("*"))
+                if episode.is_dir()
+                and episode_is_complete(episode)
+                and (index := _episode_index(episode)) is not None
+            }
             for episode in sorted((out / "episodes").glob("*")):
                 if episode.is_dir() and not episode_is_complete(episode):
                     metadata = _episode_metadata(episode)
                     failed.append(
                         (_episode_index(episode, metadata), _episode_seed(episode, metadata))
                     )
-            retry_failed_episodes(out)
-            retry_targets = failed
+            # Multiple interrupted directories can belong to one logical
+            # episode (for example after an earlier retry). Archive every
+            # directory, but collect that episode only once on resume.
+            archived = retry_failed_episodes(out)
+            if archived:
+                print(
+                    json.dumps(
+                        {
+                            "world": world_id,
+                            "resume_action": "archived_incomplete_episodes",
+                            "episodes": [str(path) for path in archived],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+            retry_targets = unique_retry_targets(failed, completed_indices)
         complete_dirs = (
             [
                 episode

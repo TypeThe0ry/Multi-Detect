@@ -16,6 +16,7 @@ from multidetect.simulation.index import load_scenario_index, load_verified_chan
 from multidetect.simulator.stack import resolve_simulator_assets
 from scripts import augment_sim_world as augment
 from scripts import collect_sim_teacher_episodes as collector
+from scripts import eval_onboard_loop_campaign as campaign
 from scripts import run_mission_suite as suite
 
 
@@ -105,6 +106,38 @@ def test_keep_px4_ulog_selects_default_only_when_mode_is_unset(work_tmp, monkeyp
 def test_k1_command_keeps_legacy_slot_arguments_absent(work_tmp):
     command = suite.build_command(_mission(), work_tmp / "onboard.json", work_tmp / "campaign", work_tmp / "report.json")
     assert not {"--control-port", "--telemetry-port", "--container-prefix", "--operator-port"} & set(command)
+
+
+def test_resume_archives_unfinished_attempts_and_preserves_completed_episode(tmp_path):
+    out = tmp_path / "world"
+    episodes = out / "episodes"
+    interrupted = [episodes / f"episode-0000-{suffix}" for suffix in ("first", "second")]
+    for episode in interrupted:
+        episode.mkdir(parents=True)
+        (episode / "episode.json").write_text(
+            json.dumps({"episode_index": 0, "seed": 0, "status": None}), encoding="utf-8"
+        )
+    complete = episodes / "episode-0001-done"
+    complete.mkdir(parents=True)
+    (complete / "episode.json").write_text(
+        json.dumps({"episode_index": 1, "seed": 1, "status": "complete", "step_count": 1}),
+        encoding="utf-8",
+    )
+    (complete / "steps.jsonl").write_text('{"step": 1}\n', encoding="utf-8")
+
+    archived = campaign.retry_failed_episodes(out)
+
+    assert len(archived) == 2
+    assert all(not episode.exists() for episode in interrupted)
+    assert all(path.is_dir() for path in archived)
+    assert complete.is_dir() and campaign.episode_is_complete(complete)
+    assert [path.name for path in episodes.iterdir()] == [complete.name]
+
+
+def test_resume_retries_each_incomplete_logical_episode_once():
+    assert campaign.unique_retry_targets(
+        [(0, 10), (0, 10), (1, 11)], {1}
+    ) == [(0, 10)]
 
 
 def test_worker_dry_run_assigns_unique_ports_and_container_names(work_tmp, monkeypatch, capsys):

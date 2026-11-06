@@ -106,6 +106,35 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def recorded_episode_is_complete(record: dict) -> bool:
+    """Trust a saved collection completion only while its artifact still verifies."""
+    if record.get("status") != "complete":
+        return False
+    path_value = record.get("path")
+    expected_hash = record.get("sha256")
+    if not path_value or not expected_hash:
+        return False
+    path = Path(path_value)
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        return metadata.get("status") == "complete" and sha256(path) == expected_hash
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def incomplete_episode_artifacts(target: Path) -> list[str]:
+    """Find earlier collector outputs without a final complete status."""
+    paths = []
+    for path in sorted(target.glob("attempt-*/**/episode-*/episode.json")):
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            metadata = {}
+        if not isinstance(metadata, dict) or metadata.get("status") != "complete":
+            paths.append(str(path))
+    return paths
+
+
 def bucket(short_side: float) -> str:
     for edge, name in zip((12, 16, 20, 32), BUCKETS, strict=False):
         if short_side < edge:
@@ -1077,7 +1106,12 @@ class Round:
         # never be mistaken for this key's episode (or another key's).
         prefix = cmd[cmd.index("--container-prefix") + 1]
         attempt = 0
-        try_index = 0
+        existing_attempts = [
+            int(path.name.removeprefix("attempt-"))
+            for path in target.glob("attempt-*")
+            if path.is_dir() and path.name.removeprefix("attempt-").isdigit()
+        ]
+        try_index = max(existing_attempts, default=-1) + 1
         docker_outages = 0
         while attempt <= self.a.retries:
             if getattr(self, "_docker_abort", None) and self._docker_abort.is_set():
@@ -1210,8 +1244,15 @@ class Round:
             airframe, takeoff_method, _category = collection_options[scenario]
             for idx in range(getattr(self.a, "episodes_per_world", R15_EPISODES_PER_WORLD)):
                 key = f"{world}:{idx}"
-                if self.state["episodes"].get(key, {}).get("status") == "complete":
+                prior = self.state["episodes"].get(key, {})
+                if recorded_episode_is_complete(prior):
                     continue
+                if prior.get("status") == "complete":
+                    prior["resume_action"] = "rerun_unverified_completion"
+                    self.state["episodes"][key] = prior
+                    print(
+                        f"[collect] {key}: saved completion has no verified final episode; rerunning"
+                    )
                 worker = idx % self.a.workers
                 target = self.a.episodes / world / f"ep-{idx}"
                 cmd = [
@@ -1301,6 +1342,9 @@ class Round:
             slots.put(slot)
 
         def run_on_free_slot(key: str, cmd: list[str], target: Path):
+            interrupted = incomplete_episode_artifacts(target)
+            if interrupted:
+                print(f"[collect] {key}: 重跑中断 episode；保留原始目录：{interrupted}")
             slot = slots.get()
             try:
                 lock = SitlLock(
@@ -1316,7 +1360,11 @@ class Round:
                     slot_env = os.environ.copy()
                     slot_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
                     slot_env["MULTIDETECT_SITL_SLOT"] = str(slot)
-                    return self._collect_one(key, slotted, target, env=slot_env)
+                    result = self._collect_one(key, slotted, target, env=slot_env)
+                    if interrupted:
+                        result["resume_action"] = "reran_after_incomplete_episode"
+                        result["interrupted_episodes"] = interrupted
+                    return result
                 finally:
                     lock.release()
             finally:
