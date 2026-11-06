@@ -33,6 +33,8 @@ from scripts.run_simulator_docker import (  # noqa: E402
     PINNED_IMAGE,
     DockerSimulatorPlan,
     build_docker_simulator_plan,
+    resolve_px4_daemon_mode,
+    resolve_px4_logger_mode,
 )
 from scripts.platform_paths import default_llama_server
 from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
@@ -739,7 +741,16 @@ def main(argv: Iterable[str] | None = None) -> int:
     if snapshot_dir:
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         (snapshot_dir / "session-provenance.json").write_text(
-            json.dumps(build_provenance(root=ROOT, world_paths=[world], command=sys.argv), ensure_ascii=False, indent=2) + "\n",
+            json.dumps(
+                {
+                    **build_provenance(root=ROOT, world_paths=[world], command=sys.argv),
+                    "px4_logger_mode": resolve_px4_logger_mode(),
+                    "px4_daemon_mode": resolve_px4_daemon_mode(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
     session_log = args.session_log.resolve() if args.session_log else None

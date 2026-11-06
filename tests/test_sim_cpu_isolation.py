@@ -320,6 +320,7 @@ def test_episode_provenance_records_affinity_and_does_not_claim_attached_affinit
     meta_path, = (tmp_path / "episodes").glob("*/episode.json")
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["provenance"]["px4_logger_mode"] == "off"
+    assert meta["provenance"]["px4_daemon_mode"] is True
     assert meta["provenance"]["linux_primitive_clock_stall_timeout_s"] == 90.0
     allocation = meta["provenance"]["simulator_cpu_isolation"]
     if attach:
