@@ -39,6 +39,9 @@ DELTA_TAILSITTER_PROFILE_IDS = frozenset(
 )
 FW_REPOSITION_RING_TOLERANCE_M = 8.0
 FW_OVERSPEED_SETTLED_WINDOW_S = 10.0
+BACK_TRANSITION_SETTLE_S = 5.0
+BACK_TRANSITION_MAX_MOTOR_OFF_S = 1.0
+BACK_TRANSITION_MAX_ALTITUDE_LOSS_M = 15.0
 FW_REPOSITION_RING_DEFAULT_RADIUS_M = DEFAULT_NAV_LOITER_RAD_M
 FW_SATURATION_LOW = 5
 FW_SATURATION_HIGH = 1095
@@ -241,6 +244,59 @@ def _delta_fw_ring_metrics(
         "fw_reposition_distance_m": relocation.get("distance_m") if relocation else None,
         "fw_reposition_tolerance_m": FW_REPOSITION_RING_TOLERANCE_M,
         "fw_reposition_radius_m": radius,
+    }
+
+
+def _delta_back_transition_metrics(mavlink: list[dict[str, Any]]) -> dict[str, Any]:
+    """Catch a back-transition that only survives because the ground arrived late.
+
+    Reaching "landed" says nothing about the transition: with all motors stopped
+    the airframe has fallen 50 m and still recovered a few metres above the ground.
+    """
+    start = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_post_transition_start"),
+        None,
+    )
+    end = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_post_transition_end"),
+        None,
+    )
+    start_s = _row_sim_time_s(start) if start else None
+    end_s = _row_sim_time_s(end) if end else None
+    motor_off_s = None
+    altitude_loss_m = None
+    if start_s is not None and end_s is not None and end_s >= start_s:
+        motor_off_s = 0.0
+        off_since = None
+        altitudes: list[float] = []
+        window_end_s = end_s + BACK_TRANSITION_SETTLE_S
+        for row, sim_time in zip(mavlink, _timeline(mavlink), strict=True):
+            if sim_time is None or not start_s <= sim_time <= window_end_s:
+                continue
+            kind = str(row.get("message_type", "")).upper()
+            try:
+                if kind == "LOCAL_POSITION_NED":
+                    altitudes.append(-float(_mav_value(row, "z")))
+                elif kind == "SERVO_OUTPUT_RAW":
+                    outputs = [float(_mav_value(row, f"servo{index}_raw")) for index in range(1, 5)]
+                    if all(value <= FW_SATURATION_LOW for value in outputs):
+                        off_since = sim_time if off_since is None else off_since
+                        motor_off_s = max(motor_off_s, sim_time - off_since)
+                    else:
+                        off_since = None
+            except (TypeError, ValueError):
+                continue
+        if altitudes:
+            altitude_loss_m = max(0.0, altitudes[0] - min(altitudes))
+    return {
+        "back_transition_motor_off_s": motor_off_s,
+        "back_transition_altitude_loss_m": altitude_loss_m,
+        "back_transition_success": bool(
+            motor_off_s is not None
+            and motor_off_s <= BACK_TRANSITION_MAX_MOTOR_OFF_S
+            and altitude_loss_m is not None
+            and altitude_loss_m <= BACK_TRANSITION_MAX_ALTITUDE_LOSS_M
+        ),
     }
 
 
@@ -755,6 +811,7 @@ def _delta_fw_metrics(
         ring = _delta_fw_ring_metrics(mavlink, steps)
     metrics.update(ring)
     metrics.update(_delta_fw_overspeed_metrics(mavlink))
+    metrics.update(_delta_back_transition_metrics(mavlink))
     post_transition = next(
         (row for row in mavlink if row.get("message_type") == "delta_smoke_post_transition_end"),
         None,
@@ -1153,6 +1210,7 @@ def build_plan(
                 "fw_metrics_pass",
                 "fw_overspeed_recovery_success",
                 "fw_overspeed_saturation_success",
+                "back_transition_success",
                 "post_transition_climb_success",
                 "self_occlusion_success",
             ]
@@ -1196,6 +1254,9 @@ def build_plan(
                     "fw_overspeed_hold_motor_samples": None,
                     "fw_overspeed_motor_saturation_fraction_by_motor": None,
                     "fw_overspeed_motor_samples": None,
+                    "back_transition_motor_off_s": None,
+                    "back_transition_altitude_loss_m": None,
+                    "back_transition_success": None,
                     "post_transition_climb_m": None,
                     "post_transition_climb_success": None,
                     "self_occlusion_fraction": None,
@@ -1366,6 +1427,7 @@ def main(argv: list[str] | None = None) -> int:
                 "fw_metrics_pass",
                 "fw_overspeed_recovery_success",
                 "fw_overspeed_saturation_success",
+                "back_transition_success",
                 "post_transition_climb_success",
                 "self_occlusion_success",
             )

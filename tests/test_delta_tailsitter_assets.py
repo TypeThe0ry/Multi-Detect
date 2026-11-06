@@ -156,7 +156,7 @@ def test_motor_geometry_directions_and_thrust_match_control_allocation():
     assert params["NPFG_ROLL_TC"] == pytest.approx(1.0)
     assert "FW_P_LIM_MIN" not in params
     assert "FW_T_SPDWEIGHT" not in params
-    assert params["FW_THR_MIN"] == pytest.approx(0.0)
+    assert params["FW_THR_MIN"] == pytest.approx(0.05)
     assert params["VT_ARSP_TRANS"] == pytest.approx(15.0)
     assert params["VT_F_TRANS_THR"] == pytest.approx(0.25)
     assert params["VT_F_TRANS_DUR"] == pytest.approx(5.0)

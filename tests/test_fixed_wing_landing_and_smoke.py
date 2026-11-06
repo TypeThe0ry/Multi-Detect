@@ -662,6 +662,52 @@ def test_delta_overspeed_gate_uses_the_peak_reported_by_the_injection_step():
     assert result["fw_overspeed_injection_success"] is True
 
 
+def _back_transition_rows(*, altitudes=(55.0, 54.0, 56.0), servos=(700, 700, 700)):
+    rows = [{"message_type": "delta_smoke_post_transition_start", "sim_time_s": 100.0}]
+    for index, (altitude, servo) in enumerate(zip(altitudes, servos, strict=True)):
+        boot_ms = 101000 + index * 2000
+        rows.append({"message_type": "LOCAL_POSITION_NED", "time_boot_ms": boot_ms, "z": -altitude})
+        rows.append(
+            {
+                "message_type": "SERVO_OUTPUT_RAW",
+                "time_usec": boot_ms * 1000,
+                **{f"servo{i}_raw": servo for i in range(1, 5)},
+            }
+        )
+    rows.append({"message_type": "delta_smoke_post_transition_end", "sim_time_s": 106.0})
+    return rows
+
+
+def test_delta_back_transition_gate_passes_a_powered_transition():
+    result = smoke._delta_back_transition_metrics(_back_transition_rows())
+
+    assert result["back_transition_motor_off_s"] == pytest.approx(0.0)
+    assert result["back_transition_success"] is True
+
+
+def test_delta_back_transition_gate_rejects_motors_off_even_without_altitude_loss():
+    result = smoke._delta_back_transition_metrics(_back_transition_rows(servos=(0, 0, 0)))
+
+    assert result["back_transition_motor_off_s"] == pytest.approx(4.0)
+    assert result["back_transition_success"] is False
+
+
+def test_delta_back_transition_gate_rejects_a_large_altitude_loss():
+    result = smoke._delta_back_transition_metrics(
+        _back_transition_rows(altitudes=(55.0, 45.0, 30.0))
+    )
+
+    assert result["back_transition_altitude_loss_m"] == pytest.approx(25.0)
+    assert result["back_transition_success"] is False
+
+
+def test_delta_back_transition_gate_fails_without_transition_markers():
+    result = smoke._delta_back_transition_metrics([])
+
+    assert result["back_transition_motor_off_s"] is None
+    assert result["back_transition_success"] is False
+
+
 def _clipped_servo_row(time_usec):
     return {
         "message_type": "SERVO_OUTPUT_RAW",
