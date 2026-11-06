@@ -229,6 +229,21 @@ def test_smoke_takeoff_uses_measured_altitude_not_commanded_altitude(tmp_path: P
     assert evaluate_episode(tmp_path, profile, 5.0)["takeoff_success"] is False
 
 
+def test_smoke_classifies_sensor_stream_stall_separately_from_flight():
+    assert (
+        smoke._failure_class_from_episode(
+            {
+                "failure": "TimeoutError: sensor stream produced no frame within 15.0s",
+                "sensor_stream_stall": {
+                    "failure_class": "sensor_stream_stall",
+                    "last_frame_sensor_stamp_ns": 4_920_000_000,
+                },
+            }
+        )
+        == "sensor_stream_stall"
+    )
+
+
 def test_smoke_requires_an_episode_artifact_even_when_collector_exits_zero(tmp_path, monkeypatch, capsys):
     class _Child:
         returncode = 0

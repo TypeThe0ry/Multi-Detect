@@ -1172,6 +1172,34 @@ def build_plan(
     }
 
 
+def _failure_class_from_episode(episode: dict[str, object]) -> str:
+    diagnostic = episode.get("telemetry_silence", {})
+    diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
+    sensor_stall = episode.get("sensor_stream_stall", {})
+    sensor_stall = sensor_stall if isinstance(sensor_stall, dict) else {}
+    evidence = episode.get("container_evidence", {})
+    evidence = evidence if isinstance(evidence, dict) else {}
+    state = evidence.get("state_before_cleanup") or {}
+    state = state if isinstance(state, dict) else {}
+    if state.get("ExitCode") == 139:
+        kernel = evidence.get("kernel_segfault") or {}
+        kernel = kernel if isinstance(kernel, dict) else {}
+        if kernel.get("failure_class"):
+            return str(kernel["failure_class"])
+        if diagnostic.get("failure_class") in {"px4_logger_segfault", "px4_other_segfault"}:
+            return str(diagnostic["failure_class"])
+        return "px4_other_segfault"
+    if diagnostic.get("failure_class") == "telemetry_receiver":
+        return "telemetry_receiver"
+    if diagnostic.get("failure_class") == "px4_hang":
+        return "px4_hang"
+    if sensor_stall.get("failure_class") == "sensor_stream_stall":
+        return "sensor_stream_stall"
+    if "sensor stream produced no frame within" in str(episode.get("failure", "")):
+        return "sensor_stream_stall"
+    return "flight"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--airframe", required=True)
@@ -1301,26 +1329,9 @@ def main(argv: list[str] | None = None) -> int:
         result["judgement"]["failure_reason"] = "collector produced no episode.json artifact"
     failure_class = "none"
     if result["status"] != "pass":
-        diagnostic = {}
         if episodes:
             episode = json.loads(episodes[-1].read_text(encoding="utf-8"))
-            diagnostic = episode.get("telemetry_silence", {})
-            evidence = episode.get("container_evidence", {})
-            state = evidence.get("state_before_cleanup") or {}
-            if state.get("ExitCode") == 139:
-                failure_class = "px4_other_segfault"
-                kernel = evidence.get("kernel_segfault") or {}
-                if kernel.get("failure_class"):
-                    failure_class = kernel["failure_class"]
-                elif diagnostic.get("failure_class") in {
-                    "px4_logger_segfault",
-                    "px4_other_segfault",
-                }:
-                    failure_class = diagnostic["failure_class"]
-            elif diagnostic.get("failure_class") == "telemetry_receiver":
-                failure_class = "telemetry_receiver"
-            elif diagnostic.get("failure_class") == "px4_hang":
-                failure_class = "px4_hang"
+            failure_class = _failure_class_from_episode(episode)
         if failure_class == "none":
             failure_class = "flight"
     result["judgement"]["failure_class"] = failure_class

@@ -103,6 +103,47 @@ def test_sensor_frame_timeout_reports_reader_state():
         )
 
 
+def test_sensor_frame_timeout_can_make_one_bounded_reconnect():
+    class Reader:
+        def __init__(self, sample=None):
+            self.latest = sample
+            self.frames_received = 0 if sample is None else 1
+            self.frames_dropped = 0
+            self.done = __import__("threading").Event()
+            self.error = None
+            self._thread = None
+
+        def request(self, _stamp):
+            return None
+
+        def raise_if_failed(self):
+            return None
+
+    replacement = Reader(
+        SimpleNamespace(
+            received_monotonic_ns=2,
+            sensor_stamp_ns=123,
+        )
+    )
+    calls = []
+
+    def reconnect():
+        calls.append(True)
+        return replacement
+
+    sample = collector._fresh_sensor_snapshot(
+        Reader(),
+        previous_ns=0,
+        timeout_s=0.001,
+        min_sensor_stamp_ns=123,
+        poll_interval_s=0.001,
+        reconnect=reconnect,
+        max_reconnects=1,
+    )
+    assert sample is replacement.latest
+    assert calls == [True]
+
+
 def test_telemetry_silence_uses_sim_and_wall_clocks_at_point_one_realtime(tmp_path):
     now = [0.0]
     reader = _reader()

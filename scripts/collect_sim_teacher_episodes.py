@@ -25,7 +25,7 @@ import time
 import types
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -4289,6 +4289,8 @@ def _fresh_sensor_snapshot(
     *,
     min_sensor_stamp_ns: int | None = None,
     poll_interval_s: float = 0.02,
+    reconnect: Callable[[], SensorStreamReader | None] | None = None,
+    max_reconnects: int = 0,
 ):
     """Wait for a fresh frame at or beyond a requested simulation timestamp.
 
@@ -4298,49 +4300,86 @@ def _fresh_sensor_snapshot(
     optional Gazebo/PX4 lockstep watermark and prevents consuming a backlog
     frame captured before the pose used for this observation.
     """
-    reader.request(0 if min_sensor_stamp_ns is None else min_sensor_stamp_ns)
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        reader.raise_if_failed()
+    reconnects = 0
+    reconnect_error: str | None = None
+    while True:
+        reader.request(0 if min_sensor_stamp_ns is None else min_sensor_stamp_ns)
+        deadline = time.monotonic() + timeout_s
+        restarted = False
+        while time.monotonic() < deadline:
+            try:
+                reader.raise_if_failed()
+            except Exception:
+                if reconnect is None or reconnects >= max(0, int(max_reconnects)):
+                    raise
+                reconnects += 1
+                try:
+                    replacement = reconnect()
+                    if replacement is None:
+                        raise RuntimeError("sensor reconnect callback returned no reader")
+                    reader = replacement
+                    reconnect_error = None
+                    restarted = True
+                except Exception as exc:
+                    reconnect_error = f"{type(exc).__name__}: {exc}"
+                break
+            sample = reader.latest
+            if (
+                sample is not None
+                and sample.received_monotonic_ns > previous_ns
+                and (
+                    min_sensor_stamp_ns is None
+                    or int(sample.sensor_stamp_ns) >= int(min_sensor_stamp_ns)
+                )
+            ):
+                return sample
+            time.sleep(max(0.001, float(poll_interval_s)))
+        if restarted:
+            continue
         sample = reader.latest
-        if (
-            sample is not None
-            and sample.received_monotonic_ns > previous_ns
-            and (
-                min_sensor_stamp_ns is None
-                or int(sample.sensor_stamp_ns) >= int(min_sensor_stamp_ns)
-            )
-        ):
-            return sample
-        time.sleep(max(0.001, float(poll_interval_s)))
-    sample = reader.latest
-    latest_stamp_ns = getattr(sample, "sensor_stamp_ns", None)
-    latest_received_ns = getattr(sample, "received_monotonic_ns", None)
-    latest_age_s = (
-        round(max(0.0, (time.monotonic_ns() - int(latest_received_ns)) / 1e9), 3)
-        if latest_received_ns is not None
-        else None
-    )
-    reader_thread = getattr(reader, "_thread", None)
-    reader_done = getattr(reader, "done", None)
-    reader_error = getattr(reader, "error", None)
-    diagnostics = {
-        "min_sensor_stamp_ns": min_sensor_stamp_ns,
-        "previous_received_monotonic_ns": previous_ns,
-        "frames_received": getattr(reader, "frames_received", None),
-        "frames_dropped": getattr(reader, "frames_dropped", None),
-        "latest_sensor_stamp_ns": latest_stamp_ns,
-        "latest_age_s": latest_age_s,
-        "reader_thread_alive": bool(reader_thread and reader_thread.is_alive()),
-        "reader_done": bool(reader_done and reader_done.is_set()),
-        "reader_error": f"{type(reader_error).__name__}: {reader_error}"
-        if reader_error is not None
-        else None,
-    }
-    raise TimeoutError(
-        f"sensor stream produced no frame within {timeout_s:.1f}s; "
-        f"diagnostics={json.dumps(diagnostics, sort_keys=True, default=str)}"
-    )
+        latest_stamp_ns = getattr(sample, "sensor_stamp_ns", None)
+        latest_received_ns = getattr(sample, "received_monotonic_ns", None)
+        latest_age_s = (
+            round(max(0.0, (time.monotonic_ns() - int(latest_received_ns)) / 1e9), 3)
+            if latest_received_ns is not None
+            else None
+        )
+        reader_thread = getattr(reader, "_thread", None)
+        reader_done = getattr(reader, "done", None)
+        reader_error = getattr(reader, "error", None)
+        diagnostics = {
+            "min_sensor_stamp_ns": min_sensor_stamp_ns,
+            "previous_received_monotonic_ns": previous_ns,
+            "frames_received": getattr(reader, "frames_received", None),
+            "frames_dropped": getattr(reader, "frames_dropped", None),
+            "latest_sensor_stamp_ns": latest_stamp_ns,
+            "latest_received_monotonic_ns": latest_received_ns,
+            "latest_age_s": latest_age_s,
+            "reader_thread_alive": bool(reader_thread and reader_thread.is_alive()),
+            "reader_done": bool(reader_done and reader_done.is_set()),
+            "reader_error": f"{type(reader_error).__name__}: {reader_error}"
+            if reader_error is not None
+            else None,
+            "reconnect_attempts": reconnects,
+            "reconnect_error": reconnect_error,
+        }
+        if reconnect is not None and reconnects < max(0, int(max_reconnects)):
+            reconnects += 1
+            try:
+                replacement = reconnect()
+                if replacement is None:
+                    raise RuntimeError("sensor reconnect callback returned no reader")
+                reader = replacement
+                reconnect_error = None
+                continue
+            except Exception as exc:
+                reconnect_error = f"{type(exc).__name__}: {exc}"
+                diagnostics["reconnect_attempts"] = reconnects
+                diagnostics["reconnect_error"] = reconnect_error
+        raise TimeoutError(
+            f"sensor stream produced no frame within {timeout_s:.1f}s; "
+            f"diagnostics={json.dumps(diagnostics, sort_keys=True, default=str)}"
+        )
 
 
 def _arm(
@@ -4823,30 +4862,54 @@ def run_episode(
                 }
             if sensor_process.stdout is None:
                 raise RuntimeError("sensor stream stdout is unavailable")
-            sensor_reader = SensorStreamReader(
-                sensor_process.stdout,
-                request_stream=sensor_process.stdin,
-                depth_binding=depth_binding,
-                camera_info={
-                    **DEFAULT_CAMERA_INFO,
-                    "width": plan.rgb_size[0],
-                    "height": plan.rgb_size[1],
-                    "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
-                    "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
-                    "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
-                    "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
-                },
-                max_frames=max(64, int(plan.max_episode_s * 30.0)),
-                require_depth=depth_binding is not None,
-                segmentation_topic="/multidetect/teacher/segmentation/labels_map"
-                if plan.segmentation
-                else None,
-            ).start()
+            def _start_sensor_reader(process: subprocess.Popen[bytes]) -> SensorStreamReader:
+                if process.stdout is None:
+                    raise RuntimeError("sensor stream stdout is unavailable")
+                return SensorStreamReader(
+                    process.stdout,
+                    request_stream=process.stdin,
+                    depth_binding=depth_binding,
+                    camera_info={
+                        **DEFAULT_CAMERA_INFO,
+                        "width": plan.rgb_size[0],
+                        "height": plan.rgb_size[1],
+                        "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                        "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                        "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                        "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                    },
+                    max_frames=max(64, int(plan.max_episode_s * 30.0)),
+                    require_depth=depth_binding is not None,
+                    segmentation_topic="/multidetect/teacher/segmentation/labels_map"
+                    if plan.segmentation
+                    else None,
+                ).start()
+
+            sensor_reader = _start_sensor_reader(sensor_process)
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
             sensor_reader.request(0)
             sensor_reader.wait_first_frame(_episode_budget(started, plan.max_episode_s, 45.0))
             _progress("sensor_stream_first_frame", frames=sensor_reader.frames_received)
+
+            def _reconnect_sensor_stream() -> SensorStreamReader:
+                nonlocal sensor_process, sensor_reader
+                if sensor_reader is not None:
+                    sensor_reader.stop(timeout_s=1.0)
+                if sensor_process is not None:
+                    try:
+                        sensor_process.terminate()
+                        sensor_process.wait(timeout=2.0)
+                    except Exception:
+                        try:
+                            sensor_process.kill()
+                        except Exception:
+                            pass
+                sensor_process = _make_sensor_process(plan, environment)
+                sensor_reader = _start_sensor_reader(sensor_process)
+                sensor_reader.request(0)
+                _progress("sensor_stream_reconnected", frames=sensor_reader.frames_received)
+                return sensor_reader
             telemetry_watchdog = MavlinkTelemetrySilenceWatchdog(
                 mav_reader, environment, recorder
             )
@@ -5605,6 +5668,8 @@ def run_episode(
                     SENSOR_FRAME_WAIT_S,
                     min_sensor_stamp_ns=pose_sim_stamp_ns,
                     poll_interval_s=plan.sensor_poll_interval_s,
+                    reconnect=_reconnect_sensor_stream,
+                    max_reconnects=1,
                 )
                 timing["pre_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 before_state = mav_reader.aligned_state(before_sample.sensor_stamp_ns)
@@ -6130,7 +6195,33 @@ def run_episode(
             recorder.meta["video"] = video_writer.close()
         if environment is not None and environment.evidence_index is not None:
             recorder.meta["container_evidence"] = environment.evidence_index
-        recorder.mark_finished(status="failed", failure=f"{type(exc).__name__}: {exc}")
+        failure_text = f"{type(exc).__name__}: {exc}"
+        if "sensor stream produced no frame within" in failure_text:
+            diagnostics: dict[str, Any] = {}
+            marker = "diagnostics="
+            if marker in failure_text:
+                raw = failure_text.split(marker, 1)[1]
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict):
+                        diagnostics = parsed
+                except json.JSONDecodeError:
+                    diagnostics = {"raw": raw[:2000]}
+            recorder.meta["sensor_stream_stall"] = {
+                "failure_class": "sensor_stream_stall",
+                "diagnosis": (
+                    "Gazebo camera/depth/odometry topics and rendering initialized; "
+                    "container and PX4 telemetry remained alive. The retained evidence "
+                    "cannot distinguish a frame-server/bridge stall from a renderer stall."
+                ),
+                "last_frame_sensor_stamp_ns": diagnostics.get("latest_sensor_stamp_ns"),
+                "last_frame_received_monotonic_ns": diagnostics.get(
+                    "latest_received_monotonic_ns"
+                ),
+                "last_frame_age_s": diagnostics.get("latest_age_s"),
+                **diagnostics,
+            }
+        recorder.mark_finished(status="failed", failure=failure_text)
         raise
     return recorder.episode_dir
 
