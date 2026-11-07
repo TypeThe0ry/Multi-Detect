@@ -174,3 +174,13 @@ bash -n .tmp/jobs/41-onboard-climb-fault-sitl.sh
 ### 2. 修复通用 onboard fault campaign 的证据与 handoff 验收缺口
 
 目标：解释并修复 source-level onboard fault campaign 当前 reason/output-gap/terminal LAND handoff 验收失败，同时继续拒绝现有 mutants。证据路径：`docs/onboard-climb-land-followup-20261107.md`、`scripts/run_onboard_fault_campaign.py`、`tests/test_onboard_fault_campaign.py`、`src/multidetect/onboard_runtime/runtime.py`、`.tmp/climb-fault-injection-check/report.json` 与 `.tmp/climb-fault-injection-check/runs/*/mission.jsonl`。区分窗口筛选、异步事件落盘、真实 terminal handoff 未升级 LAND；不得放宽或删除 deadline、连续输出、终态断言，不改 supervisor LAND 优先级、爬升阈值、collector vehicle-loss，不新增空中 disarm，不启动 SITL/Docker/HIL/真机、训练或下载，不写 artifacts。运行相关单测、通用 campaign 和 CPU-only onboard gate，并将逐项证据、修复结果与测试记录写入 `docs/onboard-fault-campaign-handoff-followup-20261107.md`。
+
+## 2026-11-07 实测回灌：注入 SITL 未满足前置条件
+
+只读产物：`artifacts/benchmarks/onboard-climb-fault-sitl-20261107T112641Z-1808272/`。该 run 的 `onboard.json` 确实设置了 `sim_climb_timeout_injection=true`，但 suite 运行的是 `operator-abort`：120 s 时触发显式 abort，supervisor 进入 `return_now`，最终 `final_decision=return_now`、reason=`explicit operator abort`，suite `expectation_pass_rate=0.0`。collector 和 episode 都正常结束（`exit=0`、`status=complete`），这不等于注入验收通过。
+
+逐步证据与文档预测不符：episode 共 48 步、所有 outcome 均为 `success`，timeout=0，`up_m>0` 的 primitive=0；PX4 `time_boot_ms` 从 27.888 s 推进到 173.152 s。NED 高度约为 18.135--18.517 m，始终高于 injector 要求的低空阈值 2.5 m，因此没有两次低空纯 `return_home` climb timeout，也没有第三次 climb、`climb_failed_suspected_loss_of_control` event/alert 或 `land_now` escalation。mission log 的 `summary.json` 只记录 `ended_early/return_now/explicit operator abort`，`recovery_history` 为空。
+
+这次结果暴露的是作业场景配置缺陷，而不是 supervisor 保护链的反例：注入器的明确匹配条件要求 `active_skill=return_home`、纯上升动作、airborne 且高度不超过 2.5 m；现有 `operator-abort` 在约 18 m 高度开始水平返航，根本不会生成满足条件的上升 primitive。因而不能用该 run 评价“两次 timeout 后无第三次 climb”或 LAND handoff。也没有新增 PX4 LAND ACK、LAND mode confirmation 或 fresh landed-state 证据可用于该保护链；`return_now` 收尾记录不能当作 `land_now`。
+
+本次没有修改运行时代码、LAND 优先级、阈值、vehicle-loss 规则或既有断言，也没有写入共享 `artifacts/`。应修复的是下一次 SITL 作业的前置条件：在触发 abort 前把车辆置于低于 2.5 m 的 airborne 状态，并确保 return-home recovery 生成至少两个纯上升 primitive；作业末尾还必须对 timeout 数、before/after boot 与 NED 样本、失败 event/alert/escalation 做硬检查。该修复应先有作业脚本和配置测试，再重新调度单槽 SITL。

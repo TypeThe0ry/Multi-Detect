@@ -77,3 +77,16 @@ clock/stats 探针都保留 return code、timeout、stdout/stderr；未知字段
 
 1. 在单槽 SITL 上执行 `.tmp/jobs/01-px4-clock-stall-followup.sh`，记录两个串行任务的槽位、UTC 开始/结束、退出码和所有 capture 文件；只读分析 `capture_budget.ordering`、PX4/Gazebo GDB、clock/stats、IMU/camera 字段，写入 `docs/gz-idle-stall-sitl-results-20261107.md`，不得修改 `artifacts/`、timeout、lockstep 或 world control。
 2. 若无探针污染复现仍显示 Gazebo `PublishStats` mutex wait，设计只读锁持有者证据采集（例如在现有 GDB 快照中增加 owner/锁地址线索），写入 `docs/gz-idle-stall-transport-owner-20261107.md`；不得据此直接改运行时锁、PX4 lockstep 或任何 release-parity/schema 文件。
+
+## 2026-11-07 实测回灌：baseline 与 repro
+
+实际产物：`artifacts/benchmarks/px4-clock-stall-followup-20261107/`。`status.json` 记录 `baseline_exit=0`、`repro_exit=0`；两个 `count-cones` episode 都是 `status=complete`，collector exit 为 0，任务语义均完成 `count -> return_home`，但报告的模型验收仍为 `success=false`、`false_confirm=true`。这两个“success=false”是检测位置/false-confirm 指标，不是时钟停滞或 collector 崩溃。
+
+| run | wall time | steps | PX4 boot time | primitive timeout | 结果 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| baseline | 939 s | 82 | 26.700 -> 245.852 s | 0 | 完整结束 |
+| repro-count-cones | 1033 s | 92 | 26.996 -> 291.360 s | 0 | 完整结束 |
+
+两次都在同一隔离槽位 `cpuset 86-95` 运行，采集器记录的 `linux_primitive_clock_stall_timeout_s=45.0`；frame-before/frame-after 的 p50 约为 0.36--0.40 s，PX4 仿真时间持续推进。artifact 中没有 `px4-clock-stall-capture.json`、Gazebo/PX4 GDB 或 clock/stats probe 输出，因此不能按 `scripts/px4_clock_stall_capture.py` 的离线分类器声称 `publish_stats_mutex_wait`、`clock_stalled_alive` 或 WorldStatistics 的 `paused` 值。文档预期的“若复现则采集栈”没有发生；本次只能记为“该两次有界 run 未复现”，不是运行时修复证明。
+
+本次没有发现需要修改的运行时代码缺陷，也没有改变 timeout、lockstep、world control 或共享 `artifacts/`。由于没有直接 Gazebo clock、WorldStatistics、IMU listener 或 camera topic capture，仍不能把完成归因到某个具体 transport/lockstep 路径，也不能排除只在其他负载窗口出现的 stall。
