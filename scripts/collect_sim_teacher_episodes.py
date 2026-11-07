@@ -75,6 +75,7 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     SensorStreamReader,
     build_observation,
 )
+from multidetect.sim_teacher.vehicle_loss import VehicleLossDetector  # noqa: E402
 from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
@@ -105,6 +106,14 @@ DEFAULT_VIDEO_MAX_BYTES = 8 * 1024**3
 
 class LowDiskSpace(RuntimeError):
     """Normal campaign stop caused by the configured free-space floor."""
+
+
+class VehicleLostControl(RuntimeError):
+    """The recorded telemetry shows an uncommanded fall or sustained tumble."""
+
+    def __init__(self, event: dict[str, Any]):
+        self.event = event
+        super().__init__(f"vehicle lost control: {event.get('reason', 'telemetry rule')}")
 
 
 def free_space_bytes(path: str | Path) -> int:
@@ -4634,6 +4643,7 @@ def run_episode(
                     }
                 )
                 _progress("takeoff_reached", method=takeoff_method)
+            vehicle_loss_detector = VehicleLossDetector()
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
@@ -4979,6 +4989,18 @@ def run_episode(
                         "total_ms": round((time.perf_counter_ns() - step_t0) / 1e6, 3),
                     },
                 )
+                loss_event = vehicle_loss_detector.update(
+                    before,
+                    after,
+                    {"kind": step_action.kind, "up_m": step_action.up_m},
+                    commanded_delta,
+                )
+                if loss_event is not None:
+                    loss_event["step_index"] = index
+                    recorder.record_mavlink(
+                        {"message_type": "collector_vehicle_lost_control", **loss_event}
+                    )
+                    raise VehicleLostControl(loss_event)
                 # STOP is a terminal policy action.  Keep this step in the
                 # episode (including its observation pair), then immediately
                 # leave the primitive loop so we do not execute redundant
@@ -5104,7 +5126,11 @@ def run_episode(
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
     except Exception as exc:
-        record_container_failure(exc)
+        if isinstance(exc, VehicleLostControl):
+            recorder.meta["failure_class"] = "vehicle_lost_control"
+            recorder.meta["vehicle_lost_control"] = exc.event
+        else:
+            record_container_failure(exc)
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
         except Exception:
