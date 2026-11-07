@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.nightly_trend import _read_json
 from scripts.run_nightly_regression import mission_triage
+from scripts.sensor_timeout_counts import count_sensor_timeouts_in_tree
 
 FAILURE_CLASSES = (
     "px4_crashed",
@@ -99,14 +99,8 @@ def _steps_timing(steps_path: Path) -> tuple[float | None, float | None]:
 
 
 def _timeout_counts(mission_dir: Path) -> dict[str, int]:
-    counts = {"Accel": 0, "Gyro": 0, "MAG": 0}
-    for path in mission_dir.rglob("*"):
-        if not path.is_file() or path.suffix not in {".log", ".txt"}:
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for sensor in counts:
-            counts[sensor] += len(re.findall(rf"\b{sensor}\s*#?\d*[^\n]*TIMEOUT", text, re.I))
-    return counts
+    counts = count_sensor_timeouts_in_tree(mission_dir)
+    return {"Accel": counts["accel"], "Gyro": counts["gyro"], "MAG": counts["mag"]}
 
 
 def _episode_record(episode_path: Path, suite_row: dict[str, Any] | None = None) -> dict[str, Any]:

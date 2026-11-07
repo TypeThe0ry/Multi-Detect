@@ -115,6 +115,28 @@ def test_chinese_review_summarizes_suites_events_counts_and_arm_diff(tmp_path, c
     assert "夜间回归复核" in (tmp_path / "review.md").read_text(encoding="utf-8")
 
 
+def test_compare_counts_real_mavlink_statustext_with_extra_spacing(tmp_path):
+    arm = tmp_path / "arm"
+    _review_mission(arm, "main", "real-timeout", passed=True)
+    episode = next((arm / "main" / "real-timeout").glob("campaign/*/episodes/*"))
+    (episode / "mavlink.jsonl").write_text(
+        json.dumps(
+            {
+                "mavpackettype": "STATUSTEXT",
+                "message_type": "STATUSTEXT",
+                "text": "Accel #0 fail:  TIMEOUT!\t",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (episode.parent.parent / "legacy.log").write_text(
+        "Accel #0 fail:  TIMEOUT!\n", encoding="utf-8"
+    )
+    mission = build_comparison([arm])["arms"][0]["missions"]["real-timeout"]
+    assert mission["timeout_counts"] == {"Accel": 1, "Gyro": 0, "MAG": 0}
+
+
 def test_climb_failure_class_from_generated_supervisor_evidence(tmp_path):
     from scripts.run_onboard_fault_campaign import run_climb_failure_fixture
 

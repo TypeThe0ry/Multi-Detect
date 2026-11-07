@@ -5,48 +5,25 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import gzip
 import json
 import math
 import statistics
 from pathlib import Path
 from typing import Any
 
+from scripts.sensor_timeout_counts import (
+    count_sensor_timeouts,
+    iter_jsonl_rows,
+    sensor_timeout_kinds_from_row,
+)
+
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
-    rows = []
-    if not path.is_file():
-        return rows
-    with path.open(encoding="utf-8") as stream:
-        for line in stream:
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, dict):
-                rows.append(row)
-    return rows
+    return list(iter_jsonl_rows(path))
 
 
 def _jsonl_gz(path: Path) -> list[dict[str, Any]]:
-    rows = []
-    if not path.is_file():
-        return rows
-    try:
-        with gzip.open(path, "rt", encoding="utf-8") as stream:
-            try:
-                for line in stream:
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(row, dict):
-                        rows.append(row)
-            except (EOFError, OSError):
-                pass
-    except OSError:
-        return rows
-    return rows
+    return list(iter_jsonl_rows(path))
 
 
 def _finite(value: Any) -> float | None:
@@ -149,29 +126,20 @@ def analyze_episode(episode_dir: Path) -> dict[str, Any]:
         meta = json.loads((episode_dir / "episode.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         meta = {}
-    counts = {"accel": 0, "gyro": 0, "mag": 0}
     mavlink = _jsonl(episode_dir / "mavlink.jsonl")
     if not mavlink:
         mavlink = _jsonl_gz(episode_dir / "mavlink.jsonl.gz")
+    counts = count_sensor_timeouts(mavlink)
     timeout_events = []
     for row in mavlink:
-        kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
-        if kind != "STATUSTEXT":
-            continue
-        text = str(row.get("text", "")).lower()
-        if "timeout" not in text:
-            continue
-        for sensor in counts:
-            if sensor in text:
-                counts[sensor] += 1
-                timeout_events.append(
-                    {
-                        "sensor": sensor,
-                        "text": str(row.get("text", "")),
-                        "wall_time": _finite(row.get("receive_wall_time")),
-                    }
-                )
-                break
+        for sensor in sensor_timeout_kinds_from_row(row):
+            timeout_events.append(
+                {
+                    "sensor": sensor,
+                    "text": str(row.get("text", "")),
+                    "wall_time": _finite(row.get("receive_wall_time")),
+                }
+            )
     steps = _jsonl(episode_dir / "steps.jsonl")
     stamps = [
         value

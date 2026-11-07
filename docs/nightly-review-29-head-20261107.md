@@ -13,23 +13,23 @@
 
 | 套件/任务 | 预期通过 | 失败类 | 失败文本/事件 | expected/reported | false findings | 时长(s) | RTF | Accel/Gyro/MAG TIMEOUT | stall capture |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | ---: |
-| budget-reserve-return | yes | none | — | 3/— | 0 | 952.666 | 0.154 | 0/0/0 | 0 |
-| comms-free-count | no | sensor_stream_stalled | TimeoutError: sensor stream produced no frame within 15.0s; skills; supervisor.final_decision; supervisor.reason; supervisor.return_home_started; supervisor.onboard_log_exists; supervisor.logged_decisions; supervisor.logged_reasons; supervisor.original_mission_completed; supervisor.ground_event_count; min_count_exact | —/— | — | 1865.596 | 0.153 | 1/0/0 | 0 |
-| comms-free-patrol-timeout | yes | none | — | 3/— | 0 | 1068.364 | 0.159 | 0/0/0 | 0 |
+| budget-reserve-return | yes | none | — | 3/— | 0 | 952.666 | 0.154 | 11/0/0 | 0 |
+| comms-free-count | no | sensor_stream_stalled | TimeoutError: sensor stream produced no frame within 15.0s; skills; supervisor.final_decision; supervisor.reason; supervisor.return_home_started; supervisor.onboard_log_exists; supervisor.logged_decisions; supervisor.logged_reasons; supervisor.original_mission_completed; supervisor.ground_event_count; min_count_exact | —/— | — | 1865.596 | 0.153 | 11/0/0 | 0 |
+| comms-free-patrol-timeout | yes | none | — | 3/— | 0 | 1068.364 | 0.159 | 11/0/0 | 0 |
 | count-cones | no | clock_stalled_alive | TimeoutError: PX4 simulation clock stalled during primitive; step=6; wall_timeout_s=45; skills; min_count_exact | —/— | — | 334.707 | 0.064 | 0/0/0 | 1 |
-| count-fire-hydrants | no | none | min_count_exact | 3/4 | 1 | 2348.952 | 0.18 | 0/0/0 | 0 |
-| english-find-person | yes | none | — | —/— | — | 331.712 | 0.084 | 0/0/0 | 0 |
+| count-fire-hydrants | no | none | min_count_exact | 3/4 | 1 | 2348.952 | 0.18 | 9/0/0 | 0 |
+| english-find-person | yes | none | — | —/— | — | 331.712 | 0.084 | 3/0/0 | 0 |
 | find-suv-land | yes | none | — | —/— | — | 337.382 | 0.144 | 0/0/0 | 0 |
-| gimbal/gimbal-count-cones | no | none | min_count_exact | 3/2 | 0 | 4159.53 | 0.107 | 0/0/0 | 0 |
-| gimbal/gimbal-inspect-postbox | yes | none | — | —/— | — | 769.769 | 0.113 | 0/0/0 | 0 |
-| gimbal/gimbal-survey-site-overlap | no | sensor_stream_stalled | TimeoutError: sensor stream produced no frame within 15.0s; skills; min_survey_coverage | —/— | — | 2260.111 | 0.147 | 0/0/0 | 0 |
-| high-risk-monitor-link-loss | yes | none | — | 3/— | 0 | 1025.253 | 0.152 | 0/0/0 | 0 |
-| inspect-postbox | yes | none | — | —/— | — | 661.813 | 0.147 | 0/0/0 | 0 |
-| monitor-backpacks | yes | none | — | 3/— | 0 | 1912.319 | 0.182 | 0/0/0 | 0 |
-| operator-abort | no | px4_alive_other_failure | TimeoutError: episode exceeded its hard wall-clock ceiling (4800s); skills; supervisor.final_decision; supervisor.reason; supervisor.return_home_started; supervisor.onboard_log_exists; supervisor.logged_decisions; supervisor.logged_reasons; supervisor.original_mission_completed; supervisor.abort_hover_before_return | —/— | — | 4933.314 | 0.144 | 1/1/1 | 0 |
-| operator-pause-resume | yes | none | — | 3/— | 0 | 1430.063 | 0.167 | 0/0/0 | 0 |
-| patrol-fence-backpacks | yes | none | — | 3/— | 0 | 4175.023 | 0.113 | 0/0/0 | 0 |
-| survey-site-overlap | yes | none | — | 3/— | 0 | 1810.718 | 0.171 | 0/0/0 | 0 |
+| gimbal/gimbal-count-cones | no | none | min_count_exact | 3/2 | 0 | 4159.53 | 0.107 | 9/0/0 | 0 |
+| gimbal/gimbal-inspect-postbox | yes | none | — | —/— | — | 769.769 | 0.113 | 5/0/0 | 0 |
+| gimbal/gimbal-survey-site-overlap | no | sensor_stream_stalled | TimeoutError: sensor stream produced no frame within 15.0s; skills; min_survey_coverage | —/— | — | 2260.111 | 0.147 | 11/0/1 | 0 |
+| high-risk-monitor-link-loss | yes | none | — | 3/— | 0 | 1025.253 | 0.152 | 10/0/0 | 0 |
+| inspect-postbox | yes | none | — | —/— | — | 661.813 | 0.147 | 6/0/0 | 0 |
+| monitor-backpacks | yes | none | — | 3/— | 0 | 1912.319 | 0.182 | 6/0/0 | 0 |
+| operator-abort | no | px4_alive_other_failure | TimeoutError: episode exceeded its hard wall-clock ceiling (4800s); skills; supervisor.final_decision; supervisor.reason; supervisor.return_home_started; supervisor.onboard_log_exists; supervisor.logged_decisions; supervisor.logged_reasons; supervisor.original_mission_completed; supervisor.abort_hover_before_return | —/— | — | 4933.314 | 0.144 | 19/0/1 | 0 |
+| operator-pause-resume | yes | none | — | 3/— | 0 | 1430.063 | 0.167 | 12/0/0 | 0 |
+| patrol-fence-backpacks | yes | none | — | 3/— | 0 | 4175.023 | 0.113 | 14/0/0 | 0 |
+| survey-site-overlap | yes | none | — | 3/— | 0 | 1810.718 | 0.171 | 16/0/0 | 0 |
 
 ## nightly-linux-r21idr3-r24plan-29-head
 
@@ -42,13 +42,13 @@
 
 | 套件/任务 | 预期通过 | 失败类 | 失败文本/事件 | expected/reported | false findings | 时长(s) | RTF | Accel/Gyro/MAG TIMEOUT | stall capture |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | ---: |
-| budget-reserve-return | yes | none | — | 3/— | 0 | 683.768 | 0.213 | 0/0/0 | 0 |
+| budget-reserve-return | yes | none | — | 3/— | 0 | 683.768 | 0.213 | 1/0/0 | 0 |
 | comms-free-count | yes | none | — | 3/3 | 0 | 1140.311 | 0.22 | 0/0/0 | 0 |
 | comms-free-patrol-timeout | yes | none | — | 3/— | 0 | 1709.47 | 0.098 | 0/0/0 | 0 |
-| count-cones | yes | none | — | 3/3 | 0 | 1193.147 | 0.214 | 0/0/0 | 0 |
+| count-cones | yes | none | — | 3/3 | 0 | 1193.147 | 0.214 | 1/0/0 | 0 |
 | count-fire-hydrants | yes | none | — | 3/3 | 0 | 1305.12 | 0.208 | 0/0/0 | 0 |
 | english-find-person | yes | none | — | —/— | — | 633.462 | 0.039 | 0/0/0 | 0 |
-| find-suv-land | yes | none | — | —/— | — | 265.329 | 0.175 | 0/0/0 | 0 |
+| find-suv-land | yes | none | — | —/— | — | 265.329 | 0.175 | 1/0/0 | 0 |
 | gimbal/gimbal-count-cones | yes | none | — | 3/3 | 0 | 1181.801 | 0.241 | 0/0/0 | 0 |
 | gimbal/gimbal-count-fire-hydrants | yes | none | — | 3/3 | 0 | 1541.356 | 0.232 | 0/0/0 | 0 |
 | gimbal/gimbal-find-suv-land | yes | none | — | —/— | — | 270.199 | 0.171 | 0/0/0 | 0 |
@@ -62,7 +62,7 @@
 | operator-abort | yes | none | — | 3/— | 0 | 679.493 | 0.212 | 0/0/0 | 0 |
 | operator-pause-resume | yes | none | — | 3/— | 0 | 2303.418 | 0.098 | 0/0/0 | 0 |
 | patrol-fence-backpacks | yes | none | — | 3/— | 0 | 2038.688 | 0.22 | 0/0/0 | 0 |
-| survey-site-overlap | yes | none | — | 3/— | 0 | 1399.024 | 0.209 | 0/0/0 | 0 |
+| survey-site-overlap | yes | none | — | 3/— | 0 | 1399.024 | 0.209 | 1/0/0 | 0 |
 
 ## 与上一架次对比
 
