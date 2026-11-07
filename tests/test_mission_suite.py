@@ -166,6 +166,18 @@ def test_worker_dry_run_assigns_unique_ports_and_container_names(work_tmp, monke
     assert len(set(operators)) == len(set(model_ports)) == 2
 
 
+def test_gimbal_suite_requires_per_step_joint_recording(work_tmp):
+    suite_path = work_tmp / "gimbal-suite.json"
+    payload = {
+        "defaults": {"mission": "from_text"},
+        "missions": [_mission(id="gimbal-count", airframe="x500_gimbal")],
+    }
+    suite_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc_info:
+        suite.main(["--suite", str(suite_path), "--out", str(work_tmp / "out")])
+    assert exc_info.value.code == 2
+
+
 def test_build_table_maps_metrics_and_missing_episode_is_failure():
     mission = _mission()
     report = {
