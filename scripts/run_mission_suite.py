@@ -43,6 +43,9 @@ METADATA = {
     "not_found",
     "variant",
     "variant_label",
+    # Recording requirements are enforced by the suite scheduler and do not
+    # belong in the prompt/config consumed by the onboard policy.
+    "recording",
 }
 METRICS = {
     "alert_precision": "mission_alert_precision",
@@ -72,6 +75,8 @@ METRICS = {
     "follow_max_horizontal_distance_m": "follow_max_horizontal_distance_m",
     "follow_frame_target_fraction": "follow_frame_target_fraction",
 }
+
+GIMBAL_RECORDING_FIELDS = ("gimbal_joint_state", "propeller_joint_state")
 
 
 def repo_path(path: str | Path) -> Path:
@@ -491,6 +496,13 @@ def main(
                 parser.error(f"{mission['id']}: {key} must be a positive integer")
         if not isinstance(mission["expect"]["skills"], list):
             parser.error(f"{mission['id']}: expect.skills must be a list")
+        if mission.get("airframe") == "x500_gimbal":
+            recording = mission.get("recording")
+            if not isinstance(recording, dict) or recording.get("per_step") != list(GIMBAL_RECORDING_FIELDS):
+                parser.error(
+                    f"{mission['id']}: x500_gimbal missions must record "
+                    "gimbal_joint_state and propeller_joint_state per step"
+                )
         config = merge_config(suite["defaults"], mission)
         if "mission_package" in config or "sim_ground_events" in config:
             # Admission validates uploaded plans and references without starting a model.
