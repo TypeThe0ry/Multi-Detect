@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_tokyo__morning",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_tokyo__morning.runtime.json",
+   "sha256": "6e64904b5542ec67a9d6c490525d25c807ac07c25948dd629d8650d669a85453"
+  },
+  "truth": {
+   "path": "rw_city_tokyo__morning.truth.json",
+   "sha256": "7fb3e13c2458f8b1b9a75e082f3ae793a270056f45b7f6252b4751da736701da"
+  },
+  "expectations": {
+   "path": "rw_city_tokyo__morning.expectations.json",
+   "sha256": "b39471eb57da869a10395288a1b42ce3d7d11e043b38f5dc6b932cd2c00e505d"
+  }
+ }
+}

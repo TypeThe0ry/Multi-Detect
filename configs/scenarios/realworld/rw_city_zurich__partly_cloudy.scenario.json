@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_zurich__partly_cloudy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_zurich__partly_cloudy.runtime.json",
+   "sha256": "211228fe3c1d5ef5cd6eedf22aa61859f981de9136c4a1f0322021c72b8a5e2f"
+  },
+  "truth": {
+   "path": "rw_city_zurich__partly_cloudy.truth.json",
+   "sha256": "a04c0be2bffacee75f60e8687b6bf5d95b83929dbb9dee78172b634c0c25cb29"
+  },
+  "expectations": {
+   "path": "rw_city_zurich__partly_cloudy.expectations.json",
+   "sha256": "f1e2b40d78e31064dc71e2edd4eeed552550c4ba12ba98815e6f7820042a6420"
+  }
+ }
+}

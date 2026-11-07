@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_alpine_grindelwald__clear_noon",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_alpine_grindelwald__clear_noon.runtime.json",
+   "sha256": "367ae4c889b5fb69f668753feaa6374e9b3e055591e90a9d43f55572d0ce74da"
+  },
+  "truth": {
+   "path": "rw_alpine_grindelwald__clear_noon.truth.json",
+   "sha256": "3a1dc8a3efa049c5dcafd1462e8f8eb5c2c1ce8e4afb36e0b30494153fa0c899"
+  },
+  "expectations": {
+   "path": "rw_alpine_grindelwald__clear_noon.expectations.json",
+   "sha256": "a7311d4cb5e216fbdb825c0269609383d7f6f60af4e1890f98f5998d53c83a53"
+  }
+ }
+}

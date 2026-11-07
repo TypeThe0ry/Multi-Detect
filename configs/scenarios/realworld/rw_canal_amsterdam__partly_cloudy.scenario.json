@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_canal_amsterdam__partly_cloudy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_canal_amsterdam__partly_cloudy.runtime.json",
+   "sha256": "02f0dd9ad8cf843082798b83b28c39fdf65957fc797c46460e973fb6deef8ccd"
+  },
+  "truth": {
+   "path": "rw_canal_amsterdam__partly_cloudy.truth.json",
+   "sha256": "2af4c1ed5a71a76303f1b59c2f802ea002178f280c54562ed2d12755755b7f60"
+  },
+  "expectations": {
+   "path": "rw_canal_amsterdam__partly_cloudy.expectations.json",
+   "sha256": "c1a05e95d0eded402a22d2838e1fb172794ba8c0c035ba2fed45a51c592aa22b"
+  }
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_shenzhen__dusk",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_shenzhen__dusk.runtime.json",
+   "sha256": "28eb7926b64f5ccf432ffc5956304fed754e549fdb74d4487aa57649e5989ba0"
+  },
+  "truth": {
+   "path": "rw_city_shenzhen__dusk.truth.json",
+   "sha256": "3a4ca35a0938e70c219f94b9fd4370806d2c873ddf21ed368660e8138deda605"
+  },
+  "expectations": {
+   "path": "rw_city_shenzhen__dusk.expectations.json",
+   "sha256": "6b01dee3c309a306318f64b75d472a69a7edd56a0e134443abff0b7a29d7b894"
+  }
+ }
+}

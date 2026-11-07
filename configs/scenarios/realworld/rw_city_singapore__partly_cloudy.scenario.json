@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_singapore__partly_cloudy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_singapore__partly_cloudy.runtime.json",
+   "sha256": "80225d52906e36b92eb75096b55705bd2d35590457dc3558b8da810e552aaa8d"
+  },
+  "truth": {
+   "path": "rw_city_singapore__partly_cloudy.truth.json",
+   "sha256": "dcdca7cc8d55df5cf3654fde7c7a10d39b3dd0602b9eeea7555bdf876071317e"
+  },
+  "expectations": {
+   "path": "rw_city_singapore__partly_cloudy.expectations.json",
+   "sha256": "f0c4da082aed615a2dfa9fd95840e0a50551c2c10858240a229f4e17e6185bba"
+  }
+ }
+}

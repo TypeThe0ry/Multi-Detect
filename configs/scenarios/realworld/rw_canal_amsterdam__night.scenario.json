@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_canal_amsterdam__night",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_canal_amsterdam__night.runtime.json",
+   "sha256": "9e141418542c911fdb82b4ec7f22ea3df6a7da1303fbb0e12ac40994229622f9"
+  },
+  "truth": {
+   "path": "rw_canal_amsterdam__night.truth.json",
+   "sha256": "ecc1b303a3ed57101366ef9d820d227b347c65da7cb0ce735e0598f74103d9e7"
+  },
+  "expectations": {
+   "path": "rw_canal_amsterdam__night.expectations.json",
+   "sha256": "b0ae2447b280bf7124638a5ba85cb5616b120388aa386fd923772be700897ecc"
+  }
+ }
+}

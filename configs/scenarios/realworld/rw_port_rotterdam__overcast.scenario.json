@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_rotterdam__overcast",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_rotterdam__overcast.runtime.json",
+   "sha256": "ad58c5086fd1813e98ef225af29ba5b554678200febf6b985d8ad3cdec6810e9"
+  },
+  "truth": {
+   "path": "rw_port_rotterdam__overcast.truth.json",
+   "sha256": "a284ea607fead7b41ab191eb5483796a36f3437075aa654c53a6f8cb561cddb4"
+  },
+  "expectations": {
+   "path": "rw_port_rotterdam__overcast.expectations.json",
+   "sha256": "a6bbf8bd5343cddef41128641b411277d00682efba389c0046a2ec8eb948b742"
+  }
+ }
+}

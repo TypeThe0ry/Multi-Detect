@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_canal_amsterdam__rain",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_canal_amsterdam__rain.runtime.json",
+   "sha256": "c5bdafdb6cf355f3850ff0aaa47c9e1a0627fbf04741b6906c75af3f6dc7f499"
+  },
+  "truth": {
+   "path": "rw_canal_amsterdam__rain.truth.json",
+   "sha256": "bf74f2f47400c8c3ba1740b99020105f78d42c874846309c0e5cddfce57ee997"
+  },
+  "expectations": {
+   "path": "rw_canal_amsterdam__rain.expectations.json",
+   "sha256": "1eb570f638c4f00013c9015a39d52eb1ee90c2a7328de4fb02377d5eb5c4f4e9"
+  }
+ }
+}

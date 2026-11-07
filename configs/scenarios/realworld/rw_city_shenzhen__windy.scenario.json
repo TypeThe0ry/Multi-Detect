@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_shenzhen__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_shenzhen__windy.runtime.json",
+   "sha256": "3095affa61c420d5ba008844f6a55b7aa5723ca7f3fa247b69d259331b89eb4f"
+  },
+  "truth": {
+   "path": "rw_city_shenzhen__windy.truth.json",
+   "sha256": "ce4737e39ab9da1712bec991e592f39d5df5d44b3c6287680a91ef839ffaee0f"
+  },
+  "expectations": {
+   "path": "rw_city_shenzhen__windy.expectations.json",
+   "sha256": "a7e60d3434acd259a7ffc1824713bd1bcbf0f6392eb879ea194ceb77f40f04c8"
+  }
+ }
+}

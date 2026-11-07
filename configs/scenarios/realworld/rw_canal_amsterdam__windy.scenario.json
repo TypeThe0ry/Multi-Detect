@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_canal_amsterdam__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_canal_amsterdam__windy.runtime.json",
+   "sha256": "980dbe666b6604cd26602bae0dd90de569cc3c57ee4b36ecf7471dff9a71bba1"
+  },
+  "truth": {
+   "path": "rw_canal_amsterdam__windy.truth.json",
+   "sha256": "dc72072171d99a24085eb6284295d9f0feff4ce5387c46f196bdf269c6c11d08"
+  },
+  "expectations": {
+   "path": "rw_canal_amsterdam__windy.expectations.json",
+   "sha256": "942da4beb2cd38ba8cadec96111cfd2514397d195b2d049cc29697c3aa490089"
+  }
+ }
+}

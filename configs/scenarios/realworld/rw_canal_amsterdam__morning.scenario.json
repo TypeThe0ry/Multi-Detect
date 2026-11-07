@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_canal_amsterdam__morning",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_canal_amsterdam__morning.runtime.json",
+   "sha256": "af7cfe567e0d6d88d25547fe300dd406c57e9c058a1df12016aa8f2f339843f6"
+  },
+  "truth": {
+   "path": "rw_canal_amsterdam__morning.truth.json",
+   "sha256": "21b8b8883d7567eddd477a774a4e88d28859924fc7a46c57e0f3c4ff3ebe7598"
+  },
+  "expectations": {
+   "path": "rw_canal_amsterdam__morning.expectations.json",
+   "sha256": "c61096584d52acdb6019c268639570524d39e72f563ee33c474878143f123e4d"
+  }
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_berlin__dusk",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_berlin__dusk.runtime.json",
+   "sha256": "926a080b469a51220993db3d58892babc1b389fa2fcfe9717834d5d2426cedb9"
+  },
+  "truth": {
+   "path": "rw_city_berlin__dusk.truth.json",
+   "sha256": "fec92b9964633f9045780e47d2dfd383edd11124e75cedd5393e471701713af0"
+  },
+  "expectations": {
+   "path": "rw_city_berlin__dusk.expectations.json",
+   "sha256": "4e83b8cb9a6a298d36c8a2f8cdc0e43da05de255919c48481c6f4d95db559f2d"
+  }
+ }
+}
