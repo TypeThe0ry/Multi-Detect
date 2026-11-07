@@ -17,6 +17,7 @@ from scripts.run_onboard_fault_campaign import (
     _build_session,
     expected_outcome,
     run_campaign,
+    run_climb_failure_fixture,
     schedule_faults,
     verdict,
 )
@@ -51,6 +52,36 @@ def test_verdict_checks_reason_and_deadline():
     assert verdict("conservative", "hold", "stale pose", elapsed_s=0.2)["passed"]
     assert not verdict("return_now", "hold", "stale battery", elapsed_s=0.2)["passed"]
     assert not verdict("continue", "continue", "ok", elapsed_s=4, deadline_s=3)["passed"]
+
+
+def test_two_climb_timeouts_escalate_through_policy_with_durable_failure(tmp_path):
+    report = run_climb_failure_fixture(tmp_path / "fixture")
+    assert report["passed"], report["checks"]
+    assert all(report["checks"].values())
+    summary = report["final_summary"]
+    reason = "climb_failed_suspected_loss_of_control"
+    assert summary["failure_class"] == summary["terminal_reason"] == reason
+    assert summary["terminal_action"] == "land_now"
+    assert summary["recovery_history"][-1]["state"] == "failed"
+    assert reason in summary["report"]["alerts"]
+    assert summary["recovery_failure"]["land_execution"] == "unverified"
+    assert report["px4_ack"] is report["px4_mode"] is report["px4_landed_state"] is None
+    records = [json.loads(line) for line in (tmp_path / "fixture/mission.jsonl").read_text(encoding="utf-8").splitlines()]
+    finals = [row["summary"] for row in records if row["kind"] == "final_summary"]
+    assert [row["terminal_action"] for row in finals] == ["return_now", "land_now"]
+    events = [row for row in records if row["kind"] == reason]
+    assert len(events) == 1 and events[0]["consecutive_timeouts"] == 2
+
+
+def test_climb_fixture_rejects_missing_policy_outcome_feedback(tmp_path, monkeypatch):
+    from scripts.onboard_policy import OnboardPolicy
+
+    monkeypatch.setattr(OnboardPolicy, "report_primitive_outcome", lambda *args, **kwargs: False)
+    report = run_climb_failure_fixture(tmp_path / "mutant")
+    assert not report["passed"]
+    assert not report["checks"]["no_third_climb"]
+    assert not report["checks"]["land_escalation"]
+    assert not report["checks"]["final_failure"]
 
 
 def test_package_entry_accepts_signature_and_rejects_bad_signature(tmp_path):
