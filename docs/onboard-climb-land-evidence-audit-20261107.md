@@ -120,3 +120,17 @@ onboard gate: PASS (115s)
 ### 2. 增强未进入 mission loop 的失败报告
 
 目标：让 suite 对 `episode status=failed`、collector timeout、缺失 steps/ULog、cleanup 状态及 host/SITL 遥测末态明确报失败阶段，禁止 missing episode 报告掩盖已有 failed episode 诊断；保留任务期待和原断言。证据路径：`scripts/eval_onboard_loop_campaign.py`、`scripts/run_mission_suite.py`、`scripts/collect_sim_teacher_episodes.py`、`tests/test_onboard_fault_campaign.py` 及本次 v2 的只读 `suite-report.json`、`episode.json`、`gen_cnt2_w0003.log`。不得改安全运行时语义、阈值、vehicle-loss 规则或共享 artifacts；增加有针对性的 CPU-only 报告测试，文档写入 `docs/onboard-climb-sitl-failure-reporting-20261107.md`。
+
+## v3 修复与作业（2026-11-08）
+
+### v2 的下降实际发生了什么
+
+原始证据 `artifacts/benchmarks/onboard-climb-fault-sitl2-20261107T142627Z-3437231/operator-abort/campaign/gen_cnt2_w0003/episodes/episode-0000-39ce1a1b/mavlink.jsonl` 显示，collector 发出了目标 `POSITION_TARGET_LOCAL_NED.z=-1.5`、`vz=1.5` 的持续 setpoint；这不是没有发下降命令。PX4 `LOCAL_POSITION_NED` 高度从约 18.8 m 下降到末端 3.405 m，末端仍为 `EXTENDED_SYS_STATE.landed_state=2`，heartbeat 为 `base_mode=145`、`custom_mode=393216`，仍在空中并保持 armed。PX4 还持续发送同一低空目标 setpoint，未见 LAND handoff 的可归因 ACK 或模式确认；`STATUSTEXT` 主要是重复的 `ODOMETRY: estimator_type 8 unsupported`。
+
+campaign log 记录 `sim_pre_abort_descent_started` 的宿主单调时间为 `91209.046`，超时记录为 `91255.535`，所以原来的 45 秒预算按 wall time 消耗（约 46.5 s，包含轮询/收尾）。同一 MAVLink 文件的 PX4 `time_boot_ms` 从 3,992 ms 推进到 37,712 ms；对应接收 wall 时间从约 1,794,063,730.5 s 到 1,794,063,888.5 s，整体 RTF 约 0.21，下降窗口的可用仿真进度远小于 wall 秒数。故 45 s wall budget 在 RTF 约 0.1--0.2 时只给了约 4.5--9 s 仿真时间，车辆尚未到达 1.75 m 就退出；`step_count=0` 是这个前置等待失败的结果，不是保护链执行后的结论。
+
+### 修复
+
+`scripts/collect_sim_teacher_episodes.py` 的 SIM/onboard 注入前置下降现在使用 PX4 `LOCAL_POSITION_NED.time_boot_ms` 的锁步时钟计 45 s；同时保留 900 s 独立 wall ceiling，PX4 时钟冻结或遥测停止时仍会有界失败。该等待只由已有 `sim_pre_abort_descent_altitude_m` 配置门控，不改变 LAND 优先级、0.5 m 增益阈值、2.5 m 低空阈值、vehicle-loss 规则、takeoff/LAND 其他预算或既有断言。`tests/test_sim_teacher_parallel_timing.py` 新增慢 RTF 成功和 PX4 时钟冻结 wall ceiling 两个测试。
+
+新增单槽位作业源码 `.tmp/jobs/NN-climb-fault-sitl3.sh`。作业使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`，从 `suite-main-r21idr3-r24plan.json` 只选择 `operator-abort`，设置 `sim_ground_events=[{"t_s":0,"event":"abort"}]`、`sim_climb_timeout_injection=true`、`sim_pre_abort_descent_altitude_m=1.5`，并将输出写入新的 `artifacts/benchmarks/onboard-climb-fault-sitl3-<UTC>-<PID>/`。作业未在本次修改中启动；共享 `artifacts/` 未写入。
