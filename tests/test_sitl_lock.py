@@ -189,3 +189,34 @@ def test_live_owner_with_reused_pid_is_reclaimed_after_grace(tmp_path, monkeypat
         f"nightly-regression {os.getpid()} "
     )
     lock.release()
+
+
+def test_fair_queue_honors_priority_and_releases_ticket(tmp_path, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_SITL_SLOTS", "1")
+    runner = lambda *_a, **_k: SimpleNamespace(stdout="")
+    first = SitlLock(tmp_path / "fair", retry_s=0, runner=runner, memory_fn=lambda: 9, priority=0)
+    second = SitlLock(tmp_path / "fair", retry_s=0, runner=runner, memory_fn=lambda: 9, priority=100)
+    first.acquire(wait=False)
+    second._make_ticket()
+    assert second._ticket is not None
+    first.release()
+    second.acquire(wait=False)
+    assert second.acquired
+    assert not list((tmp_path / "fair.queue").iterdir())
+    second.release()
+
+
+def test_live_legacy_lock_is_respected_by_fair_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_SITL_SLOTS", "2")
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "owner").write_text(
+        f"old-worker {os.getpid()} 2026-11-07T00:00:00+00:00 start=1.0\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(lock_module, "_process_snapshot", lambda pid: (True, 1.0))
+    lock = SitlLock(legacy, retry_s=0, runner=lambda *_a, **_k: SimpleNamespace(stdout=""), memory_fn=lambda: 9)
+    with pytest.raises(RuntimeError, match="legacy SITL lock busy"):
+        lock.acquire(wait=False)
+    assert legacy.exists()
+    assert not (tmp_path / "legacy.queue").exists() or not list((tmp_path / "legacy.queue").iterdir())
