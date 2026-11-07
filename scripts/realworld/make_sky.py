@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import cv2
@@ -17,7 +18,7 @@ import requests
 
 ASSET_ROOT = Path("/data/datasets/multidetect-sim-assets")
 ROOT = Path(__file__).resolve().parents[2]
-RESOLVED = ROOT / "artifacts/cache/gz-fuel/resolved"
+RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved")))
 DOME_RADIUS_M = 2600.0
 # weather preset -> preferred category in the library manifest, plus an exposure tweak
 # Only "puresky" HDRIs: no ground or scenery, so the horizon beyond the terrain stays believable.

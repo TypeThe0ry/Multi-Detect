@@ -7,10 +7,12 @@ tilted with the wind. Streaks do not fall, which a single frame cannot show.
 """
 
 from pathlib import Path
+import os
 
 import numpy as np
 
-RESOLVED = Path(__file__).resolve().parents[2] / "artifacts/cache/gz-fuel/resolved"
+ROOT = Path(__file__).resolve().parents[2]
+RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved")))
 OUT = RESOLVED / "rw_rain"
 N = 160000
 HALF = 120.0

@@ -32,6 +32,37 @@
 - 动态物体：沿真实道路行驶的车和行走的行人（actor，不占物理计算）。
 - 标签：起飞点附近的车、人、邮箱等约 100 个是独立模型，带分割 label；其余合并进地形模型，否则 RTF 会掉到 0.16。
 
+## 东南亚和中国地点（global provider）
+
+已实际下载并构建配置的地点：
+
+| 地点 | 起飞点（WGS84） | 起飞点地表 | 原始分辨率 | 生成栅格/统计 |
+|---|---:|---|---|---|
+| `rw_city_singapore` | 1.357442, 103.823750 | OSM `landuse=grass` 开阔草地，约 1.42 ha；距离 PX4 默认家点 1.3521, 103.8198 约 0.7 km | Sentinel-2 L2A 约 10 m；Copernicus DEM GLO-30 约 30 m；OSM 矢量 | 影像存储网格约 0.244 m/px，DEM 采样网格 2 m；这些只是重采样网格，不能视作原始精度；统计写入 `scene.json` |
+| `rw_city_shenzhen` | 22.523177, 113.942624 | 深圳湾体育中心旁 OSM `leisure=park` 公园地块，约 0.45 ha | Sentinel-2 L2A 约 10 m；Copernicus DEM GLO-30 约 30 m；OSM 矢量 | 同上；统计写入 `scene.json` |
+
+两地都对起飞点 25 m 内地形压平。道路使用 OSM 中心线和宽度程序生成路面、车道线与斑马线；`ground_core` 先按 OSM 的 `landuse`、`leisure=park`、`natural=water/wood/grassland` 分类，再叠加 CC0 ambientCG 细节贴图，Sentinel 只提供低频颜色参考。重复树木和街道设施按已有合并网格逻辑处理，只有附近需要识别的对象保留独立模型。
+
+生成验证时可把输出放进工作树临时目录，并从只读共享缓存查找 Fuel 模型：
+
+```bash
+export RW_RESOLVED_ROOT=$PWD/.tmp/realworld-models
+export RW_SOURCE_ROOT=$(readlink -f artifacts/cache/gz-fuel/resolved)
+$PY scripts/realworld/build_scene.py rw_city_singapore --max-trees 2500
+$PY scripts/realworld/build_scene.py rw_city_shenzhen --max-trees 2500
+$PY scripts/realworld/make_sky.py
+$PY scripts/realworld/make_movers.py
+$PY scripts/realworld/make_world.py rw_city_singapore --weather clear_noon --world-out-dir .tmp/worlds --skip-scenarios
+```
+
+每个 raw 目录的 `provenance.json` 记录 STAC item、实际选中的资源 URL、原始分辨率和所有下载文件 SHA-256。global DEM 的 `dem.npy` 仍以 2 m 网格保存，避免 Gazebo 地形接口改变；`dem_res_m` 明确记录 30 m 原始分辨率。
+
+### 更高分辨率公开影像核查
+
+- 新加坡附近的 OpenAerialMap STAC 返回一幅 `ODM mapping rainforest`，元数据声明 `CC-BY-4.0`、GSD 约 0.0238 m，来源为 HOTOSM imagery STAC；范围约 350×415 m，仅覆盖 Upper Thomson 一小块，且元数据的生产者/许可方为 `Test / Andreas Zwanenburg`。来源记录：`https://api.imagery.hotosm.org/stac/collections/openaerialmap/items/64a6d83764adbc00012e09a8`。它没有覆盖本项目 2 km 场景完整范围，因此未拼接进默认地面纹理；若将场景缩小到该覆盖范围，应保留 CC BY 署名和原始文件哈希。
+- 深圳湾同一 STAC 范围搜索未返回许可证明确的可再用正射影像，因此没有使用来源不明的地图瓦片、天地图服务或需要账号/受限机器访问的影像。天地图等中国在线地图服务的再分发、批量机器访问和离线缓存条款未能核实为本项目所需的自由再使用许可，故仅使用 Copernicus、OSM 和程序几何。
+- Sentinel-2 L2A 与 Copernicus DEM GLO-30 都可按 Copernicus free and open data policy 使用，但 10 m/30 m 的原始分辨率决定了低空无法辨认车辆、行人和小型设施；最应补充的是覆盖完整场景、明确 CC BY/CC0 许可的亚米级正射影像，优先是新加坡政府或 HOTOSM 发布的完整航测块，以及深圳市公开许可的航测数据。
+
 ## 已知限制
 
 - 树和街道设施没有碰撞体，建筑、货柜和地形有。

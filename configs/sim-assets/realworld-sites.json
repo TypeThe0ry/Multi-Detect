@@ -77,7 +77,7 @@
       "kind": "urban",
       "provider": "nl"
     },
-    "rw_city_tokyo": {
+"rw_city_tokyo": {
       "title": "东京 台东区公园起飞点",
       "lat": 35.7174,
       "lon": 139.7772,
@@ -94,6 +94,24 @@
       "kind": "urban",
       "provider": "berlin",
       "city_model": "Berlin LoD2 CityGML + DOP20"
+    },
+    "rw_city_singapore": {
+      "title": "新加坡 Upper Thomson 开阔草地（距默认家点约 0.7 km）",
+      "lat": 1.357442,
+      "lon": 103.82375,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM landuse=grass 开阔草地（约 1.42 ha 多边形）；起飞点附近按 25 m 压平"
+    },
+    "rw_city_shenzhen": {
+      "title": "深圳南山 深圳湾公园开阔地",
+      "lat": 22.523177,
+      "lon": 113.942624,
+      "size_m": 2000,
+      "kind": "coast",
+      "provider": "global",
+      "takeoff_surface": "OSM leisure=park 开阔公园地（约 0.45 ha 多边形）；起飞点附近按 25 m 压平"
     }
   }
 }
