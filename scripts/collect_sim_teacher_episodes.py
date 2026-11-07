@@ -339,6 +339,8 @@ FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
 MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
+SIM_PRE_ABORT_DESCENT_TIMEOUT_S = 45.0
+SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S = 900.0
 MOTION_ARRIVAL_TOLERANCE_M = 8.0
 MOTION_ALONG_TRACK_DONE_M = 5.0
 # A fixed-wing reposition may complete by flying past its waypoint, but a
@@ -3019,6 +3021,38 @@ def _wait_for(
     raise TimeoutError(f"timed out waiting for {phase} after {timeout_s:.1f}s")
 
 
+def _wait_for_sim_pre_abort_descent(
+    reader: Any,
+    predicate: callable,
+    *,
+    timeout_s: float = SIM_PRE_ABORT_DESCENT_TIMEOUT_S,
+    max_wall_s: float = SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S,
+    phase: str = "sim_pre_abort_descent_reached",
+    interval_s: float = 0.05,
+) -> None:
+    """Wait on PX4 lockstep time while bounding a frozen SITL by wall time."""
+    wall_started = time.monotonic()
+    sim_clock = _SimClock(reader, wall=time.monotonic)
+    started = sim_clock()
+    deadline = started + float(timeout_s)
+    wall_deadline = wall_started + max(0.0, float(max_wall_s))
+    while True:
+        reader.raise_if_failed()
+        if predicate():
+            _progress(phase)
+            return
+        wall_now = time.monotonic()
+        sim_now = sim_clock()
+        if wall_now >= wall_deadline:
+            raise TimeoutError(
+                f"timed out waiting for {phase} after {timeout_s:.1f}s of PX4 time; "
+                f"wall_ceiling_s={max_wall_s:.1f}"
+            )
+        if sim_now >= deadline:
+            raise TimeoutError(f"timed out waiting for {phase} after {timeout_s:.1f}s of PX4 time")
+        time.sleep(min(interval_s, max(0.0, wall_deadline - wall_now)))
+
+
 def _wait_for_offboard(
     connection: Any,
     reader: MavlinkReader,
@@ -5118,14 +5152,20 @@ def run_episode(
                     start_pos[0], start_pos[1], -descent_altitude_m, _state_yaw(mav_reader.state)
                 )
                 _progress("sim_pre_abort_descent_started", target_altitude_m=descent_altitude_m)
-                _wait_for(
+                _wait_for_sim_pre_abort_descent(
+                    mav_reader,
                     lambda: (
                         0.5 <= -_state_position(mav_reader.state)[2] <= descent_altitude_m + 0.25
                         and _flight_state_snapshot(mav_reader.state)["landed_state"] == 2
                     ),
-                    _episode_budget(started, plan.max_episode_s, 45.0),
-                    phase="sim_pre_abort_descent_reached",
-                    health_check=mav_reader.raise_if_failed,
+                    max_wall_s=min(
+                        SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S,
+                        _episode_budget(
+                            started,
+                            plan.max_episode_s,
+                            SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S,
+                        ),
+                    ),
                 )
                 recorder.meta["sim_pre_abort_descent_altitude_m"] = descent_altitude_m
                 recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
