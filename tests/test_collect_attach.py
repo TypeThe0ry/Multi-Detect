@@ -205,6 +205,7 @@ def test_frame_wait_diagnostics_distinguishes_timestamp_gate_and_px4_stall(tmp_p
     assert row["failure_class"] == "frame_timestamp_below_pose_watermark"
     assert row["last_frame_sensor_stamp_ns"] == 900
     assert row["required_sensor_stamp_ns"] == 1_000
+    assert row["primitive_end_monotonic_ns"] is None
 
     stalled = collector._frame_wait_diagnostics(
         phase="obs_after",
@@ -219,6 +220,21 @@ def test_frame_wait_diagnostics_distinguishes_timestamp_gate_and_px4_stall(tmp_p
         error=TimeoutError("sensor stream produced no frame within 15.0s"),
     )
     assert stalled["failure_class"] == "px4_clock_and_telemetry_stalled"
+
+    after = collector._frame_wait_diagnostics(
+        phase="obs_after",
+        sensor_reader=SimpleNamespace(latest=None, frames_received=3),
+        mav_reader=mav,
+        pose_state=state,
+        min_sensor_stamp_ns=1_000,
+        started_monotonic_ns=1_500,
+        primitive_end_monotonic_ns=1_400,
+        ended_monotonic_ns=16_500,
+        started_wall_time=15.0,
+        ended_wall_time=30.0,
+        error=TimeoutError("sensor stream produced no frame within 15.0s"),
+    )
+    assert after["primitive_end_monotonic_ns"] == 1_400
 
 
 def test_exited_container_is_classified_as_px4_crashed_with_fake_docker(monkeypatch):

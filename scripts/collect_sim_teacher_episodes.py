@@ -81,6 +81,7 @@ from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.px4_clock_stall_capture import capture_stall as capture_px4_clock_stall  # noqa: E402
+from scripts.analyze_sensor_timeouts import build_failure_snapshot  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_IMAGE_MODEL_ROOT,
     CONTAINER_MODEL_ROOT,
@@ -4107,6 +4108,8 @@ def _frame_wait_diagnostics(
     pose_state: MavlinkState,
     min_sensor_stamp_ns: int | None,
     started_monotonic_ns: int,
+    primitive_end_monotonic_ns: int | None = None,
+    freshness_watermark_ns: int | None = None,
     ended_monotonic_ns: int | None = None,
     started_wall_time: float | None = None,
     ended_wall_time: float | None = None,
@@ -4132,9 +4135,10 @@ def _frame_wait_diagnostics(
             pass
     requested_pose_ms = _field(pose_state.get("LOCAL_POSITION_NED"), "time_boot_ms", None)
     local_received = state.received_monotonic_ns.get("LOCAL_POSITION_NED")
+    freshness_ns = freshness_watermark_ns or started_monotonic_ns
     px4_stalled = (
         local_received is not None
-        and local_received <= started_monotonic_ns
+        and local_received <= freshness_ns
         and isinstance(requested_pose_ms, (int, float))
         and isinstance(pose_ms, (int, float))
         and pose_ms <= requested_pose_ms
@@ -4145,12 +4149,12 @@ def _frame_wait_diagnostics(
         classification = "frame_wait_satisfied"
     elif (
         latest is not None
-        and latest.received_monotonic_ns > started_monotonic_ns
+        and latest.received_monotonic_ns > freshness_ns
         and min_sensor_stamp_ns is not None
         and latest.sensor_stamp_ns < min_sensor_stamp_ns
     ):
         classification = "frame_timestamp_below_pose_watermark"
-    elif latest is None or latest.received_monotonic_ns <= started_monotonic_ns:
+    elif latest is None or latest.received_monotonic_ns <= freshness_ns:
         classification = (
             "px4_clock_and_telemetry_stalled" if px4_stalled else "no_new_frame_observed"
         )
@@ -4161,9 +4165,7 @@ def _frame_wait_diagnostics(
     return {
         "phase": phase,
         "started_monotonic_ns": started_monotonic_ns,
-        "primitive_end_monotonic_ns": (
-            started_monotonic_ns if phase == "obs_after" else None
-        ),
+        "primitive_end_monotonic_ns": primitive_end_monotonic_ns,
         "started_wall_time": started_wall_time,
         "ended_monotonic_ns": ended_monotonic_ns,
         "ended_wall_time": ended_wall_time if ended_wall_time is not None else time.time(),
@@ -4519,6 +4521,7 @@ def run_episode(
     host_pressure_sampler = HostPressureSampler(recorder.episode_dir, sampler_cpus)
 
     def record_container_failure(exc: Exception) -> None:
+        recorder.meta["failure"] = f"{type(exc).__name__}: {exc}"
         clock_diagnostics = getattr(exc, "px4_clock_diagnostics", None)
         diagnostics = environment.capture_failure_diagnostics(
             f"{type(exc).__name__}: {exc}",
@@ -4543,6 +4546,13 @@ def run_episode(
                 **(clock_diagnostics or {}),
                 "stall_capture_path": (diagnostics.get("stall_capture") or {}).get("path"),
             }
+        recorder.meta["failure_snapshot"] = build_failure_snapshot(
+            recorder.meta,
+            timeline=recorder.meta.get("frame_wait_timeline"),
+            pressure_path=host_pressure_sampler.path,
+            capture=environment.stall_capture,
+            final_failure_class=diagnostics.get("failure_class"),
+        )
 
     try:
         host_pressure_sampler.start()
@@ -4751,7 +4761,12 @@ def run_episode(
                 min_sensor_stamp_ns: int | None,
                 started_ns: int | None = None,
             ):
-                wait_started_ns = started_ns or time.monotonic_ns()
+                # ``started_ns`` is the freshness watermark from the primitive
+                # boundary.  Keep the actual wait start separate so the
+                # snapshot can audit both clocks without changing the 15 s
+                # budget or the frame acceptance rule.
+                freshness_watermark_ns = started_ns
+                wait_started_ns = time.monotonic_ns()
                 wait_started_wall = time.time()
                 start_row = _frame_wait_diagnostics(
                     phase=phase,
@@ -4760,6 +4775,8 @@ def run_episode(
                     pose_state=pose_state,
                     min_sensor_stamp_ns=min_sensor_stamp_ns,
                     started_monotonic_ns=wait_started_ns,
+                    primitive_end_monotonic_ns=freshness_watermark_ns,
+                    freshness_watermark_ns=freshness_watermark_ns,
                     started_wall_time=wait_started_wall,
                     host_pressure_path=host_pressure_sampler.path,
                 )
@@ -4767,7 +4784,7 @@ def run_episode(
                 try:
                     sample = _fresh_sensor_snapshot(
                         sensor_reader,
-                        wait_started_ns,
+                        freshness_watermark_ns or wait_started_ns,
                         SENSOR_FRAME_WAIT_S,
                         min_sensor_stamp_ns=min_sensor_stamp_ns,
                         poll_interval_s=plan.sensor_poll_interval_s,
@@ -4780,6 +4797,8 @@ def run_episode(
                         pose_state=pose_state,
                         min_sensor_stamp_ns=min_sensor_stamp_ns,
                         started_monotonic_ns=wait_started_ns,
+                        primitive_end_monotonic_ns=freshness_watermark_ns,
+                        freshness_watermark_ns=freshness_watermark_ns,
                         started_wall_time=wait_started_wall,
                         ended_wall_time=time.time(),
                         ended_monotonic_ns=time.monotonic_ns(),
@@ -4806,6 +4825,8 @@ def run_episode(
                     pose_state=pose_state,
                     min_sensor_stamp_ns=min_sensor_stamp_ns,
                     started_monotonic_ns=wait_started_ns,
+                    primitive_end_monotonic_ns=freshness_watermark_ns,
+                    freshness_watermark_ns=freshness_watermark_ns,
                     started_wall_time=wait_started_wall,
                     ended_wall_time=time.time(),
                     ended_monotonic_ns=time.monotonic_ns(),
@@ -5625,8 +5646,16 @@ def run_episode(
     except Exception as exc:
         host_pressure_sampler.close()
         if isinstance(exc, VehicleLostControl):
+            recorder.meta["failure"] = f"{type(exc).__name__}: {exc}"
             recorder.meta["failure_class"] = "vehicle_lost_control"
             recorder.meta["vehicle_lost_control"] = exc.event
+            recorder.meta["failure_snapshot"] = build_failure_snapshot(
+                recorder.meta,
+                timeline=recorder.meta.get("frame_wait_timeline"),
+                pressure_path=host_pressure_sampler.path,
+                capture=environment.stall_capture,
+                final_failure_class="vehicle_lost_control",
+            )
         else:
             record_container_failure(exc)
         try:
