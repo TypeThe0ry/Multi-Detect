@@ -121,6 +121,155 @@ DEFAULT_DEPTH_ENCODING = "UINT16_MM"
 DEFAULT_MIN_FREE_GB = 15.0
 DEFAULT_DISK_CHECK_INTERVAL_STEPS = 10
 DEFAULT_VIDEO_MAX_BYTES = 8 * 1024**3
+HOST_PRESSURE_SAMPLE_INTERVAL_S = 5.0
+
+
+def _parse_cpu_set(raw: str) -> tuple[int, ...]:
+    cpus: set[int] = set()
+    for item in raw.split(","):
+        bounds = item.split("-")
+        try:
+            start = int(bounds[0])
+            end = int(bounds[-1])
+        except (ValueError, IndexError):
+            continue
+        if start < 0 or end < start:
+            continue
+        cpus.update(range(start, end + 1))
+    return tuple(sorted(cpus))
+
+
+def _current_cpuset() -> tuple[int, ...]:
+    for path in (
+        Path("/sys/fs/cgroup/cpuset.cpus.effective"),
+        Path("/sys/fs/cgroup/cpuset/cpuset.cpus").resolve(),
+    ):
+        try:
+            cpus = _parse_cpu_set(path.read_text(encoding="ascii").strip())
+        except OSError:
+            continue
+        if cpus:
+            return cpus
+    try:
+        return tuple(sorted(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return tuple(range(os.cpu_count() or 0))
+
+
+def _proc_cpu_ticks() -> dict[int, tuple[int, int]]:
+    result: dict[int, tuple[int, int]] = {}
+    for line in Path("/proc/stat").read_text(encoding="ascii").splitlines():
+        fields = line.split()
+        if not fields or not fields[0].startswith("cpu") or fields[0] == "cpu":
+            continue
+        try:
+            cpu = int(fields[0][3:])
+            ticks = [int(value) for value in fields[1:]]
+        except ValueError:
+            continue
+        if ticks:
+            idle = ticks[3] + (ticks[4] if len(ticks) > 4 else 0)
+            result[cpu] = (sum(ticks), idle)
+    return result
+
+
+def _pressure_summary(path: str) -> dict[str, dict[str, float]] | None:
+    try:
+        lines = Path(path).read_text(encoding="ascii").splitlines()
+        result = {}
+        for line in lines:
+            values = line.split()
+            if not values:
+                continue
+            parsed = {
+                key: float(value)
+                for key, value in (
+                    item.split("=", 1) for item in values[1:] if "=" in item
+                )
+            }
+            if parsed:
+                result[values[0]] = parsed
+        return result or None
+    except (OSError, ValueError):
+        return None
+
+
+class HostPressureSampler:
+    """Best-effort host load recorder; failures are isolated from collection."""
+
+    def __init__(
+        self,
+        episode_dir: Path,
+        cpus: tuple[int, ...],
+        interval_s: float = HOST_PRESSURE_SAMPLE_INTERVAL_S,
+    ):
+        self.path = episode_dir / "host_pressure.jsonl"
+        self.cpus = cpus
+        self.interval_s = interval_s
+        self.sim_clock_provider: Any | None = None
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, name="sim-host-pressure", daemon=True)
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def close(self) -> None:
+        self.stop_event.set()
+        if self.thread.is_alive():
+            self.thread.join(timeout=max(1.0, self.interval_s + 1.0))
+
+    def _sample(
+        self, previous: dict[int, tuple[int, int]] | None
+    ) -> tuple[dict[str, Any], dict[int, tuple[int, int]]]:
+        now = time.time()
+        ticks = _proc_cpu_ticks()
+        per_core: list[float] = []
+        if previous is not None:
+            for cpu in self.cpus:
+                old, current = previous.get(cpu), ticks.get(cpu)
+                if old is None or current is None:
+                    continue
+                total_delta = current[0] - old[0]
+                idle_delta = current[1] - old[1]
+                if total_delta > 0:
+                    per_core.append(100.0 * (total_delta - idle_delta) / total_delta)
+        try:
+            loadavg = Path("/proc/loadavg").read_text(encoding="ascii").strip()
+        except OSError:
+            loadavg = None
+        row = {
+            "wall_time": now,
+            "monotonic_ns": time.monotonic_ns(),
+            "loadavg": loadavg,
+            "cpu_pressure": _pressure_summary("/proc/pressure/cpu"),
+            "memory_pressure": _pressure_summary("/proc/pressure/memory"),
+            "io_pressure": _pressure_summary("/proc/pressure/io"),
+            "cpuset_cpus": list(self.cpus),
+            "core_busy_percent_mean": statistics.fmean(per_core) if per_core else None,
+            "core_busy_percent_max": max(per_core) if per_core else None,
+            "px4_sim_time_boot_ms": self._sim_time_boot_ms(),
+        }
+        return row, ticks
+
+    def _sim_time_boot_ms(self) -> int | None:
+        if self.sim_clock_provider is None:
+            return None
+        try:
+            value = self.sim_clock_provider()
+            return value if isinstance(value, int) and not isinstance(value, bool) else None
+        except Exception:
+            return None
+
+    def _run(self) -> None:
+        previous = None
+        while not self.stop_event.is_set():
+            try:
+                row, previous = self._sample(previous)
+                with self.path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(row, separators=(",", ":")) + "\n")
+            except Exception:
+                pass
+            self.stop_event.wait(self.interval_s)
 
 
 class LowDiskSpace(RuntimeError):
@@ -4804,6 +4953,20 @@ def run_episode(
     mover_driver = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
     try:
+        sampler_cpus = (
+            _parse_cpu_set(cpu_isolation.cpuset_cpus)
+            if cpu_isolation is not None
+            else _current_cpuset()
+        )
+    except (AttributeError, OSError):
+        sampler_cpus = tuple(range(os.cpu_count() or 0))
+    host_pressure_sampler = HostPressureSampler(recorder.episode_dir, sampler_cpus)
+    try:
+        host_pressure_sampler.start()
+    except Exception:
+        # Host diagnostics are strictly best effort and must never abort SIM.
+        pass
+    try:
         with DockerSimEnvironment(plan, episode_id, recorder.episode_dir) as environment:
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
             _progress("gz_world_loaded", container=environment.name)
@@ -4841,6 +5004,9 @@ def run_episode(
                 recorder.record_mavlink(row)
 
             mav_reader = MavlinkReader(telemetry_connection, on_message=_record_mavlink).start()
+            host_pressure_sampler.sim_clock_provider = (
+                lambda: mav_reader.state.vehicle_time_boot_ms
+            )
             episode_watchdog = _EpisodeProgressWatchdog(
                 started,
                 plan.max_episode_s,
@@ -6224,6 +6390,7 @@ def run_episode(
             _copy_mover_driver_log(plan, environment, recorder, mover_driver)
             recorder.meta["mover_driver"] = mover_driver
             recorder.mark_finished(status="complete")
+            host_pressure_sampler.close()
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
             )
@@ -6250,6 +6417,7 @@ def run_episode(
             recorder.meta["container_evidence"] = environment.evidence_index
             recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
     except LowDiskSpace as exc:
+        host_pressure_sampler.close()
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
         except Exception:
@@ -6292,6 +6460,7 @@ def run_episode(
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
     except Exception as exc:
+        host_pressure_sampler.close()
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
         except Exception:
