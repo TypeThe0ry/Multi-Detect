@@ -312,6 +312,10 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model-set", choices=list(MODEL_SET_SUITES), default=os.environ.get("MULTIDETECT_MODEL_SET", "default"))
     p.add_argument("--suites", nargs="+", default=None)
+    p.add_argument(
+        "--custom-suite", action="append", default=[], metavar="NAME=PATH",
+        help="add a suite JSON path to this run (may be repeated)",
+    )
     p.add_argument("--episodes", type=int, default=1)
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--suite-episodes", action="append", default=[], metavar="NAME=N")
@@ -357,7 +361,17 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         return 0
     if args.model_set not in MODEL_SET_SUITES:
         p.error(f"unknown --model-set: {args.model_set}")
-    suite_paths = MODEL_SET_SUITES[args.model_set]
+    suite_paths = dict(MODEL_SET_SUITES[args.model_set])
+    for item in args.custom_suite:
+        name, sep, raw_path = item.partition("=")
+        if not sep or not re.fullmatch(r"[A-Za-z0-9_-]+", name) or not raw_path:
+            p.error(f"invalid --custom-suite: {item}; expected NAME=PATH")
+        if name in suite_paths:
+            p.error(f"custom suite name already exists: {name}")
+        config = Path(raw_path).expanduser().resolve()
+        if not config.is_file():
+            p.error(f"custom suite config does not exist: {config}")
+        suite_paths[name] = config
     suites = [name for name in suite_paths if name != "gimbal"] if args.suites is None else args.suites
     unknown_suites = sorted(set(suites) - set(suite_paths))
     if unknown_suites:
