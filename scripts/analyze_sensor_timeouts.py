@@ -18,6 +18,165 @@ from scripts.sensor_timeout_counts import (
 )
 
 
+FAILURE_SNAPSHOT_SCHEMA_VERSION = 1
+_MISSING = "missing"
+_UNKNOWN = "unknown"
+
+
+def _presence(path: Path) -> str:
+    return "present" if path.is_file() else _MISSING
+
+
+def _probe_status(probe: Any) -> str:
+    """Return an evidence status without treating a failed probe as a stall."""
+    if not isinstance(probe, dict):
+        return _MISSING if probe is None else _UNKNOWN
+    if probe.get("timed_out") is True:
+        return "timeout"
+    if probe.get("error"):
+        return "error"
+    if probe.get("returncode") in (None, 0):
+        if probe.get("returncode") == 0 or probe.get("stdout") or probe.get("sim_time_s"):
+            return "ok"
+    return _UNKNOWN
+
+
+def _capture_probe_summary(capture: dict[str, Any] | None) -> dict[str, Any]:
+    capture = capture if isinstance(capture, dict) else {}
+    samples = capture.get("samples") if isinstance(capture.get("samples"), list) else []
+    clock = [_probe_status(row.get("gz_clock")) for row in samples[:2] if isinstance(row, dict)]
+    stats = [_probe_status(row.get("gz_world_stats")) for row in samples[:2] if isinstance(row, dict)]
+    ordering = ((capture.get("capture_budget") or {}).get("ordering"))
+    if not isinstance(ordering, list):
+        ordering = [_UNKNOWN]
+    return {
+        "clock": clock or [_MISSING],
+        "stats": stats or [_MISSING],
+        "gdb_ordering": list(ordering),
+        "gdb_before_probe": (
+            ordering.index("px4_gdb") < ordering.index("clock_topic_info")
+            if "px4_gdb" in ordering and "clock_topic_info" in ordering
+            else _UNKNOWN
+        ),
+        "capture_present": bool(capture),
+    }
+
+
+def build_failure_snapshot(
+    meta: dict[str, Any],
+    *,
+    timeline: list[dict[str, Any]] | None = None,
+    pressure_path: Path | None = None,
+    capture: dict[str, Any] | None = None,
+    mavlink_rows: list[dict[str, Any]] | None = None,
+    mavlink_status: str | None = None,
+    final_failure_class: str | None = None,
+) -> dict[str, Any]:
+    """Build the stable failure evidence contract, adapting old episodes."""
+    rows = timeline or _frame_wait_timeline(meta)
+    ended = next((row for row in reversed(rows) if row.get("ended_monotonic_ns") is not None), {})
+    pressure_path = pressure_path or Path()
+    pressure = ended.get("host_pressure_sample")
+    if pressure is None and pressure_path.is_file():
+        try:
+            source_rows = _jsonl(pressure_path)
+            pressure = source_rows[-1] if source_rows else None
+        except OSError:
+            pressure = None
+    pressure_state = "present" if isinstance(pressure, dict) else _presence(pressure_path)
+    capture_summary = _capture_probe_summary(capture)
+    mavlink_rows = mavlink_rows or []
+
+    def _last_mavlink(message_type: str) -> dict[str, Any]:
+        return next(
+            (row for row in reversed(mavlink_rows) if str(row.get("message_type", "")).upper() == message_type),
+            {},
+        )
+
+    last_local = _last_mavlink("LOCAL_POSITION_NED")
+    last_status = _last_mavlink("STATUSTEXT")
+    local_received_mono = last_local.get("receive_monotonic_ns")
+    local_received_wall = last_local.get("receive_wall_time")
+    status_received_mono = last_status.get("receive_monotonic_ns")
+    status_received_wall = last_status.get("receive_wall_time")
+
+    def _coalesce(value: Any, fallback: Any) -> Any:
+        return fallback if value is None else value
+    raw_class = final_failure_class or meta.get("failure_class") or _UNKNOWN
+    return {
+        "schema_version": FAILURE_SNAPSHOT_SCHEMA_VERSION,
+        "failure_class": raw_class,
+        "final_failure_classification": raw_class,
+        "reason": meta.get("failure") or ended.get("error") or _UNKNOWN,
+        "clocks": {
+            "episode_start_monotonic_ns": meta.get("created_monotonic_ns"),
+            "episode_end_monotonic_ns": meta.get("finished_monotonic_ns"),
+            "wait_start_monotonic_ns": ended.get("started_monotonic_ns"),
+            "wait_end_monotonic_ns": ended.get("ended_monotonic_ns"),
+            "primitive_end_monotonic_ns": ended.get("primitive_end_monotonic_ns"),
+        },
+        "pose": {
+            "time_boot_ms": _coalesce(ended.get("pose_time_boot_ms"), last_local.get("time_boot_ms")),
+            "requested_time_boot_ms": ended.get("requested_pose_time_boot_ms"),
+            "local_position_received_monotonic_ns": _coalesce(ended.get("pose_received_monotonic_ns"), local_received_mono),
+            "local_position_received_wall_time": _coalesce(ended.get("pose_received_wall_time"), local_received_wall),
+        },
+        "frame": {
+            "last_sensor_stamp_ns": ended.get("last_frame_sensor_stamp_ns"),
+            "last_received_monotonic_ns": ended.get("last_frame_received_monotonic_ns"),
+            "last_received_wall_time": ended.get("last_frame_received_wall_time"),
+            "required_sensor_stamp_ns": ended.get("required_sensor_stamp_ns"),
+            "frames_received": ended.get("frames_received"),
+        },
+        "px4": {
+            "local_position_received_monotonic_ns": _coalesce(ended.get("pose_received_monotonic_ns"), local_received_mono),
+            "local_position_received_wall_time": _coalesce(ended.get("pose_received_wall_time"), local_received_wall),
+            "statustext_received_monotonic_ns": _coalesce(ended.get("statustext_received_monotonic_ns"), status_received_mono),
+            "statustext_received_wall_time": _coalesce(ended.get("statustext_received_wall_time"), status_received_wall),
+            "last_statustext": _coalesce(ended.get("last_statustext"), last_status.get("text")),
+        },
+        "pressure": {
+            "status": pressure_state,
+            "sample": pressure,
+        },
+        "probes": capture_summary,
+        "evidence": {
+            "frame_wait_timeline": "present" if rows else _MISSING,
+            "host_pressure": pressure_state,
+            "clock_capture": "present" if capture else _MISSING,
+            "mavlink": mavlink_status or ("present" if mavlink_rows else _MISSING),
+        },
+        "offline_classification": _offline_classification(
+            raw_class, rows, capture, pressure_present=pressure_state == "present"
+        ),
+    }
+
+
+def _offline_classification(
+    failure_class: str,
+    timeline: list[dict[str, Any]],
+    capture: dict[str, Any] | None,
+    *,
+    pressure_present: bool = False,
+) -> str:
+    classes = {str(row.get("failure_class")) for row in timeline if row.get("failure_class")}
+    if "frame_timestamp_below_pose_watermark" in classes:
+        return "frame_timestamp_below_pose_watermark"
+    if "no_new_frame_observed" in classes:
+        return "no_new_frame_observed"
+    if "px4_clock_and_telemetry_stalled" in classes:
+        return "px4_clock_and_telemetry_stalled"
+    analysis = capture.get("analysis") if isinstance(capture, dict) else None
+    if isinstance(analysis, dict):
+        if analysis.get("gz_clock_advanced") is False and analysis.get("px4_thread_progress") is False:
+            return "px4_gazebo_both_stalled"
+        if analysis.get("gz_clock_advanced") is True and analysis.get("px4_thread_progress") is False:
+            return "px4_clock_stalled_gazebo_advancing"
+    if failure_class in {"sensor_stream_stalled", "clock_stalled_alive"}:
+        return "unknown"
+    return "related_load_only" if failure_class == "px4_alive_other_failure" and pressure_present else "unknown"
+
+
 def _jsonl(path: Path) -> list[dict[str, Any]]:
     return list(iter_jsonl_rows(path))
 
@@ -127,8 +286,19 @@ def analyze_episode(episode_dir: Path) -> dict[str, Any]:
     except (OSError, ValueError):
         meta = {}
     mavlink = _jsonl(episode_dir / "mavlink.jsonl")
+    mavlink_status = "present" if (episode_dir / "mavlink.jsonl").is_file() else _MISSING
     if not mavlink:
         mavlink = _jsonl_gz(episode_dir / "mavlink.jsonl.gz")
+        if (episode_dir / "mavlink.jsonl.gz").is_file():
+            mavlink_status = "present_gzip"
+    capture: dict[str, Any] | None = None
+    capture_path = episode_dir / "px4-clock-stall-capture.json"
+    try:
+        if capture_path.is_file():
+            raw_capture = json.loads(capture_path.read_text(encoding="utf-8"))
+            capture = raw_capture if isinstance(raw_capture, dict) else None
+    except (OSError, ValueError):
+        capture = None
     counts = count_sensor_timeouts(mavlink)
     timeout_events = []
     for row in mavlink:
@@ -154,6 +324,16 @@ def analyze_episode(episode_dir: Path) -> dict[str, Any]:
     wall_s = _wall_duration(meta)
     timeline = _frame_wait_timeline(meta)
     failed_waits = [row for row in timeline if row.get("error")]
+    snapshot = meta.get("failure_snapshot")
+    if not isinstance(snapshot, dict) or snapshot.get("schema_version") != FAILURE_SNAPSHOT_SCHEMA_VERSION:
+        snapshot = build_failure_snapshot(
+            meta,
+            timeline=timeline,
+            pressure_path=episode_dir / "host_pressure.jsonl",
+            capture=capture,
+            mavlink_rows=mavlink,
+            mavlink_status=mavlink_status,
+        )
     return {
         "episode": episode_dir.name,
         "status": meta.get("status", "unknown"),
@@ -170,6 +350,12 @@ def analyze_episode(episode_dir: Path) -> dict[str, Any]:
         "frame_wait_failure_classes": sorted(
             {str(row.get("failure_class")) for row in failed_waits if row.get("failure_class")}
         ),
+        "failure_snapshot": snapshot,
+        "stall_capture": {
+            "present": capture is not None,
+            "path": str(capture_path),
+            "analysis": (capture or {}).get("analysis"),
+        },
     }
 
 
@@ -286,6 +472,10 @@ def correlate_trace(
                 "timeout_events": report["timeout_events"],
                 "host_pressure_sidecar": report["host_pressure_sidecar"],
                 "frame_wait_timeline": report["frame_wait_timeline"],
+                "failure_snapshot": report.get("failure_snapshot"),
+                "offline_classification": (report.get("failure_snapshot") or {}).get(
+                    "offline_classification", _UNKNOWN
+                ),
                 "rtf": report["rtf"],
                 "cpu_psi_some_mean": statistics.fmean(cpu_values) if cpu_values else None,
                 "cpu_psi_some_peak": max(cpu_values) if cpu_values else None,
@@ -311,6 +501,13 @@ def correlate_trace(
                 {
                     "episode": report["episode"],
                     **event,
+                    "offline_classification": (report.get("failure_snapshot") or {}).get(
+                        "offline_classification", _UNKNOWN
+                    ),
+                    "pressure_coverage": report["host_pressure_sidecar"].get(
+                        "present", False
+                    ),
+                    "frame_timeline_coverage": bool(report.get("frame_wait_timeline")),
                     "episode_trace_covered": (
                         report.get("created_wall_time") is not None
                         and report.get("finished_wall_time") is not None

@@ -175,6 +175,11 @@ class EpisodeRecorder:
         self.meta["finished_wall_time"] = time.time()
         self.meta["finished_monotonic_ns"] = time.monotonic_ns()
         self.meta["status"] = status
+        snapshot = self.meta.get("failure_snapshot")
+        if isinstance(snapshot, dict):
+            clocks = snapshot.setdefault("clocks", {})
+            clocks["episode_end_monotonic_ns"] = self.meta["finished_monotonic_ns"]
+            snapshot.setdefault("schema_version", 1)
         if failure:
             self.meta["failure"] = failure
         if self._timing_rows:
