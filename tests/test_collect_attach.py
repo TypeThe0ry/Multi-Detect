@@ -140,6 +140,39 @@ def test_failure_snapshot_uses_fake_docker_and_keeps_process_identity(monkeypatc
     assert diagnostics["cleanup_state"]["px4_process_alive"] is True
 
 
+def test_sensor_stream_timeout_gets_stall_capture_and_distinct_failure_class(monkeypatch, tmp_path):
+    captured = []
+
+    def capture(container, episode_dir, **kwargs):
+        captured.append((container, episode_dir, kwargs))
+        return {"path": str(tmp_path / "px4-clock-stall-capture.json"), "samples": [{}, {}]}
+
+    monkeypatch.setattr(collector, "capture_px4_clock_stall", capture)
+    plan = collector.CollectionPlan(
+        "scenario", "runtime", "truth", "onboard", 1, 1, 0, "out", max_episode_s=1.0
+    )
+    environment = collector.DockerSimEnvironment(plan, "episode", episode_dir=tmp_path)
+    environment._container_snapshot = lambda **kwargs: {
+        "container_id": "container-id",
+        "state": {"running": True, "exit_code": 0, "oom_killed": False},
+        "px4_process_alive": True,
+        "px4_host_pids": [1234],
+    }
+    error = TimeoutError("sensor stream produced no frame within 15.0s")
+
+    assert environment.__exit__(TimeoutError, error, None) is False
+    diagnostics = environment.failure_diagnostics
+    assert diagnostics is not None
+    assert diagnostics["failure_class"] == "sensor_stream_stalled"
+    assert collector._failure_class(str(error), {"px4_process_alive": None}) == "sensor_stream_stalled"
+    assert diagnostics["stall_capture"] == {
+        "path": str(tmp_path / "px4-clock-stall-capture.json"),
+        "samples": 2,
+    }
+    assert len(captured) == 1
+    assert captured[0][0] == environment.name
+
+
 def test_exited_container_is_classified_as_px4_crashed_with_fake_docker(monkeypatch):
     calls = []
 
