@@ -214,20 +214,8 @@ def _ensure_emissive_map(path: Path, seed: int) -> Path | None:
 
 
 def night_terrain_materials(xml: str, site: str) -> str:
-    """Attach local facade emission maps only to night worlds; daylight keeps original materials."""
-    site_dir = RESOLVED / site / "textures"
-    pattern = re.compile(r"<albedo_map>model://" + re.escape(site) + r"/textures/(facade_[^<]+)</albedo_map>")
-
-    def replace(match: re.Match[str]) -> str:
-        tex = site_dir / match.group(1)
-        if not tex.exists():
-            return match.group(0)
-        em = _ensure_emissive_map(tex, sum((i + 1) * byte for i, byte in enumerate(match.group(1).encode())) & 0xFFFF)
-        if em is None:
-            return match.group(0)
-        return match.group(0) + f"<emissive_map>model://{site}/textures/{em.name}</emissive_map>"
-
-    return pattern.sub(replace, xml)
+    """Keep facade materials unlit at night; Ogre2's emissive-map path overexposes walls."""
+    return xml
 
 
 def _actor(name: str, skin: str, anim: str, kind: str, pts: list[tuple], speed: float, side: float, turn_s: float,
