@@ -180,6 +180,60 @@ def test_stale_gimbal_feedback_is_recorded_but_not_used_for_camera_pose() -> Non
     assert "camera_pose" not in observation
 
 
+def test_stale_feedback_cannot_overwrite_fresh_joint_sidecar_angles() -> None:
+    sensor = SensorSample(
+        rgb=bytes([0, 10, 20]), width=1, height=1, depth=None,
+        camera_info={"width": 1, "height": 1, "fx": 1.0, "fy": 1.0}, pose={},
+        velocity=[0.0, 0.0, 0.0], sensor_stamp_ns=10,
+        received_monotonic_ns=2_000_000_000, received_wall_time=1.0,
+        joint_state={
+            "gimbal_joint_state": {
+                "timestamp_ns": 10,
+                "position_rad": {"pitch": 0.4, "yaw": 0.5, "roll": 0.6},
+                "velocity_rad_s": {"pitch": 1.0, "yaw": 2.0, "roll": 3.0},
+                "source": "gazebo_joint_state",
+                "fresh": True,
+            },
+            "propeller_joint_state": {
+                "timestamp_ns": 10,
+                "joint_names": [f"rotor_{index}_joint" for index in range(4)],
+                "angles_rad": [0.1, 0.2, 0.3, 0.4],
+                "spin_rad_s": [10.0, -11.0, 12.0, -13.0],
+                "velocity_slowdown": 10,
+                "source": "gazebo_joint_state",
+            },
+        },
+    )
+    messages = {
+        "LOCAL_POSITION_NED": {"x": 1, "y": 2, "z": -10, "vx": 0, "vy": 0, "vz": 0},
+        "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+        "GLOBAL_POSITION_INT": {"lat": 0, "lon": 0, "relative_alt": 10000},
+        "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
+        "GIMBAL_DEVICE_ATTITUDE_STATUS": {
+            "q": [1.0, 0.0, 0.0, 0.0],
+            "time_boot_ms": 7,
+        },
+    }
+    observation = build_observation(
+        sensor,
+        MavlinkState(
+            messages=messages,
+            received_monotonic_ns={"GIMBAL_DEVICE_ATTITUDE_STATUS": 500_000_000},
+        ),
+        camera_mount=CameraMount.gimbal(),
+    )
+
+    assert observation["gimbal_state"]["fresh"] is False
+    assert observation["gimbal_joint_state"]["source"] == "gazebo_joint_state"
+    assert observation["gimbal_joint_state"]["position_rad"] == {
+        "pitch": 0.4,
+        "yaw": 0.5,
+        "roll": 0.6,
+    }
+    assert observation["propeller_joint_state"]["angles_rad"] == [0.1, 0.2, 0.3, 0.4]
+    assert "camera_pose" not in observation
+
+
 def test_collector_dispatches_only_the_shared_gimbal_command_schema() -> None:
     collector = _collector_module()
 

@@ -182,6 +182,35 @@ def test_gimbal_frame_contract_rejects_partial_actuator_state(missing: str) -> N
     assert state is None
 
 
+def test_joint_parser_rejects_non_finite_actuator_values_for_gimbal_frames() -> None:
+    joints = {
+        **{
+            f"rotor_{index}_joint": {"position_rad": float(index), "velocity_rad_s": 1.0}
+            for index in range(4)
+        },
+        "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.0},
+        "cgo3_vertical_arm_joint": {"position_rad": 0.2, "velocity_rad_s": 0.0},
+        "cgo3_horizontal_arm_joint": {"position_rad": 0.3, "velocity_rad_s": 0.0},
+    }
+    joints["rotor_2_joint"]["velocity_rad_s"] = float("nan")
+    sample = _joint_sample_from_message(
+        _gazebo_message(
+            stamp_ns=900,
+            joint=[
+                SimpleNamespace(
+                    name=name,
+                    axis1=SimpleNamespace(
+                        position=value["position_rad"],
+                        velocity=value["velocity_rad_s"],
+                    ),
+                )
+                for name, value in joints.items()
+            ],
+        )
+    )
+    assert _frame_joint_state(sample, 1_000, require_complete=True) is None
+
+
 def test_rotor_state_is_optional_for_legacy_joint_samples() -> None:
     sample = {
         "stamp_ns": 950_000_000,

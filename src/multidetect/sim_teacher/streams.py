@@ -1114,11 +1114,14 @@ def build_observation(
             "fresh": False,
         }
     if isinstance(sidecar_gimbal, Mapping):
-        result["gimbal_joint_state"] = {
-            **dict(result.get("gimbal_joint_state", {})),
-            **dict(sidecar_gimbal),
-            "timestamp_ns": int(sidecar_gimbal.get("timestamp_ns", sensor.sensor_stamp_ns)),
-        }
+        # The simulator joint sidecar is an independent measured state.  Do
+        # not merge it with the MAVLink feedback-derived shape: a stale
+        # high-level sample must never leak an angle, velocity, or freshness
+        # field into the fresh joint record.
+        result["gimbal_joint_state"] = dict(sidecar_gimbal)
+        result["gimbal_joint_state"]["timestamp_ns"] = int(
+            sidecar_gimbal.get("timestamp_ns", sensor.sensor_stamp_ns)
+        )
     if isinstance(sidecar_propeller, Mapping):
         result["propeller_joint_state"] = dict(sidecar_propeller)
     else:

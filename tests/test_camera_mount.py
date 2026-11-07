@@ -153,6 +153,28 @@ def test_stale_recorded_gimbal_feedback_does_not_project_a_count_position() -> N
     assert pixel_ground_point(599.7, 784.7, **args) is None
 
 
+def test_stale_feedback_wins_over_a_retained_composed_pose() -> None:
+    pose = {
+        **_pose(),
+        "gimbal_state": {"fresh": False, "pitch_rad": 0.0, "yaw_rad": 0.0, "roll_rad": 0.0},
+        "camera_pose": {
+            "center_ned": [0.0, 0.0, -10.0],
+            "optical_to_world": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            "gimbal_feedback_fresh": True,
+        },
+    }
+    assert (
+        pixel_camera_ray(
+            640.0,
+            480.0,
+            pose=pose,
+            camera_info=_camera(),
+            image_size=(1280, 960),
+        )
+        is None
+    )
+
+
 def test_recorded_joint_state_positions_drive_projection_without_camera_pose() -> None:
     vehicle_pose = _pose()
     pose = {
