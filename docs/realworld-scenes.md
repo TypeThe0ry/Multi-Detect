@@ -322,3 +322,21 @@ Davis 已打开白天、多云、清晨、傍晚、阴天、雨、黄昏、夜�
 Iowa 完整视觉串行复验 `vtol-farm-full-repeat` 最终 FAIL，最高 0.37 m，0 对齐帧，解锁前 `xy_position_control` 检查超时并记录重复 gyro/accel 时间戳 3520000。与减视觉 PASS 共同支持渲染/actor负载相关性，但还不能隔离根因。本次提供有证据的结论，未声称已经修复该稳定性问题。
 
 鹿特丹新原点为 51.88522464309306, 4.4297321931078555，公开 PDOK/OSM/3DBAG 匹配数据写入 `/data/datasets/multidetect-sim-assets/validation-1107/sites/rw_port_rotterdam/raw/`。每个下载响应 URL、许可、SHA-256 记在 `download-responses.jsonl`，原始文件 SHA-256 及源条款在 `provenance.json`；没有覆盖旧共享 raw。新原点重建已完成，OSM 水域间距见 `.tmp/review/final/rotterdam-origin-audit.json`。新原点 tiltrotor 首次飞行因 `xy_position_control` 健康检查超时 FAIL，不能把旧水上原点的成功移植为新点成功。为覆盖有效陆地场景，另跑 Davis tiltrotor，保留两者结果。
+
+鹿特丹新陆地原点在 slot 7 重试后 PASS，最高 54.24 m、7 帧对齐并降落；该次是本线 tiltrotor 合格记录，Davis tiltrotor 尝试因系统 Gyro/电源等健康检查缺失而未起飞，不作为机型失败证据。最终飞行索引和旋翼/相机图在 `.tmp/review/final/`，默认世界四视角图以新陆地原点复拍覆盖旧图。
+
+动态 actor 预算试验在同一类设备上仍受整机负载和不同场景内容影响，以下均为 GPU1 单个 1 Hz 中空相机、200 样本，不可和四相机地点表直接横比：
+
+| 地点 | actor 数量倍数 | 相机 RTF | 首帧/s | 峰值/MiB |
+|---|---:|---:|---:|---:|
+| SF | 0 | 0.618 | 117 | 3671 |
+| SF | 0.5 | 0.737 | 109 | 3772 |
+| SF | 1.0 | 0.738 | 见原始指标 | 3802 |
+| Davis | 0 | 0.694 | 96 | 3365 |
+| Davis | 0.5 | 0.951 | 见原始指标 | 3472 |
+| Davis | 1.0 | 0.897 | 见原始指标 | 3476 |
+| Santa Cruz | 0 | 0.931 | 64 | 3847 |
+| Santa Cruz | 0.5 | 0.737 | 见原始指标 | 3948 |
+| Santa Cruz | 1.5 | 0.713 | 63 | 见原始指标 | 见原始指标 |
+
+指标位于 `.tmp/review/budget/<site>_m<scale>/metrics.json`。采样期间 loadavg 从约 130 到 200 浮动，RTF 并不随 actor 数量单调变化。全静态 SF 仍只有 0.618；因此没有证据支持一个跨地点 `mover_scale` 能保证 RTF≥0.9，生成器默认仍为 1.0，不能宣称已找到满足该目标的通用默认数量。应先改善网格/贴图/物理负载，并在受控整机负载下重新测量。
