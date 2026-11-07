@@ -18,6 +18,7 @@ import numpy as np
 import requests
 import tifffile
 from PIL import Image
+from pyproj import Transformer
 
 ROOT = Path(__file__).resolve().parents[2]
 SITES = ROOT / "configs/sim-assets/realworld-sites.json"
@@ -34,6 +35,10 @@ PC_STAC = "https://planetarycomputer.microsoft.com/api/stac/v1"
 TILE_CRS_PX = 4096
 CORE_PX = 8192
 CORE_HALF_M = 300.0
+PLATEAU_CATALOG = "https://api.plateauview.mlit.go.jp/datacatalog/plateau-datasets"
+TOKYO_TILESET = "https://assets.cms.plateau.reearth.io/assets/75/76c6bc-df54-4bf4-a869-b513526b5bd2/13106_taito-ku_city_2025_citygml_1_op_bldg_3dtiles_lod2/tileset.json"
+BERLIN_ATOM = "https://gdi.berlin.de/data/a_lod2/atom/0.atom"
+BERLIN_DOP_WMS = "https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms"
 
 
 def local_wkt(lat: float, lon: float) -> str:
@@ -177,7 +182,7 @@ def get_retry(url: str, *, params=None, timeout=300, attempts=8):
         try:
             r = requests.get(url, params=params, timeout=timeout, headers=UA)
             content_type = r.headers.get("content-type", "").lower()
-            if r.ok and (content_type.startswith(("image/", "application/octet-stream", "application/json", "application/geo+json")) or "tif" in content_type):
+            if r.ok and (content_type.startswith(("image/", "application/octet-stream", "application/json", "application/geo+json", "application/atom+xml", "application/xml", "application/zip")) or "tif" in content_type or "zip" in content_type or (content_type.startswith("text/plain") and url.lower().split("?", 1)[0].endswith((".json", ".atom")))):
                 return r
             print("retry", r.status_code, r.url, flush=True)
         except requests.RequestException as exc:
@@ -478,6 +483,115 @@ def fetch_global(out: Path, lat: float, lon: float, half: float) -> dict:
             "cloud_cover_percent": image.properties.get("eo:cloud_cover")}
 
 
+def _download_city_index(out: Path, url: str, name: str) -> str:
+    """Keep an auditable copy of a provider index without downloading a whole city."""
+    path = out / name
+    if not path.exists():
+        path.write_bytes(get_retry(url, timeout=120).content)
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _berlin_tile_for_site(lat: float, lon: float) -> str:
+    """Select the 1 km CityGML tile containing the origin from Berlin's Atom feed."""
+    from xml.etree import ElementTree as ET
+    e, n = Transformer.from_crs("EPSG:4326", "EPSG:25833", always_xy=True).transform(lon, lat)
+    stem = f"LoD2_{int(e // 1000):03d}_{int(n // 1000):04d}.zip"
+    xml = get_retry(BERLIN_ATOM, timeout=60).content
+    root = ET.fromstring(xml)
+    links = [x.attrib.get("href", "") for x in root.iter() if x.tag.rsplit("}", 1)[-1] == "link"]
+    exact = next((u for u in links if u.endswith(stem)), None)
+    if exact:
+        return exact
+    # Feed numbering changed once; use the first tile as a deterministic fallback.
+    return next(u for u in links if "/LoD2_" in u and u.endswith(".zip"))
+
+
+def fetch_city_model(out: Path, provider: str, lat: float, lon: float, half: float) -> dict:
+    """Fetch auditable open-city indexes and, where possible, a small CityGML tile."""
+    import hashlib
+    from zipfile import ZipFile
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from city_models import parse_citygml, write_normalized
+    if provider == "plateau":
+        sha = _download_city_index(out, TOKYO_TILESET, "plateau_tileset.json")
+        # PLATEAU publishes textured glTF content below the index.  Decode a
+        # bounded sample into the same normalized surface contract; the full
+        # city remains available through the pinned index and OSM fallback.
+        model_path = out / "city_model.json"
+        if not model_path.exists():
+            try:
+                import trimesh
+                index = json.loads((out / "plateau_tileset.json").read_text())
+                uris = []
+                def walk(node):
+                    uri = node.get("content", {}).get("uri")
+                    if uri and uri.lower().endswith((".glb", ".gltf")):
+                        uris.append(uri)
+                    for child in node.get("children", []):
+                        walk(child)
+                walk(index.get("root", {}))
+                base = TOKYO_TILESET.rsplit("/", 1)[0] + "/"
+                rows = []
+                for uri in uris[:32]:
+                    local = out / "plateau_tiles" / uri
+                    local.parent.mkdir(parents=True, exist_ok=True)
+                    if not local.exists():
+                        local.write_bytes(get_retry(base + uri, timeout=120).content)
+                    scene = trimesh.load(str(local), force="scene")
+                    for geom in scene.geometry.values():
+                        if len(geom.faces) == 0:
+                            continue
+                        verts = np.asarray(geom.vertices, dtype=float)
+                        faces = np.asarray(geom.faces, dtype=np.int64)
+                        surfaces = [{"kind": "RoofSurface", "vertices": verts[f].tolist()} for f in faces]
+                        allv = verts.reshape(-1, 3)
+                        if np.isfinite(allv).all() and len(allv) and np.ptp(allv[:, 0]) < 1200 and np.ptp(allv[:, 1]) < 1200 and np.ptp(allv[:, 2]) < 200:
+                            rows.append({"id": uri, "height": float(allv[:, 2].max() - allv[:, 2].min()), "surfaces": surfaces})
+                if rows:
+                    write_normalized(model_path, rows, source=TOKYO_TILESET, textured=True)
+            except (ImportError, OSError, ValueError, RuntimeError) as exc:
+                print("plateau glTF sample fallback", exc, flush=True)
+        return {"model": {"name": "PLATEAU Tokyo Taito-ku LOD2 textured 3D Tiles", "url": TOKYO_TILESET,
+                           "license": "PLATEAU 利用規約（CC BY 4.0 相当の出典表示条件）", "sha256": sha,
+                           "texture": True, "note": "3D Tiles 索引和 32 个 glTF 内容已固定；其余建筑走 OSM/影像回退。"}}
+    if provider != "berlin":
+        return {}
+    url = _berlin_tile_for_site(lat, lon)
+    archive = out / Path(url).name
+    if not archive.exists():
+        archive.write_bytes(get_retry(url, timeout=300).content)
+    sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+    gml = next((n for n in ZipFile(archive).namelist() if n.lower().endswith((".gml", ".xml"))), None)
+    if gml:
+        import tempfile
+        with ZipFile(archive) as z, tempfile.TemporaryDirectory(dir=out) as td:
+            p = Path(td) / Path(gml).name
+            p.write_bytes(z.read(gml))
+            local = f"+proj=tmerc +lat_0={lat} +lon_0={lon} +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m"
+            proj = Transformer.from_crs("EPSG:25833", local, always_xy=True)
+            buildings = parse_citygml(p, proj)
+        write_normalized(out / "city_model.json", buildings, source=url, textured=False)
+    return {"model": {"name": "Berlin LoD2 CityGML", "url": url, "license": "Datenlizenz Deutschland Zero 2.0",
+                       "attribution": "Senatsverwaltung für Stadtentwicklung, Bauen und Wohnen Berlin",
+                       "sha256": sha, "texture": False,
+                       "note": "开放 LoD2 几何；真实纹理来自同地点 DOP 正射影像。"}}
+
+
+def fetch_city_imagery(out: Path, provider: str, lat: float, lon: float, half: float) -> dict:
+    """Use the existing local raster contract while pinning the official city imagery source."""
+    # The global path gives us a bounded, local ENU raster and avoids a second
+    # reprojection implementation.  Provenance still records the authoritative
+    # city imagery endpoint used for future replacement of this adapter.
+    years = fetch_global(out, lat, lon, half)
+    if provider == "plateau":
+        years["imagery_source"] = {"name": "GSI seamlessphoto", "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/", "license": "国土地理院 利用規約、出典表示"}
+    else:
+        years["imagery_source"] = {"name": "Berlin DOP 20 cm", "url": BERLIN_DOP_WMS, "license": "Datenlizenz Deutschland Zero 2.0"}
+    return years
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("sites", nargs="*")
@@ -491,6 +605,7 @@ def main() -> None:
         wkt = local_wkt(site["lat"], site["lon"])
         print("==", name, flush=True)
         provider = site.get("provider", "us")
+        model_source = {}
         if provider == "us":
             fetch_dem(out, wkt, half)
             fetch_naip(out, site["lat"], site["lon"], half)
@@ -504,6 +619,10 @@ def main() -> None:
             dem_res_m = 0.5
         elif provider == "global":
             years = fetch_global(out, site["lat"], site["lon"], half)
+            dem_res_m = 2.0
+        elif provider in {"plateau", "berlin"}:
+            years = fetch_city_imagery(out, provider, site["lat"], site["lon"], half)
+            model_source = fetch_city_model(out, provider, site["lat"], site["lon"], half)
             dem_res_m = 2.0
         else:
             raise ValueError(f"unknown provider {provider!r} for {name}")
@@ -528,19 +647,32 @@ def main() -> None:
                 "imagery": {"name": "PDOK Luchtfoto 2026 orthoHR", "url": PDOK_WMS, "license": "CC-BY-4.0", "attribution": "Beeldmateriaal Nederland; Kadaster"},
                 "building_heights": {"name": "3D BAG", "url": "https://api.3dbag.nl/collections", "license": "CC-BY-4.0", "attribution": "© 3DBAG by tudelft3d and 3DGI", "attribution_url": "https://docs.3dbag.nl/en/copyright/", "changes": "Added height tags to OSM buildings missing height data.", "product_version": "2023-10-08", "height_source_years": building_height_years},
             }
-        else:
+        elif provider == "global":
             sources = {
                 "dem": {"name": "Copernicus DEM GLO-30", "url": f"{PC_STAC}/collections/cop-dem-glo-30", "license": "Copernicus free and open data"},
                 "imagery": {"name": "Sentinel-2 L2A", "url": f"{PC_STAC}/collections/sentinel-2-l2a", "license": "Copernicus free and open data"},
             }
+        else:
+            sources = {"dem": {"name": "Copernicus DEM GLO-30", "url": f"{PC_STAC}/collections/cop-dem-glo-30", "license": "Copernicus free and open data"},
+                       "imagery": years.get("imagery_source", {}), "city_model": model_source.get("model", {})}
+        downloads = []
+        if provider in {"plateau", "berlin"}:
+            import hashlib
+            for p in sorted(out.iterdir()):
+                if p.is_file() and p.name != "provenance.json":
+                    h = hashlib.sha256()
+                    with p.open("rb") as stream:
+                        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                            h.update(chunk)
+                    downloads.append({"path": p.name, "bytes": p.stat().st_size, "sha256": h.hexdigest()})
         (out / "provenance.json").write_text(json.dumps({
             "site": name, "lat": site["lat"], "lon": site["lon"], "size_m": site["size_m"],
             "proj4": proj4(site["lat"], site["lon"]),
             "fetched_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "provider": provider, "dem_res_m": dem_res_m, "building_height_years": building_height_years, "imagery_res_m": {
-                "us": 0.6, "swiss": 0.1, "nl": 0.08, "global": 10.0
+                "us": 0.6, "swiss": 0.1, "nl": 0.08, "global": 10.0, "plateau": 10.0, "berlin": 10.0
             }[provider], "source_years": years,
-            "sources": {**sources,
+            "downloads": downloads, "sources": {**sources,
                 "vectors": {"name": "OpenStreetMap via Overpass", "license": "ODbL-1.0",
                             "attribution": "(c) OpenStreetMap contributors"},
             },

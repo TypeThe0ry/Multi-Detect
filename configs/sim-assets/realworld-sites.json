@@ -76,6 +76,24 @@
       "size_m": 2000,
       "kind": "urban",
       "provider": "nl"
+    },
+    "rw_city_tokyo": {
+      "title": "东京 台东区公园起飞点",
+      "lat": 35.7174,
+      "lon": 139.7772,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "plateau",
+      "city_model": "PLATEAU 13106 Taito-ku LOD2 textured"
+    },
+    "rw_city_berlin": {
+      "title": "柏林 Tiergarten 周边",
+      "lat": 52.5145,
+      "lon": 13.3501,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "berlin",
+      "city_model": "Berlin LoD2 CityGML + DOP20"
     }
   }
 }
