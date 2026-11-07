@@ -4945,6 +4945,25 @@ def run_episode(
                     "action_ack": result.status in {"success", "timeout"},
                     "arm": _plain_record(arm_ack),
                 }
+                climb_failure = False
+                report_outcome = getattr(policy, "report_primitive_outcome", None)
+                if callable(report_outcome):
+                    climb_failure = bool(
+                        report_outcome(
+                            step_action,
+                            result.status,
+                            before=before,
+                            after=after,
+                        )
+                    )
+                    if climb_failure:
+                        labels = {
+                            **labels,
+                            "onboard": {
+                                **(labels.get("onboard", {}) if isinstance(labels, dict) else {}),
+                                "recovery_outcome": "climb_failed_suspected_loss_of_control",
+                            },
+                        }
                 achieved_delta = list(result.achieved_delta_ned)
                 if motion is not None:
                     # Guided commands report no displacement; measure it from telemetry.
@@ -4989,6 +5008,8 @@ def run_episode(
                         "total_ms": round((time.perf_counter_ns() - step_t0) / 1e6, 3),
                     },
                 )
+                if climb_failure:
+                    continue_loop = False
                 loss_event = vehicle_loss_detector.update(
                     before,
                     after,
