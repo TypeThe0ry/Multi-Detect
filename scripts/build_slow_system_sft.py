@@ -1191,7 +1191,14 @@ def build_dataset(
                     distractor_category = _target_category(p["target"])
                     for near_category in CONFUSABLE_NEGATIVES.get(distractor_category, ()):
                         near_task = _confusable_task(near_category, variant)
-                        same_category = [q for q in projected if _target_category(q["target"]) == near_category]
+                        # Semantic words can start with a parent category
+                        # (SUV truth has ["car", "suv"]). Match the requested
+                        # task rather than comparing only that first word.
+                        same_category = [
+                            q for q in projected
+                            if _category_task_equivalent(near_category, q["target"])
+                            and q["target"].get("asset_slug") not in held_out_slugs
+                        ]
                         if _category_task_equivalent(near_category, p["target"]):
                             stats["dropped_confusable_task_equivalent"] += 1
                             continue
