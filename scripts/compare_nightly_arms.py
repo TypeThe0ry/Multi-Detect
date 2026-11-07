@@ -15,7 +15,13 @@ from scripts.nightly_trend import _read_json
 from scripts.run_nightly_regression import mission_triage
 
 
-FAILURE_CLASSES = ("px4_crashed", "clock_stalled_alive", "px4_alive_other_failure", "none")
+FAILURE_CLASSES = (
+    "px4_crashed",
+    "clock_stalled_alive",
+    "sensor_stream_stalled",
+    "px4_alive_other_failure",
+    "none",
+)
 
 
 def _number(value: Any) -> float | int | None:

@@ -1102,11 +1102,17 @@ def _failure_class(reason: str, snapshot: dict[str, Any]) -> str:
         return "px4_crashed"
     if "clock stalled" in reason.lower() and px4_alive is True:
         return "clock_stalled_alive"
+    if "sensor stream produced no frame" in reason.lower():
+        return "sensor_stream_stalled"
     if px4_alive is True:
         return "px4_alive_other_failure"
     if px4_alive is False:
         return "px4_not_alive"
     return "px4_status_unknown"
+
+
+def _is_sensor_stream_timeout(reason: str) -> bool:
+    return "sensor stream produced no frame" in reason.lower()
 
 
 class DockerSimEnvironment:
@@ -1352,7 +1358,7 @@ class DockerSimEnvironment:
                 reason,
                 px4_clock_diagnostics=clock_diagnostics,
             )
-            if "clock stalled" in reason.lower():
+            if "clock stalled" in reason.lower() or _is_sensor_stream_timeout(reason):
                 evidence = self.capture_stall_evidence(
                     reason, px4_clock_diagnostics=clock_diagnostics
                 )
@@ -2800,6 +2806,11 @@ def _prearm_health_snapshot(state: Any) -> dict[str, Any] | None:
                 "ready": failed == 0,
             }
     return None
+
+
+def _achieved_delta_ned(before_pose: Any, after_pose: Any) -> list[float]:
+    """Return this primitive's measured local-NED displacement."""
+    return [float(after_pose[index]) - float(before_pose[index]) for index in range(3)]
 
 
 def _wait_prearm_health(
@@ -4335,13 +4346,22 @@ def run_episode(
             f"{type(exc).__name__}: {exc}",
             px4_clock_diagnostics=clock_diagnostics,
         )
+        sensor_stream_timeout = _is_sensor_stream_timeout(str(exc))
+        if sensor_stream_timeout:
+            evidence = environment.capture_stall_evidence(
+                f"{type(exc).__name__}: {exc}", px4_clock_diagnostics=clock_diagnostics
+            )
+            diagnostics["stall_capture"] = {
+                "path": evidence.get("path"),
+                "samples": len(evidence.get("samples", [])),
+            }
         if diagnostics.get("cleanup_state") is None:
             environment.capture_cleanup_diagnostics()
         recorder.meta["failure_class"] = diagnostics["failure_class"]
         recorder.meta["container_failure_diagnostics"] = diagnostics
-        if clock_diagnostics is not None or "clock stalled" in str(exc).lower():
+        if clock_diagnostics is not None or "clock stalled" in str(exc).lower() or sensor_stream_timeout:
             recorder.meta["failure_record"] = {
-                "kind": "px4_sim_clock_stall",
+                "kind": "sensor_stream_stalled" if sensor_stream_timeout else "px4_sim_clock_stall",
                 **(clock_diagnostics or {}),
                 "stall_capture_path": (diagnostics.get("stall_capture") or {}).get("path"),
             }
@@ -5130,13 +5150,9 @@ def run_episode(
                                 "recovery_outcome": "climb_failed_suspected_loss_of_control",
                             },
                         }
-                achieved_delta = list(result.achieved_delta_ned)
-                if motion is not None:
-                    # Guided commands report no displacement; measure it from telemetry.
-                    achieved_delta = [
-                        float(a) - float(b)
-                        for a, b in zip(after["pose"]["local_ned_m"], pose, strict=False)
-                    ]
+                achieved_delta = _achieved_delta_ned(
+                    before["pose"]["local_ned_m"], after["pose"]["local_ned_m"]
+                )
                 continue_loop = _record_policy_step(
                     recorder,
                     before,
