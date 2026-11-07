@@ -34,6 +34,10 @@ DEFAULTS = {
     "near_depth_min_interval_s": 0.2,
     "near_depth_max_age_s": 1.0,
     "near_depth_sigma_scale": 1.0,
+    # Initial, uncalibrated identity-view independence gates.
+    "confirm_min_view_bearing_deg": 25.0,
+    "confirm_min_view_pitch_deg": 10.0,
+    "confirm_min_view_altitude_m": 3.0,
 }
 
 # Target positioning defaults, kept typed (DEFAULTS above is stringified).

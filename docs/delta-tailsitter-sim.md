@@ -1,5 +1,15 @@
 # 折叠尾座式三角翼接入说明
 
+## 身份确认的独立观察票
+
+`two_views` 现在要求两张有效正票来自可区分的观察：默认相机观察方位至少相差 **25°**，或俯角相差至少 **10°**，或相机高度相差至少 **3 m**。这些数值是待校准的起始值，不是已通过 SITL 验证的飞行参数。门槛只约束身份票，不改变飞行参数、气动模型、定位三角化或冒烟判定门限。
+
+若两票仍来自近似同一侧，候选保持未确认，搜索/接近循环继续运行以取得侧视或高度变化。每张真实身份票同时记录 `frame_id`、`frame_path`、`camera_pose_ned`、`observation_bearing_deg`、`observation_pitch_deg`、`camera_altitude_m` 和 `source`，并随 `steps.jsonl` 的 `labels.onboard.slow_calls` 与 track `identity_votes` 保存，方便复核原始帧和相机几何。
+
+该规则放在所有机型共用的 onboard 身份层：x500、standard_vtol、tailsitter 和云台 tailsitter 都获得同一误确认防护；固定翼/VTOL 的既有单票或最近视点特例仍保留，只有累计 `confirm_matches` 正票的 `two_views` 路径增加独立性条件。统一实现避免只修云台而让相同模型错误在其他机型复现，代价是部分任务需要额外绕飞/复看，需在后续回归中校准成本与召回率。
+
+本工作树只运行 Python 单元测试和静态检查，没有运行 Docker 或 SITL，因此不能据此宣称飞行回归通过。
+
 本机固定相机档案 ID 为 `delta_tailsitter`，云台档案 ID 为
 `delta_tailsitter_gimbal`。Gazebo 传感器包装分别为
 `delta_tailsitter_mono_cam`（固定相机，4050）和

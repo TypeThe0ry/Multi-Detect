@@ -905,6 +905,10 @@ class MissionExecutor:
         landed: bool | None = None,
         camera_ray: Callable[[float, float], Any] | None = None,
         timestamp_s: float | None = None,
+        frame_id: str | None = None,
+        frame_path: str | None = None,
+        observation_source: str | None = None,
+        view_pitch_deg: float | None = None,
     ) -> list[Track]:
         """Update the active step's tracks; return the tracks that need a slow verdict."""
         self._init_home(pose_ned)
@@ -940,6 +944,10 @@ class MissionExecutor:
                 if camera_ray is not None and run.step.skill != "follow"
                 else {}
             ),
+            frame_id=frame_id,
+            frame_path=frame_path,
+            observation_source=observation_source,
+            view_pitch_deg=view_pitch_deg,
         )
         if run.step.skill == "follow":
             run.fresh_ground_tracks = {
@@ -967,11 +975,24 @@ class MissionExecutor:
         confidence: float | None = None,
         *,
         remembered: bool = False,
+        frame_id: str | None = None,
+        frame_path: str | None = None,
+        observation_source: str | None = None,
+        view_pitch_deg: float | None = None,
     ) -> None:
         run = self._run
         if run is None or run.loop is None:
             return
-        run.loop.apply_verdict(track_id, decision, confidence, remembered=remembered)
+        run.loop.apply_verdict(
+            track_id,
+            decision,
+            confidence,
+            remembered=remembered,
+            frame_id=frame_id,
+            frame_path=frame_path,
+            observation_source=observation_source,
+            view_pitch_deg=view_pitch_deg,
+        )
         if run.step.skill == "inspect" and track_id == run.pending_track:
             self.answers.append(f"{run.step.id}:view{run.view_index + 1}:{decision}")
         if run.step.skill in {"patrol", "monitor"}:

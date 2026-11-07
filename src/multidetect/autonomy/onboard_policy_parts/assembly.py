@@ -213,6 +213,13 @@ def build_runtime_loop_factory(
     # correction; an unknown task leaves the correction disabled.
     typical_size = typical_object_size(self.task_text, default=0.0)
     loop_defaults["ground_extent_size_m"] = typical_size or None
+    for key, convert in (
+        ("confirm_min_view_bearing_deg", float),
+        ("confirm_min_view_pitch_deg", float),
+        ("confirm_min_view_altitude_m", float),
+    ):
+        if key in options:
+            loop_defaults[key] = convert(options[key])
     # Keep the original types: LoopConfig strictly rejects strings, bools
     # masquerading as integers, fractional view counts and non-finite sigma.
     for key in (
