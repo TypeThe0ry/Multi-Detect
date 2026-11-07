@@ -8,11 +8,13 @@ import json
 import math
 import os
 import random
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -125,14 +127,59 @@ def labelled_model(name: str, slug: str, x, y, z, yaw, label: int) -> str:
     cx, cy = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
     c, s = math.cos(yaw), math.sin(yaw)
     wx, wy = x + c * cx - s * cy, y + s * cx + c * cy
-    pl = f'<plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>{label}</label></plugin>'
     return (f'<model name="{name}"><static>true</static><pose>{wx:.3f} {wy:.3f} {z + size[2] / 2:.3f} 0 0 {yaw:.4f}</pose>'
-            f'<link name="bounds"><collision name="bounds_collision"><geometry><box><size>{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}</size></box></geometry></collision></link>{pl}'
-            f'<model name="mesh"><pose>{-cx:.3f} {-cy:.3f} {-lo[2] - size[2] / 2:.3f} 0 0 0</pose><static>true</static><link name="link">{inst_visuals(slug)}</link>{pl}</model></model>')
+            f'<link name="bounds"><collision name="bounds_collision"><geometry><box><size>{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}</size></box></geometry></collision></link>'
+            f'<model name="mesh"><pose>{-cx:.3f} {-cy:.3f} {-lo[2] - size[2] / 2:.3f} 0 0 0</pose><static>true</static><link name="link">{inst_visuals(slug)}</link></model></model>')
 
 
-def _actor(name: str, skin: str, anim: str, kind: str, pts: list[tuple], speed: float, side: float, turn_s: float, height: float = 0.0, length: float = 260.0) -> str:
-    """Out-and-back trip along a road line, each way on its own side, as a looping actor script."""
+def _ensure_emissive_map(path: Path, seed: int) -> Path | None:
+    """Build a sparse warm window emission map beside a facade albedo texture."""
+    out = path.with_name(path.stem + "_emissive.png")
+    if out.exists():
+        return out
+    try:
+        src = np.asarray(Image.open(path).convert("RGB"), dtype=np.float32)
+    except (OSError, ValueError):
+        return None
+    rng = np.random.default_rng(seed)
+    # Facade window glass is generally darker/bluer than wall pixels. Keep most bays dark.
+    blue = src[..., 2] - src[..., 0] * 0.72
+    dark = src.mean(axis=2) < 155
+    mask = (blue > -5) & dark
+    coarse = rng.random((max(1, src.shape[0] // 80), max(1, src.shape[1] // 80))) > 0.48
+    coarse = np.asarray(Image.fromarray((coarse * 255).astype(np.uint8)).resize((src.shape[1], src.shape[0]), Image.NEAREST)) > 0
+    rgb = np.zeros_like(src)
+    rgb[..., 0] = np.where(mask & coarse, 1.0, 0.0)
+    rgb[..., 1] = np.where(mask & coarse, 0.55, 0.0)
+    rgb[..., 2] = np.where(mask & coarse, 0.18, 0.0)
+    try:
+        Image.fromarray(np.clip(rgb * 255, 0, 255).astype(np.uint8), "RGB").save(out)
+    except OSError:
+        return None
+    return out
+
+
+def night_terrain_materials(xml: str, site: str) -> str:
+    """Attach local facade emission maps only to night worlds; daylight keeps original materials."""
+    site_dir = RESOLVED / site / "textures"
+    pattern = re.compile(r"<albedo_map>model://" + re.escape(site) + r"/textures/(facade_[^<]+)</albedo_map>")
+
+    def replace(match: re.Match[str]) -> str:
+        tex = site_dir / match.group(1)
+        if not tex.exists():
+            return match.group(0)
+        em = _ensure_emissive_map(tex, sum((i + 1) * byte for i, byte in enumerate(match.group(1).encode())) & 0xFFFF)
+        if em is None:
+            return match.group(0)
+        return match.group(0) + f"<emissive_map>model://{site}/textures/{em.name}</emissive_map>"
+
+    return pattern.sub(replace, xml)
+
+
+def _actor(name: str, skin: str, anim: str, kind: str, pts: list[tuple], speed: float, side: float, turn_s: float,
+           height: float = 0.0, length: float = 260.0, delay: float = 0.0, scale: float = 1.0,
+           loop_route: bool = False, pause_s: float = 0.0) -> str:
+    """Create a timed actor route with optional looping and initial phase delay."""
     xy = [(p[0], p[1], p[2]) for p in pts]
     s = 0.0
     keep = [xy[0]]
@@ -149,7 +196,7 @@ def _actor(name: str, skin: str, anim: str, kind: str, pts: list[tuple], speed: 
         for i, (x, y, z) in enumerate(seq):
             nx, ny = seq[min(i + 1, len(seq) - 1)], seq[max(i - 1, 0)]
             yaw = math.atan2(nx[1] - ny[1], nx[0] - ny[0])
-            ox, oy = -math.sin(yaw) * -side, math.cos(yaw) * -side
+            ox, oy = -math.sin(yaw) * side, math.cos(yaw) * side
             if i:
                 px, py = seq[i - 1][0], seq[i - 1][1]
                 t += math.hypot(x - px, y - py) / speed
@@ -157,28 +204,97 @@ def _actor(name: str, skin: str, anim: str, kind: str, pts: list[tuple], speed: 
         return t
 
     t = leg(keep, t)
-    t = leg(keep[::-1], t + turn_s)
-    return (f'<actor name="{name}"><pose>0 0 0 0 0 0</pose><skin><filename>{skin}</filename><scale>1</scale></skin>'
+    if loop_route:
+        first, last = keep[0], keep[-1]
+        if math.hypot(last[0] - first[0], last[1] - first[1]) > 1:
+            t += math.hypot(last[0] - first[0], last[1] - first[1]) / speed
+            yaw = math.atan2(first[1] - last[1], first[0] - last[0])
+            way.append(f"<waypoint><time>{t:.2f}</time><pose>{first[0]:.2f} {first[1]:.2f} {first[2] + height:.2f} 0 0 {yaw:.3f}</pose></waypoint>")
+    else:
+        t = leg(keep[::-1], t + turn_s)
+    if pause_s:
+        way.append(f"<waypoint><time>{t + pause_s:.2f}</time><pose>{keep[0][0]:.2f} {keep[0][1]:.2f} {keep[0][2] + height:.2f} 0 0 0</pose></waypoint>")
+    return (f'<actor name="{name}"><pose>0 0 0 0 0 0</pose><skin><filename>{skin}</filename><scale>{scale:.3f}</scale></skin>'
             f'<animation name="{kind}"><filename>{anim}</filename><interpolate_x>{str(kind == "walk").lower()}</interpolate_x></animation>'
-            f'<script><loop>true</loop><auto_start>true</auto_start><trajectory id="0" type="{kind}">{"".join(way)}</trajectory></script></actor>')
+            f'<script><loop>true</loop><auto_start>true</auto_start><delay_start>{delay:.2f}</delay_start><trajectory id="0" type="{kind}">{"".join(way)}</trajectory></script></actor>')
 
 
-def movers(routes: list[dict], rng: random.Random, kind: str) -> str:
+def movers(routes: list[dict], rng: random.Random, kind: str, count_scale: float = 1.0) -> str:
     out = []
-    vehicles = ["hatchback", "hatchback_blue", "suv", "pickup", "prius_hybrid"]
-    if kind == "industrial":
-        vehicles += ["bus", "pickup"]
-    if kind == "urban":
-        vehicles += ["bus", "ambulance"]
-    road = [r for r in routes if r["width"] >= 6]
-    for i, r in enumerate(road[:6]):
-        slug = rng.choice(vehicles)
-        out.append(_actor(f"rw_car_{i:02d}", f"model://rw_movers/meshes/{slug}.dae", f"model://rw_movers/meshes/{slug}.dae", "drive", r["pts"], rng.uniform(5.0, 10.0), r["width"] / 4, 2.0))
+    common = ["hatchback", "hatchback_blue", "hatchback_red", "suv", "pickup", "prius_hybrid"]
+    vehicle_sets = {
+        "urban": common + ["bus", "ambulance", "fire_truck"],
+        "suburb": common + ["bus", "fire_truck"],
+        "coast": common + ["bus", "pickup"],
+        "industrial": common + ["bus", "ambulance", "fire_truck"],
+        "rural": common + ["pickup", "bus"],
+        "mountain": common + ["pickup", "bus"],
+    }
+    # Stitch OSM ways at nearby endpoints so actors continue through junctions instead of
+    # reversing at every individual way. The greedy chain is deliberately short to avoid
+    # expensive graph bookkeeping in large scenes.
+    source = [r for r in routes if r["width"] >= 5.5]
+    used: set[int] = set()
+    road = []
+    for seed_i, seed_r in enumerate(source):
+        if seed_i in used:
+            continue
+        chain = list(seed_r["pts"])
+        used.add(seed_i)
+        for _ in range(3):
+            tail = chain[-1]
+            best = None
+            for j, cand in enumerate(source):
+                if j in used:
+                    continue
+                for rev, endpoint in ((False, cand["pts"][0]), (True, cand["pts"][-1])):
+                    d = math.hypot(endpoint[0] - tail[0], endpoint[1] - tail[1])
+                    if d <= 28.0 and (best is None or d < best[0]):
+                        best = (d, j, rev, cand)
+            if best is None:
+                break
+            _, j, rev, cand = best
+            segment = list(reversed(cand["pts"])) if rev else list(cand["pts"])
+            chain.extend(segment[1:])
+            used.add(j)
+        road.append({"class": seed_r["class"], "width": seed_r["width"], "pts": chain})
+    road.sort(key=lambda r: (r["class"] not in {"primary", "secondary", "tertiary"}, -r["width"]))
+    density = {"urban": 6, "coast": 5, "industrial": 6, "suburb": 5, "rural": 3, "mountain": 2}.get(kind, 2)
+    counts = {"urban": 48, "coast": 42, "industrial": 48, "suburb": 32, "rural": 18, "mountain": 14}
+    target = min(80, max(density, round(min(counts.get(kind, 24), len(road) * density) * count_scale)))
+    vehicles = vehicle_sets.get(kind, common)
+    vehicle_i = 0
+    for ri, r in enumerate(road):
+        n = min(density, max(0, target - vehicle_i))
+        if n == 0:
+            break
+        pts = r["pts"]
+        road_class = r["class"]
+        speed = {"primary": 13.0, "secondary": 11.0, "tertiary": 8.0, "residential": 6.0, "unclassified": 6.0, "service": 4.0}.get(road_class, 7.0)
+        for j in range(n):
+            slug = vehicles[(vehicle_i + rng.randrange(len(vehicles))) % len(vehicles)]
+            # Put cars at distinct route phases; the delay keeps following vehicles separated at loop start.
+            phase = int(j * max(1, (len(pts) - 1) / n))
+            route_pts = pts[phase:] + pts[:phase + 1]
+            lane = (r["width"] / 4) * (1 if j % 2 == 0 else -1)
+            gap = 3.0 + j * (max(24.0, len(pts) * 12 / n) / speed)
+            mesh = f"model://rw_movers/meshes/{slug}.dae"
+            out.append(_actor(f"rw_car_{vehicle_i:02d}", mesh, mesh, "drive", route_pts, speed, lane, 0.0,
+                              length=(len(route_pts) - 1) * 12.0, delay=gap, loop_route=True))
+            vehicle_i += 1
     if kind != "mountain":
-        for i, r in enumerate((routes * 2)[:8]):
+        desired = min(60, max(1, round({"urban": 40, "coast": 36, "industrial": 28, "suburb": 24, "rural": 14}.get(kind, 24) * count_scale)))
+        walk_routes = [r for r in routes if r["width"] >= 3.0]
+        for i in range(desired):
+            if not walk_routes:
+                break
+            r = walk_routes[i % len(walk_routes)]
+            pts = r["pts"]
+            shift = (i * max(1, len(pts) // max(1, desired // len(walk_routes)))) % max(1, len(pts) - 2)
             walk = "model://rw_actor_walk/meshes/walk.dae"
-            shift = rng.randrange(max(1, len(r["pts"]) - 4))
-            out.append(_actor(f"rw_walker_{i:02d}", walk, walk, "walk", r["pts"][shift:], rng.uniform(1.0, 1.6), r["width"] / 2 + 1.5 + rng.uniform(0, 1), 1.0, height=1.0, length=90.0))
+            out.append(_actor(f"rw_walker_{i:02d}", walk, walk, "walk", pts[shift:], rng.uniform(1.0, 1.5),
+                              r["width"] / 2 + 1.6, 1.0, height=1.0, length=72.0,
+                              delay=rng.uniform(0, 30), scale=rng.uniform(0.88, 1.12), pause_s=rng.uniform(1.0, 4.0)))
     return "".join(out)
 
 
@@ -218,7 +334,31 @@ def street_lights(objects: list[dict], limit=24) -> str:
         for i, o in enumerate(near))
 
 
-def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "") -> Path:
+def street_light_heads(objects: list[dict], limit=24) -> str:
+    near = sorted([o for o in objects if o["cat"] == "lamp_post"], key=lambda o: math.hypot(o["x"], o["y"]))[:limit]
+    return "".join(
+        f'<model name="rw_lamp_head_{i}"><static>true</static><pose>{o["x"]:.2f} {o["y"]:.2f} {o["z"] + 7.5:.2f} 0 0 0</pose><link name="l"><visual name="v"><geometry><sphere><radius>0.18</radius></sphere></geometry><material><emissive>1 0.68 0.25 1</emissive><diffuse>1 0.68 0.25 1</diffuse><lighting>false</lighting></material></visual></link></model>'
+        for i, o in enumerate(near))
+
+
+def takeoff_lights() -> str:
+    return "".join(
+        f'<light name="rw_pad_light_{i}" type="point"><pose>{x} {y} 12 0 0 0</pose><diffuse>0.72 0.82 1 1</diffuse><specular>0.15 0.18 0.22 1</specular>'
+        '<attenuation><range>55</range><constant>0.25</constant><linear>0.025</linear><quadratic>0.004</quadratic></attenuation>'
+        '<cast_shadows>false</cast_shadows><intensity>0.45</intensity></light>'
+        for i, (x, y) in enumerate(((-34, -34), (34, -34), (-34, 34), (34, 34))))
+
+
+def boat_actor(kind: str) -> str:
+    if kind not in {"coast", "industrial"}:
+        return ""
+    # Water meshes in the coastal/port sites occupy the outer edge of the local frame.
+    pts = [(-1150.0, -620.0, 0.35), (-500.0, -650.0, 0.35), (180.0, -610.0, 0.35), (760.0, -540.0, 0.35)]
+    mesh = "model://rw_movers/meshes/rc_boat.dae"
+    return _actor("rw_boat_00", mesh, mesh, "drive", pts, 4.0, 0.0, 0.0, length=2300.0, delay=2.0, loop_route=True, scale=1.25)
+
+
+def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0) -> Path:
     scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
     w = WEATHER[weather]
     wname = f"{site}__{weather}{name_suffix}"
@@ -236,6 +376,9 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     except (OSError, ValueError, TypeError, KeyError):
         pass
     dif = " ".join(map(str, w["dif"]))
+    terrain_xml = ET.tostring(ET.fromstring((RESOLVED / site / "model.sdf").read_text()).find("model"), encoding="unicode").replace(f'<model name="{site}">', '<model name="rw_terrain">', 1)
+    if weather == "night":
+        terrain_xml = night_terrain_materials(terrain_xml, site)
     parts = [
         f'<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.0</real_time_factor></physics>',
         '<gravity>0 0 -9.80665</gravity><magnetic_field>6.0e-6 2.3e-5 -4.2e-5</magnetic_field><atmosphere type="adiabatic"/>',
@@ -244,7 +387,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
         "__SKY__</scene>",
         f'<light name="sun" type="directional"><pose>0 0 800 0 0 0</pose><direction>{sd[0]} {sd[1]} {sd[2]}</direction><cast_shadows>{str(w["shadows"]).lower()}</cast_shadows><intensity>{w["i"]}</intensity><diffuse>{dif} 1</diffuse><specular>0.2 0.2 0.2 1</specular></light>',
         # Inlined rather than <include>: the stack plan only admits repository-owned includes.
-        ET.tostring(ET.fromstring((RESOLVED / site / "model.sdf").read_text()).find("model"), encoding="unicode").replace(f'<model name="{site}">', '<model name="rw_terrain">', 1),
+        terrain_xml,
     ]
     parts[4] = parts[4].replace("__SKY__", "")
     # A real box under the pad: the coarse terrain mesh gives jittery contact at rest.
@@ -263,13 +406,16 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
         o["label"] = label
         label += 1
     parts.append(obstacle_boxes(scene, site))
-    parts.append(movers(scene["routes"], random.Random(seed + 1), scene["kind"]))
+    parts.append(movers(scene["routes"], random.Random(seed + 1), scene["kind"], mover_scale))
+    parts.append(boat_actor(scene["kind"]))
     for k, t in enumerate(targets):
         parts.append(labelled_model(f"rw_target_{k:02d}", t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k)))
     if w.get("rain"):
         parts.append(rain_emitter())
     if w.get("lamps"):
         parts.append(street_lights(scene["objects"]))
+        parts.append(street_light_heads(scene["objects"]))
+        parts.append(takeoff_lights())
     if "wind" in w:
         spd, gust = w["wind"]
         ang = rng.uniform(0, 6.283)
@@ -346,9 +492,11 @@ def main() -> None:
     ap.add_argument("--weather", nargs="*", default=list(WEATHER))
     ap.add_argument("--max-trees", type=int)
     ap.add_argument("--scenario-airframe", default="x500_mono_cam")
+    ap.add_argument("--mover-scale", type=float, default=1.0, help="动态车辆/行人数相对默认值的倍数，用于 RTF/SDF 预算测量")
+    ap.add_argument("--name-suffix", default="", help="附加到世界文件名，用于并列预算样本")
     a = ap.parse_args()
     for wx in a.weather:
-        p = build(a.site, wx, [], a.max_trees, 0)
+        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.1, a.mover_scale))
         write_scenario(p, a.site, a.scenario_airframe)
         print(p, p.stat().st_size // 1024, "KB")
 
