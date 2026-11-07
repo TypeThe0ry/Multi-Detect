@@ -30,12 +30,13 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from instancing import Merger  # noqa: E402
+from city_models import read_normalized  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CFG = json.loads((ROOT / "configs/sim-assets/realworld-sites.json").read_text())
 ASSET_ROOT = Path(CFG["asset_root"])
 LIB = ASSET_ROOT / "library"
-RESOLVED = Path(os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
+RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved")))
 DEM_RES = 2.0
 TILE_M = 1000
 PAD_R = 25.0
@@ -381,6 +382,64 @@ def add_building(bins, roof_bin, coll, b, terrain, half: float) -> None:
     coll.add(v, np.zeros((len(v), 2)), np.vstack([idx + n, np.array(walls)]).astype(np.int64))
 
 
+def add_city_model(rows: list[dict], out: Path, terrain: Terrain, half: float, texture_name: str = "city_texture.jpg") -> tuple[int, int, int]:
+    """Merge CityGML surfaces by one aerial texture and emit a simple collision mesh."""
+    visual, collision = MeshBin(), MeshBin()
+    tri_count = 0
+    for row in rows:
+        for surface in row.get("surfaces", []):
+            pts = np.asarray(surface.get("vertices", []), dtype=float)
+            if len(pts) < 3:
+                continue
+            pts[:, 2] -= terrain.elev0
+            # Local aerial mosaic coordinates; both roof and wall surfaces use
+            # the same measured image and naturally fall back to OSM facades
+            # when no open city model was downloaded.
+            uv = np.column_stack([(pts[:, 0] + half) / (2 * half), (pts[:, 1] + half) / (2 * half)])
+            faces = np.array([[0, i, i + 1] for i in range(1, len(pts) - 1)], dtype=np.int64)
+            visual.add(pts, uv, faces)
+            tri_count += len(faces)
+        # Collision is a conservative footprint prism, independent of surface
+        # triangulation, so malformed roof rings cannot make physics unstable.
+        xy = np.asarray([p for s in row.get("surfaces", []) for p in s.get("vertices", [])], dtype=float)
+        if len(xy) >= 3:
+            lo, hi = xy.min(0), xy.max(0)
+            z0, z1 = lo[2] - terrain.elev0, hi[2] - terrain.elev0
+            v = np.array([[lo[0], lo[1], z0], [hi[0], lo[1], z0], [hi[0], hi[1], z0], [lo[0], hi[1], z0],
+                          [lo[0], lo[1], z1], [hi[0], lo[1], z1], [hi[0], hi[1], z1], [lo[0], hi[1], z1]])
+            f = np.array([[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1],
+                          [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]])
+            collision.add(v, np.zeros((8, 2)), f)
+    if not visual.count:
+        return 0, 0, 0
+    tris = visual.write(out / "meshes" / "city_buildings.obj")
+    collision.write(out / "meshes" / "city_buildings_collision.obj")
+    return len(rows), tris, collision.count
+
+
+def osm_city_rows(osm: Osm, kind: str) -> list[dict]:
+    """Create a textured-city fallback when a provider index has no local tile."""
+    rows = []
+    for w in osm.ways:
+        t = w["tags"]
+        if "building" not in t or not w.get("closed") or len(w.get("pts", [])) < 4:
+            continue
+        p = Polygon(w["pts"]).buffer(0)
+        if p.is_empty or p.area < 8:
+            continue
+        try:
+            h = parse_len(t.get("height")) or (parse_len(t.get("building:levels")) or (4 if kind == "suburb" else 10)) * (1 if t.get("height") else FLOOR_M)
+        except Exception:
+            h = 10.0
+        ring = [[float(x), float(y), 0.0] for x, y in p.exterior.coords[:-1]]
+        top = [[x, y, float(h)] for x, y, _ in ring]
+        surfaces = [{"kind": "GroundSurface", "vertices": ring}, {"kind": "RoofSurface", "vertices": top}]
+        for a, b in zip(ring, ring[1:] + ring[:1]):
+            surfaces.append({"kind": "WallSurface", "vertices": [a, b, [b[0], b[1], h], [a[0], a[1], h]]})
+        rows.append({"id": str(w["id"]), "height": float(h), "surfaces": surfaces})
+    return rows
+
+
 # ------------------------------------------------------------------ Roads
 
 
@@ -533,6 +592,9 @@ def main() -> None:
     terrain = Terrain(site, raw)
     osm = Osm(raw / "osm.json", proj)
     bag_heights = apply_3dbag_heights(osm, raw)
+    city_rows = read_normalized(raw / "city_model.json") if site.get("provider") in {"plateau", "berlin"} else []
+    if site.get("provider") == "plateau" and not city_rows:
+        city_rows = osm_city_rows(osm, kind)
     area = box(-half + 1, -half + 1, half - 1, half - 1)
     out = RESOLVED / name
     shutil.rmtree(out, ignore_errors=True)
@@ -575,6 +637,20 @@ def main() -> None:
             fac = facade_for(t, h, rr)
             front = rr.choice(["storefront_a", "storefront_b"]) if h > 9 and mn == 0 and kind in {"urban", "coast"} and not fac.startswith("metal") else None
             buildings.append({"poly": g, "tags": t, "h": h, "min_h": mn, "facade": fac, "front": front, "id": oid})
+    if city_rows:
+        # CityGML is authoritative for the footprint and height.  OSM remains
+        # the source for roads, facilities and labels below.
+        buildings = []
+        for idx, row in enumerate(city_rows):
+            pts = [p for s in row.get("surfaces", []) for p in s.get("vertices", [])]
+            if len(pts) < 3:
+                continue
+            hull = Polygon([(p[0], p[1]) for p in pts]).convex_hull.intersection(area)
+            if hull.is_empty or hull.area < 8:
+                continue
+            h = max(2.5, float(row.get("height", 8.0)))
+            buildings.append({"poly": hull, "tags": {"building": "yes"}, "h": h, "min_h": 0.0,
+                              "facade": "concrete_mid", "front": None, "id": idx})
     print("buildings", len(buildings), "max h", max([b["h"] for b in buildings], default=0), flush=True)
 
     # ---- Roads
@@ -746,8 +822,9 @@ def main() -> None:
         if b["front"]:
             bins.setdefault(b["front"], MeshBin())
     roof_bin, coll_bin = MeshBin(), MeshBin()
-    for b in buildings:
-        add_building(bins, roof_bin, coll_bin, b, terrain, half)
+    if not city_rows:
+        for b in buildings:
+            add_building(bins, roof_bin, coll_bin, b, terrain, half)
     facade_dir = LIB / "facades"
     for fac, bin_ in bins.items():
         tris = bin_.write(out / "meshes" / f"facade_{fac}.obj")
@@ -761,6 +838,15 @@ def main() -> None:
     if coll_bin.count:
         coll_bin.write(out / "meshes" / "buildings_collision.obj")
         coll_xml.append(f'<collision name="buildings"><geometry><mesh><uri>model://{name}/meshes/buildings_collision.obj</uri></mesh></geometry></collision>')
+
+    city_stats = (0, 0, 0)
+    if city_rows:
+        Image.fromarray(mosaic[..., :3]).save(out / "textures" / "city_texture.jpg", quality=88)
+        city_stats = add_city_model(city_rows, out, terrain, half)
+        if city_stats[1]:
+            vis_xml.append(pbr_visual("city_buildings", f"model://{name}/meshes/city_buildings.obj",
+                                      f"model://{name}/textures/city_texture.jpg", 0.8, double=True))
+            coll_xml.append(f'<collision name="city_buildings"><geometry><mesh><uri>model://{name}/meshes/city_buildings_collision.obj</uri></mesh></geometry></collision>')
 
     # ---- Placements for make_world.py
     bpolys = [b["poly"] for b in buildings]
@@ -800,7 +886,9 @@ def main() -> None:
         + "".join(coll_xml) + "".join(vis_xml) + "</link></model></sdf>\n")
 
     scene.update({"site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
-                  "stats": {"buildings": len(buildings), "trees": len(trees), "road_km": sum(r["line"].length for r in road_lines) / 1000},
+                  "stats": {"buildings": len(buildings), "trees": len(trees), "road_km": sum(r["line"].length for r in road_lines) / 1000,
+                             "city_model_buildings": city_stats[0], "city_model_triangles": city_stats[1],
+                             "city_model_texture_bytes": (out / "textures" / "city_texture.jpg").stat().st_size if city_stats[1] else 0},
                   "footprints": [[round(v, 1) for v in b["poly"].bounds] + [round(b["h"], 1)] for b in buildings]})
     (ASSET_ROOT / "sites" / name / "scene.json").write_text(json.dumps(scene, ensure_ascii=False))
     print({k: (len(v) if isinstance(v, list) else v) for k, v in scene.items() if k != "footprints"}, flush=True)

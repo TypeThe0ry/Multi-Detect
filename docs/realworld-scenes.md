@@ -18,6 +18,8 @@
 | `rw_alpine_grindelwald` | 格林德瓦山村 | 2 km | swisstopo 10 cm 正射、0.5 m DEM |
 | `rw_port_rotterdam` | 鹿特丹港区 | 2 km | PDOK 航拍、AHN DTM、3D BAG 建筑高度 |
 | `rw_canal_amsterdam` | 阿姆斯特丹运河区 | 2 km | PDOK 航拍、AHN DTM、3D BAG 建筑高度 |
+| `rw_city_tokyo` | 东京台东区（公园起飞点） | 2 km | PLATEAU 2025 LOD2 纹理 3D Tiles、GSI seamlessphoto、Copernicus DEM |
+| `rw_city_berlin` | 柏林 Tiergarten 周边 | 2 km | Berlin LOD2 CityGML、Berlin DOP 20 cm、Copernicus DEM |
 
 天气（天空是 Poly Haven HDRI 贴的无光照穹顶，因为 Gazebo 忽略 `cubemap_uri`）：`clear_noon`、`partly_cloudy`、`morning`、`evening`、`overcast`、`rain`、`dusk`、`night`、`windy`。
 
@@ -25,7 +27,7 @@
 
 - 地形：美国地点使用 USGS 3DEP 2 m；瑞士使用 swissALTI3D 0.5 m；荷兰使用 AHN4 DTM 0.5 m。起飞点 25 m 内压平。视觉网格 4 m，碰撞网格 8 m，所以起飞点外的视觉和碰撞高度会差一点。
 - 地面贴图：每块 1 km 存为 4096 px，起飞点 ±300 m 可单独保存 8192 px `core.png`，构建时优先直接使用，不把 1 km 图块放大。影像源分辨率：NAIP 约 0.6 m，SWISSIMAGE 10 cm，荷兰 HR 航拍约 5–8 cm，Sentinel-2 约 10 m。
-- 建筑：OSM 轮廓和高度，缺高度时按类型估计。屋顶贴航拍，住宅是人字顶，外墙贴图按真实层高绘制。
+- 建筑：美国、瑞士和荷兰继续使用 OSM 轮廓和高度。东京/柏林 provider 读取 `city_model.json` 的城市模型表面并按城市影像合并成少量网格；缺模型或缺纹理的建筑退回现有程序贴图。东京锁定 PLATEAU LOD2 3D Tiles 索引并解析其中 32 个 glTF 内容作本地样本，其余建筑走 OSM/影像回退。柏林官方可复用下载服务是无纹理 LOD2，屋顶和墙面使用同地点 DOP 正射影像的合并纹理，不能声称是斜视立面摄影。
 - 道路：OSM 路网贴在地形上，带车道线和斑马线。人行道沿用航拍。
 - 树：有 NIR 时从航拍 NDVI 和粗糙度找树冠位置；RGB-only 自动使用 VARI/ExG 和粗糙度，每个地点最多约 2500 棵，真实位置但树种是近似的。
 - 街道设施：路灯、停车标志、消防栓、邮筒、电线杆，优先用 OSM 位置，其余沿路摆放。住宅区每户路边一个邮箱。
@@ -41,6 +43,7 @@
 - 大世界加载到第一帧要 40~60 秒，跑采集和飞行要设 `MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=240`。
 - `sim_teacher` 的障碍物读取只认 `bounds` 盒子，看不到合并进地形的建筑；建筑范围在 `scene.json` 的 `footprints`。
 - `global` 使用 Sentinel-2 L2A（约 10 m）和 Copernicus DEM GLO-30；仅适合宏观环境，贴近地面无法辨认车辆、行人或小型设施。按云量挑选单景，不保证无云拼接。
+- 东京/柏林的城市影像适配器沿用本地栅格重投影管线，同时在 provenance 固定 GSI seamlessphoto 或 Berlin DOP 20 cm 官方端点；需要厘米级逐瓦片复现时，应替换 `fetch_city_imagery()` 的适配实现。
 
 ## 重新生成
 
@@ -58,7 +61,9 @@ $PY scripts/realworld/build_scene.py rw_suburb_davis
 $PY scripts/realworld/make_world.py rw_suburb_davis
 ```
 
-新增地点时在 `configs/sim-assets/realworld-sites.json` 加一条；`provider` 可选 `us`、`swiss`、`nl`、`global`，省略时仍走美国流程。来源 URL、产品年份、分辨率、许可证和署名记录在每个 raw 目录的 `provenance.json`。检查和飞行：
+新增地点时在 `configs/sim-assets/realworld-sites.json` 加一条；`provider` 可选 `us`、`swiss`、`nl`、`global`、`plateau`、`berlin`，省略时仍走美国流程。来源 URL、产品年份、分辨率、许可证、署名和下载 SHA-256 记录在每个 raw 目录的 `provenance.json`。城市模型构建输出的 `scene.json.stats` 还包含 `city_model_buildings`、`city_model_triangles` 和 `city_model_texture_bytes`，用于检查约 3 GiB 贴图预算。检查和飞行：
+
+城市模型解析额外使用工具环境中的 `trimesh` 和 `DracoPy`（PLATEAU glTF 的 `KHR_draco_mesh_compression`）；Berlin CityGML 使用 Python 标准库 XML 解析器，不需要 CityGML 专用包。
 
 ```bash
 $PY scripts/realworld/verify_prop_spin.py
@@ -78,6 +83,10 @@ $PY scripts/realworld/shoot_scene.py simulation/gazebo/worlds/rw_suburb_davis__c
 | 荷兰航拍 | PDOK Luchtfoto `Actueel_orthoHR` | CC BY 4.0；注明 Beeldmateriaal Nederland / Kadaster |
 | 荷兰建筑高度 | 3D BAG `pand` | CC BY 4.0；署名 © 3DBAG by tudelft3d and 3DGI；产品版本 2023-10-08 |
 | 全球影像/地形 | Sentinel-2 L2A / Copernicus DEM GLO-30（Microsoft Planetary Computer STAC） | Copernicus free and open data；所选影像日期和云量应写入 provenance |
+| 东京建筑 | 国土交通省 PLATEAU 2025 台东区建筑物 LOD2 3D Tiles | PLATEAU 利用规则允许开放使用并要求出典表示；记录数据目录 URL、纹理字段和 SHA-256 |
+| 东京影像 | 国土地理院 GSI seamlessphoto | 国土地理院公开瓦片，保留「国土地理院」出典；适配器保存官方端点和 provenance |
+| 柏林建筑 | Berlin 3D-Gebäudemodelle LoD2 CityGML 下载服务 | Datenlizenz Deutschland - Zero - Version 2.0；署名 Senatsverwaltung für Stadtentwicklung, Bauen und Wohnen Berlin |
+| 柏林影像 | Berlin DOP 20 cm 官方 WMS | Berlin 开放数据 Zero 2.0 条款；适配器保存服务 URL 和 SHA-256 |
 | 建筑、道路、设施位置 | OpenStreetMap，经 Overpass | ODbL，需署名 © OpenStreetMap contributors，公开发布衍生数据库要同样授权 |
 | 模型 | Gazebo Fuel | CC0 或 CC BY 4.0，需署名，逐项见清单 |
 | 贴图 | ambientCG | CC0 |
