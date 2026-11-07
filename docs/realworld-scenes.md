@@ -234,3 +234,7 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 默认 14 站×9 天气共 126 个世界已生成，`.tmp/review/final/world-audit.json` 检查没有 world `<plugin>`/`<include>`、没有网络 URI、本地资源引用存在。模型侧检查见 `resource-audit.json`，当前 14 站引用检查无缺失。该静态检查不证明网格内部贴图、画面或飞行正确。
 
 柏林墙面修复后的 `x500-berlin-padfix` 已完整通过，实测最高 35.49 m，7 帧对齐并降落；飞行中仍记录 `Accel #0 fail: TIMEOUT`，因此该症状不只在 Iowa 出现，尚不能据此定位唯一原因。`plane-farm`（advanced_plane）也已完整通过，最高 40.83 m、7 帧对齐、返航并降落。最终 JSON 摘要在 `.tmp/review/final/flight-results.json`；原始遥测和报告以 `.tmp/flights/<标签>/` 及同名日志为准。
+
+第二轮已打开 SF、Davis、Iowa、Boulder、Santa Cruz、Oakland 四视角：SF 街景有静态 T 姿势人物，楼间阴面仍暗；Davis 的车辆/树影叠影仍明显；Iowa 改为真实道路低空位置，开阔起飞点无楼/水遮挡；Boulder 长条围墙仍明显，2 m 贴地加密不足以改善外观；Santa Cruz 地面中的航拍船仍是平面，岸线/路面局部呈波浪；Oakland 货柜仍是估计分布，起飞区开阔但低空航拍拉伸明显。不能把生成和目检完成等同于视觉无问题。
+
+`vtol-davis-control` 已完整通过，7 帧对齐并降落；本次 standard_vtol 在 Zurich、Davis 两个地点通过。`vtol-farm-alone` 则解锁前失败，日志显示 Gyro 数据缺失、健康检查拒绝，与此前 height estimate 失败表述不同；仅减少本线飞行并发未解决问题。整机其他 lane 持续运行，本线所谓串行并不代表整机独占。`vtol-farm-renderlite` 正在以保留物理/碰撞、移除场景 visual/actor、保留机载相机的方式做对照，不能提前下结论。
