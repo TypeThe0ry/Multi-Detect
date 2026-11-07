@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import gzip
 from pathlib import Path
 
 from scripts import collect_sim_teacher_episodes as collector
@@ -103,3 +104,75 @@ def test_sensor_timeout_report_includes_rtf_and_pressure(tmp_path: Path, capsys)
     assert report["host_pressure"]["core_busy_percent_max_peak"] == 70.0
     assert main([str(episode)]) == 0
     assert "episode-1\tcomplete\t1\t0\t1\t1.0" in capsys.readouterr().out
+
+
+def test_sensor_timeout_report_reads_gzip_and_matches_trace(tmp_path: Path) -> None:
+    episode = tmp_path / "episode-1"
+    episode.mkdir()
+    (episode / "episode.json").write_text(
+        json.dumps(
+            {
+                "status": "complete",
+                "created_wall_time": 100.0,
+                "finished_wall_time": 130.0,
+                "created_monotonic_ns": 1,
+                "finished_monotonic_ns": 11_000_000_001,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with gzip.open(episode / "mavlink.jsonl.gz", "wt", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps(
+                {
+                    "message_type": "STATUSTEXT",
+                    "text": "Gyro #0 fail: TIMEOUT!",
+                    "receive_wall_time": 110.0,
+                }
+            )
+            + "\n"
+        )
+    report = analyze_episode(episode)
+    assert report["timeouts"] == {"accel": 0, "gyro": 1, "mag": 0}
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(
+        json.dumps(
+            {
+                "t": 100.0,
+                "load": 2.0,
+                "cpu": {"some": 10.0},
+                "top_cores": {"quiet.service": 1.0},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "t": 110.5,
+                "load": 8.0,
+                "cpu": {"some": 80.0},
+                "top_cores": {"burst.service": 9.0},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    from scripts.analyze_sensor_timeouts import _trace_rows, correlate_trace
+
+    correlation = correlate_trace([report], _trace_rows(trace))
+    assert correlation["events"][0]["trace_sample"]["cpu_psi_some"] == 80.0
+    assert correlation["episodes"][0]["samples"] == 2
+    assert correlation["burst_vs_quiet"] == {
+        "burst_timeout_episodes": 1,
+        "burst_no_timeout_episodes": 0,
+        "quiet_timeout_episodes": 0,
+        "quiet_no_timeout_episodes": 0,
+        "fisher_two_sided_p": 1.0,
+    }
+
+
+def test_sensor_timeout_main_accepts_episode_root(tmp_path: Path, capsys) -> None:
+    episode = tmp_path / "nested" / "episode-1"
+    episode.mkdir(parents=True)
+    (episode / "episode.json").write_text("{}", encoding="utf-8")
+    assert main([str(tmp_path)]) == 0
+    assert "episode-1" in capsys.readouterr().out
