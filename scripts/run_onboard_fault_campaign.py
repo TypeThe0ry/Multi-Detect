@@ -493,11 +493,14 @@ class CampaignSession:
 
     def observation(self) -> dict[str, Any]:
         records = []
-        if self.log.path.exists():
-            records = [
-                json.loads(line)
-                for line in self.log.path.read_text(encoding="utf-8").splitlines()
-            ]
+        # Runtime event delivery is asynchronous. Snapshot under the writer's
+        # lock so a partial append cannot turn a verdict into a JSON error.
+        with self.log._lock:
+            if self.log.path.exists():
+                records = [
+                    json.loads(line)
+                    for line in self.log.path.read_text(encoding="utf-8").splitlines()
+                ]
         return {"setpoints": list(self.vehicle.setpoints), "commands": list(self.vehicle.commands),
                 "runtime_report": self.runtime.report(), "mission_records": records,
                 "vehicle_history": list(self.vehicle.history),
@@ -613,7 +616,8 @@ def _default_package(work_dir: Path) -> Any:
     """Create a signed, self-contained bench package when no path is supplied."""
     key_path = work_dir / "bench-operator.key"
     key = b"fault-campaign-bench-operator-key-32"
-    key_path.write_bytes(key)
+    key_path.write_text("hmac:" + key.hex(), encoding="ascii")
+    key_path.chmod(0o600)
     document = {
         "mission_id": "fault-campaign", "risk_level": "medium",
         "link_loss_policy": {"action": "continue_then_return", "timeout_s": 0.4},
@@ -688,6 +692,104 @@ def _build_session(package: Any, event: FaultEvent, work_dir: Path) -> CampaignS
     session_origin = source_origin
     runtime.start(active=True, own_flight=False)
     return CampaignSession(runtime, vehicle, camera, controller, log, session_origin)
+
+
+def run_climb_failure_fixture(work_dir: Path) -> dict[str, Any]:
+    """Deterministic outcome-boundary fault; no FCU, model or wall-time waits.
+
+    Telemetry and primitive completion are fixture inputs. Policy feedback,
+    supervisor recovery, durable alerts and summaries are production code.
+    A stop/land_now is a request to the host, never evidence of PX4 execution.
+    """
+    from scripts.onboard_policy import OnboardPolicy
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    package = _default_package(work_dir)
+    now = [100.0]
+
+    def loop_factory(_task, **kwargs):
+        return OnboardLoop(
+            camera=CameraModel(120, 120, 80, 60, 160, 120),
+            search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+            config=LoopConfig(**kwargs),
+        )
+
+    executor = MissionExecutor(package.plan, loop_factory=loop_factory, refs=package.refs)
+    executor.cruise_altitude_m = 15.8
+    log = OnboardMissionLog(work_dir, package.mission_id)
+    supervisor = MissionSupervisor(executor, package, log=log, clock=lambda: now[0])
+    # The constructor starts model workers. Only the production feedback
+    # adapter is needed at this boundary, so bind it without starting models.
+    policy = OnboardPolicy.__new__(OnboardPolicy)
+    policy.executor = policy.supervisor = supervisor
+    supervisor.ground_event({"mission_id": package.mission_id, "type": "abort"})
+    requests, outcomes = [], []
+
+    def request(boot):
+        action, info = supervisor.next_action(
+            pose_ned=(0.0, 0.0, -0.8), yaw_deg=0.0,
+            landed=False, timestamp_s=boot / 1000.0,
+        )
+        requests.append({"boot_ms": boot, "action": action.to_dict(), "state": info})
+        return action
+
+    request(1000)  # The existing supervisor brake precedes return_home.
+    failed_return = None
+    for index, boot in enumerate((2000, 22000)):
+        action = request(boot)
+        failed_return = supervisor._recovery
+        before = {"pose": {"local_ned_m": [0.0, 0.0, -0.8]},
+                  "pose_time_boot_ms": boot, "landed": False,
+                  "flight_state": {"landed_state": 2}}
+        after = {**before, "pose_time_boot_ms": boot + 20000,
+                 "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0}}
+        # Identical position samples force a no-gain timeout at the source
+        # boundary, rather than replacing the detector or escalation logic.
+        hit = policy.report_primitive_outcome(action, "timeout", before=before, after=after)
+        outcomes.append({"fixture_input": True, "obs_before": before, "obs_after": after,
+                         "status": "timeout", "triggered": hit, "index": index})
+        now[0] += 1.0
+    request(42000)
+    request(43000)
+    supervisor.finish()  # Must not overwrite the failure summary at teardown.
+    records = [json.loads(line) for line in log.path.read_text(encoding="utf-8").splitlines()]
+    summary = json.loads(log.summary_path.read_text(encoding="utf-8"))["summary"]
+    reason = "climb_failed_suspected_loss_of_control"
+    climbs = [row for row in requests if row["action"]["kind"] == "translate"
+              and row["action"]["up_m"] > 0]
+    checks = {
+        "second_timeout_only": [row["triggered"] for row in outcomes] == [False, True],
+        "exactly_two_climb_requests": len(climbs) == 2,
+        "same_climb_request": len(climbs) == 2 and climbs[0]["action"] == climbs[1]["action"],
+        "land_handoff": requests[-2]["action"]["kind"] == "stop",
+        "no_third_climb": all(row["action"]["kind"] in {"stop", "continue"} and
+                              row["action"]["up_m"] == 0 and
+                              row["state"]["supervisor_action"] == "land_now"
+                              for row in requests[-2:]),
+        "failed_return_terminal": bool(failed_return and failed_return.done and
+                                       failed_return.history[-1]["reason"] == reason),
+        "mission_event": any(row.get("event") == reason for row in executor.mission_log),
+        "alerts": reason in executor.alerts,
+        "durable_event": any(row["kind"] == reason for row in records),
+        "durable_alert": any(row["kind"] == "alert" and row.get("value") == reason for row in records),
+        "land_escalation": any(row["kind"] == "escalation" and row["action"] == "land_now"
+                               and row["reason"] == reason for row in records),
+        "final_failure": summary.get("failure_class") == reason and
+                         summary["terminal_action"] == "land_now" and
+                         summary["terminal_reason"] == reason and
+                         summary["status"] == "recovery_failed",
+        "unverified_px4_execution": summary.get("recovery_failure", {}).get("land_execution") == "unverified",
+        "summary_revision_once": len([row for row in records if row["kind"] == "final_summary"]) == 2,
+    }
+    report = {"mode": "deterministic-outcome-fixture", "passed": all(checks.values()),
+              "checks": checks, "primitive_requests": requests, "outcomes": outcomes,
+              "final_summary": summary, "mission_log": list(executor.mission_log),
+              "supervisor_log": str(log.path),
+              "px4_ack": None, "px4_mode": None, "px4_landed_state": None}
+    (work_dir / "fixture-report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return report
 
 
 def run_campaign(*, episode: Path | None = None, package: Path | None = None,
@@ -794,10 +896,13 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
                          "vehicle_history_tail": observation.get("vehicle_history", [])[-8:],
                          "mission_records_tail": observation.get("mission_records", [])[-8:],
                      }})
+    climb_fixture = run_climb_failure_fixture(work_dir / "runs" / f"climb-failure-{time.time_ns()}")
     report = {"mode": "simulated-hardware", "mission_id": admitted.mission_id, "policy": policy,
               "policy_timeout_s": policy.get("timeout_s"),
               "scenarios": rows, "scenario_table": scenario_table(),
-              "passed": all(row["passed"] for row in rows), "generated_at": time.time(),
+              "climb_failure_fixture": climb_fixture,
+              "passed": all(row["passed"] for row in rows) and climb_fixture["passed"],
+              "generated_at": time.time(),
               "limitations": ["offboard/home/fence require real HIL sign-off"]}
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)

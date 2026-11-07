@@ -113,3 +113,20 @@ def test_chinese_review_summarizes_suites_events_counts_and_arm_diff(tmp_path, c
     assert "climb_failed_suspected_loss_of_control" in markdown
     assert run(["--output", str(tmp_path / "review.md"), str(current)]) == 0
     assert "夜间回归复核" in (tmp_path / "review.md").read_text(encoding="utf-8")
+
+
+def test_climb_failure_class_from_generated_supervisor_evidence(tmp_path):
+    from scripts.run_onboard_fault_campaign import run_climb_failure_fixture
+
+    fixture = run_climb_failure_fixture(tmp_path / "fixture")
+    assert fixture["passed"]
+    arm = tmp_path / "arm"
+    _review_mission(arm, "main", "climb-fixture", passed=False)
+    # Episode metadata is synthetic; the failure event itself must come from
+    # the production policy/supervisor chain, not a hand-written marker.
+    (arm / "main/climb-fixture/campaign/world.log").write_text(
+        Path(fixture["supervisor_log"]).read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    mission = build_comparison([arm])["arms"][0]["missions"]["climb-fixture"]
+    assert mission["failure_class"] == fixture["final_summary"]["failure_class"]
+    assert mission["failure_events"] == ["climb_failed_suspected_loss_of_control"]

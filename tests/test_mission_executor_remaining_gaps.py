@@ -638,7 +638,8 @@ def test_return_home_climb_failure_ignores_single_timeout_progress_and_terminal_
     )
 
     def observations(z_before, z_after, boot):
-        before = {"pose": {"local_ned_m": [0.0, 0.0, z_before]}, "pose_time_boot_ms": boot}
+        before = {"pose": {"local_ned_m": [0.0, 0.0, z_before]}, "pose_time_boot_ms": boot,
+                  "landed": False, "flight_state": {"landed_state": 2}}
         after = {
             "pose": {"local_ned_m": [0.0, 0.0, z_after]},
             "pose_time_boot_ms": boot + 20000,
@@ -651,8 +652,10 @@ def test_return_home_climb_failure_ignores_single_timeout_progress_and_terminal_
     climb = ActionPrimitive.translate(0, 0, 15)
     before, after = observations(-0.8, -0.8, 1)
     assert not executor.report_primitive_outcome(climb, "timeout", before=before, after=after)
+    assert executor._return_climb_failures == 1
     before, after = observations(-0.8, -1.5, 21000)
     assert not executor.report_primitive_outcome(climb, "success", before=before, after=after)
+    assert executor._return_climb_failures == 0
     before, after = observations(-0.8, -0.8, 41000)
     assert not executor.report_primitive_outcome(ActionPrimitive.land(), "timeout", before=before, after=after)
     assert not executor.report_primitive_outcome(ActionPrimitive.hold(1), "timeout", before=before, after=after)
@@ -676,7 +679,8 @@ def test_return_home_climb_failure_requires_near_ground_airborne_state():
     )
     climb = ActionPrimitive.translate(0, 0, 15)
     for boot, altitude in ((1, 10.0), (21000, 10.0)):
-        before = {"pose": {"local_ned_m": [0.0, 0.0, -altitude]}, "pose_time_boot_ms": boot}
+        before = {"pose": {"local_ned_m": [0.0, 0.0, -altitude]}, "pose_time_boot_ms": boot,
+                  "landed": False, "flight_state": {"landed_state": 2}}
         after = {
             "pose": {"local_ned_m": [0.0, 0.0, -altitude]},
             "pose_time_boot_ms": boot + 20000,
@@ -701,8 +705,11 @@ def test_return_home_slow_px4_climb_uses_sim_time_without_wall_timeout():
         ),
     )
     climb = ActionPrimitive.translate(0, 0, 15)
-    for boot, z_before, z_after in ((1000, -0.8, -0.8), (101000, -0.8, -1.6), (201000, -1.6, -1.6)):
-        before = {"pose": {"local_ned_m": [0.0, 0.0, z_before]}, "pose_time_boot_ms": boot}
+    for boot, z_before, z_after, count in (
+        (1000, -0.8, -0.8, 1), (101000, -0.8, -1.6, 0), (201000, -1.6, -1.6, 1)
+    ):
+        before = {"pose": {"local_ned_m": [0.0, 0.0, z_before]}, "pose_time_boot_ms": boot,
+                  "landed": False, "flight_state": {"landed_state": 2}}
         after = {
             "pose": {"local_ned_m": [0.0, 0.0, z_after]},
             "pose_time_boot_ms": boot + 90000,
@@ -710,7 +717,122 @@ def test_return_home_slow_px4_climb_uses_sim_time_without_wall_timeout():
             "flight_state": {"landed_state": 2},
         }
         assert not executor.report_primitive_outcome(climb, "timeout", before=before, after=after)
+        assert executor._return_climb_failures == count
     assert not executor.return_climb_failure_suspected
+
+
+def _climb_observations(boot):
+    def sample(stamp):
+        return {"pose": {"local_ned_m": [0.0, 0.0, -0.8]}, "pose_time_boot_ms": stamp,
+                "landed": False, "flight_state": {"landed_state": 2}}
+    return sample(boot), sample(boot + 20000)
+
+
+def _climb_executor(skill="return_home"):
+    plan = validate_mission_plan({
+        "plan_version": 1, "goal": "return", "report": [], "steps": [
+            {"id": "s", "skill": skill, "params": {},
+             "on_success": None, "on_fail": None},
+        ],
+    })
+    return MissionExecutor(plan, loop_factory=lambda *_args, **_kwargs: None)
+
+
+@pytest.mark.parametrize("interruption", [
+    "success", "progress", "high_before", "high_after", "landed_before", "landed_after",
+    "landing", "hold", "land", "horizontal", "yaw", "descent", "same_boot",
+    "rollback_within", "rollback_between", "duplicate", "missing_boot", "nan_boot",
+    "nan_altitude", "unknown_airborne", "stale_landed_boolean", "boolean_boot",
+])
+def test_climb_failure_requires_two_adjacent_eligible_outcomes(interruption):
+    executor = _climb_executor()
+    climb = ActionPrimitive.translate(0, 0, 15)
+
+    def feed(action, status, before, after):
+        return executor.report_primitive_outcome(action, status, before=before, after=after)
+
+    assert not feed(climb, "timeout", *_climb_observations(1000))
+    assert executor._return_climb_failures == 1
+    before, after = _climb_observations(21000)
+    action, status = climb, "timeout"
+    if interruption == "success":
+        status = "success"
+    elif interruption == "progress":
+        after["pose"]["local_ned_m"][2] = -1.3  # Exactly 0.5 m is meaningful progress.
+    elif interruption in {"high_before", "high_after"}:
+        (before if interruption == "high_before" else after)["pose"]["local_ned_m"][2] = -10
+    elif interruption in {"landed_before", "landed_after"}:
+        (before if interruption == "landed_before" else after)["landed"] = True
+    elif interruption in {"landing", "stale_landed_boolean"}:
+        after["flight_state"]["landed_state"] = 4 if interruption == "landing" else 1
+    elif interruption == "unknown_airborne":
+        after.pop("flight_state")
+        after.pop("landed")
+    elif interruption == "hold":
+        action = ActionPrimitive.hold(1)
+    elif interruption == "land":
+        action = ActionPrimitive.land()
+    elif interruption == "horizontal":
+        action = ActionPrimitive.translate(0.1, 0, 15)
+    elif interruption == "yaw":
+        action = ActionPrimitive("translate", up_m=15, yaw_delta_deg=1)
+    elif interruption == "descent":
+        action = ActionPrimitive.translate(0, 0, -1)
+    elif interruption == "same_boot":
+        after["pose_time_boot_ms"] = before["pose_time_boot_ms"]
+    elif interruption == "rollback_within":
+        after["pose_time_boot_ms"] = 20000
+    elif interruption == "rollback_between":
+        before["pose_time_boot_ms"] = 20000  # Internally advancing, older than prior after.
+    elif interruption == "duplicate":
+        before, after = _climb_observations(1000)
+    elif interruption == "missing_boot":
+        after.pop("pose_time_boot_ms")
+    elif interruption == "nan_boot":
+        after["pose_time_boot_ms"] = float("nan")
+    elif interruption == "boolean_boot":
+        before["pose_time_boot_ms"] = True
+    elif interruption == "nan_altitude":
+        after["pose"]["local_ned_m"][2] = float("nan")
+    assert not feed(action, status, before, after)
+    assert executor._return_climb_failures == 0
+    assert not feed(climb, "timeout", *_climb_observations(61000))
+    assert not executor.return_climb_failure_suspected
+    assert feed(climb, "timeout", *_climb_observations(81000))
+
+
+def test_climb_failure_stops_and_preserves_both_health_samples():
+    executor = _climb_executor()
+    executor.home, executor.cruise_altitude_m = (0, 0), 15.8
+    for index, boot in enumerate((1000, 21000)):
+        before, after = _climb_observations(boot)
+        if index == 0:
+            after["attitude"] = {"roll_deg": 171, "pitch_deg": 0}
+            after["energy_telemetry"] = [{"message": {
+                "mavpackettype": "SYS_STATUS", "onboard_control_sensors_present": 3,
+                "onboard_control_sensors_health": 1,
+            }}]
+        action, _ = executor.next_action(pose_ned=(0, 0, -0.8), yaw_deg=0)
+        assert action == ActionPrimitive.translate(0, 0, 15)
+        assert executor.report_primitive_outcome(action, "timeout", before=before, after=after) == (index == 1)
+    assert executor.done
+    assert executor.next_action(pose_ned=(0, 0, -0.8), yaw_deg=0)[0].kind == "stop"
+    event = executor.mission_log[-1]
+    assert event["attitude_bad"] and event["sensor_bad"]
+    assert [sample["attitude_bad"] for sample in event["samples"]] == [True, False]
+    assert [sample["gain_m"] for sample in event["samples"]] == [0, 0]
+    assert not executor.report_primitive_outcome(action, "timeout", before=before, after=after)
+    assert len(executor.history) == 1
+
+
+@pytest.mark.parametrize("skill,params", [("hover", {"duration_s": 10}), ("land", {})])
+def test_climb_outcome_outside_return_home_never_counts(skill, params):
+    executor = _climb_executor(skill) if skill == "land" else _executor(skill, params)
+    climb = ActionPrimitive.translate(0, 0, 15)
+    for boot in (1000, 21000, 41000):
+        before, after = _climb_observations(boot)
+        assert not executor.report_primitive_outcome(climb, "timeout", before=before, after=after)
+    assert executor._return_climb_failures == 0
 
 
 @pytest.mark.parametrize("confirmed", [0, 2])
