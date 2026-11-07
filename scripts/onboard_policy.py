@@ -324,6 +324,11 @@ class OnboardPolicy(RuntimeAdmissionMixin):
         # Hover-mode VTOLs plan like a multirotor; only their commands differ.
         plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
+        sim_climb_timeout_injection = options.get("sim_climb_timeout_injection", False)
+        if type(sim_climb_timeout_injection) is not bool:
+            raise ValueError("sim_climb_timeout_injection must be a boolean")
+        if sim_climb_timeout_injection and effective_runtime_mode != "sim":
+            raise ValueError("sim_climb_timeout_injection is only available in SIM runtime")
         self.config = options
         self.runtime_mode = effective_runtime_mode
         sim_events = validate_sim_ground_events(options)
@@ -537,6 +542,17 @@ class OnboardPolicy(RuntimeAdmissionMixin):
         executor = supervisor if supervisor is not None else self.executor
         check = getattr(executor, "report_primitive_outcome", None)
         return bool(callable(check) and check(action, status, before=before, after=after))
+
+    def active_mission_skill(self) -> str | None:
+        """Return the skill whose primitive the collector is about to execute."""
+        supervisor = self.supervisor
+        if supervisor is not None and supervisor.action in {"return_now", "land_now"}:
+            recovery = getattr(supervisor, "_recovery", None)
+            if recovery is not None:
+                step = recovery.current_step
+                return step.skill if step is not None else None
+        step = self.executor.current_step if self.executor is not None else None
+        return step.skill if step is not None else None
 
     def set_downlink_sender(self, sender: Callable[[dict[str, Any]], object] | None) -> None:
         """Attach an optional acknowledged transport; delivery runs in the queue worker."""
@@ -1853,6 +1869,7 @@ def build_onboard_policy(
     frame_quality: int = 90,
     airframe: str | None = None,
     runtime_step_limit: int | None = None,
+    runtime_mode: str | None = None,
 ) -> OnboardPolicy:
     config = json.loads(config_path.read_text(encoding="utf-8")) if config_path else None
     if airframe is not None:
@@ -1870,6 +1887,7 @@ def build_onboard_policy(
         config=config,
         frame_format=frame_format,
         frame_quality=frame_quality,
+        runtime_mode=runtime_mode,
     )
 
 

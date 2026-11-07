@@ -9,6 +9,9 @@ import pytest
 from multidetect.autonomy.mission_package import load_mission_package
 from multidetect.autonomy.mission_security import sign_document
 from scripts.onboard_main import _admit_package
+from scripts.collect_sim_teacher_episodes import SimClimbTimeoutInjector
+from multidetect.sim_teacher.executor import ExecutionResult
+from multidetect.sim_teacher.primitives import ActionPrimitive
 from scripts.run_onboard_fault_campaign import (
     FAULTS,
     CampaignSession,
@@ -21,6 +24,7 @@ from scripts.run_onboard_fault_campaign import (
     schedule_faults,
     verdict,
 )
+from scripts.run_mission_suite import merge_config
 
 
 def test_fault_schedule_is_sorted_and_rejects_overlap():
@@ -82,6 +86,72 @@ def test_climb_fixture_rejects_missing_policy_outcome_feedback(tmp_path, monkeyp
     assert not report["checks"]["no_third_climb"]
     assert not report["checks"]["land_escalation"]
     assert not report["checks"]["final_failure"]
+
+
+def test_sim_climb_injector_is_sim_only_and_matches_first_two_pure_climbs():
+    with pytest.raises(ValueError, match="SIM onboard collector"):
+        SimClimbTimeoutInjector(enabled=True, runtime_mode="real", teacher="onboard")
+    with pytest.raises(ValueError, match="SIM onboard collector"):
+        SimClimbTimeoutInjector(enabled=True, runtime_mode="sim", teacher="expert_search")
+    injector = SimClimbTimeoutInjector(enabled=True, runtime_mode="sim", teacher="onboard")
+    climb = ActionPrimitive.translate(0, 0, 15)
+    before = {
+        "pose": {"local_ned_m": [0.0, 0.0, -0.8]},
+        "flight_state": {"landed_state": 2},
+        "landed": False,
+    }
+    assert injector.matches(climb, active_skill="return_home", before=before)
+    assert not injector.matches(
+        climb,
+        active_skill="return_home",
+        before={**before, "pose": {"local_ned_m": [0.0, 0.0, -3.0]}},
+    )
+    assert not injector.matches(
+        climb,
+        active_skill="return_home",
+        before={**before, "landed": True},
+    )
+    assert not injector.matches(
+        climb,
+        active_skill="return_home",
+        before={"pose": before["pose"], "flight_state": {"landed_state": None}},
+    )
+    assert not injector.matches(climb, active_skill="monitor", before=before)
+    assert not injector.matches(ActionPrimitive.translate(1, 0, 15), active_skill="return_home", before=before)
+    assert not injector.matches(ActionPrimitive.translate(0, 0, -2), active_skill="return_home", before=before)
+
+    class Executor:
+        def __init__(self):
+            self.actions = []
+            self.criterion = SimpleNamespace(timeout_s=20.0)
+
+        def execute(self, action):
+            self.actions.append(action)
+            return ExecutionResult("success", 20.0, ack={"held_position": True})
+
+    executor = Executor()
+    for _ in range(2):
+        assert injector.matches(climb, active_skill="return_home", before=before)
+        result = injector.execute(executor, climb)
+        assert result.status == "timeout"
+        assert result.ack["sim_fault_injection"] == "return_home_climb_timeout"
+    assert all(action.kind == "hold" and action.seconds == 20.0 for action in executor.actions)
+    assert not injector.matches(climb, active_skill="return_home", before=before)
+    assert injector.injected == 2
+
+
+def test_sim_climb_injector_defaults_off():
+    injector = SimClimbTimeoutInjector(enabled=False, runtime_mode="sim", teacher="onboard")
+    before = {"pose": {"local_ned_m": [0.0, 0.0, -0.8]}, "flight_state": {"landed_state": 2}, "landed": False}
+    assert not injector.matches(ActionPrimitive.translate(0, 0, 10), active_skill="return_home", before=before)
+
+
+def test_suite_mission_selects_sim_climb_injection_only_for_that_mission():
+    defaults = {"mission": "from_text"}
+    enabled = merge_config(defaults, {"id": "fault-case", "sim_climb_timeout_injection": True})
+    disabled = merge_config(defaults, {"id": "normal-case"})
+    assert enabled["sim_climb_timeout_injection"] is True
+    assert "sim_climb_timeout_injection" not in disabled
 
 
 def test_package_entry_accepts_signature_and_rejects_bad_signature(tmp_path):
