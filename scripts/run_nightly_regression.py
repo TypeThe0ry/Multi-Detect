@@ -386,6 +386,9 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
         child_env["MULTIDETECT_SIM_IMAGE"] = args.sim_image
     lock_path = args.lock_path.expanduser().resolve()
     child_env["MULTIDETECT_SITL_LOCK"] = str(lock_path)
+    # Nightly work is latency-sensitive and should move ahead of background
+    # r15 collection at the shared fair lock queue.
+    child_env["MULTIDETECT_SITL_PRIORITY"] = os.environ.get("MULTIDETECT_SITL_NIGHTLY_PRIORITY", "100")
     forwarded_sim_env = {key: child_env[key] for key in SIM_ENV_KEYS if key in child_env}
     out = (args.out or (ROOT.parent / "_scratch" / "cx-nightly" / ("nightly-" + datetime.now().strftime("%Y%m%d-%H%M%S")))).resolve()
     out.mkdir(parents=True, exist_ok=True)

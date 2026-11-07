@@ -1352,6 +1352,7 @@ class Round:
                     label=f"r15-worker-slot-{slot}",
                     slots=configured_slot_count(),
                     min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
+                    priority=int(os.environ.get("MULTIDETECT_SITL_COLLECTION_PRIORITY", "0")),
                 )
                 lock.acquire()
                 try:
