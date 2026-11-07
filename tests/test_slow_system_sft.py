@@ -369,7 +369,9 @@ def test_confusable_rejects_keep_other_focus_when_primary_target_matches_task(tm
     root.mkdir()
     worlds = [
         ("gen-pair-car", "car", "Find the car and record its position.", "hatchback", "mailbox"),
-        ("gen-pair-suv", "suv", "Find the SUV and record its position.", "suv", "postbox"),
+        # Distinct wording keeps the generated pair positive observable after
+        # deduplication against the ordinary true-target row.
+        ("gen-pair-suv", "suv", "Locate the SUV.", "suv", "postbox"),
     ]
     index = root / "index.json"
     index.write_text(
@@ -397,7 +399,9 @@ def test_confusable_rejects_keep_other_focus_when_primary_target_matches_task(tm
         distractor_id = f"paired_{distractor_slug}"
         target = {
             "target_id": target_id,
-            "category_words": [category, target_slug],
+            # Match generated fuel truth: the SUV's first word is its parent
+            # category, while the requested task names the SUV subtype.
+            "category_words": ["car", "suv"] if target_slug == "suv" else [category, target_slug],
             "class": category,
             "asset_slug": target_slug,
             "true_target": True,
@@ -416,6 +420,19 @@ def test_confusable_rejects_keep_other_focus_when_primary_target_matches_task(tm
              "class": distractor_slug, "color": None, "range_m": 10.0,
              "visible_fraction": 1.0},
         ]
+        if target_slug == "suv":
+            for other_slug in ("hatchback", "pickup"):
+                projected.append({
+                    "target": {
+                        "target_id": f"other_{other_slug}",
+                        "class": "car" if other_slug == "hatchback" else other_slug,
+                        "asset_slug": other_slug,
+                        "category_words": ["car", other_slug],
+                        "true_target": False,
+                    },
+                    "box": (10.0, 60.0, 40.0, 90.0), "class": other_slug,
+                    "color": None, "range_m": 10.0, "visible_fraction": 1.0,
+                })
         frame = root / f"{world}.jpg"
         frame.write_bytes(b"frame")
         slug = {"task_text": task, "task_text_en": task,
@@ -438,6 +455,7 @@ def test_confusable_rejects_keep_other_focus_when_primary_target_matches_task(tm
     assert set(rejects) == set(expected)
     assert report["conflicting_decision_groups"] == 0
     for pair, (target_id, distractor_id) in expected.items():
+        assert report["source_counts"][f"confusable_pair:{pair}:positive"] == 1
         rejected = rejects[pair]
         assert rejected["target_id"] == distractor_id
         assert rejected["assistant_target"]["decision"] == "reject_track"
@@ -450,6 +468,29 @@ def test_confusable_rejects_keep_other_focus_when_primary_target_matches_task(tm
             and row["assistant_target"]["decision"] in {"confirm_target", "approach_track"}
         )
         assert matching_positive["assistant_target"]["args"]["track_id"] == "track-1"
+        if pair == "suv->postbox":
+            assert matching_positive["label_type"] == "confusable_positive"
+            assert matching_positive["confusable_pair_type"] == pair
+
+    # Semantic matching must still respect an explicitly held-out SUV focus,
+    # including when it appears as a distractor in an otherwise allowed world.
+    document = json.loads(index.read_text(encoding="utf-8"))
+    document["held_out_target_combos"] = [{"slug": "suv"}]
+    index.write_text(json.dumps(document), encoding="utf-8")
+    car_frame = frames[0]
+    held_out_suv = {
+        **frames[1][6][0],
+        "target": {**frames[1][6][0]["target"], "target_id": "held_out_suv", "true_target": False},
+    }
+    extra_postbox = frames[1][6][1]
+    held_out_frames = [
+        (*car_frame[:6], [*car_frame[6], held_out_suv, extra_postbox], *car_frame[7:]),
+    ]
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(held_out_frames))
+    held_out_output = root / "held-out"
+    builder.build_dataset([], held_out_output, index=index, confusable_negatives=True, unseen_holdout=True)
+    held_out_rows = [json.loads(line) for line in (held_out_output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert not any(row.get("target_id") == "held_out_suv" for row in held_out_rows)
 
 
 def test_fuel_worlds_build_natural_bilingual_tasks_and_focused_decisions(tmp_path, monkeypatch):
