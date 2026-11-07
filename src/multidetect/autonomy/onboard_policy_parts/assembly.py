@@ -208,6 +208,13 @@ def build_runtime_loop_factory(
         "near_depth": near_depth_enabled,
         **position_defaults,
     }
+    # A two-view confirmation must not fall back to the legacy single-view
+    # closest approach rule: that path can confirm a distractor after repeated
+    # same-side matches without ever satisfying viewpoint independence.  Keep
+    # an explicit option available for missions that intentionally choose a
+    # single-view policy.
+    if "closest_view_identity_matches" not in options:
+        loop_defaults["closest_view_identity_matches"] = None
     # The task semantics table is onboard-available and already drives the
     # size-aware search.  Reuse it for the large-object ground-anchor
     # correction; an unknown task leaves the correction disabled.
