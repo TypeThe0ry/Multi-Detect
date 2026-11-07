@@ -9,6 +9,7 @@ import math
 import os
 import random
 import re
+import shutil
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -27,6 +28,53 @@ RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", ROOT / "artifacts/cache/gz-fu
 CATALOG = {a["slug"]: a for a in json.loads((ROOT / "configs/sim-assets/fuel-catalog.json").read_text())["assets"]}
 OUT = Path(os.environ.get("RW_WORLD_OUT", ROOT / "simulation/gazebo/worlds"))
 
+
+def local_visual_asset(slug: str) -> str:
+    """Repair internal mesh texture paths in a private rw_ copy of a Fuel asset."""
+    name = f"rw_prop_{slug}"
+    destination = RESOLVED / name
+    marker = destination / ".texture-paths-v1"
+    if marker.exists():
+        return name
+    source = RESOLVED / slug
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+    for path in destination.rglob("*"):
+        if path.suffix.lower() not in {".mtl", ".dae"}:
+            continue
+        def repair(reference: str) -> str:
+            text = reference.strip().replace("\\", "/")
+            if text.startswith("model://"):
+                candidate = RESOLVED / text.removeprefix("model://")
+            else:
+                candidate = path.parent / text
+            if not candidate.exists():
+                candidate = next(destination.rglob(Path(text).name), None)
+            if candidate is None:
+                # Some Fuel variants omit a shared wheel texture.
+                candidate = next(source.parent.glob(f"*/materials/textures/{Path(text).name}"), None)
+                if candidate is not None:
+                    target = destination / "materials/textures" / candidate.name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(candidate, target)
+                    candidate = target
+            if candidate is None:
+                raise FileNotFoundError(f"{slug}: missing mesh texture {text}")
+            return os.path.relpath(candidate, path.parent)
+
+        if path.suffix.lower() == ".dae":
+            tree = ET.parse(path)
+            for element in tree.getroot().iter():
+                if element.tag.rsplit("}", 1)[-1] == "init_from" and element.text:
+                    # Surface init_from elements refer to image IDs, not files.
+                    if Path(element.text).suffix.lower() in {".png", ".jpg", ".jpeg", ".tga", ".dds"}:
+                        element.text = repair(element.text)
+            tree.write(path, encoding="utf-8", xml_declaration=True)
+        else:
+            path.write_text(re.sub(r"(?m)^(\s*map_\w+\s+)([^\r\n]+)$",
+                                   lambda match: match[1] + repair(match[2]), path.read_text()))
+    marker.touch()
+    return name
+
 # Sun direction points from the sun; ambient models sky light since Ogre2 has no GI here.
 GUST_PERIOD_S = 18.0
 WEATHER = {
@@ -44,14 +92,15 @@ WEATHER = {
 
 def visuals_of(slug: str) -> tuple[list[ET.Element], tuple[float, float, float]]:
     """Visual elements of a Fuel model, with URIs pinned to the local cache and any mesh scale applied."""
-    root = ET.fromstring((RESOLVED / slug / "model.sdf").read_text(encoding="utf-8-sig").lstrip())
+    asset_slug = local_visual_asset(slug)
+    root = ET.fromstring((RESOLVED / asset_slug / "model.sdf").read_text(encoding="utf-8-sig").lstrip())
     model = root.find("model")
     out = []
     if model is None:
         actor = root.find("actor")
         filename = actor.findtext("skin/filename", "")
         v = ET.fromstring(f'<visual name="v"><geometry><mesh><uri>model://{slug}/{filename}</uri></mesh></geometry></visual>')
-        return [v], (0, 0, 0)
+        return [ET.fromstring(ET.tostring(v, encoding="unicode").replace(f"model://{slug}/", f"model://{asset_slug}/"))], (0, 0, 0)
     for i, v in enumerate(model.iter("visual")):
         v = ET.fromstring(ET.tostring(v, encoding="unicode"))
         v.set("name", f"v{i}")
@@ -75,7 +124,7 @@ def visuals_of(slug: str) -> tuple[list[ET.Element], tuple[float, float, float]]
                     t.text = f"model://{slug}/" + (rest[1] if len(rest) > 1 else "")
                 elif not text.startswith("http"):
                     t.text = f"model://{slug}/" + text
-        out.append(v)
+        out.append(ET.fromstring(ET.tostring(v, encoding="unicode").replace(f"model://{slug}/", f"model://{asset_slug}/")))
     a = CATALOG.get(slug)
     return out, tuple(a["bbox_min_m"]) if a else (0, 0, 0)
 

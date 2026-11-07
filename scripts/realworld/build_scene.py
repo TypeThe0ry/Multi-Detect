@@ -443,9 +443,16 @@ def add_city_model(rows: list[dict], out: Path, terrain: Terrain, half: float) -
         if len(ground):
             ground_shift = float(np.median(terrain.z(ground[:, 0], ground[:, 1]) + terrain.elev0 - ground[:, 2]))
         for surface in row.get("surfaces", []):
-            pts = np.asarray(surface.get("vertices", []), dtype=float)
-            if len(pts) < 3:
+            rings = []
+            for vertices in [surface.get("vertices", []), *surface.get("holes", [])]:
+                ring = np.asarray(vertices, dtype=float)
+                if len(ring) > 1 and np.allclose(ring[0], ring[-1]):
+                    ring = ring[:-1]
+                if len(ring) >= 3:
+                    rings.append(ring)
+            if not rings:
                 continue
+            pts = np.concatenate(rings)
             pts[:, 2] += ground_shift - terrain.elev0
             # Local aerial mosaic coordinates; both roof and wall surfaces use
             # the same measured image and naturally fall back to OSM facades
@@ -453,15 +460,12 @@ def add_city_model(rows: list[dict], out: Path, terrain: Terrain, half: float) -
             uv = np.column_stack([(pts[:, 0] + half) / (2 * half), (pts[:, 1] + half) / (2 * half)])
             # Ear clipping in the surface plane preserves concave roofs and
             # vertical walls; a fan can fill courtyards or cross the footprint.
-            if np.allclose(pts[0], pts[-1]):
-                pts, uv = pts[:-1], uv[:-1]
-            if len(pts) < 3:
-                continue
             _, singular, basis = np.linalg.svd(pts - pts.mean(0), full_matrices=False)
             if len(singular) < 2 or singular[1] < 1e-6:
                 continue
             flat = np.ascontiguousarray((pts - pts.mean(0)) @ basis[:2].T)
-            faces = earcut.triangulate_float64(flat, np.array([len(pts)], dtype=np.uint32)).reshape(-1, 3)
+            ends = np.cumsum([len(ring) for ring in rings], dtype=np.uint32)
+            faces = earcut.triangulate_float64(flat, ends).reshape(-1, 3)
             visual.add(pts, uv, faces)
             collision.add(pts, uv, faces)
     if not visual.count:

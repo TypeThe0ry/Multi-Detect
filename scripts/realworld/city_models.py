@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 from pyproj import Transformer
-from shapely.geometry import Polygon
+from shapely.geometry import MultiPoint, Polygon
 
 
 def _numbers(text: str) -> list[float]:
@@ -42,19 +42,39 @@ def parse_citygml(path: Path, proj: Transformer, *, area: Polygon | None = None)
         if building.tag.rsplit("}", 1)[-1] not in {"Building", "BuildingPart"}:
             continue
         surfaces: list[dict] = []
-        for node in building.iter():
+        def own_surfaces(node):
+            for child in node:
+                kind = child.tag.rsplit("}", 1)[-1]
+                if kind in {"Building", "BuildingPart"}:
+                    continue  # Nested parts get their own row below.
+                if kind in {"RoofSurface", "WallSurface", "GroundSurface"}:
+                    yield child
+                else:
+                    yield from own_surfaces(child)
+
+        for node in own_surfaces(building):
             kind = node.tag.rsplit("}", 1)[-1]
-            if kind not in {"RoofSurface", "WallSurface", "GroundSurface"}:
-                continue
-            pts = _surface_points(node)
-            if len(pts) < 3:
-                continue
-            xy = [proj.transform(x, y) for x, y, _ in pts]
-            xyz = [[float(x), float(y), float(z)] for (x, y), (_, _, z) in zip(xy, pts)]
-            poly = Polygon([(p[0], p[1]) for p in xyz]).buffer(0)
-            if area is not None and not area.intersects(poly):
-                continue
-            surfaces.append({"kind": kind, "vertices": xyz})
+            polygons = [p for p in node.iter() if p.tag.rsplit("}", 1)[-1] == "Polygon"]
+            for polygon in polygons or [node]:
+                rings = []
+                boundaries = [p for p in polygon if p.tag.rsplit("}", 1)[-1] in {"exterior", "interior"}]
+                for ring in boundaries or [polygon]:
+                    pts = _surface_points(ring)
+                    if len(pts) < 3:
+                        continue
+                    xy = [proj.transform(x, y) for x, y, _ in pts]
+                    rings.append([[float(x), float(y), float(z)] for (x, y), (_, _, z) in zip(xy, pts)])
+                if not rings:
+                    continue
+                # Vertical walls project to a line, not a valid XY polygon.
+                # Polygon.buffer(0) discards them and leaves roofs floating.
+                footprint = MultiPoint([(p[0], p[1]) for p in rings[0]]).convex_hull
+                if area is not None and not area.intersects(footprint):
+                    continue
+                surface = {"kind": kind, "vertices": rings[0]}
+                if len(rings) > 1:
+                    surface["holes"] = rings[1:]
+                surfaces.append(surface)
         if not surfaces:
             continue
         allv = np.asarray([p for s in surfaces for p in s["vertices"]], dtype=float)

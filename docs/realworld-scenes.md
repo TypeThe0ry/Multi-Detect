@@ -215,3 +215,13 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 - `.tmp/review/final/rotors-in-flight.csv` 只保留与遥测墙钟差小于 3 s、实测高度超过 2 m 的转子采样；转速来自 Gazebo rotor link 姿态差，是可见转子的仿真角速度，受采样混叠和 `rotorVelocitySlowdownSim` 影响，不是真实电机 RPM。采样不能证明采样间隔内连续转动。
 - `vtol-zurich` 的 puller 在多旋翼阶段为零，此时 SERVO_OUTPUT_RAW 的第五路也为零；`tilt-rotterdam` 在 vtol_state=4 时 rotor_1/3 为零，第二/四路输出同为零，其他阶段恢复转动。不能把按设计停用的转子列为损坏，也不能声称每个转子在所有飞行阶段都转。
 - 截图指标另记录 `rtf_sim_wall`（稳定采样窗口的仿真时间增量/墙钟增量）、瞬时 RTF 中位数、样本数、各相机首帧和本容器进程显存峰值。截图是 1280×960、1 Hz，飞行机载相机为 30 Hz；两者的 RTF 不应混用。显存每 2 s 采样，可能漏掉更短暂的峰值。
+
+### 柏林第二轮提前检查与资源对照
+
+已实际打开 `.tmp/review/round2/rw_city_berlin/sheet.jpg`：街道随 DSM 呈明显波浪，远处大量城市建筑只有屋顶、缺少竖墙，起飞点是人为清空/压平后的纪念碑区域，不能称为未改动的真实开阔地。四视角首帧为 83–84 s，200 样本的 `rtf_sim_wall=0.689`、瞬时中位数 0.785，采样时 loadavg≈146；本容器显存采样峰值 3598 MiB，超过 2 GiB，未通过预算。
+
+缩小贴图的独立对照保存在 `.tmp/review/budget-berlin/`，模型为 `rw_city_berlin_budget`，也已打开拼图。核心贴图最长边从 8192 降至 4096，其余大贴图降至 2048，显存峰值仍有 3048 MiB；不能只缩贴图就宣称满足预算，未将这一试验替换默认产物。
+
+缺墙已定位到 CityGML 读取器：竖墙投影为 XY 线段后，原 `Polygon.buffer(0)` 范围过滤把它丢弃；旧代码还只读一个 Polygon，父 Building 又重复包含 BuildingPart。现在按每个 Polygon 的外环/内环读取，竖墙按其投影凸包与范围相交判断，子 BuildingPart 单独生成。新增竖墙、多 Polygon、嵌套 BuildingPart 测试，地点测试现为 8 项通过（`.tmp/rw-providers-final5.log`）。原始柏林缓存保持不变，本次从已有 9 个 LoD2 ZIP 离线解析到 `/data/datasets/multidetect-sim-assets/validation-1107/sites/rw_city_berlin/raw/`，归一化记录、原 ZIP SHA-256 和输出 SHA-256 写入该目录 provenance；修复后构建和复拍仍需完成验证。
+
+独立 Fuel 道具出现 `hatchback.png`、`fire_hydrant_diffuse.png` 等路径无法解析。`make_world.py` 现把独立源模型复制到 `rw_prop_<slug>`，在副本中修正 MTL/DAE 的相对贴图路径；部分车辆缺少的共用车轮贴图仅从已有本地模型缓存复制，不下载、不修改原模型。跨平台文件测试确认源 MTL 保持不变。此修复须以之后的渲染日志和图片核实。

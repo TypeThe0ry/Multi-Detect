@@ -44,6 +44,15 @@ def test_citygml_surfaces_normalize_to_local_coordinates(tmp_path) -> None:
     assert rows[0]["surfaces"][0]["vertices"][1] == [110.0, 200.0, 10.0]
 
 
+def test_citygml_keeps_vertical_walls_all_polygons_and_separate_parts(tmp_path) -> None:
+    from shapely.geometry import box
+    path = tmp_path / "walls.gml"
+    polygon = "<gml:Polygon><gml:exterior><gml:LinearRing><gml:posList>0 0 0 4 0 0 4 0 8 0 0 8 0 0 0</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>"
+    path.write_text(f"<CityModel xmlns:gml='http://www.opengis.net/gml' xmlns:b='http://www.opengis.net/citygml/building/2.0'><b:Building gml:id='parent'><b:WallSurface>{polygon}{polygon}</b:WallSurface><b:consistsOfBuildingPart><b:BuildingPart gml:id='child'><b:WallSurface>{polygon}</b:WallSurface></b:BuildingPart></b:consistsOfBuildingPart></b:Building></CityModel>")
+    rows = parse_citygml(path, Transformer.from_crs("EPSG:25833", "EPSG:25833", always_xy=True), area=box(-1, -1, 5, 1))
+    assert [(row["id"], len(row["surfaces"])) for row in rows] == [("parent", 2), ("child", 1)]
+
+
 def test_obstacle_boxes_use_native_dem_spacing_and_do_not_fill_takeoff_pad(monkeypatch, tmp_path) -> None:
     import xml.etree.ElementTree as ET
     from scripts.realworld import make_world
@@ -95,3 +104,20 @@ def test_city_collision_preserves_a_concave_surface(tmp_path) -> None:
     area = np.linalg.norm(np.cross(pts[:, 1] - pts[:, 0], pts[:, 2] - pts[:, 0]), axis=1).sum() / 2
     assert area == pytest.approx(7)
     assert not np.any((pts.mean(1)[:, 0] > 1) & (pts.mean(1)[:, 1] > 1))
+
+
+def test_private_visual_copy_repairs_texture_paths_without_changing_source(monkeypatch, tmp_path) -> None:
+    from scripts.realworld import make_world
+    source = tmp_path / "car"
+    (source / "meshes").mkdir(parents=True)
+    (source / "materials/textures").mkdir(parents=True)
+    Image = pytest.importorskip("PIL.Image")
+    Image.new("RGB", (2, 2)).save(source / "materials/textures/body.png")
+    material = source / "meshes/body.mtl"
+    material.write_text("newmtl body\nmap_Kd body.png\n")
+    (source / "model.sdf").write_text("<sdf><model name='car'><link name='l'><visual name='v'><geometry><mesh><uri>meshes/body.obj</uri></mesh></geometry></visual></link></model></sdf>")
+    monkeypatch.setattr(make_world, "RESOLVED", tmp_path)
+    visuals, _ = make_world.visuals_of("car")
+    assert material.read_text() == "newmtl body\nmap_Kd body.png\n"
+    assert (tmp_path / "rw_prop_car/meshes/body.mtl").read_text() == "newmtl body\nmap_Kd ../materials/textures/body.png\n"
+    assert visuals[0].findtext("geometry/mesh/uri") == "model://rw_prop_car/meshes/body.obj"
