@@ -228,3 +228,7 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 
 
 道具包装首轮实渲染在 Grindelwald 暴露 COLLADA 加载器兼容问题：ElementTree 默认把根标签写为 `ns0:COLLADA`，Gazebo 报 `Missing COLLADA tag` 后崩溃。包装器现在注册默认命名空间，保留无前缀 `<COLLADA xmlns=...>`；回归测试同时检查根标签和纹理路径，8 项通过（`.tmp/rw-providers-final6.log`）。失败截图目录不能算渲染通过，已重新排队拍摄。
+
+补齐首轮目检：Grindelwald 的四视角已打开，村落与山坡可辨，但建筑底部与航拍地表错层明显，局部像压在坡上或悬空，树影叠影仍在；新加坡起飞区为草地，森林区几乎只有程序地面，远处孤立建筑和粗高程明显，四相机显存峰值 3223 MiB；深圳起飞草地开阔，高楼轮廓可辨，但地表与屋顶被 Sentinel 低分颜色拉成大片色块，立面为程序近似，四相机显存峰值 3977 MiB。以上只能证明已经渲染并检查，不能判为接近真实世界或达到 2 GiB 预算。
+
+默认 14 站×9 天气共 126 个世界已生成，`.tmp/review/final/world-audit.json` 检查没有 world `<plugin>`/`<include>`、没有网络 URI、本地资源引用存在。模型侧检查见 `resource-audit.json`，当前 14 站引用检查无缺失。该静态检查不证明网格内部贴图、画面或飞行正确。
