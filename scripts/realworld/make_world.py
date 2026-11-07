@@ -33,7 +33,7 @@ def local_visual_asset(slug: str) -> str:
     """Repair internal mesh texture paths in a private rw_ copy of a Fuel asset."""
     name = f"rw_prop_{slug}"
     destination = RESOLVED / name
-    marker = destination / ".texture-paths-v1"
+    marker = destination / ".texture-paths-v2"
     if marker.exists():
         return name
     source = RESOLVED / slug
@@ -63,6 +63,9 @@ def local_visual_asset(slug: str) -> str:
 
         if path.suffix.lower() == ".dae":
             tree = ET.parse(path)
+            if tree.getroot().tag.startswith("{"):
+                # Gazebo's ColladaLoader requires an unprefixed COLLADA root.
+                ET.register_namespace("", tree.getroot().tag[1:].split("}", 1)[0])
             for element in tree.getroot().iter():
                 if element.tag.rsplit("}", 1)[-1] == "init_from" and element.text:
                     # Surface init_from elements refer to image IDs, not files.

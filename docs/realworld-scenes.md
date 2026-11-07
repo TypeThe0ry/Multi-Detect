@@ -225,3 +225,6 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 缺墙已定位到 CityGML 读取器：竖墙投影为 XY 线段后，原 `Polygon.buffer(0)` 范围过滤把它丢弃；旧代码还只读一个 Polygon，父 Building 又重复包含 BuildingPart。现在按每个 Polygon 的外环/内环读取，竖墙按其投影凸包与范围相交判断，子 BuildingPart 单独生成。新增竖墙、多 Polygon、嵌套 BuildingPart 测试，地点测试现为 8 项通过（`.tmp/rw-providers-final5.log`）。原始柏林缓存保持不变，本次从已有 9 个 LoD2 ZIP 离线解析到 `/data/datasets/multidetect-sim-assets/validation-1107/sites/rw_city_berlin/raw/`，归一化记录、原 ZIP SHA-256 和输出 SHA-256 写入该目录 provenance；修复后构建和复拍仍需完成验证。
 
 独立 Fuel 道具出现 `hatchback.png`、`fire_hydrant_diffuse.png` 等路径无法解析。`make_world.py` 现把独立源模型复制到 `rw_prop_<slug>`，在副本中修正 MTL/DAE 的相对贴图路径；部分车辆缺少的共用车轮贴图仅从已有本地模型缓存复制，不下载、不修改原模型。跨平台文件测试确认源 MTL 保持不变。此修复须以之后的渲染日志和图片核实。
+
+
+道具包装首轮实渲染在 Grindelwald 暴露 COLLADA 加载器兼容问题：ElementTree 默认把根标签写为 `ns0:COLLADA`，Gazebo 报 `Missing COLLADA tag` 后崩溃。包装器现在注册默认命名空间，保留无前缀 `<COLLADA xmlns=...>`；回归测试同时检查根标签和纹理路径，8 项通过（`.tmp/rw-providers-final6.log`）。失败截图目录不能算渲染通过，已重新排队拍摄。

@@ -115,9 +115,13 @@ def test_private_visual_copy_repairs_texture_paths_without_changing_source(monke
     Image.new("RGB", (2, 2)).save(source / "materials/textures/body.png")
     material = source / "meshes/body.mtl"
     material.write_text("newmtl body\nmap_Kd body.png\n")
+    (source / "meshes/body.dae").write_text('<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema"><library_images><image><init_from>body.png</init_from></image></library_images></COLLADA>')
     (source / "model.sdf").write_text("<sdf><model name='car'><link name='l'><visual name='v'><geometry><mesh><uri>meshes/body.obj</uri></mesh></geometry></visual></link></model></sdf>")
     monkeypatch.setattr(make_world, "RESOLVED", tmp_path)
     visuals, _ = make_world.visuals_of("car")
     assert material.read_text() == "newmtl body\nmap_Kd body.png\n"
     assert (tmp_path / "rw_prop_car/meshes/body.mtl").read_text() == "newmtl body\nmap_Kd ../materials/textures/body.png\n"
     assert visuals[0].findtext("geometry/mesh/uri") == "model://rw_prop_car/meshes/body.obj"
+    dae = (tmp_path / "rw_prop_car/meshes/body.dae").read_text()
+    assert "<COLLADA xmlns=" in dae
+    assert "../materials/textures/body.png" in dae
