@@ -100,6 +100,49 @@ def _pressure(rows: list[dict[str, Any]]) -> dict[str, float] | None:
     return result or None
 
 
+def _sidecar_summary(path: Path) -> dict[str, Any]:
+    rows = _jsonl(path)
+    required = (
+        "wall_time",
+        "monotonic_ns",
+        "loadavg",
+        "cpu_pressure",
+        "memory_pressure",
+        "io_pressure",
+        "cpuset_cpus",
+        "core_busy_percent_mean",
+        "core_busy_percent_max",
+        "px4_sim_time_boot_ms",
+    )
+    missing = {field: 0 for field in required}
+    null_values = {field: 0 for field in required}
+    for row in rows:
+        for field in required:
+            if field not in row:
+                missing[field] += 1
+            elif row[field] is None:
+                null_values[field] += 1
+    return {
+        "path": str(path),
+        "present": path.is_file(),
+        "sample_count": len(rows),
+        "first_wall_time": _finite(rows[0].get("wall_time")) if rows else None,
+        "last_wall_time": _finite(rows[-1].get("wall_time")) if rows else None,
+        "missing_fields": {key: value for key, value in missing.items() if value},
+        "null_values": {key: value for key, value in null_values.items() if value},
+        "complete_samples": sum(
+            all(field in row for field in required) for row in rows
+        ),
+    }
+
+
+def _frame_wait_timeline(meta: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = meta.get("frame_wait_timeline")
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
 def analyze_episode(episode_dir: Path) -> dict[str, Any]:
     episode_dir = episode_dir.resolve()
     try:
@@ -141,6 +184,8 @@ def analyze_episode(episode_dir: Path) -> dict[str, Any]:
     ]
     sim_delta = max(stamps) - min(stamps) if len(stamps) >= 2 else None
     wall_s = _wall_duration(meta)
+    timeline = _frame_wait_timeline(meta)
+    failed_waits = [row for row in timeline if row.get("error")]
     return {
         "episode": episode_dir.name,
         "status": meta.get("status", "unknown"),
@@ -151,6 +196,12 @@ def analyze_episode(episode_dir: Path) -> dict[str, Any]:
         "created_wall_time": _finite(meta.get("created_wall_time")),
         "finished_wall_time": _finite(meta.get("finished_wall_time")),
         "host_pressure": _pressure(_jsonl(episode_dir / "host_pressure.jsonl")),
+        "host_pressure_sidecar": _sidecar_summary(episode_dir / "host_pressure.jsonl"),
+        "frame_wait_timeline": timeline,
+        "frame_wait_failure_count": len(failed_waits),
+        "frame_wait_failure_classes": sorted(
+            {str(row.get("failure_class")) for row in failed_waits if row.get("failure_class")}
+        ),
     }
 
 
@@ -165,6 +216,11 @@ def _nearest_trace_sample(timestamp: float, samples: list[dict[str, Any]]) -> di
     if not samples:
         return None
     return min(samples, key=lambda row: abs(float(row["t"]) - timestamp))
+
+
+def _nearest_pressure_sample(timestamp: float, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    timed = [row for row in rows if _finite(row.get("wall_time")) is not None]
+    return min(timed, key=lambda row: abs(float(row["wall_time"]) - timestamp)) if timed else None
 
 
 def _trace_pressure(sample: dict[str, Any]) -> dict[str, Any]:
@@ -208,6 +264,13 @@ def correlate_trace(
             "episodes": [],
             "events": [],
             "burst_cutoff_cpu_psi_some": None,
+            "burst_quiet_sample_boundary": {
+                "trace_sample_count": 0,
+                "trace_start": None,
+                "trace_end": None,
+                "cutoff_rule": "inclusive 75th percentile of available CPU PSI some samples; episode is burst if any covered sample exceeds it",
+                "covered_episode_count": 0,
+            },
             "burst_vs_quiet": {
                 "burst_timeout_episodes": 0,
                 "burst_no_timeout_episodes": 0,
@@ -249,7 +312,12 @@ def correlate_trace(
                 "start": start,
                 "end": end,
                 "samples": len(covered),
+                "trace_sample_start": float(covered[0]["t"]) if covered else None,
+                "trace_sample_end": float(covered[-1]["t"]) if covered else None,
                 "timeouts": report["timeouts"],
+                "timeout_events": report["timeout_events"],
+                "host_pressure_sidecar": report["host_pressure_sidecar"],
+                "frame_wait_timeline": report["frame_wait_timeline"],
                 "rtf": report["rtf"],
                 "cpu_psi_some_mean": statistics.fmean(cpu_values) if cpu_values else None,
                 "cpu_psi_some_peak": max(cpu_values) if cpu_values else None,
@@ -275,7 +343,21 @@ def correlate_trace(
                 {
                     "episode": report["episode"],
                     **event,
+                    "episode_trace_covered": (
+                        report.get("created_wall_time") is not None
+                        and report.get("finished_wall_time") is not None
+                        and trace_start <= report["created_wall_time"] <= trace_end
+                        and trace_start <= report["finished_wall_time"] <= trace_end
+                    ),
                     "trace_sample": _trace_pressure(sample) if sample else None,
+                    "host_pressure_sample": (
+                        _nearest_pressure_sample(
+                            timestamp,
+                            _jsonl(Path(report["host_pressure_sidecar"]["path"])),
+                        )
+                        if timestamp is not None
+                        else None
+                    ),
                 }
             )
     psi = [
@@ -307,6 +389,13 @@ def correlate_trace(
         "episodes": episode_rows,
         "events": event_rows,
         "burst_cutoff_cpu_psi_some": burst_cutoff,
+        "burst_quiet_sample_boundary": {
+            "trace_sample_count": len(samples),
+            "trace_start": trace_start,
+            "trace_end": trace_end,
+            "cutoff_rule": "inclusive 75th percentile of available CPU PSI some samples; episode is burst if any covered sample exceeds it",
+            "covered_episode_count": len(episode_rows),
+        },
         "burst_vs_quiet": {
             "burst_timeout_episodes": burst_cases,
             "burst_no_timeout_episodes": burst_controls,

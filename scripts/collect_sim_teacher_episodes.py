@@ -4009,6 +4009,94 @@ def _fresh_sensor_snapshot(
     raise TimeoutError(f"sensor stream produced no frame within {timeout_s:.1f}s")
 
 
+def _frame_wait_diagnostics(
+    *,
+    phase: str,
+    sensor_reader: SensorStreamReader,
+    mav_reader: MavlinkReader,
+    pose_state: MavlinkState,
+    min_sensor_stamp_ns: int | None,
+    started_monotonic_ns: int,
+    ended_monotonic_ns: int | None = None,
+    started_wall_time: float | None = None,
+    ended_wall_time: float | None = None,
+    host_pressure_path: Path | None = None,
+    error: BaseException | None = None,
+) -> dict[str, Any]:
+    """Capture the clocks and watermarks surrounding one causal frame wait."""
+    now_ns = ended_monotonic_ns if ended_monotonic_ns is not None else time.monotonic_ns()
+    state = _snapshot_mavlink_state(mav_reader.state)
+    latest = sensor_reader.latest
+    local = state.get("LOCAL_POSITION_NED")
+    pose_ms = _field(local, "time_boot_ms", None)
+    status_text = state.get("STATUSTEXT")
+    last_status = _field(status_text, "text", None)
+    pressure_row = None
+    if host_pressure_path is not None:
+        try:
+            lines = host_pressure_path.read_text(encoding="utf-8").splitlines()
+            if lines:
+                value = json.loads(lines[-1])
+                pressure_row = value if isinstance(value, dict) else None
+        except (OSError, ValueError):
+            pass
+    requested_pose_ms = _field(pose_state.get("LOCAL_POSITION_NED"), "time_boot_ms", None)
+    local_received = state.received_monotonic_ns.get("LOCAL_POSITION_NED")
+    px4_stalled = (
+        local_received is not None
+        and local_received <= started_monotonic_ns
+        and isinstance(requested_pose_ms, (int, float))
+        and isinstance(pose_ms, (int, float))
+        and pose_ms <= requested_pose_ms
+    )
+    if ended_monotonic_ns is None:
+        classification = "frame_wait_started"
+    elif error is None:
+        classification = "frame_wait_satisfied"
+    elif (
+        latest is not None
+        and latest.received_monotonic_ns > started_monotonic_ns
+        and min_sensor_stamp_ns is not None
+        and latest.sensor_stamp_ns < min_sensor_stamp_ns
+    ):
+        classification = "frame_timestamp_below_pose_watermark"
+    elif latest is None or latest.received_monotonic_ns <= started_monotonic_ns:
+        classification = (
+            "px4_clock_and_telemetry_stalled" if px4_stalled else "no_new_frame_observed"
+        )
+    else:
+        classification = (
+            "px4_clock_and_telemetry_stalled" if px4_stalled else "frame_wait_timeout_unclassified"
+        )
+    return {
+        "phase": phase,
+        "started_monotonic_ns": started_monotonic_ns,
+        "primitive_end_monotonic_ns": (
+            started_monotonic_ns if phase == "obs_after" else None
+        ),
+        "started_wall_time": started_wall_time,
+        "ended_monotonic_ns": ended_monotonic_ns,
+        "ended_wall_time": ended_wall_time if ended_wall_time is not None else time.time(),
+        "duration_s": max(0, now_ns - started_monotonic_ns) / 1e9,
+        "pose_time_boot_ms": pose_ms,
+        "requested_pose_time_boot_ms": requested_pose_ms,
+        "pose_received_monotonic_ns": state.received_monotonic_ns.get("LOCAL_POSITION_NED"),
+        "pose_received_wall_time": state.received_wall_time.get("LOCAL_POSITION_NED"),
+        "required_sensor_stamp_ns": min_sensor_stamp_ns,
+        "last_frame_sensor_stamp_ns": latest.sensor_stamp_ns if latest is not None else None,
+        "last_frame_received_monotonic_ns": latest.received_monotonic_ns if latest is not None else None,
+        "last_frame_received_wall_time": latest.received_wall_time if latest is not None else None,
+        "frames_received": sensor_reader.frames_received,
+        "last_statustext": last_status,
+        "statustext_received_monotonic_ns": state.received_monotonic_ns.get("STATUSTEXT"),
+        "statustext_received_wall_time": state.received_wall_time.get("STATUSTEXT"),
+        "px4_vehicle_time_boot_ms": state.vehicle_time_boot_ms,
+        "host_pressure_sample": pressure_row,
+        "failure_class": classification,
+        "error": f"{type(error).__name__}: {error}" if error is not None else None,
+    }
+
+
 def _arm(
     connection: Any,
     reader: MavlinkReader,
@@ -4566,6 +4654,85 @@ def run_episode(
                 if plan.segmentation
                 else None,
             ).start()
+
+            def wait_for_observation_frame(
+                phase: str,
+                pose_state: MavlinkState,
+                min_sensor_stamp_ns: int | None,
+                started_ns: int | None = None,
+            ):
+                wait_started_ns = started_ns or time.monotonic_ns()
+                wait_started_wall = time.time()
+                start_row = _frame_wait_diagnostics(
+                    phase=phase,
+                    sensor_reader=sensor_reader,
+                    mav_reader=mav_reader,
+                    pose_state=pose_state,
+                    min_sensor_stamp_ns=min_sensor_stamp_ns,
+                    started_monotonic_ns=wait_started_ns,
+                    started_wall_time=wait_started_wall,
+                    host_pressure_path=host_pressure_sampler.path,
+                )
+                recorder.meta.setdefault("frame_wait_timeline", []).append(start_row)
+                try:
+                    sample = _fresh_sensor_snapshot(
+                        sensor_reader,
+                        wait_started_ns,
+                        SENSOR_FRAME_WAIT_S,
+                        min_sensor_stamp_ns=min_sensor_stamp_ns,
+                        poll_interval_s=plan.sensor_poll_interval_s,
+                    )
+                except BaseException as error:
+                    end_row = _frame_wait_diagnostics(
+                        phase=phase,
+                        sensor_reader=sensor_reader,
+                        mav_reader=mav_reader,
+                        pose_state=pose_state,
+                        min_sensor_stamp_ns=min_sensor_stamp_ns,
+                        started_monotonic_ns=wait_started_ns,
+                        started_wall_time=wait_started_wall,
+                        ended_wall_time=time.time(),
+                        ended_monotonic_ns=time.monotonic_ns(),
+                        host_pressure_path=host_pressure_sampler.path,
+                        error=error,
+                    )
+                    recorder.meta.setdefault("frame_wait_timeline", []).append(end_row)
+                    try:
+                        recorder.record_mavlink(
+                            {"message_type": "frame_wait_diagnostic", **end_row}
+                        )
+                        recorder.episode_path.write_text(
+                            json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                        )
+                    except Exception as diagnostic_error:
+                        end_row["diagnostic_write_error"] = (
+                            f"{type(diagnostic_error).__name__}: {diagnostic_error}"
+                        )
+                    raise
+                end_row = _frame_wait_diagnostics(
+                    phase=phase,
+                    sensor_reader=sensor_reader,
+                    mav_reader=mav_reader,
+                    pose_state=pose_state,
+                    min_sensor_stamp_ns=min_sensor_stamp_ns,
+                    started_monotonic_ns=wait_started_ns,
+                    started_wall_time=wait_started_wall,
+                    ended_wall_time=time.time(),
+                    ended_monotonic_ns=time.monotonic_ns(),
+                    host_pressure_path=host_pressure_sampler.path,
+                )
+                end_row["last_frame_sensor_stamp_ns"] = sample.sensor_stamp_ns
+                end_row["last_frame_received_monotonic_ns"] = sample.received_monotonic_ns
+                end_row["last_frame_received_wall_time"] = sample.received_wall_time
+                recorder.meta.setdefault("frame_wait_timeline", []).append(end_row)
+                try:
+                    recorder.record_mavlink(
+                        {"message_type": "frame_wait_diagnostic", **end_row}
+                    )
+                except Exception:
+                    pass
+                return sample
+
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
             sensor_reader.request(0)
@@ -4846,12 +5013,8 @@ def run_episode(
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 t = time.perf_counter_ns()
-                before_sample = _fresh_sensor_snapshot(
-                    sensor_reader,
-                    time.monotonic_ns(),
-                    SENSOR_FRAME_WAIT_S,
-                    min_sensor_stamp_ns=pose_sim_stamp_ns,
-                    poll_interval_s=plan.sensor_poll_interval_s,
+                before_sample = wait_for_observation_frame(
+                    "obs_before", before_state, pose_sim_stamp_ns
                 )
                 timing["pre_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 before_state = mav_reader.aligned_state(before_sample.sensor_stamp_ns)
@@ -5091,12 +5254,8 @@ def run_episode(
                 after_state = _snapshot_mavlink_state(mav_reader.state)
                 after_pose_sim_stamp_ns = _pose_sim_stamp_ns(after_state)
                 t = time.perf_counter_ns()
-                after_sample = _fresh_sensor_snapshot(
-                    sensor_reader,
-                    primitive_end_ns,
-                    SENSOR_FRAME_WAIT_S,
-                    min_sensor_stamp_ns=after_pose_sim_stamp_ns,
-                    poll_interval_s=plan.sensor_poll_interval_s,
+                after_sample = wait_for_observation_frame(
+                    "obs_after", after_state, after_pose_sim_stamp_ns, primitive_end_ns
                 )
                 timing["post_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 after_state = mav_reader.aligned_state(after_sample.sensor_stamp_ns)
