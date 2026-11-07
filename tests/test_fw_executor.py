@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from multidetect.autonomy.motion_intent import MotionCommand
@@ -43,13 +45,84 @@ class FakeVehicle:
 
 def test_fixed_wing_primitives_use_reposition_and_orbit() -> None:
     fake = FakeVehicle()
-    executor = FixedWingVtolExecutor(fake, position=lambda: (0.0, 0.0, -30.0))
+    yaw_samples = iter((0.0, 0.0, 0.0, 45.0, 45.0))
+    profile = type(
+        "Profile",
+        (),
+        {
+            "limits": type("Limits", (), {"max_step_distance_m": 30.0})(),
+            "min_turn_radius_m": 21.0,
+        },
+    )()
+    executor = FixedWingVtolExecutor(
+        fake,
+        position=lambda: (0.0, 0.0, -30.0),
+        yaw_deg=lambda: next(yaw_samples),
+        airframe_profile=profile,
+    )
     assert executor.execute(ActionPrimitive.translate(10, 2)).status == "success"
     assert fake.calls[-1][0] == "reposition"
-    assert executor.execute(ActionPrimitive.turn(45)).status == "success"
+    turn = executor.execute(ActionPrimitive.turn(45))
+    assert turn.status == "success"
+    assert turn.achieved_yaw_delta_deg == pytest.approx(45.0)
+    assert turn.elapsed_s > 0.0
     assert fake.calls[-1][0] == "reposition"
+    assert fake.calls[-1][1][0] == pytest.approx(
+        (27.0 / math.sqrt(2.0), 27.0 / math.sqrt(2.0))
+    )
+    assert fake.calls[-1][2]["yaw_deg"] == pytest.approx(45.0)
+    assert fake.calls[-1][2]["radius"] == pytest.approx(21.0)
     assert executor.execute(ActionPrimitive.hold(1)).status == "success"
     assert fake.calls[-1][0] == "orbit"
+
+
+def test_fixed_wing_turn_reports_timeout_and_measured_yaw(monkeypatch) -> None:
+    class SimClock:
+        value = 0.0
+
+        def __call__(self):
+            self.value += 60.0
+            return self.value
+
+    monkeypatch.setattr("multidetect.sim_teacher.fw_executor.time.sleep", lambda _seconds: None)
+    fake = FakeVehicle()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "limits": type("Limits", (), {"max_step_distance_m": 30.0})(),
+            "min_turn_radius_m": 21.0,
+        },
+    )()
+    executor = FixedWingVtolExecutor(
+        fake,
+        clock=SimClock(),
+        position=lambda: (1.0, 2.0, -30.0),
+        yaw_deg=lambda: 0.0,
+        airframe_profile=profile,
+    )
+
+    result = executor.execute(ActionPrimitive.turn(90.0))
+
+    assert result.status == "timeout"
+    assert result.achieved_yaw_delta_deg == pytest.approx(0.0)
+    assert result.ack["phase"] == "turn"
+    assert result.ack["reason"] == "timeout"
+    assert result.ack["commanded_yaw_delta_deg"] == pytest.approx(90.0)
+    assert result.ack["yaw_error_deg"] == pytest.approx(90.0)
+
+
+def test_hover_mode_turn_remains_an_in_place_yaw_reposition() -> None:
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(fake, airframe="vtol", position=lambda: (3.0, 4.0, -30.0))
+    executor.mode = "MC"
+
+    result = executor.execute(ActionPrimitive.turn(45.0))
+
+    assert result.status == "success"
+    assert fake.calls[-1][0] == "reposition"
+    assert fake.calls[-1][1][0] == pytest.approx((3.0, 4.0))
+    assert fake.calls[-1][2]["yaw_deg"] == pytest.approx(45.0)
 
 
 def test_hold_keeps_a_telemetry_confirmed_loiter_without_resending_orbit() -> None:

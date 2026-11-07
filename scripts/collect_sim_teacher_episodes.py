@@ -478,6 +478,7 @@ class CollectionPlan:
     video_hz: float = 0.0
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
     airframe: str = "x500_mono_cam"
+    vtol_hover_mission: bool | None = None
     # "true": fly to the true target; "confuser": fly to a look-alike (hard negatives).
     teacher_target: str = "true"
     smoke_flight: bool = False
@@ -2360,6 +2361,18 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
             observation_view_names.append(str(row.get("view", len(observation_view_names))))
     elif home_ned is not None:
         observation_waypoints.append((home_ned[0], home_ned[1], -altitude_m))
+    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    default_hover_mission = bool(
+        profile is not None
+        and profile.category == "vtol"
+        and profile.subtype == "tailsitter"
+        and profile.id.startswith("delta_tailsitter")
+    )
+    vtol_hover_mission = (
+        default_hover_mission
+        if plan.vtol_hover_mission is None
+        else bool(plan.vtol_hover_mission)
+    )
     return ExpertSearchPolicy(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
@@ -2371,10 +2384,17 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         observation_frames=frames if observation_waypoints else 0,
         observation_waypoints=tuple(observation_waypoints),
         observation_view_names=tuple(observation_view_names),
+        fixed_wing_mode=(
+            profile is not None
+            and profile.category == "fixed_wing"
+            or profile is not None
+            and profile.category == "vtol"
+            and not vtol_hover_mission
+        ),
+        vtol_hover_mission=vtol_hover_mission,
         fixed_wing_orbit_radius_m=(
-            _airframe_profile(plan.airframe, plan.takeoff_method).orbit_radius(80.0)
-            if _airframe_profile(plan.airframe, plan.takeoff_method)
-            and _airframe_profile(plan.airframe, plan.takeoff_method).category == "fixed_wing"
+            profile.orbit_radius(80.0)
+            if profile is not None and profile.category == "fixed_wing"
             else None
         ),
     ), label
@@ -5306,7 +5326,8 @@ def run_episode(
                 # and stays in MC (a forward transition would be undone at step 0,
                 # and the SITL tailsitter climbed 30 m and drifted 80 m doing so).
                 hover_mission = bool(
-                    getattr(getattr(policy, "motion_adapter", None), "hover_ops", False)
+                    getattr(policy, "vtol_hover_mission", False)
+                    or getattr(getattr(policy, "motion_adapter", None), "hover_ops", False)
                 )
                 executor = FixedWingVtolExecutor(
                     _ReaderAckLink(vehicle, mav_reader),
@@ -6540,6 +6561,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="x500_mono_cam",
         help="airframe profile/model id; x500_mono_cam keeps the legacy multirotor path",
     )
+    parser.add_argument(
+        "--vtol-hover-mission",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="keep a tailsitter in MC for expert_search; --no-vtol-hover-mission selects FW",
+    )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument(
         "--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route"
@@ -6769,6 +6796,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         video_hz=args.video_hz,
         video_max_bytes=int(args.video_max_gb * 1024**3),
         airframe=args.airframe,
+        vtol_hover_mission=args.vtol_hover_mission,
         teacher_target=args.teacher_target,
         smoke_flight=args.smoke_flight,
         takeoff_method=args.takeoff_method,

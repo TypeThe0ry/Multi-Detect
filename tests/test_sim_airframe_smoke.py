@@ -23,6 +23,53 @@ def test_non_multirotor_runtime_is_accepted_for_explicit_airframe() -> None:
     assert data["vehicle"]["model"] == "advanced_plane_mono_cam"
 
 
+def test_delta_expert_teacher_defaults_to_hover_search_by_profile() -> None:
+    scenario = ROOT / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json"
+    runtime, truth = collector._scenario_channels(scenario)
+    plan = collector.CollectionPlan(
+        str(scenario),
+        str(runtime),
+        str(truth),
+        "expert_search",
+        1,
+        40,
+        0,
+        ".tmp/test-fw-search",
+        airframe="delta_tailsitter_mono_cam",
+    )
+
+    policy, _label = collector._policy_for(plan, truth, 0)
+
+    assert policy.vtol_hover_mission
+    assert not policy.fixed_wing_mode
+    action = policy.next_action(pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert action.kind == "turn"
+
+
+def test_delta_expert_teacher_can_explicitly_select_fw_search() -> None:
+    scenario = ROOT / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json"
+    runtime, truth = collector._scenario_channels(scenario)
+    plan = collector.CollectionPlan(
+        str(scenario),
+        str(runtime),
+        str(truth),
+        "expert_search",
+        1,
+        40,
+        0,
+        ".tmp/test-fw-search",
+        airframe="delta_tailsitter_mono_cam",
+        vtol_hover_mission=False,
+    )
+
+    policy, _label = collector._policy_for(plan, truth, 0)
+
+    assert not policy.vtol_hover_mission
+    assert policy.fixed_wing_mode
+    action = policy.next_action(pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert action.kind == "translate"
+
+
 def test_smoke_plan_has_vtol_transition_and_airframe_speed_gate() -> None:
     profile = smoke.profile_for("standard_vtol_mono_cam")
     scenario = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"

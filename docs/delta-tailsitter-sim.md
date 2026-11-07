@@ -210,8 +210,20 @@ delta tailsitter 的默认 `off` 不生成 ULog；`--keep-px4-ulog` 只复制实
 有现成 viewer 镜像时，`scripts/run_sim_session.py --airframe delta_tailsitter` 会选中
 相同场景。AI 自主飞行可以继续用该会话的 `--onboard-task`、`--onboard-out`，
 或给采集器 `--teacher onboard --onboard-config <现有模型配置>`；模型/服务沿用
-当前环境，本接入不启动推理服务。默认 VTOL AI 作业仍是 MC 悬停搜索，冒烟路径才
-强制测试 FW 转换；若要 AI 前飞搜索，按现有配置设置 `vtol_hover_ops: false`。
+当前环境，本接入不启动推理服务。Delta tailsitter 的 `expert_search` 和 onboard AI
+默认在 MC 悬停搜索；onboard 若要前飞搜索，设置 `vtol_hover_ops: false`；采集器
+`expert_search` 若要前飞搜索，传入 `--no-vtol-hover-mission`。冒烟路径仍用于单独
+测试 FW 转换。
+
+三角翼虽有悬停能力，`expert_search` 和 onboard AI 的 MC 悬停搜索仍是默认模式：这样搜索和观测不依赖尚未
+由本机飞行验证的 FW 转弯/相机覆盖。显式设置 `vtol_hover_ops: false` 才进入 FW
+搜索。FW 下 `turn` 不是原地改变 yaw：执行器按机型最大航段和最小转弯半径，将航向
+变成沿目标方向的前方 `MAV_CMD_DO_REPOSITION` 航点，并在 PX4 仿真时钟预算内等待
+实测航向到位；超时记录状态、命令/实测航向增量和误差。`ExpertSearchPolicy` 在 FW
+模式跳过原地初扫，立即接入有界搜索路线；MC 仍保留原地扫描。此处单测仅验证命令
+选择和遥测等待/超时语义。该语义与 `rc_cessna` 搜索路径及 `standard_vtol` 的 FW
+适配路径一致：FW `turn` 发前向 reposition，实际到达依赖航迹遥测；这不构成 SITL
+或气动/飞行验证。
 
 ## STEP 到位后
 

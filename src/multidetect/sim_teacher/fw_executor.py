@@ -2,9 +2,9 @@
 
 The existing :mod:`executor` remains the multirotor OFFBOARD implementation.
 This adapter uses high-level PX4 guided commands for airframes that cannot
-hover: translations are reposition commands, turns are heading reposition
-commands, and holds are orbits.  A fake vehicle can implement the same small
-methods and record a deterministic command sequence in tests.
+hover: translations and turns are forward reposition commands, and holds are
+orbits. A fake vehicle can implement the same small methods and record a
+deterministic command sequence in tests.
 """
 
 from __future__ import annotations
@@ -365,6 +365,7 @@ class FixedWingVtolExecutor:
         "transition_mc": 90.0,
         "orbit": 90.0,
         "reposition": 120.0,
+        "turn": 120.0,
         "rtl": 300.0,
         "land": 420.0,
     }
@@ -518,6 +519,38 @@ class FixedWingVtolExecutor:
                 return ExecutionResult("success", self._clock() - started)
             if action.kind == "turn":
                 target_yaw = yaw + action.yaw_delta_deg
+                if self.mode == "FW":
+                    commanded_down = self._commanded[2]
+                    measured = self.sync_commanded_state()
+                    origin = (measured[0], measured[1], commanded_down)
+                    self._commanded = origin
+                    yaw = self._commanded_yaw
+                    target_yaw = self._wrap_yaw(yaw + action.yaw_delta_deg)
+                    heading = math.radians(target_yaw)
+                    profile_limits = getattr(self.airframe_profile, "limits", None)
+                    max_step = getattr(profile_limits, "max_step_distance_m", None)
+                    leg = (
+                        0.9 * float(max_step)
+                        if max_step is not None
+                        else 0.9 * self.loiter_radius_m
+                    )
+                    turn_radius = getattr(self.airframe_profile, "min_turn_radius_m", None)
+                    target = (
+                        origin[0] + leg * math.cos(heading),
+                        origin[1] + leg * math.sin(heading),
+                    )
+                    result = self._invoke(
+                        "reposition",
+                        target,
+                        -commanded_down,
+                        self.ground_speed_mps,
+                        yaw_deg=target_yaw,
+                        radius=float(turn_radius or 0.0),
+                        timeout_s=self._timeout(),
+                    )
+                    if not self._ok(result):
+                        return self._failure(started, phase="turn", result=result)
+                    return self._wait_turn(started, yaw, target_yaw, action.yaw_delta_deg, result)
                 result = self._invoke(
                     "reposition",
                     origin[:2],
@@ -563,6 +596,69 @@ class FixedWingVtolExecutor:
             )
         except (RuntimeError, OSError, ValueError, TypeError) as exc:
             return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})
+
+    def _wait_turn(
+        self,
+        started: float,
+        start_yaw: float,
+        target_yaw: float,
+        commanded_delta: float,
+        command_result: Any,
+    ) -> ExecutionResult:
+        """Wait for telemetry to confirm an FW turn or report its timeout."""
+        timeout_s = self._state_timeout("turn")
+        sim_started = self._clock()
+        wall_started = time.monotonic()
+        wall_timeout_s = max(180.0, timeout_s * 10.0)
+        measured_yaw = start_yaw
+        error = self._wrap_yaw(target_yaw - measured_yaw)
+        while (
+            self._clock() - sim_started < timeout_s
+            and time.monotonic() - wall_started < wall_timeout_s
+        ):
+            measured_yaw = float(self._yaw())
+            error = self._wrap_yaw(target_yaw - measured_yaw)
+            achieved = self._wrap_yaw(measured_yaw - start_yaw)
+            if abs(error) <= self.criterion.yaw_tolerance_deg:
+                self.sync_commanded_state()
+                return ExecutionResult(
+                    "success",
+                    self._clock() - started,
+                    achieved_yaw_delta_deg=achieved,
+                    ack={
+                        "phase": "turn",
+                        "command": command_result,
+                        "target_yaw_deg": target_yaw,
+                        "measured_yaw_deg": measured_yaw,
+                        "yaw_error_deg": error,
+                    },
+                )
+            time.sleep(0.1)
+        achieved = self._wrap_yaw(measured_yaw - start_yaw)
+        try:
+            self.sync_commanded_state()
+        except (RuntimeError, OSError, ValueError, TypeError):
+            pass
+        return ExecutionResult(
+            "timeout",
+            self._clock() - started,
+            achieved_yaw_delta_deg=achieved,
+            ack={
+                "phase": "turn",
+                "reason": "timeout",
+                "command": command_result,
+                "commanded_yaw_delta_deg": commanded_delta,
+                "achieved_yaw_delta_deg": achieved,
+                "target_yaw_deg": target_yaw,
+                "measured_yaw_deg": measured_yaw,
+                "yaw_error_deg": error,
+                "timeout_s": timeout_s,
+            },
+        )
+
+    @staticmethod
+    def _wrap_yaw(degrees: float) -> float:
+        return (float(degrees) + 180.0) % 360.0 - 180.0
 
     def execute_command(self, command: MotionCommand) -> ExecutionResult:
         """Execute the shared intent command vocabulary.

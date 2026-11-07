@@ -368,6 +368,8 @@ class ExpertSearchPolicy:
     observation_waypoints: tuple[tuple[float, float, float], ...] = ()
     observation_view_names: tuple[str, ...] = ()
     fixed_wing_orbit_radius_m: float | None = None
+    fixed_wing_mode: bool = False
+    vtol_hover_mission: bool = False
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -403,7 +405,9 @@ class ExpertSearchPolicy:
         self._blocked_climbs = 0
         self._observation_orbit_active = False
         self._commanded_yaw_deg: float | None = None
-        self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
+        self._initial_scan_remaining = (
+            0 if self.fixed_wing_mode else int(round(360.0 / self.scan_increment_deg))
+        )
         self._scan_remaining = 0
         self._waypoint_index = 0
         self._waypoints = self._build_route()
@@ -620,7 +624,9 @@ class ExpertSearchPolicy:
     def reset(self, *, state: str = "search", yaw_deg: float | None = None) -> None:
         self.state = state
         self._commanded_yaw_deg = yaw_deg
-        self._initial_scan_remaining = int(round(360.0 / self.scan_increment_deg))
+        self._initial_scan_remaining = (
+            0 if self.fixed_wing_mode else int(round(360.0 / self.scan_increment_deg))
+        )
         self._scan_remaining = 0
         self._waypoint_index = 0
         self._search_phase = "high"
