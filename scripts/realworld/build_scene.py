@@ -30,6 +30,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from instancing import ASSET_BY_SLUG, Merger, has_local_model  # noqa: E402
+from city_models import read_normalized  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CFG = json.loads((ROOT / "configs/sim-assets/realworld-sites.json").read_text())
@@ -428,6 +429,48 @@ def add_building(bins, roof_bin, parapet_bin, equipment_bins, coll, b, terrain, 
     coll.add(v, np.zeros((len(v), 2)), np.vstack([idx + n, np.array(walls)]).astype(np.int64))
 
 
+def add_city_model(rows: list[dict], out: Path, terrain: Terrain, half: float) -> tuple[int, int, int]:
+    """Merge CityGML surfaces by one aerial texture and emit a simple collision mesh."""
+    visual, collision = MeshBin(), MeshBin()
+    for row in rows:
+        ground = np.asarray([p for surface in row.get("surfaces", [])
+                             if surface.get("kind") == "GroundSurface"
+                             for p in surface.get("vertices", [])], dtype=float)
+        # GLO-30 is a surface elevation model and includes urban canopy.
+        # Align each building base locally instead of leaving whole blocks
+        # below that terrain or floating above it. This remains an approximation.
+        ground_shift = 0.0
+        if len(ground):
+            ground_shift = float(np.median(terrain.z(ground[:, 0], ground[:, 1]) + terrain.elev0 - ground[:, 2]))
+        for surface in row.get("surfaces", []):
+            pts = np.asarray(surface.get("vertices", []), dtype=float)
+            if len(pts) < 3:
+                continue
+            pts[:, 2] += ground_shift - terrain.elev0
+            # Local aerial mosaic coordinates; both roof and wall surfaces use
+            # the same measured image and naturally fall back to OSM facades
+            # when no open city model was downloaded.
+            uv = np.column_stack([(pts[:, 0] + half) / (2 * half), (pts[:, 1] + half) / (2 * half)])
+            # Ear clipping in the surface plane preserves concave roofs and
+            # vertical walls; a fan can fill courtyards or cross the footprint.
+            if np.allclose(pts[0], pts[-1]):
+                pts, uv = pts[:-1], uv[:-1]
+            if len(pts) < 3:
+                continue
+            _, singular, basis = np.linalg.svd(pts - pts.mean(0), full_matrices=False)
+            if len(singular) < 2 or singular[1] < 1e-6:
+                continue
+            flat = np.ascontiguousarray((pts - pts.mean(0)) @ basis[:2].T)
+            faces = earcut.triangulate_float64(flat, np.array([len(pts)], dtype=np.uint32)).reshape(-1, 3)
+            visual.add(pts, uv, faces)
+            collision.add(pts, uv, faces)
+    if not visual.count:
+        return 0, 0, 0
+    tris = visual.write(out / "meshes" / "city_buildings.obj")
+    collision.write(out / "meshes" / "city_buildings_collision.obj")
+    return len(rows), tris, collision.count
+
+
 # ------------------------------------------------------------------ Roads
 
 
@@ -665,11 +708,17 @@ def main() -> None:
     ap.add_argument("--grid", type=float, default=4.0)
     ap.add_argument("--output-root", type=Path, default=RESOLVED, help="模型输出目录")
     ap.add_argument("--scene-root", type=Path, default=Path(os.environ.get("REALWORLD_SCENE_ROOT", SCENE_ROOT / "sites")), help="scene.json 输出目录")
+    ap.add_argument("--raw-root", type=Path, default=ASSET_ROOT / "sites", help="原始数据站点目录")
     a = ap.parse_args()
     name = a.site
     site = CFG["sites"][name]
     kind = site["kind"]
-    raw = ASSET_ROOT / "sites" / name / "raw"
+    raw = a.raw_root / name / "raw"
+    provenance_path = raw / "provenance.json"
+    if provenance_path.exists():
+        provenance = json.loads(provenance_path.read_text())
+        if any(abs(float(provenance[key]) - float(site[key])) > 1e-5 for key in ("lat", "lon")):
+            raise ValueError(f"raw origin differs from configured site {name}; fetch matching data before building")
     half = site["size_m"] / 2
     rng_py = random.Random(hash(name) & 0xffff if False else sum(map(ord, name)))
     rng = np.random.default_rng(sum(map(ord, name)))
@@ -678,6 +727,8 @@ def main() -> None:
     osm = Osm(raw / "osm.json", proj)
     bag_heights = apply_3dbag_heights(osm, raw)
     area = box(-half + 1, -half + 1, half - 1, half - 1)
+    city_rows = read_normalized(raw / "city_model.json") if site.get("provider") == "berlin" else []
+    city_rows = [r for r in city_rows if any(area.contains(Point(p[0], p[1])) for surface in r.get("surfaces", []) for p in surface.get("vertices", []))]
     out = a.output_root / name
     shutil.rmtree(out, ignore_errors=True)
     (out / "meshes").mkdir(parents=True)
@@ -719,6 +770,18 @@ def main() -> None:
             fac = facade_for(t, h, rr)
             front = rr.choice(["storefront_a", "storefront_b"]) if h > 9 and mn == 0 and kind in {"urban", "coast"} and not fac.startswith("metal") else None
             buildings.append({"poly": g, "tags": t, "h": h, "min_h": mn, "facade": fac, "front": front, "id": oid})
+    city_bounds = []
+    for row in city_rows:
+        pts = [p for surface in row.get("surfaces", []) for p in surface.get("vertices", [])]
+        hull = shapely.MultiPoint([(p[0], p[1]) for p in pts]).convex_hull
+        if hull.geom_type == "Polygon" and hull.area >= 8 and hull.distance(Point(0, 0)) >= PAD_R:
+            city_bounds.append(hull)
+        else:
+            row["surfaces"] = []
+    city_rows = [row for row in city_rows if row["surfaces"]]
+    if city_bounds:
+        city_cover = unary_union(city_bounds)
+        buildings = [b for b in buildings if b["poly"].intersection(city_cover).area < b["poly"].area * 0.5]
     print("buildings", len(buildings), "max h", max([b["h"] for b in buildings], default=0), flush=True)
 
     # ---- Roads
@@ -881,6 +944,11 @@ def main() -> None:
             idx = np.arange(k * k).reshape(k, k)
             f = np.vstack([np.c_[idx[:-1, :-1].ravel(), idx[:-1, 1:].ravel(), idx[1:, 1:].ravel()],
                            np.c_[idx[:-1, :-1].ravel(), idx[1:, 1:].ravel(), idx[1:, :-1].ravel()]])
+            # The fine core replaces these triangles. Merely lifting it by
+            # 4 cm still intersects the coarser terrain on slopes, producing
+            # large rectangular patches from two different image atlases.
+            centers = v[f, :2].mean(axis=1)
+            f = f[~((np.abs(centers[:, 0]) < 300) & (np.abs(centers[:, 1]) < 300))]
             write_obj(out / "meshes" / f"ground_{i}_{j}.obj", v, vt, nrm.reshape(-1, 3), f)
             vis_xml.append(pbr_visual(f"ground_{i}_{j}", f"model://{name}/meshes/ground_{i}_{j}.obj", f"model://{name}/textures/ground_{i}_{j}.jpg", 0.95))
     roof_atlas = Image.fromarray(mosaic[..., :3]).resize((1024, 1024), Image.LANCZOS)
@@ -946,8 +1014,11 @@ def main() -> None:
                     edge = line.parallel_offset(line.length and (next(r["width"] for r in road_lines if r.get("bridge") and r["line"] is line) / 2 + 0.35) or 1.0, "left" if side > 0 else "right")
                 except (StopIteration, ValueError, shapely.errors.GEOSException):
                     edge = line
-                pts = [(p[0], p[1], terrain.z(p[0], p[1]) + elev + 1.05) for p in edge.coords]
-                add_line_prism(bridge_bin, pts, 0.12, 1.0)
+                for segment in (edge.geoms if hasattr(edge, "geoms") else [edge]):
+                    if segment.geom_type != "LineString" or segment.is_empty:
+                        continue
+                    pts = [(p[0], p[1], terrain.z(p[0], p[1]) + elev + 1.05) for p in segment.coords]
+                    add_line_prism(bridge_bin, pts, 0.12, 1.0)
             npiers = max(1, int(line.length / 28.0))
             for k in range(1, npiers + 1):
                 p = line.interpolate(line.length * k / (npiers + 1))
@@ -965,8 +1036,11 @@ def main() -> None:
                     edge = line.parallel_offset(0.72, "left" if side > 0 else "right")
                 except (ValueError, shapely.errors.GEOSException):
                     edge = line
-                pts = [(p[0], p[1], terrain.z(p[0], p[1]) + 0.20) for p in edge.coords]
-                add_line_prism(rail_bin, pts, 0.09, 0.12)
+                for segment in (edge.geoms if hasattr(edge, "geoms") else [edge]):
+                    if segment.geom_type != "LineString" or segment.is_empty:
+                        continue
+                    pts = [(p[0], p[1], terrain.z(p[0], p[1]) + 0.20) for p in segment.coords]
+                    add_line_prism(rail_bin, pts, 0.09, 0.12)
             for s in np.arange(0.0, line.length, 1.8):
                 p = line.interpolate(s); q = line.interpolate(min(line.length, s + 0.1))
                 add_box(rail_bin, (p.x, p.y, terrain.z(p.x, p.y) + 0.08), (2.0, 0.18, 0.16), math.atan2(q.y - p.y, q.x - p.x))
@@ -993,6 +1067,7 @@ def main() -> None:
         fence_bin = MeshBin()
         for line, tags in fence_lines:
             h = 1.8 if tags.get("barrier") == "fence" else 2.2
+            line = shapely.segmentize(line, max_segment_length=2.0)
             pts = [(x, y, terrain.z(x, y) + h / 2) for x, y in line.coords]
             add_line_prism(fence_bin, pts, 0.08, h)
         tris = fence_bin.write(out / "meshes" / "fences.obj")
@@ -1044,6 +1119,8 @@ def main() -> None:
         add_building(bins, roof_bin, parapet_bin, equipment_bins, coll_bin, b, terrain, half)
     for fac, bin_ in bins.items():
         tris = bin_.write(out / "meshes" / f"facade_{fac}.obj")
+        if not tris:
+            continue
         src_fac = out / "textures" / f"facade_{fac}.jpg"
         if not src_fac.exists():
             Image.open(facade_dir / f"{fac}.jpg").resize((768, 768), Image.LANCZOS).save(src_fac, quality=90)
@@ -1070,15 +1147,24 @@ def main() -> None:
         coll_bin.write(out / "meshes" / "buildings_collision.obj")
         coll_xml.append(f'<collision name="buildings"><geometry><mesh><uri>model://{name}/meshes/buildings_collision.obj</uri></mesh></geometry></collision>')
 
+    city_stats = (0, 0, 0)
+    if city_rows:
+        # Orthophoto roofs; walls are explicitly a fallback, not photographed facades.
+        Image.fromarray(mosaic[..., :3]).resize((4096, 4096), Image.LANCZOS).save(out / "textures" / "city_texture.jpg", quality=88)
+        city_stats = add_city_model(city_rows, out, terrain, half)
+        if city_stats[1]:
+            vis_xml.append(pbr_visual("city_buildings", f"model://{name}/meshes/city_buildings.obj", f"model://{name}/textures/city_texture.jpg", 0.85, double=True))
+            coll_xml.append(f'<collision name="city_buildings"><geometry><mesh><uri>model://{name}/meshes/city_buildings_collision.obj</uri></mesh></geometry></collision>')
+
     # ---- Placements for make_world.py
-    bpolys = [b["poly"] for b in buildings]
+    bpolys = [b["poly"] for b in buildings] + city_bounds + water_polys
     blocked = rasterize(bpolys + all_road, half, mosaic_res(mosaic, half)) if bpolys or all_road else None
     if blocked is not None:
         blocked = np.flipud(blocked)
     trees = find_trees(np.flipud(mosaic).copy() if False else np.flipud(mosaic), half, rng, np.flipud(blocked) if blocked is not None else None, a.max_trees)
     # Trees are the primary visual prop; keep detected crowns and budget remaining props afterward.
     print("trees", len(trees), "(4M prop triangle budget)", flush=True)
-    scene = placements(name, kind, osm, buildings, road_lines, trees, terrain, area, rng_py)
+    scene = placements(name, kind, osm, buildings, road_lines, trees, terrain, area, rng_py, city_bounds + water_polys)
     # Keep the global tree budget across image detections and land-use sampling.
     # The latter adds useful variety but must not turn a 2500-tree scene into a
     # much denser prop field on urban sites.
@@ -1108,10 +1194,10 @@ def main() -> None:
             merger.add(o["cat"], o["x"], o["y"], o["z"], o["yaw"], o.get("s", 1.0))
     vis_xml += merger.write(write_obj, face_normals_to_vertex)
     if kind == "industrial":
-        n_containers = add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml)
+        n_containers = add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml, water_polys=water_polys)
         print("containers", n_containers, flush=True)
     print("merged groups", len(merger.groups), flush=True)
-    write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch)
+    ground_classes = write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm if site.get("provider") == "global" else None)
     # ---- Model files
     provenance = json.loads((raw / "provenance.json").read_text()) if (raw / "provenance.json").exists() else {}
     attributions = [source.get("attribution") for source in provenance.get("sources", {}).values()
@@ -1126,17 +1212,8 @@ def main() -> None:
 
     texture_decoded = 0
     for tex_path in (out / "textures").iterdir():
-        # The 3 GiB rendering budget covers terrain/building/road textures. Prop
-        # textures have their own decoded byte statistic below and are capped by
-        # the asset-library processing step.
-        if tex_path.name.startswith("inst_"):
-            continue
-        try:
-            with Image.open(tex_path) as im:
-                channels = len(im.getbands())
-                texture_decoded += im.width * im.height * channels * 4 * 4 // 3
-        except (OSError, ValueError):
-            continue
+        with Image.open(tex_path) as im:
+            texture_decoded += im.width * im.height * 4 * 4 // 3
     triangle_total = 0
     for mesh_path in (out / "meshes").glob("*.obj"):
         try:
@@ -1144,7 +1221,7 @@ def main() -> None:
         except OSError:
             pass
     texture_decoded_gib = texture_decoded / 2**30
-    print(f"texture_decoded_with_mips={texture_decoded_gib:.3f}/3.000 GiB triangles={triangle_total}", flush=True)
+    print(f"texture_decoded_with_mips={texture_decoded_gib:.3f}/2.000 GiB triangles={triangle_total}", flush=True)
     texture_bytes = sum((lambda im: im.width * im.height * 4)(Image.open(p)) for p in (out / "textures").glob("*") if p.is_file())
     prop_texture_bytes = sum((lambda im: im.width * im.height * 4)(Image.open(p)) for p in (out / "textures").glob("inst_*") if p.is_file())
     prop_categories: dict[str, dict[str, int]] = {}
@@ -1155,14 +1232,18 @@ def main() -> None:
         row["triangles"] += stats["triangles"]
     merged_tree_instances = sum(stats["instances"] for slug, stats in merger.stats.items()
                                 if ASSET_BY_SLUG.get(slug, {}).get("category") in {"broadleaf_tree", "conifer"})
-    scene.update({"site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
-                  "stats": {"buildings": len(buildings), "trees": merged_tree_instances, "tree_candidates": len(scene["trees"]), "road_km": sum(r["line"].length for r in road_lines) / 1000,
+    scene.update({"raw_dir": str(raw.resolve()), "site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
+                  "stats": {"ground_class_pixels": ground_classes, "city_model_buildings": city_stats[0], "city_model_triangles": city_stats[1],
+                            "city_model_texture_bytes": (out / "textures/city_texture.jpg").stat().st_size if city_stats[1] else 0,
+                            "buildings": len(buildings) + len(city_rows), "trees": merged_tree_instances, "tree_candidates": len(scene["trees"]), "road_km": sum(r["line"].length for r in road_lines) / 1000,
                             "water_polygons": len(water_polys), "bridges": sum(len(v) for v in bridge_features.values()),
-                            "texture_decoded_gib": round(texture_decoded_gib, 3), "texture_budget_gib": 3.0, "triangles": triangle_total,
+                            "texture_decoded_gib": round(texture_decoded_gib, 3), "texture_budget_gib": 2.0, "triangles": triangle_total,
+                            "mesh_buffer_estimate_bytes": triangle_total * 3 * (32 + 4),
                             "prop_triangles": int(sum(v["triangles"] for v in merger.stats.values())), "prop_instances": int(sum(v["instances"] for v in merger.stats.values())),
                             "prop_by_category": prop_categories, "prop_by_asset": merger.stats,
                             "decoded_texture_bytes": int(texture_bytes), "decoded_prop_texture_bytes": int(prop_texture_bytes)},
-                  "footprints": [[round(v, 1) for v in b["poly"].bounds] + [round(b["h"], 1)] for b in buildings]})
+                  "water_areas": [shapely.geometry.mapping(p) for p in water_polys if not p.is_empty],
+                  "footprints": [[round(v, 1) for v in b["poly"].bounds] + [round(b["h"], 1)] for b in buildings] + [[*map(float, p.bounds), float(row.get("height", 8))] for p, row in zip(city_bounds, city_rows)]})
     scene_dir = a.scene_root / name
     scene_dir.mkdir(parents=True, exist_ok=True)
     (scene_dir / "scene.json").write_text(json.dumps(scene, ensure_ascii=False, indent=2))
@@ -1170,7 +1251,7 @@ def main() -> None:
     print("prop categories", json.dumps(merger.stats, ensure_ascii=False, sort_keys=True), flush=True)
 
 
-def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml, radius=900.0) -> int:
+def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml, radius=900.0, water_polys=()) -> int:
     """Stack 3-D containers where the aerial shows a busy yard, aligned with the main road."""
     longest = max((r for r in road_lines if r["line"].distance(Point(0, 0)) < radius), key=lambda r: r["line"].length)
     c = np.array(longest["line"].coords)
@@ -1181,7 +1262,7 @@ def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng,
     win = max(3, int(6.0 / res))
     mean = ndi.uniform_filter(lum, win)
     rough = np.sqrt(np.maximum(ndi.uniform_filter(lum * lum, win) - mean * mean, 0))
-    blocked = unary_union([b["poly"].buffer(3) for b in buildings] + [r["line"].buffer(r["width"] / 2 + 3) for r in road_lines] + [Point(0, 0).buffer(PAD_R + 25)])
+    blocked = unary_union([b["poly"].buffer(3) for b in buildings] + [r["line"].buffer(r["width"] / 2 + 3) for r in road_lines] + [Point(0, 0).buffer(PAD_R + 25)] + [p.buffer(10) for p in water_polys])
     tree = STRtree(list(blocked.geoms) if hasattr(blocked, "geoms") else [blocked])
     colors = [(166, 60, 44), (44, 86, 128), (196, 196, 190), (60, 112, 78), (176, 124, 52), (92, 92, 98)]
     bins = [MeshBin() for _ in colors]
@@ -1229,7 +1310,7 @@ def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng,
     return count
 
 
-def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch) -> None:
+def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm=None) -> dict[str, int]:
     """Sharp ground around the takeoff point: the aerial photo sets colour, CC0 photos add fine detail."""
     core_half = 300.0
     px = 8192
@@ -1284,8 +1365,66 @@ def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch
     g = ndi.gaussian_filter(np.clip((vegetation - threshold) / span, 0, 1), 6)
     s = ndi.gaussian_filter(np.clip((rgb[..., 0] - rgb[..., 2]) / 40.0, 0, 1), 6) * (1 - g)
     c = np.clip(1 - g - s, 0, 1)
+    # Sentinel is a low-frequency reference. OSM polygons decide the local class so
+    # 10 m pixels do not turn roads, parks and water into the same blurry surface.
+    class_masks: dict[str, np.ndarray] = {}
+    if osm is not None:
+        class_polys: dict[str, list] = {"water": [], "wood": [], "grass": [], "soil": [], "urban": []}
+        for w in osm.ways:
+            t = w["tags"]
+            key = None
+            if t.get("natural") == "water" or t.get("waterway"):
+                key = "water"
+            elif t.get("natural") == "wood" or t.get("landuse") in {"forest", "wood"}:
+                key = "wood"
+            elif t.get("natural") in {"grassland", "scrub", "heath"} or t.get("landuse") in {"grass", "meadow", "recreation_ground", "village_green"} or t.get("leisure") == "park":
+                key = "grass"
+            elif t.get("landuse") in {"farmland", "orchard", "vineyard", "allotments", "brownfield", "construction"}:
+                key = "soil"
+            elif t.get("landuse") in {"commercial", "industrial", "residential", "retail"} or t.get("amenity"):
+                key = "urban"
+            if key and w["closed"] and len(w["pts"]) >= 4:
+                p = Polygon(w["pts"]).buffer(0).intersection(box(-core_half, -core_half, core_half, core_half))
+                if not p.is_empty:
+                    class_polys[key].append(p)
+        for feature in osm.rel_polys:
+            t, p = feature["tags"], feature["poly"]
+            if t.get("natural") == "water" or t.get("waterway"):
+                key = "water"
+            elif t.get("natural") == "wood" or t.get("landuse") in {"forest", "wood"}:
+                key = "wood"
+            elif t.get("natural") in {"grassland", "scrub", "heath"} or t.get("landuse") in {"grass", "meadow", "recreation_ground", "village_green"} or t.get("leisure") == "park":
+                key = "grass"
+            elif t.get("landuse") in {"farmland", "orchard", "vineyard", "allotments", "brownfield", "construction"}:
+                key = "soil"
+            elif t.get("landuse") in {"commercial", "industrial", "residential", "retail"} or t.get("amenity"):
+                key = "urban"
+            else:
+                key = None
+            if key:
+                p = p.buffer(0).intersection(box(-core_half, -core_half, core_half, core_half))
+                if not p.is_empty:
+                    class_polys[key].append(p)
+        for key, polys in class_polys.items():
+            if polys:
+                mask = rasterize(polys, core_half, res)
+                class_masks[key] = ndi.gaussian_filter(np.flipud(mask).astype(np.float32), 1.2)
+    class_colors = {
+        "water": np.array([72, 128, 158], np.float32),
+        "wood": np.array([52, 105, 58], np.float32),
+        "grass": np.array([98, 142, 72], np.float32),
+        "soil": np.array([142, 119, 83], np.float32),
+        "urban": np.array([126, 126, 121], np.float32),
+    }
+    weights = np.zeros(rgb.shape[:2], np.float32)
+    classified = np.zeros_like(rgb)
+    for key, mask in class_masks.items():
+        m = np.clip(mask, 0, 1) * (1 - weights)
+        classified += m[..., None] * class_colors[key]
+        weights += m
+    classified += (1 - weights)[..., None] * rgb
     d = 1 + g * 0.24 * grass + s * 0.18 * soil + c * 0.07 * conc
-    out_rgb = np.clip(rgb * d[..., None], 0, 255).astype(np.uint8)
+    out_rgb = np.clip(((classified * 0.78 + rgb * 0.22) if osm is not None else rgb) * d[..., None], 0, 255).astype(np.uint8)
     Image.fromarray(out_rgb).save(out / "textures" / "ground_core.jpg", quality=88)
     k = 301
     ax = np.linspace(-core_half, core_half, k)
@@ -1301,6 +1440,7 @@ def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch
     vt = np.column_stack([(xx.ravel() + core_half) / (2 * core_half), (yy.ravel() + core_half) / (2 * core_half)])
     write_obj(out / "meshes" / "ground_core.obj", v, vt, nrm.reshape(-1, 3), f)
     vis_xml.append(pbr_visual("ground_core", f"model://{name}/meshes/ground_core.obj", f"model://{name}/textures/ground_core.jpg", 0.95))
+    return {key: int(np.count_nonzero(mask > 0.5)) for key, mask in class_masks.items()}
 
 
 def mosaic_res(mosaic: np.ndarray, half: float) -> float:
@@ -1321,9 +1461,9 @@ def along(line: LineString, spacing: float, offset: float, rng: random.Random):
         s += spacing * rng.uniform(0.7, 1.3)
 
 
-def placements(name, kind, osm, buildings, road_lines, trees, terrain, area, rng) -> dict:
+def placements(name, kind, osm, buildings, road_lines, trees, terrain, area, rng, city_bounds=()) -> dict:
     """Decide where discrete objects go; everything is on the real road network or at OSM nodes."""
-    bld = [b["poly"] for b in buildings]
+    bld = [b["poly"] for b in buildings] + list(city_bounds)
     btree = STRtree(bld) if bld else None
     objs = []
 

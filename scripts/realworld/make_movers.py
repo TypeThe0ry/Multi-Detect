@@ -107,7 +107,7 @@ def main() -> None:
         print(rig(slug), flush=True)
     boat_src = LIBRARY / "rc_boat"
     if boat_src.exists():
-        temp_src = OUT.parent / "rc_boat"
+        temp_src = OUT / "sources" / "rc_boat"
         if not temp_src.exists():
             shutil.copytree(boat_src, temp_src)
         print(rig("rc_boat", temp_src), flush=True)

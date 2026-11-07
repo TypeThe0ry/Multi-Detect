@@ -150,10 +150,6 @@ def evaluate_episode(
     takeoff_success = bool(
         local_altitudes and max(local_altitudes) >= max(0.5, target_altitude_m * 0.8)
     )
-    if episode.get("takeoff_altitude_m") is not None:
-        takeoff_success = (
-            takeoff_success or float(episode["takeoff_altitude_m"]) >= target_altitude_m * 0.8
-        )
     if profile.category == "vtol":
         transition_success = 4 in vtol_states or 5 in vtol_states
     else:
@@ -449,6 +445,10 @@ def main(argv: list[str] | None = None) -> int:
         "--telemetry-port",
         str(args.telemetry_port),
     ]
+    if args.airframe == "x500_gimbal":
+        # The image's stock 720p camera differs from the calibrated RGB/depth
+        # overlay. Mount the existing aligned sensor set before CameraInfo validation.
+        command.append("--segmentation")
     if plan["takeoff_method"] in {"hand", "catapult"}:
         command.extend(["--takeoff-method", plan["takeoff_method"]])
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)

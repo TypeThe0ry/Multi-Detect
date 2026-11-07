@@ -9,10 +9,12 @@ match the Gazebo ENU frame directly.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
 import requests
@@ -299,6 +301,12 @@ def stac_items(url: str, collection: str, lat: float, lon: float, half: float, *
     return list(catalog.search(collections=[collection], bbox=[w, s, e, n], max_items=500).items())
 
 
+def public_asset_url(href: str) -> str:
+    """Keep provenance reproducible without persisting temporary signed query tokens."""
+    parts = urlsplit(href)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 def rasterize_stac_items(items, asset_key: str, lat: float, lon: float, bounds, size, *, bands=None, dtype=None):
     import rasterio
     from rasterio.crs import CRS
@@ -478,9 +486,16 @@ def fetch_global(out: Path, lat: float, lon: float, half: float) -> dict:
         for i in range(nt):
             tile = rgba[j*TILE_CRS_PX:(j+1)*TILE_CRS_PX, i*TILE_CRS_PX:(i+1)*TILE_CRS_PX]
             save_rgba(tile, out / f"naip_{i}_{j}.png")
+    dem_item = dem_items[0]
     return {"imagery_years": [image.datetime.year] if image.datetime else [],
-            "dem_years": [dem_items[0].datetime.year] if dem_items[0].datetime else [],
-            "cloud_cover_percent": image.properties.get("eo:cloud_cover")}
+            "dem_years": [dem_item.datetime.year] if dem_item.datetime else [],
+            "cloud_cover_percent": image.properties.get("eo:cloud_cover"),
+            "imagery_item_id": image.id, "imagery_datetime": image.datetime.isoformat() if image.datetime else None,
+            "imagery_gsd_m": image.properties.get("gsd", 10.0),
+            "imagery_asset_urls": {k: public_asset_url(v.href) for k, v in image.assets.items() if k in {"visual", "B02", "B03", "B04"}},
+            "dem_item_id": dem_item.id, "dem_datetime": dem_item.datetime.isoformat() if dem_item.datetime else None,
+            "dem_asset_url": public_asset_url(dem_item.assets[dem_key].href),
+            "raster_grid_res_m": 2 * half / max(n - 1, 1)}
 
 
 def _download_city_index(out: Path, url: str, name: str) -> str:
@@ -503,8 +518,7 @@ def _berlin_tile_for_site(lat: float, lon: float) -> str:
     exact = next((u for u in links if u.endswith(stem)), None)
     if exact:
         return exact
-    # Feed numbering changed once; use the first tile as a deterministic fallback.
-    return next(u for u in links if "/LoD2_" in u and u.endswith(".zip"))
+    raise ValueError(f"Berlin feed has no tile covering the requested origin: {stem}")
 
 
 def fetch_city_model(out: Path, provider: str, lat: float, lon: float, half: float) -> dict:
@@ -516,46 +530,11 @@ def fetch_city_model(out: Path, provider: str, lat: float, lon: float, half: flo
     from city_models import parse_citygml, write_normalized
     if provider == "plateau":
         sha = _download_city_index(out, TOKYO_TILESET, "plateau_tileset.json")
-        # PLATEAU publishes textured glTF content below the index.  Decode a
-        # bounded sample into the same normalized surface contract; the full
-        # city remains available through the pinned index and OSM fallback.
-        model_path = out / "city_model.json"
-        if not model_path.exists():
-            try:
-                import trimesh
-                index = json.loads((out / "plateau_tileset.json").read_text())
-                uris = []
-                def walk(node):
-                    uri = node.get("content", {}).get("uri")
-                    if uri and uri.lower().endswith((".glb", ".gltf")):
-                        uris.append(uri)
-                    for child in node.get("children", []):
-                        walk(child)
-                walk(index.get("root", {}))
-                base = TOKYO_TILESET.rsplit("/", 1)[0] + "/"
-                rows = []
-                for uri in uris[:32]:
-                    local = out / "plateau_tiles" / uri
-                    local.parent.mkdir(parents=True, exist_ok=True)
-                    if not local.exists():
-                        local.write_bytes(get_retry(base + uri, timeout=120).content)
-                    scene = trimesh.load(str(local), force="scene")
-                    for geom in scene.geometry.values():
-                        if len(geom.faces) == 0:
-                            continue
-                        verts = np.asarray(geom.vertices, dtype=float)
-                        faces = np.asarray(geom.faces, dtype=np.int64)
-                        surfaces = [{"kind": "RoofSurface", "vertices": verts[f].tolist()} for f in faces]
-                        allv = verts.reshape(-1, 3)
-                        if np.isfinite(allv).all() and len(allv) and np.ptp(allv[:, 0]) < 1200 and np.ptp(allv[:, 1]) < 1200 and np.ptp(allv[:, 2]) < 200:
-                            rows.append({"id": uri, "height": float(allv[:, 2].max() - allv[:, 2].min()), "surfaces": surfaces})
-                if rows:
-                    write_normalized(model_path, rows, source=TOKYO_TILESET, textured=True)
-            except (ImportError, OSError, ValueError, RuntimeError) as exc:
-                print("plateau glTF sample fallback", exc, flush=True)
-        return {"model": {"name": "PLATEAU Tokyo Taito-ku LOD2 textured 3D Tiles", "url": TOKYO_TILESET,
-                           "license": "PLATEAU 利用規約（CC BY 4.0 相当の出典表示条件）", "sha256": sha,
-                           "texture": True, "note": "3D Tiles 索引和 32 个 glTF 内容已固定；其余建筑走 OSM/影像回退。"}}
+        # Index-only until the 3D Tiles hierarchy transforms and texture UVs
+        # are preserved. Raw glTF coordinates are not local ENU coordinates.
+        return {"model": {"name": "PLATEAU Tokyo Taito-ku 3D Tiles index", "url": TOKYO_TILESET,
+                           "license": "PLATEAU 利用規約（出典表示条件）", "sha256": sha,
+                           "texture": False, "note": "仅固定索引；未应用 3D Tiles 坐标变换，构建使用 OSM 回退。"}}
     if provider != "berlin":
         return {}
     url = _berlin_tile_for_site(lat, lon)
@@ -564,7 +543,7 @@ def fetch_city_model(out: Path, provider: str, lat: float, lon: float, half: flo
         archive.write_bytes(get_retry(url, timeout=300).content)
     sha = hashlib.sha256(archive.read_bytes()).hexdigest()
     gml = next((n for n in ZipFile(archive).namelist() if n.lower().endswith((".gml", ".xml"))), None)
-    if gml:
+    if gml and not (out / "city_model.json").exists():
         import tempfile
         with ZipFile(archive) as z, tempfile.TemporaryDirectory(dir=out) as td:
             p = Path(td) / Path(gml).name
@@ -580,26 +559,21 @@ def fetch_city_model(out: Path, provider: str, lat: float, lon: float, half: flo
 
 
 def fetch_city_imagery(out: Path, provider: str, lat: float, lon: float, half: float) -> dict:
-    """Use the existing local raster contract while pinning the official city imagery source."""
-    # The global path gives us a bounded, local ENU raster and avoids a second
-    # reprojection implementation.  Provenance still records the authoritative
-    # city imagery endpoint used for future replacement of this adapter.
+    """Fetch a Sentinel fallback and explicitly record its actual source."""
     years = fetch_global(out, lat, lon, half)
-    if provider == "plateau":
-        years["imagery_source"] = {"name": "GSI seamlessphoto", "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/", "license": "国土地理院 利用規約、出典表示"}
-    else:
-        years["imagery_source"] = {"name": "Berlin DOP 20 cm", "url": BERLIN_DOP_WMS, "license": "Datenlizenz Deutschland Zero 2.0"}
+    years["imagery_source"] = {"name": "Sentinel-2 L2A", "url": f"{PC_STAC}/collections/sentinel-2-l2a", "license": "Copernicus free and open data", "resolution_m": 10.0}
     return years
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("sites", nargs="*")
+    ap.add_argument("--raw-root", type=Path, help="原始数据站点目录，默认 <asset_root>/sites")
     args = ap.parse_args()
     cfg = json.loads(SITES.read_text())
     for name in args.sites or cfg["sites"]:
         site = cfg["sites"][name]
-        out = Path(cfg["asset_root"]) / "sites" / name / "raw"
+        out = (args.raw_root or Path(cfg["asset_root"]) / "sites") / name / "raw"
         out.mkdir(parents=True, exist_ok=True)
         half = site["size_m"] / 2
         wkt = local_wkt(site["lat"], site["lon"])
@@ -619,11 +593,11 @@ def main() -> None:
             dem_res_m = 0.5
         elif provider == "global":
             years = fetch_global(out, site["lat"], site["lon"], half)
-            dem_res_m = 2.0
+            dem_res_m = 30.0
         elif provider in {"plateau", "berlin"}:
             years = fetch_city_imagery(out, provider, site["lat"], site["lon"], half)
             model_source = fetch_city_model(out, provider, site["lat"], site["lon"], half)
-            dem_res_m = 2.0
+            dem_res_m = 30.0
         else:
             raise ValueError(f"unknown provider {provider!r} for {name}")
         fetch_osm(out, site["lat"], site["lon"], half)
@@ -656,15 +630,13 @@ def main() -> None:
             sources = {"dem": {"name": "Copernicus DEM GLO-30", "url": f"{PC_STAC}/collections/cop-dem-glo-30", "license": "Copernicus free and open data"},
                        "imagery": years.get("imagery_source", {}), "city_model": model_source.get("model", {})}
         downloads = []
-        if provider in {"plateau", "berlin"}:
-            import hashlib
-            for p in sorted(out.iterdir()):
-                if p.is_file() and p.name != "provenance.json":
-                    h = hashlib.sha256()
-                    with p.open("rb") as stream:
-                        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                            h.update(chunk)
-                    downloads.append({"path": p.name, "bytes": p.stat().st_size, "sha256": h.hexdigest()})
+        for p in sorted(out.rglob("*")):
+            if p.is_file() and p.name != "provenance.json":
+                h = hashlib.sha256()
+                with p.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        h.update(chunk)
+                downloads.append({"path": str(p.relative_to(out)), "bytes": p.stat().st_size, "sha256": h.hexdigest()})
         (out / "provenance.json").write_text(json.dumps({
             "site": name, "lat": site["lat"], "lon": site["lon"], "size_m": site["size_m"],
             "proj4": proj4(site["lat"], site["lon"]),

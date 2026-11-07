@@ -42,3 +42,56 @@ def test_citygml_surfaces_normalize_to_local_coordinates(tmp_path) -> None:
     assert len(rows) == 1
     assert rows[0]["surfaces"][0]["kind"] == "RoofSurface"
     assert rows[0]["surfaces"][0]["vertices"][1] == [110.0, 200.0, 10.0]
+
+
+def test_obstacle_boxes_use_native_dem_spacing_and_do_not_fill_takeoff_pad(monkeypatch, tmp_path) -> None:
+    import xml.etree.ElementTree as ET
+    from scripts.realworld import make_world
+
+    raw = tmp_path / "sites/test/raw"
+    raw.mkdir(parents=True)
+    dem = np.tile(np.arange(9, dtype=float), (9, 1))
+    np.save(raw / "dem.npy", dem)
+    monkeypatch.setattr(make_world, "DATA_ROOT", tmp_path)
+    scene = {"size_m": 400, "elevation": 4, "footprints": [
+        [-40, -40, 40, 40, 20], [90, -10, 110, 10, 12],
+    ]}
+    root = ET.fromstring("<root>" + make_world.obstacle_boxes(scene, "test") + "</root>")
+    assert len(root) == 1  # A coarse box may not block the clear launch area.
+    pose = list(map(float, root[0].findtext("pose").split()))
+    assert pose[:3] == [100.0, 0.0, 8.0]
+
+
+def test_merged_asset_is_centered_and_grounded_once() -> None:
+    from scripts.realworld.instancing import Merger, _normalize_parts
+    vertices = np.array([[-2., -1., -3.], [2., -1., 1.], [0., 1., -3.]])
+    parts = [{"v": vertices, "uv": np.zeros((3, 2)), "tex": None, "color": None}]
+    _normalize_parts(parts, "test-uncatalogued-asset")
+    assert np.allclose(parts[0]["v"].min(0), [-2., -1., 0.])
+    merger = Merger("test", None)
+    merger.parts["test-uncatalogued-asset"] = parts
+    merger.add("test-uncatalogued-asset", 20, 40, 7, 0)
+    placed = next(iter(merger.groups.values()))["v"][0]
+    assert placed[:, 2].min() == 7
+    assert placed[:, 0].min() == 18
+    assert placed[:, 0].max() == 22
+
+
+def test_city_collision_preserves_a_concave_surface(tmp_path) -> None:
+    from types import SimpleNamespace
+    from scripts.realworld.build_scene import add_city_model
+    (tmp_path / "meshes").mkdir()
+    ring = [[0, 0, 10], [4, 0, 10], [4, 1, 10], [1, 1, 10], [1, 4, 10], [0, 4, 10], [0, 0, 10]]
+    rows = [{"surfaces": [{"vertices": ring}]}]
+    add_city_model(rows, tmp_path, SimpleNamespace(elev0=0), 100)
+    vertices, faces = [], []
+    for line in (tmp_path / "meshes/city_buildings_collision.obj").read_text().splitlines():
+        bits = line.split()
+        if bits[0] == "v":
+            vertices.append(list(map(float, bits[1:])))
+        elif bits[0] == "f":
+            faces.append([int(x.split("/")[0]) - 1 for x in bits[1:]])
+    pts = np.array(vertices)[faces]
+    area = np.linalg.norm(np.cross(pts[:, 1] - pts[:, 0], pts[:, 2] - pts[:, 0]), axis=1).sum() / 2
+    assert area == pytest.approx(7)
+    assert not np.any((pts.mean(1)[:, 0] > 1) & (pts.mean(1)[:, 1] > 1))

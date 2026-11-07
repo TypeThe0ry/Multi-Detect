@@ -141,7 +141,9 @@ def _gltf_parts(path: Path) -> list[dict]:
         alpha = getattr(material, "alphaMode", "") in {"BLEND", "MASK"} if material is not None else False
         tex = None
         if image is not None:
-            tex_dir = Path(os.environ.get("TMPDIR", "/tmp")) / "realworld-gltf-textures"
+            # A build owns its extracted images; concurrent sites must never
+            # read a PNG while another process is still writing it.
+            tex_dir = Path(os.environ.get("TMPDIR", "/tmp")) / f"realworld-gltf-textures-{os.getpid()}"
             tex_dir.mkdir(parents=True, exist_ok=True)
             tex = tex_dir / f"{path.parent.name}_{gname}.png"
             image.save(tex)
@@ -250,8 +252,9 @@ def _normalize_parts(parts: list[dict], slug: str) -> None:
             keep = np.linspace(0, tri - 1, target, dtype=np.int64)
             part["v"] = vertices.reshape(-1, 3, 3)[keep].reshape(-1, 3)
             part["uv"] = uv.reshape(-1, 3, 2)[keep].reshape(-1, 2)
+    origin = np.array([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2]])
     for part in parts:
-        part["v"] = (part["v"] - lo) * scale
+        part["v"] = (part["v"] - origin) * scale
 
 
 def copy_texture(src: Path, dst: Path) -> None:
@@ -298,12 +301,10 @@ class Merger:
         c, s = math.cos(yaw), math.sin(yaw)
         rot = np.array([[c, -s], [s, c]])
         cell = (int(x // GRID_M), int(y // GRID_M))
-        cat = CATALOG.get(slug)
-        lift = -cat["bbox_min_m"][2] * scale if cat else 0.0
         for i, p in enumerate(self.parts[slug]):
             g = self.groups.setdefault((slug, i, cell), {"v": [], "uv": []})
             v = p["v"] * scale
-            g["v"].append(np.c_[(rot @ v[:, :2].T).T + [x, y], v[:, 2] + z + lift])
+            g["v"].append(np.c_[(rot @ v[:, :2].T).T + [x, y], v[:, 2] + z])
             g["uv"].append(p["uv"])
 
     def write(self, write_obj, normals) -> list[str]:
@@ -321,8 +322,7 @@ class Merger:
                     dst = f"inst_{slug}_{i}{p['tex'].suffix.lower()}"
                     copy_texture(p["tex"], self.out / "textures" / dst)
                     tex_done[p["tex"]] = dst
-                alpha = "<transparency>0.55</transparency>" if p.get("alpha") else ""
-                mat = (f"<material><diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><double_sided>true</double_sided>{alpha}<pbr><metal>"
+                mat = (f"<material><diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><double_sided>true</double_sided><pbr><metal>"
                        f"<albedo_map>model://{self.site}/textures/{tex_done[p['tex']]}</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>")
             else:
                 col = p["color"] or (0.5, 0.5, 0.5)

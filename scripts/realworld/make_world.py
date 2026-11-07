@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from shapely.geometry import LineString, shape
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -30,7 +31,7 @@ OUT = Path(os.environ.get("RW_WORLD_OUT", ROOT / "simulation/gazebo/worlds"))
 GUST_PERIOD_S = 18.0
 WEATHER = {
     "partly_cloudy": {"sky": "cloudy", "ambient": (0.42, 0.43, 0.46), "bg": (0.62, 0.74, 0.92), "sun": (-0.30, 0.35, -0.88), "i": 0.76, "dif": (1, 0.97, 0.92), "shadows": True},
-    "clear_noon": {"sky": "noon", "ambient": (0.40, 0.42, 0.45), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.82, "dif": (1, 0.98, 0.93), "shadows": True},
+    "clear_noon": {"sky": "noon", "ambient": (0.48, 0.50, 0.53), "bg": (0.62, 0.74, 0.92), "sun": (0.35, -0.25, -0.90), "i": 0.82, "dif": (1, 0.98, 0.93), "shadows": True},
     "morning": {"sky": "sunrise", "ambient": (0.40, 0.39, 0.42), "bg": (0.82, 0.76, 0.68), "sun": (-0.75, -0.20, -0.42), "i": 0.76, "dif": (1, 0.82, 0.62), "shadows": True},
     "evening": {"sky": "sunset", "ambient": (0.36, 0.33, 0.36), "bg": (0.80, 0.60, 0.48), "sun": (0.80, 0.15, -0.28), "i": 0.68, "dif": (1, 0.62, 0.40), "shadows": True},
     "overcast": {"sky": "overcast", "ambient": (0.52, 0.53, 0.56), "bg": (0.72, 0.74, 0.77), "sun": (0.2, 0.15, -0.95), "i": 0.24, "dif": (0.9, 0.92, 0.95), "shadows": False},
@@ -180,6 +181,8 @@ def _actor(name: str, skin: str, anim: str, kind: str, pts: list[tuple], speed: 
            height: float = 0.0, length: float = 260.0, delay: float = 0.0, scale: float = 1.0,
            loop_route: bool = False, pause_s: float = 0.0) -> str:
     """Create a timed actor route with optional looping and initial phase delay."""
+    if len(pts) < 2:
+        return ""
     xy = [(p[0], p[1], p[2]) for p in pts]
     s = 0.0
     keep = [xy[0]]
@@ -221,7 +224,9 @@ def _actor(name: str, skin: str, anim: str, kind: str, pts: list[tuple], speed: 
 
 def movers(routes: list[dict], rng: random.Random, kind: str, count_scale: float = 1.0) -> str:
     out = []
-    common = ["hatchback", "hatchback_blue", "hatchback_red", "suv", "pickup", "prius_hybrid"]
+    if count_scale <= 0:
+        return ""
+    common = ["hatchback", "hatchback_blue", "suv", "pickup", "prius_hybrid"]
     vehicle_sets = {
         "urban": common + ["bus", "ambulance", "fire_truck"],
         "suburb": common + ["bus", "fire_truck"],
@@ -249,7 +254,7 @@ def movers(routes: list[dict], rng: random.Random, kind: str, count_scale: float
                     continue
                 for rev, endpoint in ((False, cand["pts"][0]), (True, cand["pts"][-1])):
                     d = math.hypot(endpoint[0] - tail[0], endpoint[1] - tail[1])
-                    if d <= 28.0 and (best is None or d < best[0]):
+                    if d <= 0.5 and (best is None or d < best[0]):
                         best = (d, j, rev, cand)
             if best is None:
                 break
@@ -273,14 +278,14 @@ def movers(routes: list[dict], rng: random.Random, kind: str, count_scale: float
         speed = {"primary": 13.0, "secondary": 11.0, "tertiary": 8.0, "residential": 6.0, "unclassified": 6.0, "service": 4.0}.get(road_class, 7.0)
         for j in range(n):
             slug = vehicles[(vehicle_i + rng.randrange(len(vehicles))) % len(vehicles)]
-            # Put cars at distinct route phases; the delay keeps following vehicles separated at loop start.
-            phase = int(j * max(1, (len(pts) - 1) / n))
-            route_pts = pts[phase:] + pts[:phase + 1]
+            # Delays keep following vehicles separated at the route start.
+            # Open roads must return along the road, never close with a cross-block chord.
+            route_pts = pts if j % 2 == 0 else list(reversed(pts))
             lane = (r["width"] / 4) * (1 if j % 2 == 0 else -1)
             gap = 3.0 + j * (max(24.0, len(pts) * 12 / n) / speed)
             mesh = f"model://rw_movers/meshes/{slug}.dae"
             out.append(_actor(f"rw_car_{vehicle_i:02d}", mesh, mesh, "drive", route_pts, speed, lane, 0.0,
-                              length=(len(route_pts) - 1) * 12.0, delay=gap, loop_route=True))
+                              length=sum(math.dist(a[:2], b[:2]) for a, b in zip(route_pts, route_pts[1:])) + 1, delay=gap, loop_route=False))
             vehicle_i += 1
     if kind != "mountain":
         desired = min(60, max(1, round({"urban": 40, "coast": 36, "industrial": 28, "suburb": 24, "rural": 14}.get(kind, 24) * count_scale)))
@@ -303,7 +308,7 @@ def obstacle_boxes(scene: dict, site: str, radius: float = 350.0, limit: int = 8
 
     The merged building mesh keeps exact collision; these only add coarse bounds at low entity cost.
     """
-    dem = np.load(DATA_ROOT / "sites" / site / "raw" / "dem.npy")
+    dem = np.load(Path(scene.get("raw_dir", DATA_ROOT / "sites" / site / "raw")) / "dem.npy")
     half = scene["size_m"] / 2
     n = dem.shape[0]
     near = sorted(scene["footprints"], key=lambda f: math.hypot((f[0] + f[2]) / 2, (f[1] + f[3]) / 2))
@@ -312,8 +317,14 @@ def obstacle_boxes(scene: dict, site: str, radius: float = 350.0, limit: int = 8
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
         if math.hypot(cx, cy) > radius:
             break
-        col = min(n - 1, max(0, int((cx + half) / 2.0)))
-        row = min(n - 1, max(0, int((cy + half) / 2.0)))
+        # An AABB can cover the clear courtyard of an L-shaped building.
+        # Exact building collisions remain in the merged terrain; never seal
+        # the launch pad with these auxiliary teacher bounds.
+        if x0 < 28 and x1 > -28 and y0 < 28 and y1 > -28:
+            continue
+        spacing = scene["size_m"] / max(n - 1, 1)
+        col = min(n - 1, max(0, round((cx + half) / spacing)))
+        row = min(n - 1, max(0, round((cy + half) / spacing)))
         base = float(dem[row, col]) - scene["elevation"]
         out.append(f'<model name="obstacle_{i:02d}"><static>true</static><pose>{cx:.2f} {cy:.2f} {base + h / 2:.2f} 0 0 0</pose><link name="bounds">'
                    f'<collision name="bounds_collision"><geometry><box><size>{x1 - x0:.2f} {y1 - y0:.2f} {h:.2f}</size></box></geometry></collision></link></model>')
@@ -349,16 +360,34 @@ def takeoff_lights() -> str:
         for i, (x, y) in enumerate(((-34, -34), (34, -34), (-34, 34), (34, 34))))
 
 
-def boat_actor(kind: str) -> str:
-    if kind not in {"coast", "industrial"}:
+def boat_actor(scene: dict) -> str:
+    if scene["kind"] not in {"coast", "industrial"}:
         return ""
-    # Water meshes in the coastal/port sites occupy the outer edge of the local frame.
-    pts = [(-1150.0, -620.0, 0.35), (-500.0, -650.0, 0.35), (180.0, -610.0, 0.35), (760.0, -540.0, 0.35)]
-    mesh = "model://rw_movers/meshes/rc_boat.dae"
-    return _actor("rw_boat_00", mesh, mesh, "drive", pts, 4.0, 0.0, 0.0, length=2300.0, delay=2.0, loop_route=True, scale=1.25)
+    waters = [shape(geometry).buffer(-8) for geometry in scene.get("water_areas", [])]
+    for water in sorted(waters, key=lambda poly: poly.area, reverse=True):
+        if water.is_empty:
+            continue
+        anchor = water.representative_point()
+        for angle in (0, math.pi / 2, math.pi / 4, -math.pi / 4):
+            dx, dy = math.cos(angle) * 250, math.sin(angle) * 250
+            route = LineString([(anchor.x - dx, anchor.y - dy), (anchor.x + dx, anchor.y + dy)]).intersection(water)
+            segments = list(route.geoms) if hasattr(route, "geoms") else [route]
+            line = max((part for part in segments if part.geom_type == "LineString"), key=lambda part: part.length, default=None)
+            if line is None or line.length < 80:
+                continue
+            dem = np.load(Path(scene.get("raw_dir", DATA_ROOT / "sites" / scene["site"] / "raw")) / "dem.npy")
+            from scipy.ndimage import map_coordinates
+            xy = np.asarray(line.coords)
+            half = scene["size_m"] / 2
+            spacing = scene["size_m"] / (dem.shape[0] - 1)
+            z = map_coordinates(dem, [(xy[:, 1] + half) / spacing, (xy[:, 0] + half) / spacing], order=1, mode="nearest") - scene["elevation"] + 0.25
+            pts = [(*point, float(height)) for point, height in zip(xy, z)]
+            mesh = "model://rw_movers/meshes/rc_boat.dae"
+            return _actor("rw_boat_00", mesh, mesh, "drive", pts, 4, 0, 2, length=line.length + 1, delay=2, scale=1.25)
+    return ""
 
 
-def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0) -> Path:
+def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0, out_dir: Path | None = None) -> Path:
     scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
     w = WEATHER[weather]
     wname = f"{site}__{weather}{name_suffix}"
@@ -407,7 +436,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
         label += 1
     parts.append(obstacle_boxes(scene, site))
     parts.append(movers(scene["routes"], random.Random(seed + 1), scene["kind"], mover_scale))
-    parts.append(boat_actor(scene["kind"]))
+    parts.append(boat_actor(scene))
     for k, t in enumerate(targets):
         parts.append(labelled_model(f"rw_target_{k:02d}", t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k)))
     if w.get("rain"):
@@ -424,8 +453,9 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
         parts.insert(1, f"<!-- multidetect-wind-gust amplitude_percent={min(1.0, gust / spd):.4g} period={GUST_PERIOD_S:.6g} -->")
         parts.append(f'<wind><linear_velocity>{spd * math.cos(ang):.2f} {spd * math.sin(ang):.2f} 0</linear_velocity></wind>')
     parts.append("</world></sdf>\n")
-    OUT.mkdir(parents=True, exist_ok=True)
-    path = OUT / f"{wname}.sdf"
+    destination = out_dir or OUT
+    destination.mkdir(parents=True, exist_ok=True)
+    path = destination / f"{wname}.sdf"
     path.write_text("".join(parts))
     return path
 
@@ -436,7 +466,7 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> 
     scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
     sim = Path(os.environ.get("RW_SIM_OUT", ROOT / "simulation"))
     half = scene["size_m"] / 2
-    raw = DATA_ROOT / "sites" / site / "raw"
+    raw = Path(scene.get("raw_dir", DATA_ROOT / "sites" / site / "raw"))
     dem = np.load(raw / "dem.npy")
     n = dem.shape[0]
     spacing = 50.0
@@ -493,11 +523,14 @@ def main() -> None:
     ap.add_argument("--max-trees", type=int)
     ap.add_argument("--scenario-airframe", default="x500_mono_cam")
     ap.add_argument("--mover-scale", type=float, default=1.0, help="动态车辆/行人数相对默认值的倍数，用于 RTF/SDF 预算测量")
+    ap.add_argument("--world-out-dir", type=Path)
+    ap.add_argument("--skip-scenarios", action="store_true")
     ap.add_argument("--name-suffix", default="", help="附加到世界文件名，用于并列预算样本")
     a = ap.parse_args()
     for wx in a.weather:
-        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.1, a.mover_scale))
-        write_scenario(p, a.site, a.scenario_airframe)
+        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.0, a.mover_scale), out_dir=a.world_out_dir)
+        if not a.skip_scenarios:
+            write_scenario(p, a.site, a.scenario_airframe)
         print(p, p.stat().st_size // 1024, "KB")
 
 
