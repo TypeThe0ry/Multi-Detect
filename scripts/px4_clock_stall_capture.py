@@ -651,6 +651,22 @@ def capture_stall(
         "reason": reason,
         "captured_before_container_removal": True,
         "px4_clock_diagnostics": px4_clock_diagnostics,
+        # The budget is an upper bound for subprocess timeouts only; scheduler,
+        # gdb attach and process teardown can add wall time around it.
+        "capture_budget": {
+            "gdb_total_timeout_s": round(max(0.1, float(gdb_timeout_s)), 3),
+            "topic_probe_timeout_s_per_sample": 13.0,
+            "topic_probe_timeout_s_total": 26.0,
+            "delay_s": max(0.0, float(delay_s)),
+            "ordering": [
+                "process_threads_and_transport_procfs",
+                "px4_gdb",
+                "gz_gdb",
+                "clock_topic_info",
+                "clock_topic_sample",
+                "world_stats_topic_sample",
+            ],
+        },
         "samples": [],
     }
     try:
@@ -1068,6 +1084,84 @@ def _gdb_clock_thread_classifications(document: dict[str, Any]) -> dict[str, lis
     return {"reception": list(reception.values()), "callback": list(callback.values())}
 
 
+def _parse_sensor_progress(sample: dict[str, Any]) -> dict[str, Any]:
+    """Extract monotonic sensor timestamps when PX4 listener output exposes them.
+
+    Listener output is optional and format-dependent; missing or unparsable values
+    remain unknown instead of being treated as a stalled sensor stream.
+    """
+    topics: dict[str, dict[str, Any]] = {}
+    for topic in ("sensor_combined", "vehicle_status"):
+        probe = sample.get(f"px4_listener_{topic}") or {}
+        text = str(probe.get("stdout", ""))
+        values: list[float] = []
+        for match in re.finditer(r"(?im)^\s*(?:timestamp_sample|timestamp)\s*[:=]\s*(\d+(?:\.\d+)?)", text):
+            try:
+                values.append(float(match.group(1)))
+            except ValueError:
+                continue
+        topics[topic] = {
+            "timestamps": values[-10:],
+            "latest_timestamp": values[-1] if values else None,
+            "observed": bool(values),
+            "probe_returncode": probe.get("returncode"),
+            "probe_timed_out": probe.get("timed_out"),
+        }
+    return topics
+
+
+def _compare_sensor_progress(first: dict[str, Any], second: dict[str, Any]) -> dict[str, Any]:
+    before = _parse_sensor_progress(first)
+    after = _parse_sensor_progress(second)
+    result: dict[str, Any] = {}
+    for topic in before:
+        left, right = before[topic], after[topic]
+        a, b = left.get("latest_timestamp"), right.get("latest_timestamp")
+        result[topic] = {
+            "before": left,
+            "after": right,
+            "advanced": bool(b > a) if isinstance(a, (int, float)) and isinstance(b, (int, float)) else "unknown",
+        }
+    # Camera frames are not directly sampled by this diagnostic path. Keep this
+    # explicit so a missing camera topic cannot be mistaken for camera progress.
+    return {
+        "imu": result.get("sensor_combined", {"advanced": "unknown"}),
+        "vehicle_status": result.get("vehicle_status", {"advanced": "unknown"}),
+        "camera": {"advanced": "unknown", "reason": "camera topic is not probed by the stall capture"},
+    }
+
+
+def _gz_runner_stack_classifications(document: dict[str, Any]) -> list[dict[str, Any]]:
+    """Classify only frames directly visible in Gazebo GDB snapshots."""
+    gdb = document.get("gz_gdb") or {}
+    output_path = gdb.get("output_path") or document.get("gz_gdb_output_path")
+    if not output_path:
+        return []
+    try:
+        output = Path(output_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    classifications: list[dict[str, Any]] = []
+    for snapshot, block in _gdb_blocks({"gdb": {"output_path": output_path}}):
+        lower = block.lower()
+        has_publish = "publishstats" in lower
+        has_step = "simulationrunner::step" in lower or "simulationrunner::step(" in lower
+        has_mutex = "pthread_mutex_lock" in lower or "__lll_lock_wait" in lower or "futex" in lower
+        state = (
+            "publish_stats_mutex_wait" if has_publish and has_mutex else
+            "publish_stats" if has_publish else
+            "step" if has_step else "not_observed"
+        )
+        classifications.append({
+            "snapshot": snapshot,
+            "classification": state,
+            "publish_stats_frame_observed": has_publish,
+            "step_frame_observed": has_step,
+            "mutex_wait_frame_observed": has_mutex,
+        })
+    return classifications
+
+
 def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
     """State which explanations the two samples support, with evidence limits."""
     samples = document.get("samples") if isinstance(document.get("samples"), list) else []
@@ -1217,6 +1311,11 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
         (sample.get("gz_world_stats") or {}).get("paused")
         for sample in samples[:2]
     ]
+    sensor_progress = _compare_sensor_progress(first, second)
+    gz_runner_stack = _gz_runner_stack_classifications(document)
+    publish_mutex_snapshots = [
+        row for row in gz_runner_stack if row.get("classification") == "publish_stats_mutex_wait"
+    ]
     return {
         "gz_clock_advanced": gz_advanced,
         "px4_process_status": "px4_gone" if px4_gone else next(
@@ -1231,6 +1330,12 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
         "gz_world_stopped_while_unpaused": (
             gz_advanced is False and world_pause_states == [False, False]
         ),
+        "gz_runner_stack_classification": gz_runner_stack,
+        "gz_publish_stats_mutex_wait_observed": bool(publish_mutex_snapshots),
+        "gz_publish_stats_mutex_wait_both_snapshots": len(publish_mutex_snapshots) >= 2,
+        "sensor_progress": sensor_progress,
+        "camera_progress": sensor_progress["camera"],
+        "imu_progress": sensor_progress["imu"],
         "sample_interval_s": sample_interval_s,
         "thread_deltas": deltas,
         "clock_driver_threads": clock_drivers,
@@ -1282,12 +1387,15 @@ def analyze_capture(document: dict[str, Any]) -> dict[str, Any]:
             "messages_stopped_arriving": messages_stopped_arriving,
             "callback_blocked": callback_blocked,
             "scheduling_starvation": len(starved_drivers) >= 2,
+            "gz_publish_stats_mutex_wait": len(publish_mutex_snapshots) >= 2,
         },
         "limits": [
             "Gazebo clock advancing while PX4 clock-driving threads are idle supports a bridge/lockstep boundary, but cannot separate bridge input loss from a PX4-side blocked thread.",
             "Host load per CPU and cgroup counters are context; starvation support comes from runnable clock-driving threads' scheduler wait and on-CPU deltas.",
             "The gz topic -i transport probe is stateful: it briefly registers a node and may produce OnEndRegistration discovery frames; those frames are reported as probe-affected.",
             "WorldStatistics pause state is sampled read-only and may be unavailable if the stats topic does not publish during the stall.",
+            "Camera frames are not directly probed by this capture; camera progress remains unknown unless a separate evidence path records frames.",
+            "PublishStats/Step classification is based only on visible Gazebo GDB frames; it does not identify the mutex owner or prove deadlock.",
         ],
     }
 
