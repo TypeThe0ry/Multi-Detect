@@ -533,6 +533,10 @@ class LoopConfig:
     # Passed through mission loop factories to the target-blind search policy.
     restart_route: bool = True
     count_dedupe_m: float = 4.0
+    # Fused ground estimates can be separated slightly beyond their combined
+    # sigma (28-head hydrant: 1.95 m apart vs 1.74 m combined sigma). Keep a
+    # small calibration margin without widening the ordinary footprint gate.
+    count_dedupe_sigma_factor: float = 1.15
     # Second look: after this many steps without a confirmation, fly to the far side
     # of candidates that were rejected from one side only and ask again (an object
     # can look different from behind, e.g. the grey back of a stop sign).
@@ -808,6 +812,11 @@ class LoopConfig:
             or self.ground_reid_max_steps < 0
         ):
             raise ValueError("ground_reid_max_steps must be a non-negative integer or None")
+        if (
+            not math.isfinite(self.count_dedupe_sigma_factor)
+            or self.count_dedupe_sigma_factor < 1.0
+        ):
+            raise ValueError("count_dedupe_sigma_factor must be finite and at least 1")
         if not math.isfinite(self.ground_reid_radius_m) or self.ground_reid_radius_m <= 0:
             raise ValueError("ground_reid_radius_m must be finite and positive")
         if (
@@ -3287,7 +3296,10 @@ class OnboardLoop:
             return max(
                 1.5,
                 self.config.memory_footprint_factor * footprint,
-                min(self.config.count_dedupe_m, sigma),
+                min(
+                    self.config.count_dedupe_m,
+                    self.config.count_dedupe_sigma_factor * sigma,
+                ),
             )
 
         def same_object(prior: dict[str, Any]) -> bool:
