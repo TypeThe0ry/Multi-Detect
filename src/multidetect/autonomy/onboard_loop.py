@@ -2013,17 +2013,43 @@ class OnboardLoop:
         positives = [v for v in track.identity_votes if v.get("decision") in {"confirm", "approach"}]
         if len(positives) < self.config.confirm_matches:
             return False
-        required = positives[-self.config.confirm_matches :]
-        if any(v.get("observation_bearing_deg") is None or v.get("camera_pose_ned") is None for v in required):
-            return True
-        for first, second in zip(required, required[1:]):
-            bearing_delta = abs(_wrap(float(second["observation_bearing_deg"]) - float(first["observation_bearing_deg"])))
-            pitch_a, pitch_b = first.get("observation_pitch_deg"), second.get("observation_pitch_deg")
-            pitch_delta = abs(float(pitch_b) - float(pitch_a)) if pitch_a is not None and pitch_b is not None else 0.0
-            alt_a, alt_b = first.get("camera_altitude_m"), second.get("camera_altitude_m")
-            altitude_delta = abs(float(alt_b) - float(alt_a)) if alt_a is not None and alt_b is not None else 0.0
-            if bearing_delta >= self.config.confirm_min_view_bearing_deg or pitch_delta >= self.config.confirm_min_view_pitch_deg or altitude_delta >= self.config.confirm_min_view_altitude_m:
-                return True
+        # A target is often approached through several frames before the final
+        # confirmation.  Requiring the last two votes to differ made a valid
+        # target fail when the final pair was stationary, even though an earlier
+        # positive vote came from a clearly different viewpoint.  Search the
+        # retained positive history for any qualifying pair instead.
+        for first_index, first in enumerate(positives[:-1]):
+            for second in positives[first_index + 1 :]:
+                if first.get("observation_bearing_deg") is None or first.get("camera_pose_ned") is None:
+                    return True
+                if second.get("observation_bearing_deg") is None or second.get("camera_pose_ned") is None:
+                    return True
+                bearing_delta = abs(
+                    _wrap(
+                        float(second["observation_bearing_deg"])
+                        - float(first["observation_bearing_deg"])
+                    )
+                )
+                pitch_a, pitch_b = first.get("observation_pitch_deg"), second.get(
+                    "observation_pitch_deg"
+                )
+                pitch_delta = (
+                    abs(float(pitch_b) - float(pitch_a))
+                    if pitch_a is not None and pitch_b is not None
+                    else 0.0
+                )
+                alt_a, alt_b = first.get("camera_altitude_m"), second.get("camera_altitude_m")
+                altitude_delta = (
+                    abs(float(alt_b) - float(alt_a))
+                    if alt_a is not None and alt_b is not None
+                    else 0.0
+                )
+                if (
+                    bearing_delta >= self.config.confirm_min_view_bearing_deg
+                    or pitch_delta >= self.config.confirm_min_view_pitch_deg
+                    or altitude_delta >= self.config.confirm_min_view_altitude_m
+                ):
+                    return True
         return False
 
     def _contradiction_place_key(self, track: Track) -> tuple[float, float] | None:

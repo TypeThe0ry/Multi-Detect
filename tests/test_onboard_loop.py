@@ -212,6 +212,28 @@ def test_different_bearing_positive_views_confirm() -> None:
     assert loop.confirmed is not None
 
 
+def test_earlier_independent_positive_view_survives_stationary_final_pair() -> None:
+    loop = _loop()
+    target = (0.0, 40.0)
+    poses = [(0.0, 0.0, -20.0), (0.0, 0.0, -16.0), (0.0, 0.0, -16.0)]
+    track = None
+    for index, pose in enumerate(poses):
+        current = loop.update_tracks(
+            [Detection(_box(640, 500, 30 + index), 0.9)],
+            pose_ned=pose,
+            ground_point=lambda _u, _v: target,
+            frame_id=f"frame-{index}",
+        )
+        track = current[0]
+        loop.apply_verdict(track.track_id, "confirm_target")
+        if index < len(poses) - 1:
+            loop.step_index += 1
+    _, info = loop.next_action(current, pose_ned=poses[-1], yaw_deg=0.0)
+    assert info["confirm_views"] == 3
+    assert info["confirm_views_independent"] is True
+    assert loop.confirmed is not None
+
+
 def test_identity_vote_audit_fields_are_complete() -> None:
     loop = _loop()
     pose = (1.0, 2.0, -20.0)
