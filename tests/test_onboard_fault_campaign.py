@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +20,7 @@ from scripts.run_onboard_fault_campaign import (
     PositionSetpoint,
     _build_session,
     expected_outcome,
+    observed_from_observation,
     run_campaign,
     run_climb_failure_fixture,
     schedule_faults,
@@ -56,6 +58,63 @@ def test_verdict_checks_reason_and_deadline():
     assert verdict("conservative", "hold", "stale pose", elapsed_s=0.2)["passed"]
     assert not verdict("return_now", "hold", "stale battery", elapsed_s=0.2)["passed"]
     assert not verdict("continue", "continue", "ok", elapsed_s=4, deadline_s=3)["passed"]
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "fault", "fault_at", "deadline", "expected_action", "expected_reason"),
+    [
+        ("watchdog-before-deadline.jsonl", "camera_freeze", 10.0, 10.6,
+         "conservative", "stale_camera"),
+        ("terminal-before-deadline.jsonl", "battery_sag", 20.0, 20.6,
+         "land_now", "energy"),
+        ("late-policy-worker.jsonl", "slow_model_timeout", 30.0, 30.6,
+         "conservative", "autonomy_timeout"),
+    ],
+)
+def test_verdict_timeline_regression_fixtures(
+    fixture_name, fault, fault_at, deadline, expected_action, expected_reason
+):
+    fixture = Path(__file__).parent / "fixtures" / "onboard_fault_campaign_verdict" / fixture_name
+    decisions = [json.loads(line) for line in fixture.read_text(encoding="utf-8").splitlines()]
+    end = fault_at + 3.0
+    history = [
+        {"timestamp": fault_at + 0.1, "state": {"mode": "OFFBOARD", "armed": True}},
+        {"timestamp": fault_at + 2.9, "state": {"mode": "OFFBOARD", "armed": True}},
+    ]
+    setpoints = [
+        {"timestamp": fault_at + 0.2, "accepted": True,
+         "setpoint": {"north_m": 0.0, "east_m": 0.0}},
+        {"timestamp": fault_at + 1.0, "accepted": True,
+         "setpoint": {"north_m": 0.1, "east_m": 0.0}},
+        {"timestamp": fault_at + 2.0, "accepted": True,
+         "setpoint": {"north_m": 0.2, "east_m": 0.0}},
+        {"timestamp": fault_at + 2.9, "accepted": True,
+         "setpoint": {"north_m": 0.3, "east_m": 0.0}},
+    ]
+    if fault == "battery_sag":
+        history = [
+            {"timestamp": 20.2, "state": {"mode": "OFFBOARD", "armed": True}},
+            {"timestamp": 20.5, "state": {"mode": "LAND", "armed": True}},
+            {"timestamp": 22.9, "state": {"mode": "LAND", "armed": True}},
+        ]
+        setpoints = [{"timestamp": 20.3, "accepted": True, "mode": "OFFBOARD"}]
+    observation = {
+        "fault": fault,
+        "fault_at": fault_at,
+        "react_deadline": deadline,
+        "window_end": end,
+        "mission_records": decisions,
+        "vehicle_history": history,
+        "setpoints": setpoints,
+    }
+
+    action, reason, elapsed = observed_from_observation(observation)
+    result = verdict(expected_action, observation=observation, deadline_s=deadline - fault_at)
+
+    assert action == expected_action
+    assert expected_reason in reason
+    assert elapsed <= deadline - fault_at
+    assert result["passed"], observation.get("verdict_error", "")
 
 
 def test_two_climb_timeouts_escalate_through_policy_with_durable_failure(tmp_path):
