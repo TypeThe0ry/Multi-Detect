@@ -184,3 +184,19 @@ bash -n .tmp/jobs/41-onboard-climb-fault-sitl.sh
 这次结果暴露的是作业场景配置缺陷，而不是 supervisor 保护链的反例：注入器的明确匹配条件要求 `active_skill=return_home`、纯上升动作、airborne 且高度不超过 2.5 m；现有 `operator-abort` 在约 18 m 高度开始水平返航，根本不会生成满足条件的上升 primitive。因而不能用该 run 评价“两次 timeout 后无第三次 climb”或 LAND handoff。也没有新增 PX4 LAND ACK、LAND mode confirmation 或 fresh landed-state 证据可用于该保护链；`return_now` 收尾记录不能当作 `land_now`。
 
 本次没有修改运行时代码、LAND 优先级、阈值、vehicle-loss 规则或既有断言，也没有写入共享 `artifacts/`。应修复的是下一次 SITL 作业的前置条件：在触发 abort 前把车辆置于低于 2.5 m 的 airborne 状态，并确保 return-home recovery 生成至少两个纯上升 primitive；作业末尾还必须对 timeout 数、before/after boot 与 NED 样本、失败 event/alert/escalation 做硬检查。该修复应先有作业脚本和配置测试，再重新调度单槽 SITL。
+
+## 下一次单槽 SITL 作业方案
+
+场景前置条件已落到 collector 的 SIM/onboard 专用配置 `sim_pre_abort_descent_altitude_m`。`.tmp/jobs/42-climb-fault-sitl2.sh` 从 `suite-main-r21idr3-r24plan.json` 取原有 `operator-abort` mission，仅覆盖 SIM 事件为 `t_s=0` 并打开两项注入配置：`sim_climb_timeout_injection=true`、`sim_pre_abort_descent_altitude_m=1.5`。collector 在常规 takeoff 完成后，用同一条 multirotor position-setpoint stream 保持 N/E 并下降，等 PX4 NED telemetry 报告不高于 1.75 m 才进入 onboard mission loop；随后首次 policy observation 交付零时刻 abort。Supervisor 从该低空 airborne 样本进入原有 `return_now` recovery，其既有 cruise 目标高于 1.5 m，因此应请求纯上升 primitive。两次 timeout 仍由既有 SIM injector 在同一低空窗口模拟。
+
+新选项要求 teacher 为 onboard、同时打开 SIM 爬升注入，并限制在 `[0.5, 2.5)` m；real/HIL 配置边界不能使用此选项。它不改变 takeoff 高度规则、2.5 m 保护判定、0.5 m 进展判定、LAND 优先级、collector vehicle-loss 规则或既有断言。配置单测覆盖有效 abort 场景与缺少注入开关、非 onboard teacher、越界高度等拒绝情况。
+
+作业固定使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`、一个 worker/一个 SITL slot、离线模型环境和新目录 `artifacts/benchmarks/onboard-climb-fault-sitl2-<UTC>-<PID>/`。作业末尾对生成的 episode 硬验收：两条 `return_home` 纯上升注入 timeout 的 before/after 都须 airborne 且不高于 2.5 m，PX4 boot time 严格递增、高度增益小于 0.5 m，第二次后没有上升 primitive，并且 mission log 含失败 event、alert 与 `land_now` escalation。该作业尚未运行；共享 `artifacts/` 目前只读，写入仅发生在调度方之后执行脚本时。
+
+下一步：先用 `.venv` 单进程运行 `tests/test_onboard_fault_campaign.py` 并检查 job shell 语法，再由调度方最多运行一次 `.tmp/jobs/42-climb-fault-sitl2.sh`。若硬校验失败，保留新目录及原始证据，不自动重试；回灌实际 NED/boot、mission event 和 MAVLink landing 证据，并明确区分 LAND ACK、LAND 模式与 fresh landed state。
+
+## 建议的下一个任务
+
+### 验证低空爬升故障 SITL 作业
+
+目标：只运行一次 `.tmp/jobs/42-climb-fault-sitl2.sh`，或只读分析该作业已经生成的结果，确认 abort 前的 PX4 高度低于 2.5 m、出现两次低空纯 `return_home` 上升 timeout、PX4 boot time 推进且高度增益均低于 0.5 m、第二次失败后没有上升 primitive，并记录失败 event、alert 和 `land_now` escalation。证据路径：`.tmp/jobs/42-climb-fault-sitl2.sh`、`scripts/collect_sim_teacher_episodes.py`、`tests/test_onboard_fault_campaign.py`、`artifacts/benchmarks/onboard-climb-fault-sitl2-*/`。不得自动重试，不改 LAND 优先级、保护阈值、vehicle-loss 规则或既有断言，不启动其他 SITL/Docker/HIL/真机，不下载或训练，不修改旧的共享 artifacts。将实际 step 级 NED/boot、mission log 与 MAVLink 证据追加到 `docs/onboard-climb-land-followup-20261107.md`，并分别说明 LAND ACK、模式确认、fresh landed state 是否有证据。

@@ -429,6 +429,7 @@ class CollectionPlan:
     # JSON overrides for ``--teacher onboard`` (model paths, thresholds).
     onboard_config: str | None = None
     sim_climb_timeout_injection: bool = False
+    sim_pre_abort_descent_altitude_m: float | None = None
     depth_format: str = "npy"
     # --no-depth: the frame server still streams depth (its wire contract requires
     # it); only the recorder stops persisting it.
@@ -1677,6 +1678,25 @@ def resolve_takeoff_altitude(
             raise ValueError(f"takeoff altitude must be <= {MAX_TAKEOFF_ALTITUDE_M:g} m")
         return altitude, "explicit_cli"
     return auto_takeoff_altitude_m(scenario_world_path(runtime_path))
+
+
+def sim_pre_abort_descent_altitude(config: Mapping[str, Any], *, teacher: str) -> float | None:
+    """Validate the SIM-only low-altitude setup paired with climb injection."""
+    value = config.get("sim_pre_abort_descent_altitude_m")
+    if value is None:
+        return None
+    if teacher != "onboard" or config.get("sim_climb_timeout_injection") is not True:
+        raise ValueError("sim_pre_abort_descent_altitude_m requires SIM onboard climb injection")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not 0.5 <= value < RETURN_CLIMB_NEAR_GROUND_M
+    ):
+        raise ValueError(
+            "sim_pre_abort_descent_altitude_m must be finite and in [0.5, 2.5) metres"
+        )
+    return float(value)
 
 
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
@@ -5067,6 +5087,27 @@ def run_episode(
                 )
                 _progress("takeoff_reached", method=takeoff_method)
             vehicle_loss_detector = VehicleLossDetector()
+            if plan.sim_pre_abort_descent_altitude_m is not None:
+                if setpoint_streamer is None:
+                    raise RuntimeError(
+                        "sim_pre_abort_descent_altitude_m requires a multirotor setpoint streamer"
+                    )
+                descent_altitude_m = plan.sim_pre_abort_descent_altitude_m
+                setpoint_streamer.set_target(
+                    start_pos[0], start_pos[1], -descent_altitude_m, _state_yaw(mav_reader.state)
+                )
+                _progress("sim_pre_abort_descent_started", target_altitude_m=descent_altitude_m)
+                _wait_for(
+                    lambda: (
+                        0.5 <= -_state_position(mav_reader.state)[2] <= descent_altitude_m + 0.25
+                        and _flight_state_snapshot(mav_reader.state)["landed_state"] == 2
+                    ),
+                    _episode_budget(started, plan.max_episode_s, 45.0),
+                    phase="sim_pre_abort_descent_reached",
+                    health_check=mav_reader.raise_if_failed,
+                )
+                recorder.meta["sim_pre_abort_descent_altitude_m"] = descent_altitude_m
+                recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
             climb_fault = SimClimbTimeoutInjector(
                 enabled=plan.sim_climb_timeout_injection,
                 runtime_mode="sim",
@@ -5843,6 +5884,14 @@ def main(argv: Iterable[str] | None = None) -> int:
             raise SystemExit("sim_climb_timeout_injection must be a boolean")
         if sim_climb_timeout_injection and args.teacher != "onboard":
             raise SystemExit("sim_climb_timeout_injection requires --teacher onboard")
+        try:
+            sim_pre_abort_descent_altitude_m = sim_pre_abort_descent_altitude(
+                onboard_options, teacher=args.teacher
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+    else:
+        sim_pre_abort_descent_altitude_m = None
     plan = CollectionPlan(
         str(scenario),
         str(runtime_path),
@@ -5871,6 +5920,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         takeoff_altitude_m=args.takeoff_altitude_m,
         onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
         sim_climb_timeout_injection=sim_climb_timeout_injection,
+        sim_pre_abort_descent_altitude_m=sim_pre_abort_descent_altitude_m,
         depth_format=args.depth_format,
         capture_depth=not args.no_depth,
         rgb_format=args.rgb_format,
