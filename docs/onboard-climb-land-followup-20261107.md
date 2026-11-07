@@ -144,14 +144,33 @@ bash .tmp/jobs/39-onboard-climb-land.sh
 
 调度作业 `.tmp/jobs/40-onboard-climb-fault-campaign.sh` 只调用上述定向 fixture，不跑已知有其他失败场景的整套 campaign。它使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`、`PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp`，设置 `MULTIDETECT_SITL_SLOTS=1`，并把报告写在新的 `.tmp/jobs/climb-fault-<UTC>-<PID>/report.json`，不写共享 artifacts。可用 `bash -n` 做语法检查；运行后 fixture 的 `report.json` 应列出所有保护链 checks。此作业是源级确定性 fixture 作业，不会声称运行 SITL。
 
-要真正 exercise SITL，需要 collector 增加受显式 SIM-only 配置控制的 primitive 故障注入钩子：仅匹配 `return_home` 中 `translate && up_m>0 && forward_m=right_m=yaw_delta_deg=0` 的前两次请求，保持 PX4/Gazebo 正常运行和低空 NED 样本，在执行器完成边界把这两个结果确定地报告为 `timeout`，保证每次前后 boot time 推进而实际高度增益 `<0.5 m`。其他动作和第三次请求都不得注入；断言应从落盘 steps、mission event/alert/escalation、后续 primitive 和 MAVLink 记录验证。现在没有该 collector 注入配置，单靠当前 `.tmp/jobs/40-...sh` 或 `sim_ground_events` 不能制造真实 SITL 的纯爬升 timeout，所以这项 SITL 故障注入仍是待实现项。
+本次已实现真正可由 SITL suite 选择的确定性注入。每个 mission 的 `onboard.json` 可设置 `sim_climb_timeout_injection: true`；默认值为 `false`。`scripts/collect_sim_teacher_episodes.py` 在 `--teacher onboard` 的 SIM collector 中，仅匹配 active skill 为 `return_home`、primitive 为纯正向上升 `translate`（`up_m>0` 且 forward/right/yaw 均为零）的前两次请求；before 样本还必须满足既有 2.5 m 低空阈值并有明确 airborne 证据。命中后执行器持续发送当前 NED 目标的 hold，等待 PX4 仿真时钟越过原有 completion timeout，再把原始请求记录为 `timeout`；因此 PX4 boot time 继续推进，前后低空 NED 样本没有人为高度增益。第三次及其他技能、高空/着陆/状态未知、混合位移、水平/下降动作均不注入。
+
+注入器在 `runtime_mode` 不是 `sim` 或 teacher 不是 `onboard` 时拒绝启用；`scripts/onboard_policy.py` 也在策略构造边界再次拒绝非 SIM runtime，外部 real/HIL 路径无法打开该配置。collector 通过 `active_mission_skill()` 读取 supervisor 当前 recovery 技能，命中后仍走既有 `report_primitive_outcome`，所以两次合格 timeout 之后沿用原有 failure event、alert、`land_now` escalation 和无第三次爬升行为；没有改 LAND 优先级、阈值或既有断言。
+
+新增 `.tmp/jobs/41-onboard-climb-fault-sitl.sh`：单 worker、单槽位、固定 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`，从 `suite-main-r21idr3-r24plan.json` 生成只含 `operator-abort` 的临时 suite，并按 mission 配置开启注入。作业输出使用新的 `artifacts/benchmarks/onboard-climb-fault-sitl-<UTC>-<PID>/` 目录；作业末尾的离线检查要求恰好两条注入 timeout、每条 PX4 boot time 递增且高度增益小于 0.5 m、第二次后无上升 primitive，并在 mission log 中找到失败 event、alert 与 `land_now` escalation。当前未启动 SITL，未写入共享 artifacts。
+
+## 本次实现验证
+
+使用 `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp`，`.venv` 单进程运行：
+
+```bash
+/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python -m pytest \
+  tests/test_onboard_fault_campaign.py -q -p no:xdist -o addopts=''
+python -m py_compile scripts/collect_sim_teacher_episodes.py \
+  scripts/onboard_policy.py scripts/run_onboard_fault_campaign.py \
+  tests/test_onboard_fault_campaign.py
+bash -n .tmp/jobs/41-onboard-climb-fault-sitl.sh
+```
+
+结果：定向文件单测 **21 passed**；CPU-only onboard gate **PASS（107 s）**；Python 编译检查与作业脚本语法检查通过。覆盖默认关闭、非 SIM/非 onboard 拒绝、suite 按 mission 选择、低空/airborne 负例、前两次 timeout、hold 保持当前位置以及第三次请求不再注入。离线通用 fault campaign 仍以 **1/16** 场景通过并返回失败，旧有 reason/handoff 证据问题未改动；定向 climb fixture 与此 campaign 结果分开记录。真实 SITL 作业按要求只写入 job 源码，尚未执行，因此 PX4 event/alert/LAND handoff 的 live 结果仍待调度该一槽位作业取得。
 
 ## 建议的下一个任务
 
-### 1. 分析单次 owned SITL 的 LAND 命令与事件边界
+### 1. 验证确定性爬升故障注入的单槽位 SITL 结果
 
-目标：运行或分析 `.tmp/jobs/39-onboard-climb-land.sh` 安排的唯一一次 owned disposable SITL，核对 return_home 爬升 outcome 回灌、land_now 请求、真实 PX4 ack/mode/landed state 和 up setpoint 停止边界。证据路径：`docs/onboard-climb-land-followup-20261107.md`、`docs/onboard-climb-failure-20261107.md`、`.tmp/jobs/39-onboard-climb-land.sh`、`artifacts/benchmarks/onboard-climb-land-followup-20261107-*/`、`scripts/collect_sim_teacher_episodes.py` 与 `scripts/onboard_policy.py`。若调度方已运行只分析已有输出；尚未运行时最多执行该脚本一次，串行占一个槽位，设置 MULTIDETECT_SITL_SLOTS=3、SIM_GPU_AVOID=2,3、GPU0/1，仅用 slot 0–2，不自动重试。不得修改 collector vehicle-loss、LAND 优先级、阈值或断言，不启动真机/HIL、不下载、不训练、不改共享 artifacts 既有文件。写清状态/事件时间线，分开 ack、LAND mode 和 landed；无两次稳定故障注入时明确 live gap，不能以正常降落替代失败链验收。写入 `docs/onboard-climb-land-sitl-review-20261107.md`。
+目标：最多运行一次 `.tmp/jobs/41-onboard-climb-fault-sitl.sh`，或只读分析该 job 已生成的结果，确认真实 SITL episode 有两次低空纯 return_home climb timeout、PX4 boot time 推进且高度增益低于 0.5 m、失败 event/alert、`land_now` handoff 和无第三次 climb。证据路径：`docs/onboard-climb-land-followup-20261107.md`、`.tmp/jobs/41-onboard-climb-fault-sitl.sh`、`scripts/collect_sim_teacher_episodes.py`、`scripts/onboard_policy.py`、`scripts/run_onboard_fault_campaign.py`、`tests/test_onboard_fault_campaign.py` 与 `artifacts/benchmarks/onboard-climb-fault-sitl-*/`。不得重复调度或自动重试，不改 LAND 优先级、阈值、vehicle-loss 规则或既有断言，不启动其他 SITL/Docker/HIL/真机，不下载、不训练，不改共享 artifacts 既有文件。报告 step 级 NED/boot 证据与 mission event/alert/escalation；分别标注 LAND ACK、mode confirmation、landed state 以及没有证据的边界。将实测结果追加到本文件。
 
 ### 2. 修复通用 onboard fault campaign 的证据与 handoff 验收缺口
 
-目标：使 source-level onboard fault campaign 的正常实现通过证据验收，并继续拒绝现有 mutants；区分窗口筛选错误、异步事件落盘问题与真实 terminal handoff 未升级 LAND。证据路径：`docs/onboard-climb-land-followup-20261107.md`、`scripts/run_onboard_fault_campaign.py`、`tests/test_onboard_fault_campaign.py`、`src/multidetect/onboard_runtime/runtime.py`、`.tmp/climb-fault-campaign-final/report.json` 与 `.tmp/climb-fault-campaign-final/runs/*/mission.jsonl`（若本地日志不可用，重新运行离线 source campaign 到新 `.tmp/` 目录）。重点核对 camera_freeze 等缺失窗口内 reason、gcs/fence output gap，以及 rejected_rtl/lost_rtl/blocking_command 的三次 RTL 后没有 LAND。只改必要的 fault fixture、runtime 与相关测试；不得放宽/删除 deadline、连续输出或终态断言，不改 supervisor LAND 优先级、爬升阈值、collector vehicle-loss，不新增空中 disarm，不启动 SITL/Docker/HIL/真机、训练或下载，不写 artifacts。运行相关单测、通用 campaign、CPU-only onboard gate；报告每个失败是否由源码证据解释及修复后的实测结果，写入 `docs/onboard-fault-campaign-handoff-followup-20261107.md`。
+目标：解释并修复 source-level onboard fault campaign 当前 reason/output-gap/terminal LAND handoff 验收失败，同时继续拒绝现有 mutants。证据路径：`docs/onboard-climb-land-followup-20261107.md`、`scripts/run_onboard_fault_campaign.py`、`tests/test_onboard_fault_campaign.py`、`src/multidetect/onboard_runtime/runtime.py`、`.tmp/climb-fault-injection-check/report.json` 与 `.tmp/climb-fault-injection-check/runs/*/mission.jsonl`。区分窗口筛选、异步事件落盘、真实 terminal handoff 未升级 LAND；不得放宽或删除 deadline、连续输出、终态断言，不改 supervisor LAND 优先级、爬升阈值、collector vehicle-loss，不新增空中 disarm，不启动 SITL/Docker/HIL/真机、训练或下载，不写 artifacts。运行相关单测、通用 campaign 和 CPU-only onboard gate，并将逐项证据、修复结果与测试记录写入 `docs/onboard-fault-campaign-handoff-followup-20261107.md`。

@@ -33,6 +33,7 @@ from multidetect.onboard_runtime.camera import CameraCalibration, CameraFrame  #
 from multidetect.onboard_runtime.runtime import OnboardRuntime, RuntimeConfig  # noqa: E402
 from multidetect.onboard_runtime.vehicle import PositionSetpoint, VehicleState  # noqa: E402
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
+from scripts.collect_sim_teacher_episodes import SimClimbTimeoutInjector  # noqa: E402
 
 FAULTS = (
     "camera_freeze", "camera_drop", "pose_stale", "slow_model_timeout",
@@ -781,8 +782,31 @@ def run_climb_failure_fixture(work_dir: Path) -> dict[str, Any]:
         "unverified_px4_execution": summary.get("recovery_failure", {}).get("land_execution") == "unverified",
         "summary_revision_once": len([row for row in records if row["kind"] == "final_summary"]) == 2,
     }
+    injection = SimClimbTimeoutInjector(enabled=True, runtime_mode="sim", teacher="onboard")
+    climb = ActionPrimitive.translate(0, 0, 15)
+    low_airborne = {
+        "pose": {"local_ned_m": [0.0, 0.0, -0.8]},
+        "flight_state": {"landed_state": 2},
+        "landed": False,
+    }
+    injection_contract = {
+        "default_off": not SimClimbTimeoutInjector(
+            enabled=False, runtime_mode="sim", teacher="onboard"
+        ).enabled,
+        "matches_return_home_climb": injection.matches(
+            climb, active_skill="return_home", before=low_airborne
+        ),
+        "rejects_other_skill": not injection.matches(
+            climb, active_skill="monitor", before=low_airborne
+        ),
+        "rejects_mixed_motion": not injection.matches(
+            ActionPrimitive.translate(1, 0, 15), active_skill="return_home", before=low_airborne
+        ),
+    }
+    checks["sim_injection_contract"] = all(injection_contract.values())
     report = {"mode": "deterministic-outcome-fixture", "passed": all(checks.values()),
               "checks": checks, "primitive_requests": requests, "outcomes": outcomes,
+              "sim_climb_injection_contract": injection_contract,
               "final_summary": summary, "mission_log": list(executor.mission_log),
               "supervisor_log": str(log.path),
               "px4_ack": None, "px4_mode": None, "px4_landed_state": None}

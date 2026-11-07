@@ -40,6 +40,7 @@ from multidetect.autonomy.airframe_profile import (  # noqa: E402
     airframe_uses_multirotor_executor,
     resolve_airframe_profile,
 )
+from multidetect.autonomy.mission_executor import RETURN_CLIMB_NEAR_GROUND_M  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.gimbal_controller import Px4GimbalController  # noqa: E402
@@ -427,6 +428,7 @@ class CollectionPlan:
     takeoff_altitude_m: float | None = None
     # JSON overrides for ``--teacher onboard`` (model paths, thresholds).
     onboard_config: str | None = None
+    sim_climb_timeout_injection: bool = False
     depth_format: str = "npy"
     # --no-depth: the frame server still streams depth (its wire contract requires
     # it); only the recorder stops persisting it.
@@ -1850,6 +1852,7 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
         frame_quality=plan.onboard_frame_quality,
         airframe=_onboard_airframe_id(plan),
         runtime_step_limit=plan.steps_per_episode,
+        runtime_mode="sim",
     )
     _start_sim_operator_link(plan, policy)
     return policy
@@ -2213,6 +2216,73 @@ def _apply_motion_wait_result(executed: Any, motion_wait: Mapping[str, Any]) -> 
         status="timeout",
         elapsed_s=float(executed.elapsed_s) + float(motion_wait.get("elapsed_s", 0.0)),
     )
+
+
+class SimClimbTimeoutInjector:
+    """Inject two return-home climb timeouts while holding the current NED target."""
+
+    def __init__(self, *, enabled: bool, runtime_mode: str, teacher: str) -> None:
+        if type(enabled) is not bool:
+            raise ValueError("sim_climb_timeout_injection must be a boolean")
+        if enabled and (runtime_mode != "sim" or teacher != "onboard"):
+            raise ValueError("sim_climb_timeout_injection is only available to the SIM onboard collector")
+        self.enabled = enabled
+        self.injected = 0
+
+    def matches(
+        self,
+        action: ActionPrimitive,
+        *,
+        active_skill: str | None,
+        before: Mapping[str, Any] | None,
+    ) -> bool:
+        pose = before.get("pose", {}) if isinstance(before, Mapping) else {}
+        position = pose.get("local_ned_m") if isinstance(pose, Mapping) else None
+        flight = before.get("flight_state", {}) if isinstance(before, Mapping) else {}
+        landed_state = flight.get("landed_state") if isinstance(flight, Mapping) else None
+        altitude = None
+        if isinstance(position, (list, tuple)) and len(position) >= 3:
+            try:
+                if isinstance(position[2], bool):
+                    raise ValueError("boolean NED altitude")
+                altitude = max(0.0, -float(position[2]))
+            except (TypeError, ValueError):
+                pass
+        airborne = (
+            before.get("landed") is not True
+            and (
+                landed_state == 2
+                or (landed_state is None and before.get("landed") is False)
+            )
+        ) if isinstance(before, Mapping) else False
+        return bool(
+            self.enabled
+            and self.injected < 2
+            and active_skill == "return_home"
+            and action.kind == "translate"
+            and action.up_m > 0
+            and action.forward_m == 0
+            and action.right_m == 0
+            and action.yaw_delta_deg == 0
+            and altitude is not None
+            and math.isfinite(altitude)
+            and altitude <= RETURN_CLIMB_NEAR_GROUND_M
+            and airborne
+        )
+
+    def execute(self, executor: Any, action: ActionPrimitive) -> Any:
+        """Hold in place for the executor timeout, then report the requested climb timeout."""
+        criterion = getattr(executor, "criterion", None)
+        timeout_s = float(getattr(criterion, "timeout_s", 20.0))
+        held = executor.execute(ActionPrimitive.hold(timeout_s))
+        ack = {
+            **held.ack,
+            "sim_fault_injection": "return_home_climb_timeout",
+            "requested_action": action.to_dict(),
+        }
+        result = dataclasses.replace(held, status="timeout", ack=ack)
+        self.injected += 1
+        return result
 
 
 def _policy_for(
@@ -4997,6 +5067,11 @@ def run_episode(
                 )
                 _progress("takeoff_reached", method=takeoff_method)
             vehicle_loss_detector = VehicleLossDetector()
+            climb_fault = SimClimbTimeoutInjector(
+                enabled=plan.sim_climb_timeout_injection,
+                runtime_mode="sim",
+                teacher=plan.teacher,
+            )
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
@@ -5113,6 +5188,19 @@ def run_episode(
                     )
                 else:
                     commanded_delta = primitive_to_ned(action, yaw)[:3]
+                active_skill = getattr(policy, "active_mission_skill", lambda: None)()
+                inject_climb_timeout = climb_fault.matches(
+                    step_action, active_skill=active_skill, before=before
+                )
+                if inject_climb_timeout:
+                    labels = {
+                        **labels,
+                        "sim_fault_injection": {
+                            "fault": "return_home_climb_timeout",
+                            "attempt": climb_fault.injected + 1,
+                            "active_skill": active_skill,
+                        },
+                    }
                 _progress("primitive_start", step=index, action=action.to_dict())
                 # Optional continuous capture runs during the primitive.  It only
                 # consumes already decoded latest-wins frames and never changes
@@ -5126,7 +5214,11 @@ def run_episode(
 
                 def _execute() -> None:
                     try:
-                        executed = executor.execute(action)  # noqa: B023
+                        executed = (
+                            climb_fault.execute(executor, step_action)  # noqa: B023
+                            if inject_climb_timeout  # noqa: B023
+                            else executor.execute(action)  # noqa: B023
+                        )
                         if motion is not None and executed.status == "success":  # noqa: B023
                             motion_wait = _wait_motion_command(
                                 motion,  # noqa: B023
@@ -5736,6 +5828,21 @@ def main(argv: Iterable[str] | None = None) -> int:
     runtime_path, truth_path = _scenario_channels(scenario)
     _airframe_profile(args.airframe)
     _validate_runtime(runtime_path, args.airframe)
+    sim_climb_timeout_injection = False
+    if args.onboard_config is not None:
+        try:
+            onboard_options = json.loads(args.onboard_config.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"invalid onboard config: {exc}") from exc
+        if not isinstance(onboard_options, dict):
+            raise SystemExit("onboard config must be a JSON object")
+        sim_climb_timeout_injection = onboard_options.get(
+            "sim_climb_timeout_injection", False
+        )
+        if type(sim_climb_timeout_injection) is not bool:
+            raise SystemExit("sim_climb_timeout_injection must be a boolean")
+        if sim_climb_timeout_injection and args.teacher != "onboard":
+            raise SystemExit("sim_climb_timeout_injection requires --teacher onboard")
     plan = CollectionPlan(
         str(scenario),
         str(runtime_path),
@@ -5763,6 +5870,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         extra_sim_params=tuple(tuple(item.split("=", 1)) for item in args.sim_param if "=" in item),
         takeoff_altitude_m=args.takeoff_altitude_m,
         onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
+        sim_climb_timeout_injection=sim_climb_timeout_injection,
         depth_format=args.depth_format,
         capture_depth=not args.no_depth,
         rgb_format=args.rgb_format,
