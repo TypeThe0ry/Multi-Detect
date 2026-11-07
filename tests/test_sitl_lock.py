@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import multiprocessing
+import shutil
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -125,6 +127,39 @@ def test_lock_waits_for_gate_and_releases_owned_directory(tmp_path):
     assert "start=" in lock.owner.read_text(encoding="utf-8")
     lock.release()
     assert not lock.path.exists()
+
+
+def test_lock_emits_wait_progress_when_legacy_lock_is_busy(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "lock"
+    path.mkdir()
+    (path / "owner").write_text("other 424242 2026-11-08T00:00:00+00:00\n", encoding="utf-8")
+    monkeypatch.setattr(lock_module.time, "sleep", lambda _seconds: shutil.rmtree(path))
+
+    lock = SitlLock(
+        path,
+        retry_s=60,
+        slots=2,
+        runner=_empty_docker_runner,
+        memory_fn=lambda: 9.0,
+    )
+    lock.acquire()
+    try:
+        events = [
+            json.loads(line)
+            for line in capsys.readouterr().err.splitlines()
+            if line.startswith("{")
+        ]
+        assert len(events) == 1
+        assert events[0]["event"] == "sitl_lock_waiting"
+        assert events[0]["reason"] == "legacy_lock_busy"
+        assert events[0]["lock"] == str(path)
+        assert events[0]["queue"] == str(tmp_path / "lock.queue")
+        assert events[0]["slots"] == 2
+        assert events[0]["requested_slot"] is None
+        assert events[0]["wait_count"] == 1
+        assert events[0]["elapsed_s"] >= 0.0
+    finally:
+        lock.release()
 
 
 def test_slot_locks_allocate_distinct_directories_and_release(tmp_path, monkeypatch):
