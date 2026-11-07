@@ -134,3 +134,21 @@ campaign log 记录 `sim_pre_abort_descent_started` 的宿主单调时间为 `91
 `scripts/collect_sim_teacher_episodes.py` 的 SIM/onboard 注入前置下降现在使用 PX4 `LOCAL_POSITION_NED.time_boot_ms` 的锁步时钟计 45 s；同时保留 900 s 独立 wall ceiling，PX4 时钟冻结或遥测停止时仍会有界失败。该等待只由已有 `sim_pre_abort_descent_altitude_m` 配置门控，不改变 LAND 优先级、0.5 m 增益阈值、2.5 m 低空阈值、vehicle-loss 规则、takeoff/LAND 其他预算或既有断言。`tests/test_sim_teacher_parallel_timing.py` 新增慢 RTF 成功和 PX4 时钟冻结 wall ceiling 两个测试。
 
 新增单槽位作业源码 `.tmp/jobs/NN-climb-fault-sitl3.sh`。作业使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`，从 `suite-main-r21idr3-r24plan.json` 只选择 `operator-abort`，设置 `sim_ground_events=[{"t_s":0,"event":"abort"}]`、`sim_climb_timeout_injection=true`、`sim_pre_abort_descent_altitude_m=1.5`，并将输出写入新的 `artifacts/benchmarks/onboard-climb-fault-sitl3-<UTC>-<PID>/`。作业未在本次修改中启动；共享 `artifacts/` 未写入。
+
+## v3 作业复核（2026-11-08）
+
+### 退出原因与夹具问题
+
+v3 的 collector 没有失败：`operator-abort/report.json` 的 episode 为 `complete`，campaign log 记录 `collector_exit=0`。作业最终仍退出 1，原因是 suite 的期望沿用了基础 `operator-abort` 场景：`supervisor.final_decision=return_now`、`reason=explicit operator abort`。本次作业同时开启 `sim_climb_timeout_injection=true`；第二次合格的 `return_home up` timeout 后，机载保护按设计升级为 `land_now`，所以 `suite-report.json` 只把这两个期望标成 false。这个是作业夹具/期望配置错误，不是 onboard 保护行为失败。
+
+v4 作业在生成单任务 suite 时将这两个 supervisor 期望改为 `land_now` 与 `climb_failed_suspected_loss_of_control`，其余 supervisor 检查保持不变。新增的 `.tmp/jobs/44-climb-fault-sitl4.sh` 使用 `.venv-vlm/bin/python`；`scripts/prepare_climb_fault_sitl4_suite.py` 和 CPU-only 测试覆盖配置生成。本次没有启动 SITL。
+
+### v3 验证点（PX4 证据单独计数）
+
+证据目录：`artifacts/benchmarks/onboard-climb-fault-sitl3-20261107T172724Z-1332460/operator-abort/campaign/gen_cnt2_w0003/`。episode 的 `steps.jsonl` 有 3 步：先 hold 成功，随后两个 `translate up=15 m` 均 timeout；两次 timeout 的 `ack.sim_fault_injection=return_home_climb_timeout`。`mission_log/summary.json` 的 `recovery_failure` 记录 `consecutive_timeouts=2`，两个样本的 PX4 `time_boot_ms` 区间为 39536--59668 和 59800--79928，末次高度约 1.72 m，增益分别为 -0.061 m 与 0.0098 m。低空前置条件已满足：collector log 记录 pre-abort descent 到目标 1.5 m；同期 MAVLink 的 `LOCAL_POSITION_NED` 高度约 1.7 m，`EXTENDED_SYS_STATE.landed_state=2`。PX4 `time_boot_ms` 从约 2.3 s 推进到约 87.2 s。
+
+按证据来源区分：两次 primitive timeout 和无第三次 climb 来自 `steps.jsonl` 与 onboard log，不是独立 PX4 事件字段，故不能标作“仅 PX4 证明”。PX4 的 `POSITION_TARGET_LOCAL_NED` 在 boot 39.8--79.8 s 一直保持同一低空位置目标（约 z=-1.726 m），未见第三次向上目标；这是没有第三次爬升目标的 PX4 侧旁证。`climb_failed_suspected_loss_of_control` 事件、`recovery:...` alert 和 supervisor `land_now` handoff 只存在 onboard 记录，PX4 不广播这类机载语义事件，因此它们只能记为 onboard 证据，不能混称 PX4 证据。
+
+LAND 执行链由 PX4 MAVLink 记录确认：collector 在 land 阶段发出的 `MAV_CMD_DO_SET_MODE`（command 176）得到 PX4 `COMMAND_ACK result=0`；随后 heartbeat `custom_mode=100925440`、`base_mode=157`，并有 `EXTENDED_SYS_STATE.landed_state=4`，确认已进入 LAND 模式。之后出现 fresh `landed_state=1`，heartbeat 保持 armed 的 base_mode 157；再后 heartbeat 为 `base_mode=17`、`custom_mode=393216` 且 `landed_state=1`，证明已 disarm。PX4 `STATUSTEXT` 还记录 `Landing detected` 和 `Disarmed by landing`。因此 LAND 模式切换 ACK、LAND 模式、fresh landed_state=1、disarm 均通过 PX4 证据。`land_waiting` 的 harness 摘要与 `cleanup removed=true` 仅作辅助，不作为这些判定的来源。
+
+结论：v3 的低空前置条件、PX4 时钟推进及 LAND 收尾均通过；onboard 证据记录两次 timeout、保护失败事件/告警、`land_now` handoff，且没有第三步 climb。退出码 1 是两个 supervisor expectation 不匹配造成的 harness false negative。没有修改 LAND 优先级、阈值、vehicle-loss 规则或安全断言，也没有写入共享 `artifacts/`。
