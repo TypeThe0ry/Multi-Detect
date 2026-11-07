@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 from scripts import collect_sim_teacher_episodes as collector
+from multidetect.sim_teacher.streams import MavlinkState
 
 
 def test_parser_accepts_attach_container_and_task_text():
@@ -171,6 +172,53 @@ def test_sensor_stream_timeout_gets_stall_capture_and_distinct_failure_class(mon
     }
     assert len(captured) == 1
     assert captured[0][0] == environment.name
+
+
+def test_frame_wait_diagnostics_distinguishes_timestamp_gate_and_px4_stall(tmp_path):
+    sample = SimpleNamespace(
+        sensor_stamp_ns=900,
+        received_monotonic_ns=2_000,
+        received_wall_time=20.0,
+    )
+    reader = SimpleNamespace(latest=sample, frames_received=3)
+    pose = SimpleNamespace(time_boot_ms=1)
+    state = MavlinkState(
+        messages={"LOCAL_POSITION_NED": pose},
+        received_monotonic_ns={"LOCAL_POSITION_NED": 1_100},
+        received_wall_time={"LOCAL_POSITION_NED": 11.0},
+        vehicle_time_boot_ms=1,
+    )
+    mav = SimpleNamespace(state=state)
+    row = collector._frame_wait_diagnostics(
+        phase="obs_after",
+        sensor_reader=reader,
+        mav_reader=mav,
+        pose_state=state,
+        min_sensor_stamp_ns=1_000,
+        started_monotonic_ns=1_500,
+        ended_monotonic_ns=16_500,
+        started_wall_time=15.0,
+        ended_wall_time=30.0,
+        host_pressure_path=tmp_path / "missing.jsonl",
+        error=TimeoutError("sensor stream produced no frame within 15.0s"),
+    )
+    assert row["failure_class"] == "frame_timestamp_below_pose_watermark"
+    assert row["last_frame_sensor_stamp_ns"] == 900
+    assert row["required_sensor_stamp_ns"] == 1_000
+
+    stalled = collector._frame_wait_diagnostics(
+        phase="obs_after",
+        sensor_reader=SimpleNamespace(latest=None, frames_received=3),
+        mav_reader=mav,
+        pose_state=state,
+        min_sensor_stamp_ns=1_000,
+        started_monotonic_ns=1_500,
+        ended_monotonic_ns=16_500,
+        started_wall_time=15.0,
+        ended_wall_time=30.0,
+        error=TimeoutError("sensor stream produced no frame within 15.0s"),
+    )
+    assert stalled["failure_class"] == "px4_clock_and_telemetry_stalled"
 
 
 def test_exited_container_is_classified_as_px4_crashed_with_fake_docker(monkeypatch):

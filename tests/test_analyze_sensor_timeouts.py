@@ -176,3 +176,26 @@ def test_sensor_timeout_main_accepts_episode_root(tmp_path: Path, capsys) -> Non
     (episode / "episode.json").write_text("{}", encoding="utf-8")
     assert main([str(tmp_path)]) == 0
     assert "episode-1" in capsys.readouterr().out
+
+
+def test_sensor_timeout_reports_missing_sidecar_and_frame_wait_timeline(tmp_path: Path) -> None:
+    episode = tmp_path / "episode-missing-pressure"
+    episode.mkdir()
+    (episode / "episode.json").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "created_wall_time": 10.0,
+                "finished_wall_time": 26.0,
+                "frame_wait_timeline": [
+                    {"phase": "obs_after", "failure_class": "frame_timestamp_below_pose_watermark", "error": "TimeoutError"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = analyze_episode(episode)
+    assert report["host_pressure_sidecar"]["present"] is False
+    assert report["host_pressure_sidecar"]["sample_count"] == 0
+    assert report["frame_wait_failure_count"] == 1
+    assert report["frame_wait_failure_classes"] == ["frame_timestamp_below_pose_watermark"]
