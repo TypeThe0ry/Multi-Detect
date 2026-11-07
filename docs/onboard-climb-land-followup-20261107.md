@@ -129,6 +129,23 @@ bash .tmp/jobs/39-onboard-climb-land.sh
 
 是否仍允许重复爬升：在已验证的 outcome 回灌链中，第二次合格失败之后**不允许再请求 climb primitive**。单次失败、进展达标或不合格样本后仍允许正常返航爬升。原生 runtime 的独立 watchdog 路径、collector vehicle-loss 提前退出路径和真实 PX4 setpoint/LAND 最终执行尚不能由本 fixture 保证。
 
+## 单次 operator-abort SITL 实际结果
+
+只读分析产物：`artifacts/benchmarks/onboard-climb-land-followup-20261107-20261107T082853Z-101230/`。suite 只有一个 `operator-abort` episode，collector `exit=0`，`episode status=complete`；这代表采集流程结束，不代表计划任务完成。实际 episode 在 `main/operator-abort/campaign/gen_cnt2_w0003/episodes/episode-0000-28cc84ba/`。
+
+- `main/operator-abort/report.json` 和 `job.log` 记录 `final_decision=return_now`、reason=`explicit operator abort`、`return_home_started=true`。steps 37 到 43 是 operator abort 后的 return recovery：先 hold，再 turn、三次水平 translate，最后 `stop`。全部 44 个 primitive outcome 都是 `success`；没有 `timeout`，且没有任何动作的 `up_m` 非零。因此 operator-abort 确实启动并执行了 return_home recovery 的返航动作，没有 return climb 请求，也谈不上 return climb timeout。报告的 `return_home_completed=false`、`mission_completed=false`，所以不能说 mission supervisor 将 home 步骤标记为完成；收尾由 collector 的着陆 teardown 接管。
+- 保护条件在此次 run 中没有发生：两次合格低空纯上升 timeout 均不存在。没有 `climb_failed_suspected_loss_of_control` event/alert，也没有由此触发的 `land_now` escalation。这里是“未触发”，不是保护失效的反例。
+- 没有 normal mission 被 operator-abort 误伤的证据：suite 仅运行这一条被显式安排 abort 的 mission，没有并行或额外的普通 mission episode。采集器报告的任务未完成与 abort 场景预期相符，不是另一任务被错误升级。
+- MAVLink 收尾证据需分层表述。`mavlink.jsonl` 有 PX4 `STATUSTEXT` “Landing detected” 后的“Disarmed by landing”，最终 `EXTENDED_SYS_STATE.landed_state=1` 且 heartbeat 显示未 armed；collector `collector_landing_complete` 记为 `landed_state_fresh=true`、`armed=false`。但该记录同时是 `land_mode_confirmed=false`、`land_ack_result=null`，文件中没有 `land_now` 的 PX4 COMMAND_ACK；因此可确认最终 fresh landed 与 disarm，不可声称明确确认过 LAND mode 或 onboard land_now 命令。primitive 中 `action_ack=true` 只代表位置 setpoint 动作记录，不是 MAVLink COMMAND_ACK。
+
+## 确定性注入建议与作业
+
+可立即运行的确定性保护链 fixture 是 `scripts/run_onboard_fault_campaign.py::run_climb_failure_fixture`：在低空固定 PX4 样本下，abort 后的两个纯上升 primitive 都回报 `timeout`，前后位置相同且 PX4 boot time 单调推进；通过真实 `report_primitive_outcome`、supervisor escalation 和 summary 路径检查第二次失败触发、无第三次 climb、`land_now` handoff。fixture 明确不启动 FCU，也不证明 SITL/PX4 执行。脚本里的通用 campaign 也使用 simulated hardware，因此不要把它的结果标成 SITL 验收。
+
+调度作业 `.tmp/jobs/40-onboard-climb-fault-campaign.sh` 只调用上述定向 fixture，不跑已知有其他失败场景的整套 campaign。它使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`、`PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp`，设置 `MULTIDETECT_SITL_SLOTS=1`，并把报告写在新的 `.tmp/jobs/climb-fault-<UTC>-<PID>/report.json`，不写共享 artifacts。可用 `bash -n` 做语法检查；运行后 fixture 的 `report.json` 应列出所有保护链 checks。此作业是源级确定性 fixture 作业，不会声称运行 SITL。
+
+要真正 exercise SITL，需要 collector 增加受显式 SIM-only 配置控制的 primitive 故障注入钩子：仅匹配 `return_home` 中 `translate && up_m>0 && forward_m=right_m=yaw_delta_deg=0` 的前两次请求，保持 PX4/Gazebo 正常运行和低空 NED 样本，在执行器完成边界把这两个结果确定地报告为 `timeout`，保证每次前后 boot time 推进而实际高度增益 `<0.5 m`。其他动作和第三次请求都不得注入；断言应从落盘 steps、mission event/alert/escalation、后续 primitive 和 MAVLink 记录验证。现在没有该 collector 注入配置，单靠当前 `.tmp/jobs/40-...sh` 或 `sim_ground_events` 不能制造真实 SITL 的纯爬升 timeout，所以这项 SITL 故障注入仍是待实现项。
+
 ## 建议的下一个任务
 
 ### 1. 分析单次 owned SITL 的 LAND 命令与事件边界
