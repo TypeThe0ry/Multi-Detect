@@ -20,14 +20,15 @@ R9R_CAMPAIGN=$A/r21id-r9rb/episodes
 R9R_INDEX=$R/configs/scenarios/generated-r21id-r9r/index.json
 R9R_PROPOSALS=$A/r21id-r9rb/gpu-annotate-full/proposals.jsonl
 R9R_REBUILT=$A/r21id-r9rb/gpu-annotate-full/sft-rebuilt
+PREBUILT_DATA=${PREBUILT_DATA:-}
+PREBUILT_ADDITIONS=${PREBUILT_ADDITIONS:-}
+SKIP_MERGE=${SKIP_MERGE:-0}
 
 run_preflight() {
   "$BUILDER_PY" scripts/check_identity_r10_inputs.py \
     --base-dataset "$BASE_DATA" --index "$R9R_INDEX" \
     --campaign "$R9R_CAMPAIGN" --proposals "$R9R_PROPOSALS"
 }
-
-run_preflight
 
 run() {
   printf '+ '
@@ -36,21 +37,39 @@ run() {
   if [ "$DRY_RUN" = 0 ]; then "$@"; fi
 }
 
-mkdir -p "$OUT"
-# Full annotate is pinned before the SUV positive fix; rebuild with this checkout.
-run "$BUILDER_PY" scripts/build_slow_system_sft.py \
-  --campaign "$R9R_CAMPAIGN" --index "$R9R_INDEX" --output "$R9R_REBUILT" \
-  --proposals "$R9R_PROPOSALS" --confusable-negatives --task-text-variants \
-  --crop-policy none --min-visible-fraction 0.3 --confirm-min-side-px 8 \
-  --balance-identity-views --balance-confusable-negative-views --max-upsample 1 \
-  --confusable-negative-view-cap 180
+if [ -z "$PREBUILT_DATA" ] || [ -z "$PREBUILT_ADDITIONS" ]; then
+  run_preflight
+fi
 
-run "$V" scripts/cap_identity_round_additions.py \
-  --input "$R9R_REBUILT" --output "$OUT/r15-additions-mix" \
-  --base-train "$BASE_DATA/train.jsonl" --addition-fraction 0.2
+run mkdir -p "$OUT"
+if [ -n "$PREBUILT_DATA" ] && [ -n "$PREBUILT_ADDITIONS" ]; then
+  if [ "$DRY_RUN" = 0 ]; then
+    [ -f "$PREBUILT_DATA/manifest.json" ] || { echo "missing PREBUILT_DATA manifest: $PREBUILT_DATA" >&2; exit 1; }
+    [ -f "$PREBUILT_ADDITIONS/train.jsonl" ] || { echo "missing PREBUILT_ADDITIONS train.jsonl: $PREBUILT_ADDITIONS" >&2; exit 1; }
+  fi
+  echo "using prebuilt r10 SFT: $PREBUILT_DATA"
+  echo "using prebuilt r10 additions: $PREBUILT_ADDITIONS"
+  R9R_REBUILT=$PREBUILT_DATA
+  ADDITIONS=$PREBUILT_ADDITIONS
+else
+  # Full annotate is pinned before the SUV positive fix; rebuild with this checkout.
+  run "$BUILDER_PY" scripts/build_slow_system_sft.py \
+    --campaign "$R9R_CAMPAIGN" --index "$R9R_INDEX" --output "$R9R_REBUILT" \
+    --proposals "$R9R_PROPOSALS" --confusable-negatives --task-text-variants \
+    --crop-policy none --min-visible-fraction 0.3 --confirm-min-side-px 8 \
+    --balance-identity-views --balance-confusable-negative-views --max-upsample 1 \
+    --confusable-negative-view-cap 180
 
-run "$V" scripts/run_r15_round.py --merge-only --r12-dataset "$BASE_DATA" \
-  --additions "$OUT/r15-additions-mix" --merged "$OUT/r15-sft" --r12-replay-fraction 1.0
+  run "$V" scripts/cap_identity_round_additions.py \
+    --input "$R9R_REBUILT" --output "$OUT/r15-additions-mix" \
+    --base-train "$BASE_DATA/train.jsonl" --addition-fraction 0.2
+  ADDITIONS=$OUT/r15-additions-mix
+fi
+
+if [ "$SKIP_MERGE" != 1 ]; then
+  run "$V" scripts/run_r15_round.py --merge-only --r12-dataset "$BASE_DATA" \
+    --additions "$ADDITIONS" --merged "$OUT/r15-sft" --r12-replay-fraction 1.0
+fi
 
 run "$V" scripts/run_r15_round.py --stage train --out "$OUT" --model "$BASE_MODEL" \
   --r12-adapter "$BASE_ADAPTER" --r12-replay-fraction 1.0 --hot-start \
