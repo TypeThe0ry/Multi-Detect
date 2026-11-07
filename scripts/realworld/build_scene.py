@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import shutil
 from pathlib import Path
@@ -34,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CFG = json.loads((ROOT / "configs/sim-assets/realworld-sites.json").read_text())
 ASSET_ROOT = Path(CFG["asset_root"])
 LIB = ASSET_ROOT / "library"
-RESOLVED = ROOT / "artifacts/cache/gz-fuel/resolved"
+RESOLVED = Path(os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
 DEM_RES = 2.0
 TILE_M = 1000
 PAD_R = 25.0
@@ -54,10 +55,11 @@ class Terrain:
     def __init__(self, site: dict, raw: Path) -> None:
         self.half = site["size_m"] / 2
         self.dem = np.load(raw / "dem.npy").astype(np.float64)
-        self.dem[~np.isfinite(self.dem) | (self.dem < -500)] = 0.0
+        self.dem[~np.isfinite(self.dem) | (self.dem < -500) | (self.dem > 1e6)] = 0.0
         self.elev0 = float(self.dem[self.dem.shape[0] // 2, self.dem.shape[1] // 2])
         self.h = self.dem - self.elev0
         n = self.h.shape[0]
+        self.res = 2 * self.half / max(n - 1, 1)
         ax = np.linspace(-self.half, self.half, n)
         xx, yy = np.meshgrid(ax, ax)
         r = np.hypot(xx, yy)
@@ -70,8 +72,8 @@ class Terrain:
         x = np.asarray(x, float)
         y = np.asarray(y, float)
         scalar = x.ndim == 0
-        c = np.atleast_1d(x + self.half) / DEM_RES
-        r = np.atleast_1d(y + self.half) / DEM_RES
+        c = np.atleast_1d(x + self.half) / self.res
+        r = np.atleast_1d(y + self.half) / self.res
         out = ndi.map_coordinates(self.h, [r, c], order=1, mode="nearest")
         return float(out[0]) if scalar else out
 
@@ -160,6 +162,37 @@ class Osm:
                     if p.contains(h.representative_point()):
                         p = p.difference(h)
                 self.rel_polys.append({"id": r["id"], "poly": p, "tags": tags})
+
+
+def apply_3dbag_heights(osm: Osm, raw: Path) -> int:
+    path = raw / "3dbag.json"
+    if not path.exists():
+        return 0
+    data = json.loads(path.read_text())
+    heights = {}
+    for feature in data.get("features", []):
+        for object_id, obj in feature.get("CityObjects", {}).items():
+            attrs = obj.get("attributes", {})
+            roof, ground = attrs.get("b3_h_nok"), attrs.get("b3_h_maaiveld")
+            if roof is None or ground is None:
+                continue
+            height = max(1.0, float(roof) - float(ground))
+            ident = str(attrs.get("identificatie") or object_id).split(".")[-1]
+            heights[ident] = height
+            heights["".join(c for c in ident if c.isdigit())] = height
+
+    added = 0
+    for building in [*osm.ways, *osm.rel_polys]:
+        tags = building["tags"]
+        if tags.get("height") or tags.get("building:height"):
+            continue
+        ref = str(tags.get("ref:bag", ""))
+        key = ref.split(".")[-1]
+        height = heights.get(key) or heights.get("".join(c for c in key if c.isdigit()))
+        if height:
+            tags["height"] = f"{height:.2f}"
+            added += 1
+    return added
 
 
 def parse_len(value: str | None) -> float | None:
@@ -419,17 +452,30 @@ def dashes(line: LineString, on: float, off: float, width: float) -> list[Polygo
 # ------------------------------------------------------------------ Vegetation from NDVI
 
 
+def vegetation_index(rgbn: np.ndarray) -> tuple[np.ndarray, str]:
+    r, g, b = (rgbn[..., i].astype(np.float32) for i in range(3))
+    fourth = rgbn[..., 3]
+    if fourth.size and np.all(fourth == 255):
+        # RGB-only orthophotos use VARI; ExG provides a stable fallback when its denominator is small.
+        vari = (g - r) / np.maximum(g + r - b, 1.0)
+        exg = (2 * g - r - b) / 255.0
+        return np.where(np.abs(g + r - b) > 8, vari, exg), "vari"
+    nir = fourth.astype(np.float32)
+    return (nir - r) / np.maximum(nir + r, 1.0), "ndvi"
+
+
 def find_trees(mosaic_rgbn: np.ndarray, half: float, rng: np.random.Generator, blocked, max_trees: int) -> list[dict]:
-    """Tree crowns: leafy (high NDVI), dark and rough compared with lawns and crops."""
+    """Tree crowns from NDVI or a visible-light vegetation index, plus darkness and texture."""
     px = 2 * half / mosaic_rgbn.shape[0]
-    r, g, b, nir = [mosaic_rgbn[..., i].astype(np.float32) for i in range(4)]
-    ndvi = (nir - r) / np.maximum(nir + r, 1)
-    lum = (r + g + b) / 3
+    index, index_name = vegetation_index(mosaic_rgbn)
+    red, green, blue = [mosaic_rgbn[..., i].astype(np.float32) for i in range(3)]
+    lum = (red + green + blue) / 3
     win = max(3, int(4.0 / px))
-    mean = ndi.uniform_filter(nir, win)
-    var = ndi.uniform_filter(nir * nir, win) - mean * mean
+    texture = mosaic_rgbn[..., 3].astype(np.float32) if index_name == "ndvi" else lum
+    mean = ndi.uniform_filter(texture, win)
+    var = ndi.uniform_filter(texture * texture, win) - mean * mean
     rough = np.sqrt(np.maximum(var, 0))
-    mask = (ndvi > 0.12) & (lum < np.percentile(lum, 70)) & (rough > 9)
+    mask = (index > (0.12 if index_name == "ndvi" else 0.06)) & (lum < np.percentile(lum, 70)) & (rough > 9)
     mask = ndi.binary_opening(mask, iterations=max(1, int(1.0 / px)))
     if blocked is not None:
         mask &= ~blocked
@@ -442,7 +488,7 @@ def find_trees(mosaic_rgbn: np.ndarray, half: float, rng: np.random.Generator, b
     for k in order:
         i, j = rows[k], cols[k]
         x, y = -half + (j + 0.5) * px, -half + (i + 0.5) * px
-        trees.append({"x": float(x), "y": float(y), "r": float(dist[i, j]), "lum": float(lum[i, j]), "ndvi": float(ndvi[i, j])})
+        trees.append({"x": float(x), "y": float(y), "r": float(dist[i, j]), "lum": float(lum[i, j]), index_name: float(index[i, j])})
     # Keep the closest trees first when the budget is short.
     trees.sort(key=lambda t: math.hypot(t["x"], t["y"]) * (0.7 + 0.6 * rng.random()))
     return trees[:max_trees]
@@ -486,12 +532,13 @@ def main() -> None:
     proj = Transformer.from_crs("EPSG:4326", f"+proj=tmerc +lat_0={site['lat']} +lon_0={site['lon']} +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m", always_xy=True)
     terrain = Terrain(site, raw)
     osm = Osm(raw / "osm.json", proj)
+    bag_heights = apply_3dbag_heights(osm, raw)
     area = box(-half + 1, -half + 1, half - 1, half - 1)
     out = RESOLVED / name
     shutil.rmtree(out, ignore_errors=True)
     (out / "meshes").mkdir(parents=True)
     (out / "textures").mkdir()
-    print(name, "elev0", terrain.elev0, "ways", len(osm.ways), flush=True)
+    print(name, "elev0", terrain.elev0, "ways", len(osm.ways), "3dbag heights", bag_heights, flush=True)
 
     # ---- Buildings
     buildings = []
@@ -599,17 +646,17 @@ def main() -> None:
 
     # Terrain visual: settle the ground slightly under roads so ribbons never z-fight.
     all_road = [p for k in road_polys for p in road_polys[k]]
-    road_mask = rasterize(all_road, half, DEM_RES)
+    road_mask = rasterize(all_road, half, terrain.res)
     n = terrain.h.shape[0]
     rm = np.zeros_like(terrain.h)
     rm[: road_mask.shape[0], : road_mask.shape[1]] = road_mask
     smooth = ndi.gaussian_filter(terrain.h, 3.0)
     wgt = ndi.gaussian_filter(rm, 1.0)
     terrain_road = Terrain.__new__(Terrain)
-    terrain_road.half, terrain_road.h = half, terrain.h * (1 - wgt) + smooth * wgt
+    terrain_road.half, terrain_road.h, terrain_road.res = half, terrain.h * (1 - wgt) + smooth * wgt, terrain.res
     vis = terrain_road.h - 0.18 * np.clip(wgt * 2, 0, 1)
     terrain_vis = Terrain.__new__(Terrain)
-    terrain_vis.half, terrain_vis.h = half, vis
+    terrain_vis.half, terrain_vis.h, terrain_vis.res = half, vis, terrain.res
 
     # ---- Ground tiles and mosaic
     nt = int(round(2 * half / TILE_M))
@@ -741,9 +788,13 @@ def main() -> None:
     print("merged groups", len(merger.groups), flush=True)
     write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch)
     # ---- Model files
+    provenance = json.loads((raw / "provenance.json").read_text()) if (raw / "provenance.json").exists() else {}
+    attributions = [source.get("attribution") for source in provenance.get("sources", {}).values()
+                   if isinstance(source, dict) and source.get("attribution")]
+    description = "; ".join(attributions + ["© OpenStreetMap contributors (ODbL)"])
     (out / "model.config").write_text(
         f'<?xml version="1.0"?><model><name>{name}</name><version>1.0</version><sdf version="1.9">model.sdf</sdf>'
-        f"<description>{site['title']}: USGS 3DEP, USDA NAIP, (c) OpenStreetMap contributors (ODbL).</description></model>\n")
+        f"<description>{site['title']}: {description}</description></model>\n")
     (out / "model.sdf").write_text(
         f'<?xml version="1.0"?><sdf version="1.9"><model name="{name}"><static>true</static><link name="terrain">'
         + "".join(coll_xml) + "".join(vis_xml) + "</link></model></sdf>\n")
@@ -822,28 +873,35 @@ def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch
     src_res = TILE_M / tiles[(0, 0)].shape[0]
     # Stitch just the part of the tile mosaic the core needs.
     n_src = int(2 * core_half / src_res)
-    rgbn = np.zeros((n_src, n_src, 4), np.uint8)
-    for (i, j), arr in tiles.items():
-        x0, y0 = -half + i * TILE_M, -half + j * TILE_M
-        ix0, ix1 = max(x0, -core_half), min(x0 + TILE_M, core_half)
-        iy0, iy1 = max(y0, -core_half), min(y0 + TILE_M, core_half)
-        if ix1 <= ix0 or iy1 <= iy0:
-            continue
-        c0, c1 = int((ix0 - x0) / src_res), int((ix1 - x0) / src_res)
-        r0, r1 = int((y0 + TILE_M - iy1) / src_res), int((y0 + TILE_M - iy0) / src_res)
-        d0, d1 = int((ix0 + core_half) / src_res), int((ix1 + core_half) / src_res)
-        e0, e1 = int((core_half - iy1) / src_res), int((core_half - iy0) / src_res)
-        h, w = min(r1 - r0, e1 - e0), min(c1 - c0, d1 - d0)
-        rgbn[e0:e0 + h, d0:d0 + w] = arr[r0:r0 + h, c0:c0 + w]
-    # Upsampled aerials look soft, so an unsharp pass restores edges before detail is added.
-    big = np.asarray(Image.fromarray(rgbn[..., :3]).resize((px, px), Image.LANCZOS).filter(ImageFilter.UnsharpMask(radius=14, percent=110, threshold=0)), np.float32)
-    nir_b = np.asarray(Image.fromarray(rgbn[..., 3]).resize((px, px), Image.BILINEAR), np.float32)
-    big = np.dstack([big, nir_b])
+    core_path = raw / "core.png"
+    if core_path.exists():
+        big = np.asarray(Image.open(core_path).convert("RGBA"), np.float32)
+        if big.shape[:2] != (px, px):
+            big = np.asarray(Image.fromarray(big.astype(np.uint8)).resize((px, px), Image.LANCZOS), np.float32)
+        big[..., :3] = np.asarray(Image.fromarray(big[..., :3].astype(np.uint8)).filter(
+            ImageFilter.UnsharpMask(radius=3, percent=45, threshold=1)), np.float32)
+    else:
+        rgbn = np.zeros((n_src, n_src, 4), np.uint8)
+        for (i, j), arr in tiles.items():
+            x0, y0 = -half + i * TILE_M, -half + j * TILE_M
+            ix0, ix1 = max(x0, -core_half), min(x0 + TILE_M, core_half)
+            iy0, iy1 = max(y0, -core_half), min(y0 + TILE_M, core_half)
+            if ix1 <= ix0 or iy1 <= iy0:
+                continue
+            c0, c1 = int((ix0 - x0) / src_res), int((ix1 - x0) / src_res)
+            r0, r1 = int((y0 + TILE_M - iy1) / src_res), int((y0 + TILE_M - iy0) / src_res)
+            d0, d1 = int((ix0 + core_half) / src_res), int((ix1 + core_half) / src_res)
+            e0, e1 = int((core_half - iy1) / src_res), int((core_half - iy0) / src_res)
+            h, w = min(r1 - r0, e1 - e0), min(c1 - c0, d1 - d0)
+            rgbn[e0:e0 + h, d0:d0 + w] = arr[r0:r0 + h, c0:c0 + w]
+        big_rgb = np.asarray(Image.fromarray(rgbn[..., :3]).resize((px, px), Image.LANCZOS).filter(
+            ImageFilter.UnsharpMask(radius=14, percent=110, threshold=0)), np.float32)
+        fourth = np.asarray(Image.fromarray(rgbn[..., 3]).resize((px, px), Image.BILINEAR), np.float32)
+        big = np.dstack([big_rgb, fourth])
     rgb = big[..., :3]
     rgb = np.clip((rgb - stretch[0]) / max(stretch[1] - stretch[0], 1), 0, 1) ** 0.95 * 255
     rgb = np.clip(rgb * np.array([1.02, 1.0, 0.95]), 0, 255)
-    nir = big[..., 3]
-    ndvi = (nir - big[..., 0]) / np.maximum(nir + big[..., 0], 1)
+    vegetation, vegetation_name = vegetation_index(big)
     lum = rgb.mean(axis=2)
 
     def detail(prefix: str, span_m: float) -> np.ndarray:
@@ -858,7 +916,8 @@ def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch
         return np.tile(t, (reps, reps))[:px, :px]
 
     grass, soil, conc = detail("Grass001", 5.0), detail("Ground037", 6.0), detail("Concrete03", 6.0)
-    g = ndi.gaussian_filter(np.clip((ndvi - 0.08) / 0.12, 0, 1), 6)
+    threshold, span = (0.08, 0.12) if vegetation_name == "ndvi" else (0.04, 0.16)
+    g = ndi.gaussian_filter(np.clip((vegetation - threshold) / span, 0, 1), 6)
     s = ndi.gaussian_filter(np.clip((rgb[..., 0] - rgb[..., 2]) / 40.0, 0, 1), 6) * (1 - g)
     c = np.clip(1 - g - s, 0, 1)
     d = 1 + g * 0.24 * grass + s * 0.18 * soil + c * 0.07 * conc

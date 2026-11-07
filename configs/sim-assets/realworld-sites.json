@@ -44,6 +44,38 @@
       "lon": -122.315,
       "size_m": 3000,
       "kind": "industrial"
+    },
+    "rw_city_zurich": {
+      "title": "苏黎世老城与湖滨",
+      "lat": 47.3665,
+      "lon": 8.5417,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "swiss"
+    },
+    "rw_alpine_grindelwald": {
+      "title": "格林德瓦山村",
+      "lat": 46.6245,
+      "lon": 8.0412,
+      "size_m": 2000,
+      "kind": "mountain",
+      "provider": "swiss"
+    },
+    "rw_port_rotterdam": {
+      "title": "鹿特丹港区",
+      "lat": 51.885,
+      "lon": 4.433,
+      "size_m": 2000,
+      "kind": "industrial",
+      "provider": "nl"
+    },
+    "rw_canal_amsterdam": {
+      "title": "阿姆斯特丹运河区",
+      "lat": 52.357,
+      "lon": 4.882,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "nl"
     }
   }
 }
