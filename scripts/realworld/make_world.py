@@ -187,7 +187,7 @@ def labelled_model(name: str, slug: str, x, y, z, yaw, label: int) -> str:
 
 def _ensure_emissive_map(path: Path, seed: int) -> Path | None:
     """Build a sparse warm window emission map beside a facade albedo texture."""
-    out = path.with_name(path.stem + "_emissive.png")
+    out = path.with_name(path.stem + "_emissive_v2.png")
     if out.exists():
         return out
     try:
@@ -196,15 +196,16 @@ def _ensure_emissive_map(path: Path, seed: int) -> Path | None:
         return None
     rng = np.random.default_rng(seed)
     # Facade window glass is generally darker/bluer than wall pixels. Keep most bays dark.
-    blue = src[..., 2] - src[..., 0] * 0.72
-    dark = src.mean(axis=2) < 155
-    mask = (blue > -5) & dark
+    # Generated glazing is blue; dark brick and grey concrete must not glow.
+    mask = ((src[..., 2] - src[..., 0] > 8)
+            & (src[..., 2] - src[..., 1] > 3)
+            & (src.mean(axis=2) < 150))
     coarse = rng.random((max(1, src.shape[0] // 80), max(1, src.shape[1] // 80))) > 0.48
     coarse = np.asarray(Image.fromarray((coarse * 255).astype(np.uint8)).resize((src.shape[1], src.shape[0]), Image.NEAREST)) > 0
     rgb = np.zeros_like(src)
-    rgb[..., 0] = np.where(mask & coarse, 1.0, 0.0)
-    rgb[..., 1] = np.where(mask & coarse, 0.55, 0.0)
-    rgb[..., 2] = np.where(mask & coarse, 0.18, 0.0)
+    rgb[..., 0] = np.where(mask & coarse, 0.24, 0.0)
+    rgb[..., 1] = np.where(mask & coarse, 0.15, 0.0)
+    rgb[..., 2] = np.where(mask & coarse, 0.06, 0.0)
     try:
         Image.fromarray(np.clip(rgb * 255, 0, 255).astype(np.uint8), "RGB").save(out)
     except OSError:

@@ -63,11 +63,12 @@
     },
     "rw_port_rotterdam": {
       "title": "鹿特丹港区",
-      "lat": 51.885,
-      "lon": 4.433,
+      "lat": 51.88522464309306,
+      "lon": 4.4297321931078555,
       "size_m": 2000,
       "kind": "industrial",
-      "provider": "nl"
+      "provider": "nl",
+      "takeoff_surface": "港区陆地硬地；相对旧水上原点向西 225 m、向北 25 m，航拍与 OSM 水域联合核对"
     },
     "rw_canal_amsterdam": {
       "title": "阿姆斯特丹运河区",

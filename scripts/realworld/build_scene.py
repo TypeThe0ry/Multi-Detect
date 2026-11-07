@@ -46,6 +46,13 @@ TILE_M = 1000
 PAD_R = 25.0
 FLOOR_M = 3.2
 
+
+def validate_launch_water(water_polys, clearance_m: float = PAD_R) -> None:
+    """Reject water beneath the flattened launch pad instead of hiding it."""
+    pad = Point(0, 0).buffer(clearance_m)
+    if any(not polygon.is_empty and polygon.intersects(pad) for polygon in water_polys):
+        raise ValueError("launch pad intersects mapped water; choose a dry site origin and fetch matching raw data")
+
 ROAD_WIDTH = {"motorway": 15, "trunk": 13, "primary": 12, "secondary": 10.5, "tertiary": 9, "unclassified": 7,
               "residential": 8, "living_street": 6, "service": 4.5, "motorway_link": 7, "trunk_link": 7,
               "primary_link": 6.5, "secondary_link": 6, "tertiary_link": 6, "track": 3, "road": 6}
@@ -862,6 +869,7 @@ def main() -> None:
     for r in osm.rel_polys:
         if r["tags"].get("natural") == "water" or r["tags"].get("waterway") == "riverbank":
             water_polys.append(r["poly"].intersection(area))
+    validate_launch_water(water_polys)
     for r in osm.ways:
         t = r["tags"]
         if t.get("aeroway") in {"runway", "apron", "taxiway"} and r["closed"]:

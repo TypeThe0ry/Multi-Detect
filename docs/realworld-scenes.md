@@ -73,7 +73,7 @@ $PY scripts/realworld/make_world.py rw_city_singapore --weather clear_noon --wor
 - 雨是静止的半透明线条网格：粒子系统要加 world `<plugin>`，而这会替换掉默认系统，世界起不来。要真粒子得改容器启动补丁。雾沿用现有相机增强方案，因为 Ogre2 不支持 SDF 雾。
 - 航拍自带车辆和阴影，会和 3D 物体、实时光照叠在一起，贴近地面时能看出来。
 - 货柜位置只按航拍里的货场区域估计，不是逐个对应。
-- 本次首轮大世界加载到第一帧约 47~77 秒（随整机负载变化），跑采集和飞行要设 `MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=240`。
+- 本次大世界加载到第一帧约 41~122 秒（第二轮默认四相机实测，随整机负载变化），跑采集和飞行要设 `MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=240`。
 - `sim_teacher` 的障碍物读取只认 `bounds` 盒子，看不到合并进地形的建筑；建筑范围在 `scene.json` 的 `footprints`。
 - `global` 使用 Sentinel-2 L2A（约 10 m）和 Copernicus DEM GLO-30；仅适合宏观环境，贴近地面无法辨认车辆、行人或小型设施。按云量挑选单景，不保证无云拼接。
 
@@ -193,7 +193,7 @@ PX4 冒烟飞行，机器负载约 200，实际 RTF 约 0.2~0.3（现有世界�
 | Oakland | 起飞区可见，货柜分布与航拍不逐个一致，低空偏糊 | 货柜仍为估计分布，不能称为真实逐箱复原 |
 | Zurich | 河道可见；桥/路面有层级交叠，路边车辆堆叠，岸边长墙明显 | 路线不再跨街闭合；道具居中与高度修正后复拍，桥层级继续核查 |
 
-第二轮及未目检站点的结论将在实际打开相应图片后补录，不能以生成成功代替目视通过。
+第二轮完整目检见后文，生成成功不等于目视通过。
 
 ### 飞行与相机问题
 
@@ -209,7 +209,7 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 
 ### 本次测试和飞行证据口径
 
-- 地点测试：realworld venv 中 `tests/test_realworld_site_providers.py` 6 项通过；主环境中冒烟、固定翼降落、gimbal overlay 相关测试共 44 项通过。全部 realworld 脚本及冒烟脚本 `py_compile` 通过；CPU-only onboard gate 于本次修改后通过（102 s）。日志：`.tmp/rw-providers-final3.log`、`.tmp/rw-flight-tests-final3.log`、`.tmp/onboard-gate-final2.log`。
+- 地点测试：realworld venv 中 `tests/test_realworld_site_providers.py` 最新 9 项通过；主环境中冒烟、固定翼降落、gimbal overlay 相关测试共 44 项通过。全部 realworld 脚本及冒烟脚本 `py_compile` 通过；CPU-only onboard gate 于本次修改后通过（102 s）。日志：`.tmp/rw-providers-final3.log`、`.tmp/rw-flight-tests-final3.log`、`.tmp/onboard-gate-final2.log`。
 - 冒烟起飞判据修正：`episode.takeoff_altitude_m` 是请求高度，不能充当实际爬升证据；现在只用 `LOCAL_POSITION_NED` 判断。新增低高度遥测回归用例，防止被障碍卡住的飞机被记录为已起飞。
 - 当前已完成并通过的本次飞行：`gimbal-fixed`（Davis）、`vtol-zurich`（Zurich）、`tilt-rotterdam`（Rotterdam）、`cessna-farm`（Iowa）。其他排队飞行以各自最终报告为准。
 - `.tmp/review/final/rotors-in-flight.csv` 只保留与遥测墙钟差小于 3 s、实测高度超过 2 m 的转子采样；转速来自 Gazebo rotor link 姿态差，是可见转子的仿真角速度，受采样混叠和 `rotorVelocitySlowdownSim` 影响，不是真实电机 RPM。采样不能证明采样间隔内连续转动。
@@ -222,7 +222,7 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 
 缩小贴图的独立对照保存在 `.tmp/review/budget-berlin/`，模型为 `rw_city_berlin_budget`，也已打开拼图。核心贴图最长边从 8192 降至 4096，其余大贴图降至 2048，显存峰值仍有 3048 MiB；不能只缩贴图就宣称满足预算，未将这一试验替换默认产物。
 
-缺墙已定位到 CityGML 读取器：竖墙投影为 XY 线段后，原 `Polygon.buffer(0)` 范围过滤把它丢弃；旧代码还只读一个 Polygon，父 Building 又重复包含 BuildingPart。现在按每个 Polygon 的外环/内环读取，竖墙按其投影凸包与范围相交判断，子 BuildingPart 单独生成。新增竖墙、多 Polygon、嵌套 BuildingPart 测试，地点测试现为 8 项通过（`.tmp/rw-providers-final5.log`）。原始柏林缓存保持不变，本次从已有 9 个 LoD2 ZIP 离线解析到 `/data/datasets/multidetect-sim-assets/validation-1107/sites/rw_city_berlin/raw/`，归一化记录、原 ZIP SHA-256 和输出 SHA-256 写入该目录 provenance；修复后构建和复拍仍需完成验证。
+缺墙已定位到 CityGML 读取器：竖墙投影为 XY 线段后，原 `Polygon.buffer(0)` 范围过滤把它丢弃；旧代码还只读一个 Polygon，父 Building 又重复包含 BuildingPart。现在按每个 Polygon 的外环/内环读取，竖墙按其投影凸包与范围相交判断，子 BuildingPart 单独生成。新增竖墙、多 Polygon、嵌套 BuildingPart 测试，地点测试现为 8 项通过（`.tmp/rw-providers-final5.log`）。原始柏林缓存保持不变，本次从已有 9 个 LoD2 ZIP 离线解析到 `/data/datasets/multidetect-sim-assets/validation-1107/sites/rw_city_berlin/raw/`，归一化记录、原 ZIP SHA-256 和输出 SHA-256 写入该目录 provenance；修复后已经构建并复拍，实际观察见后文第二轮表。
 
 独立 Fuel 道具出现 `hatchback.png`、`fire_hydrant_diffuse.png` 等路径无法解析。`make_world.py` 现把独立源模型复制到 `rw_prop_<slug>`，在副本中修正 MTL/DAE 的相对贴图路径；部分车辆缺少的共用车轮贴图仅从已有本地模型缓存复制，不下载、不修改原模型。跨平台文件测试确认源 MTL 保持不变。此修复须以之后的渲染日志和图片核实。
 
@@ -238,3 +238,84 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 第二轮已打开 SF、Davis、Iowa、Boulder、Santa Cruz、Oakland 四视角：SF 街景有静态 T 姿势人物，楼间阴面仍暗；Davis 的车辆/树影叠影仍明显；Iowa 改为真实道路低空位置，开阔起飞点无楼/水遮挡；Boulder 长条围墙仍明显，2 m 贴地加密不足以改善外观；Santa Cruz 地面中的航拍船仍是平面，岸线/路面局部呈波浪；Oakland 货柜仍是估计分布，起飞区开阔但低空航拍拉伸明显。不能把生成和目检完成等同于视觉无问题。
 
 `vtol-davis-control` 已完整通过，7 帧对齐并降落；本次 standard_vtol 在 Zurich、Davis 两个地点通过。`vtol-farm-alone` 则解锁前失败，日志显示 Gyro 数据缺失、健康检查拒绝，与此前 height estimate 失败表述不同；仅减少本线飞行并发未解决问题。整机其他 lane 持续运行，本线所谓串行并不代表整机独占。`vtol-farm-renderlite` 正在以保留物理/碰撞、移除场景 visual/actor、保留机载相机的方式做对照，不能提前下结论。
+
+### 第二轮完整目检与新增修正
+
+2026-11-07 已实际打开全部 14 站的第二轮四视角拼图，不把保存成功视作视觉验收。除前述六个美国站点外：
+
+| 地点 | 第二轮实际观察 | 结论与处理 |
+|---|---|---|
+| Zurich | 桥、轨道、道路多层交叠；车辆挤在路边，岸边长墙突兀 | 道路/桥高程与道路设施摆放仍不合格，保留问题证据 |
+| Grindelwald | 坡地村落可辨；房底与航拍地面错层、树影叠影 | 现有贴地近似不足，需地面高程和建筑基底联合处理 |
+| Rotterdam（旧原点） | 水上货柜明显减少，但核心贴图边界仍呈矩形；俯视起飞点是船坞/船体影像 | OSM 水域包含原点，旧 tiltrotor 飞行 PASS 不构成起飞点合理性验证；正在移到西 225 m、北 25 m 的陆地硬地，并重新取数/构建/拍摄/飞行 |
+| Amsterdam | 公园起飞区开阔；航拍的树影、人物和实景几何叠影；街景有车辆但立面重复 | 起飞点未见楼/水遮挡，低空真实感仍有限 |
+| Tokyo | 起飞俯视是道路及低分地表，街道明显随 DSM 起伏，局部道路裂缝/交叠 | 公园名称不能代表真实空地；PLATEAU 尚未接入，不能作为真实街景验收 |
+| Berlin（墙面修复后） | 建筑竖墙已出现，缺墙修复生效；墙面纹理严重竖向拉伸，道路波浪、低空人物局部悬浮 | 仍是正射墙面回退和粗 DSM 近似；纪念碑附近被程序清空，不能称为完整保真 |
+| Singapore | 草地起飞区开阔；森林仅大面积程序纹理，道路/楼体重复，远处粗高程明显 | 全球数据只适合宏观场景；不能称为森林重建或低空高保真 |
+| Shenzhen | 草地开阔，高楼轮廓可见；贴图色块、屋顶拉伸、稀疏植被及程序立面明显 | 原始 10 m 影像/30 m 高程限制未解除 |
+
+新增构建防线：25 m 起飞盘与 OSM 水域相交时明确失败，要求重新选点和获取匹配 raw，不通过删除水域来伪造陆地。`tests/test_realworld_site_providers.py` 增加水上原点、岸线过近和安全陆地三种情况，现 9 项通过（`.tmp/rw-providers-final7.log`）。鹿特丹旧原点证据保留在 `.tmp/review/rotterdam-old-water-origin/`，候选陆地航拍在 `.tmp/review/rotterdam-launch-candidates.jpg`。
+
+### Iowa 渲染负载对照
+
+`vtol-farm-renderlite` 已 PASS：最高 34.24 m，7 帧对齐，完成转场/返航/降落。该世界只删除场景 `visual` 和 `actor`，物理、碰撞、原点与机载相机配置保持一致；移除同样标签后的完整世界 XML 与对照世界 XML 的 SHA-256 完全一致，证据 `.tmp/review/final/iowa-control-equivalence.json`。这支持场景视觉/actor 负载参与问题，但不是唯一根因证明：整机仍有其他 lane，未控制 CPU/GPU 全局负载，也未把 actor 更新、渲染和传感器调度分别隔离。完整视觉世界另做一次串行复验，结果随后记录。
+
+已有两个完整视觉世界失败分别留下高度估计不稳、重复 IMU 时间戳与 Gyro 数据缺失证据；柏林 x500 成功飞行也出现 Accel TIMEOUT。因此不能把问题简单归为 Iowa 海拔、某机型完全不能飞，或只增加解锁等待即可修复。此次没有关闭 PX4 健康检查，也没有放宽飞行判据。
+
+
+<!-- rw-final-measurements:start -->
+### 最终测量表（2026-11-07）
+
+下表为 GPU1、clear_noon、四个 1280×960/1 Hz 截图相机、稳定后 200 个 stats 样本的实测。RTF 用采样窗口仿真时间/墙钟时间，不用瞬时中位数代替；首帧为四相机最早—最晚。整机负载各次不同，这些数据不能替代 30 Hz 飞行相机性能或整机独占基准。峰值每 2 s 采样，只计本容器进程。
+
+| 地点 | RTF | 首帧/s | 峰值/MiB | loadavg(1 min) |
+|---|---:|---:|---:|---:|
+| `rw_downtown_sf` | 0.583 | 122–122 | 3981 | 171.6 |
+| `rw_suburb_davis` | 0.940 | 52–53 | 3672 | 180.7 |
+| `rw_farm_iowa` | 0.917 | 55–55 | 3429 | 163.3 |
+| `rw_mountain_boulder` | 0.969 | 42–43 | 3754 | 110.9 |
+| `rw_coast_santacruz` | 0.615 | 107–107 | 4155 | 87.6 |
+| `rw_port_oakland` | 0.899 | 46–46 | 3615 | 103.8 |
+| `rw_city_zurich` | 0.648 | 100–100 | 3992 | 157.4 |
+| `rw_alpine_grindelwald` | 0.762 | 70–71 | 2893 | 109.2 |
+| `rw_port_rotterdam` | 0.741 | 81–82 | 3878 | 86.7 |
+| `rw_canal_amsterdam` | 0.629 | 112–112 | 4230 | 137.4 |
+| `rw_city_tokyo` | 0.926 | 52–52 | 3930 | 133.1 |
+| `rw_city_berlin` | 0.979 | 44–45 | 3710 | 117.7 |
+| `rw_city_singapore` | 0.698 | 75–75 | 3218 | 71.1 |
+| `rw_city_shenzhen` | 0.960 | 41–41 | 4366 | 89.8 |
+
+全部默认四相机样本的显存超过 2048 MiB，2 GiB 预算未通过；部分站点 RTF 低于 0.9。不能把程序估算、单相机预算或缩小贴图试验写成全站达标。原始指标 `.tmp/review/round2/<site>/metrics.json`，汇总 `.tmp/review/final/scene-metrics.csv`。鹿特丹迁移完成后本表改用新原点复拍数据；旧原点数据另存 `.tmp/review/rotterdam-old-water-origin/`。
+
+### 本次飞行最终结果
+
+每条 PASS 均包含实测爬升、7 帧对齐和落地。高度是 LOCAL_POSITION_NED 的最大相对原点高度，地形不同会影响该口径。
+
+| 标签 | 机型 / 地点 | 结果 | 最高相对高度/m | 对齐帧 |
+|---|---|---|---:|---:|
+| `x500-sf-texturefix` | x500 / SF | PASS | 39.83 | 7 |
+| `x500-berlin-padfix` | x500 / Berlin | PASS | 35.49 | 7 |
+| `vtol-zurich` | standard_vtol / Zurich | PASS | 42.60 | 7 |
+| `vtol-davis-control` | standard_vtol / Davis | PASS | 31.07 | 7 |
+| `qts-singapore-texturefix` | quadtailsitter / Singapore | PASS | 73.03 | 7 |
+| `tilt-rotterdam` | tiltrotor / Rotterdam 旧水上原点（设计无效） | PASS | 53.93 | 7 |
+| `plane-farm` | advanced_plane / Iowa | PASS | 40.83 | 7 |
+| `cessna-farm` | rc_cessna / Iowa | PASS | 35.90 | 7 |
+| `gimbal-fixed` | x500_gimbal / Davis | PASS | 15.81 | 7 |
+| `vtol-farm-renderlite` | standard_vtol / Iowa 减视觉对照 | PASS | 34.24 | 7 |
+| `vtol-farm-full-repeat` | standard_vtol / Iowa 完整视觉复验 | FAIL | 0.37 | 0 |
+
+成功记录覆盖六个指定机型及 x500_gimbal；x500、standard_vtol 各在两个不同地点通过。失败和重试没有删除，完整列表 `.tmp/review/final/flight-results.json`，原始报告/遥测/相机帧 `.tmp/flights/<tag>/` 与同名日志。旧 SF/Berlin 被障碍盒卡住的记录来自起飞判据修复之前，其中 takeoff=true 是旧误判，应以实测不足 0.3 m 和最终 FAIL 解读。
+
+旋翼检查：所有成功飞行都采到实际飞行阶段的 rotor link 非零角速度。x500、gimbal、quadtailsitter、两种飞机的采样均有旋转；standard_vtol 的四升力桨在固定翼阶段停转、推进桨在多旋翼阶段停转，tiltrotor 部分桨在固定翼阶段停转，与对应 SERVO_OUTPUT_RAW=0 一致。Davis/减视觉对照中升力桨的 0 也处于 vtol_state=4。表格是可见角速度采样，不是物理 RPM，不证明采样间隔连续旋转。证据 `rotors-in-flight.csv/png`、`rotors-by-flight-stage.csv`。
+<!-- rw-final-measurements:end -->
+
+### 天气复核与最新检查
+
+Davis 已打开白天、多云、清晨、傍晚、阴天、雨、黄昏、夜间的同视角对比；亮度变化可辨，雨线可见，但雨是静态网格，不能从截图推断雨滴运动。夜景发现大片橙色棋盘状发光，原因是旧发光掩码把深色砖/灰墙也当玻璃。现只选择偏蓝玻璃像素并降低发光亮度，缓存名升级为 `_emissive_v2.png`，新增测试保证深色墙不发光；后续复拍结果单独记录。风只能通过动力学/运动验证，单张图不证明风效真实。
+
+最新地点相关测试 10 项通过（`.tmp/rw-providers-final8.log`），冒烟/固定翼降落/gimbal overlay 44 项通过（`.tmp/rw-flight-tests-final4.log`）；CPU-only onboard gate PASS，140 s（`.tmp/onboard-gate-final3.log`）。realworld 全部脚本和冒烟脚本 py_compile 通过。未删除或放宽断言。
+
+Iowa 完整视觉串行复验 `vtol-farm-full-repeat` 最终 FAIL，最高 0.37 m，0 对齐帧，解锁前 `xy_position_control` 检查超时并记录重复 gyro/accel 时间戳 3520000。与减视觉 PASS 共同支持渲染/actor负载相关性，但还不能隔离根因。本次提供有证据的结论，未声称已经修复该稳定性问题。
+
+鹿特丹新原点为 51.88522464309306, 4.4297321931078555，公开 PDOK/OSM/3DBAG 匹配数据写入 `/data/datasets/multidetect-sim-assets/validation-1107/sites/rw_port_rotterdam/raw/`。每个下载响应 URL、许可、SHA-256 记在 `download-responses.jsonl`，原始文件 SHA-256 及源条款在 `provenance.json`；没有覆盖旧共享 raw。新原点重建已完成，OSM 水域间距见 `.tmp/review/final/rotterdam-origin-audit.json`。新原点 tiltrotor 首次飞行因 `xy_position_control` 健康检查超时 FAIL，不能把旧水上原点的成功移植为新点成功。为覆盖有效陆地场景，另跑 Davis tiltrotor，保留两者结果。

@@ -9,6 +9,35 @@ from scripts.realworld.city_models import parse_citygml
 from pyproj import Transformer
 
 
+def test_launch_pad_rejects_water_without_removing_the_water() -> None:
+    from shapely.geometry import box
+    from scripts.realworld.build_scene import validate_launch_water
+
+    water = box(-10, -10, 10, 10)
+    with pytest.raises(ValueError, match="launch pad intersects mapped water"):
+        validate_launch_water([water])
+    with pytest.raises(ValueError, match="launch pad intersects mapped water"):
+        validate_launch_water([box(20, -10, 40, 10)])
+    validate_launch_water([box(30, -10, 40, 10)])
+    assert water.area == 400
+
+
+def test_night_emission_excludes_dark_walls(tmp_path) -> None:
+    from PIL import Image
+    from scripts.realworld.make_world import _ensure_emissive_map
+
+    pixels = np.zeros((320, 320, 3), dtype=np.uint8)
+    pixels[:, :160] = (70, 65, 60)  # Dark masonry is not a window.
+    pixels[:, 160:] = (40, 60, 90)
+    path = tmp_path / "facade.jpg"
+    Image.fromarray(pixels).save(path, quality=100, subsampling=0)
+    output = _ensure_emissive_map(path, 4)
+    emission = np.asarray(Image.open(output))
+    assert not emission[:, :150].any()
+    assert emission[:, 170:].any()
+    assert emission.max() <= 62
+
+
 def test_rgb_only_imagery_uses_visible_vegetation_index() -> None:
     rgba = np.zeros((2, 2, 4), dtype=np.uint8)
     rgba[:, 0, :3] = (40, 170, 40)
