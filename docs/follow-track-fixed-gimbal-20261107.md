@@ -51,3 +51,42 @@ suite 校验和相关测试证明：fixed-camera 不被强加 gimbal recording�
 
 1. 在 Docker API 可用且无其他 SITL 占用的主机上，使用 `.tmp/campaigns/follow-track-fixed-gimbal-20261107/suite.json` 串行重跑 4 个任务各 1 episode，保留 slot、world、provenance、`steps.jsonl` 和失败证据；不得修改 expected、follow 阈值、任务预算、area_search 规则或安全 supervisor；将完整运行态结果补写到 `docs/follow-track-fixed-gimbal-20261107.md`。
 2. 对重跑得到的两个 `x500_gimbal` episode 做独立 joint-state 审计，检查每个 `obs_before`/`obs_after` 的 RGB 对齐、pitch/yaw/roll 可解释变化、四 rotor 角度/转速有限且至少一个 spin 非零，并把审计脚本输出及异常分类追加到 `docs/follow-track-fixed-gimbal-20261107.md`；不得放宽 `scripts/gazebo_sensor_stream.py` 或 recording contract。
+
+## 2026-11-08 产物复核
+
+本节针对只读产物 `artifacts/benchmarks/follow-track-fixed-gimbal-20261108/` 做离线复核。四个 mission 都有 1 个 episode，均为 `status=complete`、2 步、`mission_completed=false`、`confirmed=false`、`success=false`、`safety_pass=true`。第 1 步 onboard 为 `health_hold`（原因 `slow_unavailable`），第 2 步为 `mission=done` 并执行 `return_home` recovery；因此报告中的跟随字段为 `null`，表示没有进入可评分的跟随阶段，不应解释为 0 次丢失或 0 秒重获。
+
+套件 expected 保持原值：技能精确为 `[follow, return_home]`；门槛为在框率 `>=0.8`、移动平均/最大距离 `<=10/20 m`、track 连续性和时间覆盖 `>=0.8`、丢失 `<=3`、最大重获 `<=5 s`、false confirm `<=0`。四项的 `expectations_passed` 均为 `false`，原因是计划技能未报告且所有 follow 指标均为 `null`。episode 内的 `mission_summary.json` 记录了 `area_search -> follow -> return_home`，但三个步骤均为 `unknown/no_recorded_completion`，所以不能据此宣称 expected 通过。
+
+| 配对 | mission outcome | expected pass | 跟随指标（在框率；均距/最大距；丢失；重获；误跟） | 安全摘要 |
+| --- | --- | --- | --- | --- |
+| `gen_mov_w0000` fixed-camera | 2 步后 health hold；未确认、未完成 | 否 | `—；—/—；—；—；—` | 最低相对高度 4.476 m；return-home 距离 0.029 m；安全检查通过 |
+| `gen_mov_w0000` `x500_gimbal` | 2 步后 health hold；未确认、未完成 | 否 | `—；—/—；—；—；—` | 最低相对高度 4.409 m；return-home 距离 0.028 m；安全检查通过 |
+| `gen_mov_w0002` fixed-camera | 2 步后 health hold；未确认、未完成 | 否 | `—；—/—；—；—；—` | 最低相对高度 4.467 m；return-home 距离 0.042 m；安全检查通过 |
+| `gen_mov_w0002` `x500_gimbal` | 2 步后 health hold；未确认、未完成 | 否 | `—；—/—；—；—；—` | 最低相对高度 4.512 m；return-home 距离 0.014 m；安全检查通过 |
+
+固定相机与云台在两个 world 上的结果相同：都只执行了 hold/stop，未进入 follow；云台相对固定相机的差异只出现在传感器记录层。`fixed-camera` 没有 `gimbal_joint_state`，符合其 recording contract；两类 episode 都记录了四个 rotor 的状态。
+
+### 两个 `x500_gimbal` episode 的逐观测审计
+
+审计对象是每个 episode 的 4 个观测（step 0/1 的 `obs_before` 和 `obs_after`），共 8 个。每个观测的 `frame_sensor_stamp_ns`、`camera_info.camera_info_stamp_ns`、`segmentation_info.rgb_sensor_stamp_ns`、`segmentation_info.source_stamp_ns`、`gimbal_joint_state.timestamp_ns` 和 `propeller_joint_state.timestamp_ns` 完全相等，RGB 文件均存在且为 1280×960，`gimbal_joint_state.fresh=true`。四个 rotor 的 `angles_rad`/`spin_rad_s` 均为长度 4 且有限；8 个观测中的四个 spin 均非零。
+
+| episode | 观测 | RGB/关节时间戳（ns） | pitch/roll/yaw 角度变化（`after-before`，rad） | 审计结果 |
+| --- | --- | ---: | --- | --- |
+| `follow-w0000-gimbal` | step 0 before/after | 30164000000 / 31320000000 | `+1.0666e-05 / -6.3503e-05 / +3.3163e-05` | 对齐；四 rotor；四 spin 非零 |
+| `follow-w0000-gimbal` | step 1 before/after | 31484000000 / 31616000000 | `-5.7465e-06 / +2.0537e-05 / -1.1856e-05` | 对齐；四 rotor；四 spin 非零 |
+| `follow-w0002-gimbal` | step 0 before/after | 27788000000 / 28944000000 | `+3.2898e-05 / -6.3129e-05 / -1.35796e-04` | 对齐；四 rotor；四 spin 非零 |
+| `follow-w0002-gimbal` | step 1 before/after | 29108000000 / 29208000000 | `+1.9989e-06 / +4.6274e-06 / +2.9498e-05` | 对齐；四 rotor；四 spin 非零 |
+
+上述角度变化是观测到的微小变化，不能作为“随命令转动”的通过证据。两个 MAVLink 日志分别有 166 和 157 条 `GIMBAL_DEVICE_SET_ATTITUDE`；其中有限四元数命令分别为 61 和 62 条，换算后的 roll/pitch/yaw 均为 `0/0/0`，其余命令字段含 NaN，且 episode action 只有 `hold` 与 `stop`、没有非零云台轴命令。因此本轮结论是：
+
+- RGB stamp 对齐：8/8 通过。
+- 三轴字段完整且每个 before/after 都发生了非零数值变化：8/8 记录到，但变化未与非零云台命令建立因果关联，命令响应审计为未证明。
+- 四 rotor 角度/转速完整、有限且每个观测至少一个 spin 非零：8/8 通过（实际四个 spin 都非零）。
+
+本轮没有发现需要修改的明确产品缺陷：follow 为空是运行提前停在 `slow_unavailable` 的结果，云台轴变化也没有对应非零控制输入。没有放宽 `scripts/gazebo_sensor_stream.py`、recording contract、expected 或任何 follow 阈值，也没有写入 `artifacts/`。
+
+## 建议的下一个任务
+
+1. 在 slow model 可用且 Docker/SITL 资源稳定的主机上，复用 `artifacts/benchmarks/follow-track-fixed-gimbal-20261108/` 对应的四 mission 配置各重跑 1 episode，确保至少进入 `follow` 并生成非空 follow metrics；保留 `steps.jsonl`、report、slot 和 provenance，不修改 expected、follow 阈值、任务预算、`scripts/gazebo_sensor_stream.py` 或 recording contract；将结果追加到 `docs/follow-track-fixed-gimbal-20261107.md`。
+2. 在一次包含非零云台姿态命令的 `x500_gimbal` episode 上，按 `scripts/analyze_mavlink_postflight.py` 与每个 `obs_before/obs_after` 联合审计命令四元数、三轴角度、RGB stamp 和四 rotor 状态，区分真实命令响应与静态抖动；不写入既有 `artifacts/`，不改变采集脚本或阈值；将审计结论写入 `docs/follow-track-fixed-gimbal-20261107.md`。
