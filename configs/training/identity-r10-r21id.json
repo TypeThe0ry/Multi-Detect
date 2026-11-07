@@ -1,0 +1,70 @@
+{
+  "round": "r21id-r10",
+  "baseline_round": "r21id-r3",
+  "production_model": "r21id-r3",
+  "data": {
+    "base_dataset": "artifacts/r21id-r3/pipeline/r15-sft",
+    "base_adapter": "artifacts/models/slow-system-lora-v2-r21id-r3/adapter",
+    "r9r_index": "configs/scenarios/generated-r21id-r9r/index.json",
+    "r9r_campaign": "artifacts/r21id-r9rb/episodes",
+    "r9r_annotate": "artifacts/r21id-r9rb/gpu-annotate-full",
+    "replay_fraction": 1.0,
+    "train_world_split": "index.split == train",
+    "validation_world_split": "index.split == val",
+    "holdout_rule": "按 world 切分；同一 world 的 frame、episode、view 不跨 train/val/test",
+    "target_mix": {
+      "r3_replay": 0.8,
+      "r9r_additions": 0.2,
+      "note": "按有效 train 行数的目标比例；若 full builder 超出，按 world×pair×view 分层截取 r9r additions，不抽取 r3 replay"
+    },
+    "builder": {
+      "confusable_negatives": true,
+      "task_text_variants": true,
+      "crop_policy": "none",
+      "min_visible_fraction": 0.3,
+      "confirm_min_side_px": 8,
+      "confusable_negative_view_cap": 180,
+      "balance_identity_views": true,
+      "balance_confusable_negative_views": true,
+      "max_upsample": 1
+    }
+  },
+  "training": {
+    "gpu": "cuda:0",
+    "epochs": 1,
+    "accumulation": 4,
+    "rank": 16,
+    "alpha": 32,
+    "learning_rate": 5e-5,
+    "max_side": 448,
+    "crop_policy": "candidate_zoom_v2",
+    "hot_start": true,
+    "replay_fraction": 1.0
+  },
+  "evaluation": {
+    "v3_dataset": "artifacts/datasets/flight-identity-eval-v2-v3prop/test.jsonl",
+    "v3_baseline": "artifacts/r21id-r3/pipeline/eval-v3.json",
+    "v1_baseline": "artifacts/r21id-r3/pipeline/eval-v1.json",
+    "four_view_dataset": "artifacts/r21id-r3/pipeline/r15-additions/test.jsonl",
+    "r9r_validation": "r9r index val worlds only",
+    "hard_gate": {
+      "v3_accuracy_min": 0.9184549356223176,
+      "small_target_recall_min": 0.6216216216216216,
+      "v3_rejection_min": 0.9827586206896551,
+      "false_accept_max_rows": 2,
+      "false_accept_denominator": 116
+    },
+    "preferred_target": {
+      "small_target_recall_min": 0.6756756756756757,
+      "false_accept_max_rows": 0
+    },
+    "r9r_pair_view_gate": {
+      "pairs": ["car->mailbox", "suv->postbox"],
+      "views": ["front", "oblique", "edge_truncated", "recovery"],
+      "min_independent_val_worlds_per_cell": 3,
+      "min_rejection_rate_per_cell": 0.9,
+      "max_false_accepts_per_cell": 1,
+      "report_rows_and_worlds": true
+    }
+  }
+}
