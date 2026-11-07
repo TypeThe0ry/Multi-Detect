@@ -10,7 +10,9 @@ import pytest
 from multidetect.autonomy.mission_package import load_mission_package
 from multidetect.autonomy.mission_security import sign_document
 from scripts.onboard_main import _admit_package
+from scripts.onboard_policy import validate_sim_ground_events
 from scripts.collect_sim_teacher_episodes import SimClimbTimeoutInjector
+from scripts.collect_sim_teacher_episodes import sim_pre_abort_descent_altitude
 from multidetect.sim_teacher.executor import ExecutionResult
 from multidetect.sim_teacher.primitives import ActionPrimitive
 from scripts.run_onboard_fault_campaign import (
@@ -211,6 +213,35 @@ def test_suite_mission_selects_sim_climb_injection_only_for_that_mission():
     disabled = merge_config(defaults, {"id": "normal-case"})
     assert enabled["sim_climb_timeout_injection"] is True
     assert "sim_climb_timeout_injection" not in disabled
+
+
+def test_sim_climb_fault_scenario_requires_a_valid_low_altitude_pre_abort_descent():
+    scenario = merge_config(
+        {"mission": "from_text"},
+        {
+            "id": "operator-abort-low-climb-fault",
+            "sim_climb_timeout_injection": True,
+            "sim_pre_abort_descent_altitude_m": 1.5,
+            "sim_ground_events": [{"t_s": 0, "event": "abort"}],
+            "mission_package": {},
+        },
+    )
+    assert scenario["sim_ground_events"] == [{"t_s": 0, "event": "abort"}]
+    assert validate_sim_ground_events(scenario) == scenario["sim_ground_events"]
+    assert sim_pre_abort_descent_altitude(scenario, teacher="onboard") == 1.5
+    assert sim_pre_abort_descent_altitude(
+        {"sim_climb_timeout_injection": True}, teacher="onboard"
+    ) is None
+    with pytest.raises(ValueError, match="requires SIM onboard climb injection"):
+        sim_pre_abort_descent_altitude(
+            {"sim_pre_abort_descent_altitude_m": 1.5}, teacher="onboard"
+        )
+    with pytest.raises(ValueError, match="requires SIM onboard climb injection"):
+        sim_pre_abort_descent_altitude(scenario, teacher="expert_search")
+    with pytest.raises(ValueError, match=r"\[0.5, 2.5\)"):
+        sim_pre_abort_descent_altitude(
+            {**scenario, "sim_pre_abort_descent_altitude_m": 2.5}, teacher="onboard"
+        )
 
 
 def test_package_entry_accepts_signature_and_rejects_bad_signature(tmp_path):
