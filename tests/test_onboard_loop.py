@@ -215,7 +215,7 @@ def test_different_bearing_positive_views_confirm() -> None:
 def test_earlier_independent_positive_view_survives_stationary_final_pair() -> None:
     loop = _loop()
     target = (0.0, 40.0)
-    poses = [(0.0, 0.0, -20.0), (0.0, 0.0, -16.0), (0.0, 0.0, -16.0)]
+    poses = [(0.0, 0.0, -20.0), (0.0, 0.0, -10.0), (0.0, 0.0, -10.0)]
     track = None
     for index, pose in enumerate(poses):
         current = loop.update_tracks(
@@ -232,6 +232,27 @@ def test_earlier_independent_positive_view_survives_stationary_final_pair() -> N
     assert info["confirm_views"] == 3
     assert info["confirm_views_independent"] is True
     assert loop.confirmed is not None
+
+
+def test_altitude_change_alone_below_ray_angle_gate_is_not_independent() -> None:
+    loop = _loop()
+    target = (0.0, 40.0)
+    poses = [(0.0, 0.0, -20.0), (0.0, 0.0, -16.0)]
+    current = []
+    for index, pose in enumerate(poses):
+        current = loop.update_tracks(
+            [Detection(_box(640, 500, 30 + index), 0.9)],
+            pose_ned=pose,
+            ground_point=lambda _u, _v: target,
+            frame_id=f"frame-{index}",
+        )
+        loop.apply_verdict(current[0].track_id, "confirm_target")
+        if index == 0:
+            loop.step_index += 1
+    _, info = loop.next_action(current, pose_ned=poses[-1], yaw_deg=0.0)
+    assert info["confirm_views"] == 2
+    assert info["confirm_views_independent"] is False
+    assert loop.confirmed is None
 
 
 def test_identity_vote_audit_fields_are_complete() -> None:

@@ -2030,24 +2030,20 @@ class OnboardLoop:
                         - float(first["observation_bearing_deg"])
                     )
                 )
-                pitch_a, pitch_b = first.get("observation_pitch_deg"), second.get(
-                    "observation_pitch_deg"
-                )
-                pitch_delta = (
-                    abs(float(pitch_b) - float(pitch_a))
-                    if pitch_a is not None and pitch_b is not None
-                    else 0.0
-                )
-                alt_a, alt_b = first.get("camera_altitude_m"), second.get("camera_altitude_m")
-                altitude_delta = (
-                    abs(float(alt_b) - float(alt_a))
-                    if alt_a is not None and alt_b is not None
-                    else 0.0
+                target_n, target_e = track.ground
+                pose_a, pose_b = first["camera_pose_ned"], second["camera_pose_ned"]
+                ray_a = (target_n - float(pose_a[0]), target_e - float(pose_a[1]), float(pose_a[2]))
+                ray_b = (target_n - float(pose_b[0]), target_e - float(pose_b[1]), float(pose_b[2]))
+                norm_a = math.sqrt(sum(value * value for value in ray_a))
+                norm_b = math.sqrt(sum(value * value for value in ray_b))
+                ray_angle = math.degrees(
+                    math.acos(
+                        max(-1.0, min(1.0, sum(a * b for a, b in zip(ray_a, ray_b)) / (norm_a * norm_b)))
+                    )
                 )
                 if (
                     bearing_delta >= self.config.confirm_min_view_bearing_deg
-                    or pitch_delta >= self.config.confirm_min_view_pitch_deg
-                    or altitude_delta >= self.config.confirm_min_view_altitude_m
+                    or ray_angle >= self.config.confirm_min_view_pitch_deg
                 ):
                     return True
         return False
