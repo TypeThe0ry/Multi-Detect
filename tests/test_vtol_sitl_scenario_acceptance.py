@@ -37,7 +37,7 @@ def test_vtol_acceptance_is_digest_pinned_and_owned_container_only() -> None:
     assert 'CONTAINER_MODEL_ROOT = "/opt/multidetect-gazebo-models"' in text
     assert "PX4_GZ_MODELS = CONTAINER_MODEL_ROOT" in text
     assert '"--publish"' in text
-    assert 'f"{mavlink_port}:{mavlink_port}/udp"' in text
+    assert 'f"127.0.0.1:{mavlink_port}:{mavlink_port}/udp"' in text
     assert '"--mount"' in text
     assert 'f"type=bind,source={model_root},target={CONTAINER_MODEL_ROOT},readonly"' in text
     assert '"model_root_mount_whitelisted"' in text

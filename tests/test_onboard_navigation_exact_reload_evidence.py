@@ -10,7 +10,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.onboard_navigation_evidence_support import requires_local_artifacts
+
 ROOT = Path(__file__).resolve().parents[1]
+pytestmark = requires_local_artifacts(ROOT)
 RECEIPT = ROOT / "docs/evidence/onboard-navigation-exact-reload-20261007-r1.json"
 SCHEDULE_RECEIPT = ROOT / "docs/evidence/onboard-navigation-balanced-schedule-20261007-r2.json"
 RECOVERY = "onboard-navigation-adapter-recovery-20261007-r1"

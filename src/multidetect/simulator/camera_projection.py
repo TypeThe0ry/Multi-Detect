@@ -20,6 +20,34 @@ CAMERA_MOUNT_Z_DOWN_M = 0.12
 CAMERA_MOUNT_PITCH_RAD = 0.18
 
 
+def _camera_extrinsics(
+    pose: Mapping[str, Any], camera_pitch_rad: float, camera_extrinsics: Mapping[str, Any] | None
+) -> tuple[tuple[float, float, float], tuple[tuple[float, float, float], ...]]:
+    """Return camera position and optical-to-body rotation.
+
+    Fixed-camera callers retain the historical x500 numbers.  A gimbal caller
+    supplies ``position_body_ned`` and a row-major ``rotation_body_from_camera``
+    computed from the base mount and live yaw/roll/pitch joints.
+    """
+    supplied = camera_extrinsics
+    if supplied is None and isinstance(pose.get("camera_extrinsics"), Mapping):
+        supplied = pose["camera_extrinsics"]
+    if isinstance(supplied, Mapping):
+        position = supplied.get("position_body_ned", (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M))
+        rotation = supplied.get("rotation_body_from_camera")
+        if isinstance(position, Sequence) and len(position) >= 3 and isinstance(rotation, Sequence) and len(rotation) == 9:
+            p = tuple(float(position[index]) for index in range(3))
+            r = tuple(float(rotation[index]) for index in range(9))
+            if all(math.isfinite(value) for value in (*p, *r)):
+                return p, (r[0:3], r[3:6], r[6:9])
+    cp, sp = math.cos(camera_pitch_rad), math.sin(camera_pitch_rad)
+    return (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M), ((cp, 0.0, -sp), (0.0, 1.0, 0.0), (sp, 0.0, cp))
+
+
+def _mat_vec(matrix, vector):
+    return tuple(sum(matrix[row][column] * vector[column] for column in range(3)) for row in range(3))
+
+
 def _finite(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -127,15 +155,18 @@ def _body_to_world_ned(
     return cy * x2 - sy * y1, sy * x2 + cy * y1, z2
 
 
-def camera_center_ned_up(pose: Mapping[str, Any]) -> tuple[float, float, float] | None:
+def camera_center_ned_up(
+    pose: Mapping[str, Any], *, camera_extrinsics: Mapping[str, Any] | None = None
+) -> tuple[float, float, float] | None:
     """Return camera centre as ``(north_m, east_m, up_m)`` for a recorded pose."""
     values = _pose_values(pose)
     if values is None:
         return None
     north, east, down, roll_deg, pitch_deg, yaw_deg = values
     roll, pitch, yaw = (math.radians(value) for value in (roll_deg, pitch_deg, yaw_deg))
+    position_body, _ = _camera_extrinsics(pose, CAMERA_MOUNT_PITCH_RAD, camera_extrinsics)
     mount_world = _body_to_world_ned(
-        (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M),
+        position_body,
         roll_rad=roll,
         pitch_rad=pitch,
         yaw_rad=yaw,
@@ -151,18 +182,19 @@ def _pixel_camera_ray_raw(
     camera_info: Mapping[str, Any] | None,
     image_size: tuple[int, int],
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Shared inverse projection; retain the legacy unnormalized ground ray."""
     values = _pose_values(pose)
-    centre = camera_center_ned_up(pose)
+    centre = camera_center_ned_up(pose, camera_extrinsics=camera_extrinsics)
     if values is None or centre is None:
         return None
     _, _, _, roll_deg, pitch_deg, yaw_deg = values
     fx, fy, cx, cy = _intrinsics(camera_info, image_size)
     # Optical frame of _body_to_camera_optical: +X forward, +Y right, +Z down.
     x, y, z = 1.0, (u - cx) / fx, (v - cy) / fy
-    cp, sp = math.cos(camera_pitch_rad), math.sin(camera_pitch_rad)
-    body = (cp * x - sp * z, y, sp * x + cp * z)
+    _, rotation = _camera_extrinsics(pose, camera_pitch_rad, camera_extrinsics)
+    body = _mat_vec(rotation, (x, y, z))
     north, east, down = _body_to_world_ned(
         body,
         roll_rad=math.radians(roll_deg),
@@ -180,6 +212,7 @@ def pixel_camera_ray(
     camera_info: Mapping[str, Any] | None,
     image_size: tuple[int, int],
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Return the camera centre and unit pixel ray, both in true N/E/down.
 
@@ -188,7 +221,7 @@ def pixel_camera_ray(
     """
     result = _pixel_camera_ray_raw(
         u, v, pose=pose, camera_info=camera_info, image_size=image_size,
-        camera_pitch_rad=camera_pitch_rad,
+        camera_pitch_rad=camera_pitch_rad, camera_extrinsics=camera_extrinsics,
     )
     if result is None:
         return None
@@ -209,11 +242,12 @@ def pixel_ground_point(
     ground_up_m: float = 0.0,
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     ground_model: GroundModel | None = None,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[float, float] | None:
     """Invert ``project_target_bbox`` on a surface, preserving legacy arithmetic."""
     result = _pixel_camera_ray_raw(
         u, v, pose=pose, camera_info=camera_info, image_size=image_size,
-        camera_pitch_rad=camera_pitch_rad,
+        camera_pitch_rad=camera_pitch_rad, camera_extrinsics=camera_extrinsics,
     )
     if result is None:
         return None
@@ -305,6 +339,7 @@ def visible_fraction(
 def _body_to_camera_optical(
     vector_body_ned: tuple[float, float, float], *,
     mount_pitch_rad: float,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[float, float, float]:
     """Apply the camera translation and downward mount pitch.
 
@@ -312,13 +347,10 @@ def _body_to_camera_optical(
     +Z down.  A point on the body forward axis therefore moves upward in the
     image when the camera is pitched down, as it does in the SDF.
     """
-    body_x, body_y, body_z = vector_body_ned
-    body_x -= CAMERA_MOUNT_X_M
-    # The SDF camera is 0.12 m above base_link (z_down=-0.12), so the
-    # target-to-camera vector gains +0.12 m in the down direction.
-    body_z += CAMERA_MOUNT_Z_DOWN_M
-    cp, sp = math.cos(mount_pitch_rad), math.sin(mount_pitch_rad)
-    return cp * body_x + sp * body_z, body_y, -sp * body_x + cp * body_z
+    position, rotation = _camera_extrinsics({}, mount_pitch_rad, camera_extrinsics)
+    relative = tuple(vector_body_ned[index] - position[index] for index in range(3))
+    # Rotation is optical-to-body; transpose it for body-to-optical.
+    return tuple(sum(rotation[column][row] * relative[column] for column in range(3)) for row in range(3))
 
 
 def project_target_bbox(
@@ -331,6 +363,7 @@ def project_target_bbox(
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     target_yaw_rad: float = 0.0,
     target_bottom_offset_m: float | None = None,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[float, float, float, float] | None:
     """Project an upright SDF box and return clipped pixel ``(x1,y1,x2,y2)``.
 
@@ -383,7 +416,7 @@ def project_target_bbox(
                 )
                 body = _world_to_body_ned(vector_ned, roll_rad=roll, pitch_rad=pitch, yaw_rad=yaw)
                 cam_x, cam_y, cam_z = _body_to_camera_optical(
-                    body, mount_pitch_rad=camera_pitch_rad
+                    body, mount_pitch_rad=camera_pitch_rad, camera_extrinsics=camera_extrinsics
                 )
                 if cam_x <= 1e-6:
                     continue

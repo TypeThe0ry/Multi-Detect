@@ -9,6 +9,8 @@ from xml.etree import ElementTree
 
 import pytest
 
+from tests.onboard_navigation_evidence_support import requires_local_artifacts
+
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / "docs/evidence/onboard-openfly-navigation-dataset-20261007-r2.json"
 ENTRY = "onboard_openfly_navigation_dataset_20261007_r2"
@@ -33,6 +35,7 @@ def bound(record):
 
 
 @pytest.mark.parametrize("group", ["sources", "implementation_snapshots", "frozen_defaults"])
+@requires_local_artifacts(ROOT)
 def test_original_sources_snapshots_and_defaults_remain_byte_bound(group):
     rows = read(RECEIPT)[group]
     assert rows and len(rows) == len({row["path"] for row in rows})
@@ -40,6 +43,7 @@ def test_original_sources_snapshots_and_defaults_remain_byte_bound(group):
         bound(row)
 
 
+@requires_local_artifacts(ROOT)
 def test_dataset_is_complete_original_train_steps_without_false_holdout():
     receipt = read(RECEIPT)
     source = read(bound(receipt["source_manifest"]))
@@ -71,6 +75,7 @@ def test_dataset_is_complete_original_train_steps_without_false_holdout():
         assert all(frame["source_stamp"] is None for frame in sample["frames"])
 
 
+@requires_local_artifacts(ROOT)
 def test_independent_review_reopened_actual_source_and_actor_pixels():
     receipt = read(RECEIPT)
     summary = receipt["independent_review"]
@@ -91,6 +96,7 @@ def test_independent_review_reopened_actual_source_and_actor_pixels():
     assert summary["native_exit_code"] == 0
 
 
+@requires_local_artifacts(ROOT)
 def test_training_approval_is_only_a_bounded_resubstitution_pilot():
     receipt = read(RECEIPT)
     report_path = bound(receipt["dataset_report"])
@@ -117,6 +123,7 @@ def test_training_approval_is_only_a_bounded_resubstitution_pilot():
     assert receipt["source_planned_not_executed"] is True
 
 
+@requires_local_artifacts(ROOT)
 def test_joint_validation_counts_are_actual_xml_counts():
     validation = read(RECEIPT)["validation"]
     suites = list(ElementTree.parse(bound(validation["report"])).getroot().iter("testsuite"))
@@ -126,6 +133,7 @@ def test_joint_validation_counts_are_actual_xml_counts():
     assert validation["native_exit_code"] == 0
 
 
+@requires_local_artifacts(ROOT)
 def test_previous_stage_receipt_and_document_bytes_are_preserved():
     receipt = read(RECEIPT)
     bound(receipt["previous_receipt"])
@@ -154,8 +162,13 @@ def test_repository_progress_points_to_exact_source_evidence():
     assert entry["independent_holdout_available"] is False
     assert entry["final_release_allowed"] is False
     assert (ROOT / "README.md").stat().st_size < 50000
+    # README is the stable entry point; historical stage details live behind
+    # current-progress (development-update-policy.md), not on every front page.
+    assert "](docs/current-progress.md)" in (ROOT / "README.md").read_text(
+        encoding="utf-8-sig"
+    )
+    assert (ROOT / "docs/onboard-openfly-navigation-pilot.md").is_file()
     for name in (
-        "README.md",
         "docs/current-progress.md",
         "docs/implementation-roadmap.md",
         "docs/product-goals-and-roadmap.md",

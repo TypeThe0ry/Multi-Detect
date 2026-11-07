@@ -15,9 +15,13 @@ import pytest
 pytestmark = pytest.mark.timing
 
 
-def test_real_mode_process_loopback(tmp_path):
+def test_real_mode_process_loopback(tmp_path, require_loopback_sockets):
     env = os.environ.copy()
-    env.update(PYTHONPATH="src;.", PYTHONUTF8="1", CX_REAL_HARNESS_SCRATCH=str(tmp_path))
+    env.update(
+        PYTHONPATH=os.pathsep.join(("src", ".")),
+        PYTHONUTF8="1",
+        CX_REAL_HARNESS_SCRATCH=str(tmp_path),
+    )
     result = None
     for _attempt in range(3):
         result = subprocess.run(

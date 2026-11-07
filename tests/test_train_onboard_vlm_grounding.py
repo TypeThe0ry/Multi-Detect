@@ -302,8 +302,10 @@ def test_eval_raw_invalid_no_repair_and_parent_flag(tmp_path, capsys):
 
 
 def test_actual_tokenizer_processor_response_prefix_and_pixel_cap(tmp_path):
-    import torch
-    import transformers
+    torch = pytest.importorskip("torch", reason="CPU tokenizer fixture requires optional torch")
+    transformers = pytest.importorskip(
+        "transformers", reason="CPU tokenizer fixture requires optional transformers"
+    )
     from transformers import AutoProcessor
 
     if not hasattr(transformers, "Qwen3VLForConditionalGeneration"):
@@ -362,7 +364,7 @@ def tiny_qwen():
 
 
 def test_real_peft_tiny_language_only_and_base_digest_proof():
-    import torch
+    torch = pytest.importorskip("torch", reason="CPU LoRA fixture requires optional torch")
 
     peft = pytest.importorskip("peft", minversion="0.17.1")
     torch.manual_seed(17)
@@ -410,7 +412,7 @@ def test_non_lora_or_vision_trainability_rejected():
 
 
 def test_response_window_loss_and_gradient_equal_full_masked_causal_loss():
-    import torch
+    torch = pytest.importorskip("torch", reason="CPU gradient check requires optional torch")
 
     torch.manual_seed(32)
     logits = torch.randn(1, 8, 17, requires_grad=True)

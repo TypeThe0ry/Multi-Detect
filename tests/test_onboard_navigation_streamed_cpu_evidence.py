@@ -18,6 +18,7 @@ from xml.etree import ElementTree
 import pytest
 
 from scripts import train_onboard_navigation_streamed as runner
+from tests.onboard_navigation_evidence_support import require_local_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / "docs/evidence/onboard-navigation-streamed-continuation-cpu-20261008-r1.json"
@@ -100,6 +101,7 @@ def declared_repository_bound(row):
 
 @pytest.fixture(scope="module")
 def evidence():
+    require_local_artifacts(ROOT)
     value = read(RECEIPT)
     assert len(value["bindings"]) == len({row["path"] for row in value["bindings"]}) == 10
     assert {row["path"] for row in value["bindings"]} == EXPECTED_BINDINGS

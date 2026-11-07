@@ -13,7 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-import torch
+torch = pytest.importorskip("torch", reason="navigation feature capture tests require optional PyTorch")
 from test_onboard_navigation_inference import _request as request_fixture
 from test_onboard_navigation_learned_readout_backend import fixture
 

@@ -396,6 +396,10 @@ class ExpertSearchPolicy:
             or self.max_blocked_climbs < 0
         ):
             raise ValueError("max_blocked_climbs must be a non-negative integer")
+        if self.observation_frames > 0 and self.observation_waypoints:
+            self.observation_waypoints = self._make_observation_waypoints_visible(
+                self.observation_waypoints
+            )
         self._blocked_climbs = 0
         self._observation_orbit_active = False
         self._commanded_yaw_deg: float | None = None
@@ -431,6 +435,63 @@ class ExpertSearchPolicy:
         self._observation_count = 0
         self._observation_sample_index: int | None = None
         self._observation_sample_count: int | None = None
+
+    def _make_observation_waypoints_visible(
+        self, waypoints: tuple[tuple[float, float, float], ...]
+    ) -> tuple[tuple[float, float, float], ...]:
+        """Move only vertically occluded view centers outward, within detection range."""
+        adjusted = []
+        for waypoint in waypoints:
+            north, east, down = (float(value) for value in waypoint)
+            dn = self.target_ned[0] - north
+            de = self.target_ned[1] - east
+            radius = math.hypot(dn, de)
+            if radius <= 1e-6:
+                adjusted.append((north, east, down))
+                continue
+            if math.dist(self.target_ned, (north, east, down)) > self.max_detection_range_m:
+                adjusted.append((north, east, down))
+                continue
+            yaw = math.degrees(math.atan2(de, dn))
+            visible, _, _ = target_in_fov(
+                self.target_ned,
+                (north, east, down),
+                yaw,
+                self.intrinsics,
+                self.image_size,
+                max_range_m=self.max_detection_range_m,
+                camera_pitch_rad=self.camera_pitch_rad,
+            )
+            if visible:
+                adjusted.append((north, east, down))
+                continue
+
+            # Extend the same target-facing ray. Preserve the declared station
+            # when visibility is blocked by the range gate or cannot be recovered.
+            candidate_radius = radius
+            candidate = (north, east, down)
+            while candidate_radius + 0.5 < self.max_detection_range_m:
+                candidate_radius += 0.5
+                candidate = (
+                    self.target_ned[0] - dn * candidate_radius / radius,
+                    self.target_ned[1] - de * candidate_radius / radius,
+                    down,
+                )
+                visible, _, _ = target_in_fov(
+                    self.target_ned,
+                    candidate,
+                    yaw,
+                    self.intrinsics,
+                    self.image_size,
+                    max_range_m=self.max_detection_range_m,
+                    camera_pitch_rad=self.camera_pitch_rad,
+                )
+                if visible:
+                    break
+            else:
+                candidate = (north, east, down)
+            adjusted.append(candidate)
+        return tuple(adjusted)
 
     def _coverage_radius_m(self, phase: str) -> float:
         from multidetect.search_coverage import CoverageCamera

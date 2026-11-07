@@ -60,6 +60,7 @@ def _eval_runner(monkeypatch, tmp_path, *, max_restarts=2):
     return runner, started
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_a_crashed_server_is_restarted_and_the_same_request_retried(monkeypatch, tmp_path):
     runner, started = _eval_runner(monkeypatch, tmp_path)
     bodies = []
@@ -80,6 +81,7 @@ def test_a_crashed_server_is_restarted_and_the_same_request_retried(monkeypatch,
     assert "out of memory" in runner.restarts[0]["log_tail"]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_restart_budget_exhausted_stops_the_evaluation(monkeypatch, tmp_path):
     runner, started = _eval_runner(monkeypatch, tmp_path, max_restarts=1)
 
@@ -93,6 +95,7 @@ def test_restart_budget_exhausted_stops_the_evaluation(monkeypatch, tmp_path):
     assert len(started) == 1 and len(runner.restarts) == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_a_failed_restart_is_a_dead_server_not_a_row_error(monkeypatch, tmp_path):
     runner, _ = _eval_runner(monkeypatch, tmp_path)
 

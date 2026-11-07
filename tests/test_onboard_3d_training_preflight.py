@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from scripts.run_onboard_3d_training_preflight import (
     DEFAULT_MANIFEST,
     DEFAULT_REFERENCE,
@@ -11,6 +13,7 @@ from scripts.run_onboard_3d_training_preflight import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+pytestmark = pytest.mark.usefixtures("require_current_onboard_model")
 
 
 def _missing_tools(_name: str) -> str | None:

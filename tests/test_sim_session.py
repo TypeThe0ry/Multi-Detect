@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import pytest
 
@@ -36,6 +37,52 @@ def test_session_options_reject_invalid_snapshot_interval() -> None:
         main(["--snapshot-interval", "0"])
 
 
+@pytest.mark.parametrize("held,should_acquire", [(False, True), (True, False)])
+def test_session_honors_inherited_sitl_lock_marker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, held: bool, should_acquire: bool
+) -> None:
+    events: list[str] = []
+
+    class FakeLock:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def acquire(self, *_args, **_kwargs):
+            events.append("acquire")
+
+        def release(self):
+            events.append("release")
+
+    class Result:
+        returncode = 0
+        stdout = "true\n"
+
+    monkeypatch.setattr(session, "SitlLock", FakeLock)
+    monkeypatch.setattr(session, "validate_runtime_prerequisites", lambda **_: None)
+    monkeypatch.setattr(session, "ensure_viewer_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        session,
+        "build_session_command",
+        lambda **_kwargs: (["docker", "run"], type("Plan", (), {"docker_executable": "docker", "container_name": "c"})(), ROOT / "simulation/gazebo/worlds/gen_cnt2_w0000.sdf"),
+    )
+    monkeypatch.setattr(session, "_wait_world_ready", lambda *_args: (True, True, ""))
+    monkeypatch.setattr(session.subprocess, "run", lambda *_args, **_kwargs: Result())
+    if held:
+        monkeypatch.setenv("MULTIDETECT_SITL_LOCK_HELD", "1")
+    else:
+        monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+    try:
+        assert main([
+            "--onboard-task", "test", "--exit-after-task",
+            "--onboard-out", str(tmp_path / "out"), "--artifacts-root", str(tmp_path / "art"),
+            "--sitl-lock-path", str(tmp_path / "lock"),
+        ]) == 0
+    finally:
+        monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+    assert ("acquire" in events) is should_acquire
+    assert ("release" in events) is should_acquire
+
+
 def test_world_must_be_repository_owned() -> None:
     with pytest.raises(ValueError, match="world not found"):
         resolve_world("missing-world.sdf")
@@ -47,6 +94,10 @@ def test_world_must_be_repository_owned() -> None:
         ("x500", "urban_inspection_multirotor_001.sdf", "px4_multirotor_standard"),
         ("standard_vtol", "river_rescue_vtol_001.sdf", "px4_vtol_standard"),
         ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter_mono_cam"),
+        ("delta_tailsitter", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter_mono_cam"),
+        ("delta_tailsitter_mono_cam", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter_mono_cam"),
+        ("delta_tailsitter_gimbal", "delta_tailsitter_gimbal_cam_001.sdf", "delta_tailsitter_gimbal_cam"),
+        ("delta_tailsitter_gimbal_cam", "delta_tailsitter_gimbal_cam_001.sdf", "delta_tailsitter_gimbal_cam"),
         ("tiltrotor", "tiltrotor_mono_cam_001.sdf", "tiltrotor_mono_cam"),
         ("rc_cessna", "coastal_patrol_fixed_wing_001.sdf", "px4_fixed_wing_standard"),
     ],
@@ -66,6 +117,8 @@ def test_session_plan_selects_airframe_runtime(airframe: str, world: str, model:
         ("standard_vtol", "gen_v2_w0031", "vtol-v2/standard_vtol/gen_v2_w0031"),
         ("standard_vtol", "gen_v2_w0016", "vtol-v2/standard_vtol/gen_v2_w0016"),
         ("quadtailsitter", "gen_v2_w0016", "vtol-v2/quadtailsitter/gen_v2_w0016"),
+        ("delta_tailsitter", "gen_v2_w0016", "vtol-v2/delta_tailsitter/gen_v2_w0016"),
+        ("delta_tailsitter_gimbal", "gen_v2_w0016", "vtol-v2/delta_tailsitter_gimbal/gen_v2_w0016"),
         ("rc_cessna", "gen_v2_w0031", "fixed-wing-v2/gen_v2_w0031"),
         ("rc_cessna_hand", "gen_v2_w0016", "fixed-wing-v2/gen_v2_w0016"),
         ("x500", "gen_v2_w0031", "generated-v2/gen_v2_w0031"),
@@ -101,6 +154,7 @@ def test_known_world_without_an_airframe_scenario_is_rejected(airframe: str, wor
         ("x500", None, None),
         ("standard_vtol", None, "vtol"),
         ("quadtailsitter_mono_cam", None, "vtol"),
+        ("delta_tailsitter_mono_cam", None, "vtol"),
         ("tiltrotor", None, "vtol"),
         ("rc_cessna", None, "runway"),
         ("rc_cessna", "catapult", "catapult"),
@@ -119,6 +173,7 @@ def test_takeoff_method_follows_the_airframe(
     [
         ("x500", "runway"),
         ("standard_vtol", "runway"),
+        ("delta_tailsitter", "runway"),
         ("rc_cessna", "vtol"),
         ("rc_cessna_hand", "catapult"),
     ],
@@ -136,6 +191,7 @@ def test_takeoff_method_rejects_other_airframe_families(airframe: str, requested
         ("x500", "urban_inspection_multirotor_001.sdf", "x500_mono_cam", None),
         ("standard_vtol", "gen_v2_w0016", "standard_vtol", "vtol"),
         ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter", "vtol"),
+        ("delta_tailsitter", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter", "vtol"),
         ("tiltrotor", "tiltrotor_mono_cam_001.sdf", "tiltrotor", "vtol"),
         ("rc_cessna", "gen_v2_w0031", "rc_cessna_mono_cam", "runway"),
         ("rc_cessna_hand", "coastal_patrol_fixed_wing_001.sdf", "rc_cessna_mono_cam", "hand"),
@@ -214,6 +270,19 @@ def test_generated_world_resolves_through_its_scenario_index() -> None:
         _scenario_for(worlds / "gen_v2_w0031.sdf", "rc_cessna")
         == ROOT / "configs/scenarios/fixed-wing-v2/gen_v2_w0031.scenario.json"
     )
+
+
+@pytest.mark.parametrize("family", ["delta_tailsitter", "delta_tailsitter_gimbal"])
+def test_delta_tailsitter_vtol_scenario_index_is_complete(family: str) -> None:
+    index_path = ROOT / "configs/scenarios" / "vtol-v2" / family / "index.json"
+    document = json.loads(index_path.read_text(encoding="utf-8"))
+    worlds = document["worlds"]
+    assert len(worlds) == 2
+    assert {entry["split"] for entry in worlds} == {"train", "val"}
+    assert {entry["world_id"] for entry in worlds} == {"gen_v2_w0016", "gen_v2_w0031"}
+    for entry in worlds:
+        scenario = index_path.parent / f"{entry['world_id']}.scenario.json"
+        assert scenario.is_file()
 
 
 def test_run_task_uses_session_ports_and_repo_defaults(monkeypatch, tmp_path: Path) -> None:
@@ -335,6 +404,7 @@ def test_heartbeat_details_releases_the_gcs_port(monkeypatch) -> None:
     assert closed == [True]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_heartbeat_details_actually_frees_the_udp_port() -> None:
     import socket
 

@@ -23,6 +23,7 @@ from multidetect.autonomy import onboard_navigation_inference as inference
 from multidetect.autonomy import onboard_navigation_supervision as navigation
 from scripts import build_onboard_openfly_original82_supervision as bridge
 from scripts import evaluate_onboard_navigation_original82 as evaluation
+from scripts import onboard_navigation_host_memory as host_memory
 
 REPO = Path(__file__).resolve().parents[1]
 SHA = "a" * 64
@@ -739,6 +740,9 @@ def test_prefix_observer_rejects_and_restores_on_failure(mode):
 
 @pytest.fixture
 def orchestration(monkeypatch, dataset):
+    # This suite exercises orchestration with CPU stand-ins, not live WinAPI
+    # telemetry. Keep the sampler's Windows-only production contract intact.
+    monkeypatch.setattr(host_memory, "snapshot", lambda: {"fixture_only": True})
     root = dataset.root
     output = root / "artifacts/evaluation/onboard-navigation-original82-fixture"
     old_run = root / "old_r2"
@@ -869,6 +873,14 @@ def test_orchestration_durable_raw_before_offline_gold59_and_no_old_writes(
     assert orchestration.state.processed_ids == orchestration.plan["sample_ids"]
     assert orchestration.state.backend_calls == 59
     assert report["gold_scored_only_after_all_raw_predictions_durable"] is True
+    assert [row["stage"] for row in report["host_memory_observations"]] == [
+        "load_before",
+        "load_after",
+        "model_released",
+    ]
+    assert all(
+        row["snapshot"] == {"fixture_only": True} for row in report["host_memory_observations"]
+    )
     assert all(report[k] is False for k in evaluation.FALSE_CLAIMS)
     assert orchestration.marker.read_bytes() == b"original artifacts untouched"
     assert list((orchestration.old_run / "reload").iterdir()) == [orchestration.marker]

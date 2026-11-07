@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import gzip
 import json
 import math
+import signal
+import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +26,29 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
+from multidetect.simulator.delta_tailsitter_smoke import (  # noqa: E402
+    tailsitter_flight_angles_deg,
+)
+from multidetect.simulator.fixed_wing_reposition import (  # noqa: E402
+    DEFAULT_NAV_LOITER_RAD_M,
+    reposition_ring_metrics,
+)
+
+DELTA_TAILSITTER_PROFILE_IDS = frozenset(
+    {"delta_tailsitter", "delta_tailsitter_gimbal"}
+)
+FW_REPOSITION_RING_TOLERANCE_M = 8.0
+FW_OVERSPEED_SETTLED_WINDOW_S = 10.0
+BACK_TRANSITION_SETTLE_S = 5.0
+BACK_TRANSITION_MAX_MOTOR_OFF_S = 1.0
+BACK_TRANSITION_MAX_ALTITUDE_LOSS_M = 15.0
+FW_REPOSITION_RING_DEFAULT_RADIUS_M = DEFAULT_NAV_LOITER_RAD_M
+FW_SATURATION_LOW = 5
+FW_SATURATION_HIGH = 1095
+FW_SATURATION_MAX_FRACTION = 0.15
+FW_SELF_OCCLUSION_MAX_FRACTION = 0.05
+FW_MIN_METRIC_SAMPLES = 30
+FW_MIN_DEPTH_FRAMES = 5
 
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
@@ -63,8 +89,771 @@ def _difference_norm(left: Any, right: Any) -> float | None:
         return None
 
 
+def _row_sim_time_s(row: dict[str, Any]) -> float | None:
+    direct = row.get("sim_time_s")
+    if direct is not None:
+        try:
+            return float(direct)
+        except (TypeError, ValueError):
+            return None
+    boot_ms = _mav_value(row, "time_boot_ms")
+    if boot_ms is not None:
+        try:
+            return float(boot_ms) / 1000.0
+        except (TypeError, ValueError):
+            pass
+    time_usec = _mav_value(row, "time_usec")
+    if time_usec is not None:
+        try:
+            return float(time_usec) / 1_000_000.0
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _timeline(mavlink: list[dict[str, Any]]) -> list[float | None]:
+    """Align untimed MAVLink records to nearby PX4-clock-stamped packets."""
+    anchors: list[tuple[int, float]] = []
+    direct = [_row_sim_time_s(row) for row in mavlink]
+    for row, sim_time in zip(mavlink, direct, strict=True):
+        receive_ns = row.get("receive_monotonic_ns")
+        if sim_time is None or receive_ns is None:
+            continue
+        try:
+            anchors.append((int(receive_ns), sim_time))
+        except (TypeError, ValueError):
+            continue
+    anchors.sort()
+    receive_times = [item[0] for item in anchors]
+    aligned: list[float | None] = []
+    for row, sim_time in zip(mavlink, direct, strict=True):
+        if sim_time is not None:
+            aligned.append(sim_time)
+            continue
+        receive_ns = row.get("receive_monotonic_ns")
+        if receive_ns is None or not anchors:
+            aligned.append(None)
+            continue
+        try:
+            stamp = int(receive_ns)
+        except (TypeError, ValueError):
+            aligned.append(None)
+            continue
+        right = bisect.bisect_left(receive_times, stamp)
+        if right == 0:
+            aligned.append(None)
+        elif right >= len(anchors):
+            aligned.append(None)
+        else:
+            left_ns, left_s = anchors[right - 1]
+            right_ns, right_s = anchors[right]
+            ratio = (stamp - left_ns) / max(right_ns - left_ns, 1)
+            aligned.append(left_s + ratio * (right_s - left_s))
+    return aligned
+
+
+def _percentile(values: list[float], percent: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    rank = (len(ordered) - 1) * percent / 100.0
+    low = int(math.floor(rank))
+    high = int(math.ceil(rank))
+    if low == high:
+        return ordered[low]
+    return ordered[low] + (ordered[high] - ordered[low]) * (rank - low)
+
+
+def _bank_diagnostics(bank_angles_deg: list[float]) -> tuple[int, float | None]:
+    sign_flips = 0
+    previous_sign: int | None = None
+    for angle in bank_angles_deg:
+        sign = 1 if angle > 20.0 else (-1 if angle < -20.0 else 0)
+        if sign == -1 and previous_sign == 1:
+            sign_flips += 1
+        if sign:
+            previous_sign = sign
+    standard_deviation = (
+        statistics.pstdev(bank_angles_deg)
+        if len(bank_angles_deg) >= 2
+        else (0.0 if bank_angles_deg else None)
+    )
+    return sign_flips, standard_deviation
+
+
+def _delta_fw_ring_metrics(
+    mavlink: list[dict[str, Any]], steps: list[dict[str, Any]]
+) -> dict[str, Any]:
+    relocations = [
+        (row.get("ack") or {}).get("smoke_reposition_wait")
+        for row in steps
+        if isinstance((row.get("ack") or {}).get("smoke_reposition_wait"), dict)
+    ]
+    relocation = relocations[0] if relocations else None
+    target_ned = relocation.get("target_ned_m") if relocation else None
+    radius = FW_REPOSITION_RING_DEFAULT_RADIUS_M
+    if isinstance(target_ned, (list, tuple)) and len(target_ned) >= 2:
+        for row in mavlink:
+            if str(_mav_value(row, "param_id", "")).strip("\x00 ") != "NAV_LOITER_RAD":
+                continue
+            try:
+                candidate = float(_mav_value(row, "param_value"))
+                if math.isfinite(candidate) and candidate > 0:
+                    radius = candidate
+                    break
+            except (TypeError, ValueError):
+                pass
+        fw_state: int | None = None
+        observations = []
+        for row in mavlink:
+            kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
+            if kind == "EXTENDED_SYS_STATE":
+                try:
+                    fw_state = int(_mav_value(row, "vtol_state"))
+                except (TypeError, ValueError):
+                    fw_state = None
+            elif kind == "LOCAL_POSITION_NED":
+                time_s = _row_sim_time_s(row)
+                try:
+                    if time_s is not None:
+                        observations.append(
+                            {
+                                "sim_time_s": time_s,
+                                "x": float(_mav_value(row, "x")),
+                                "y": float(_mav_value(row, "y")),
+                                "fw_active": fw_state == 4,
+                            }
+                        )
+                except (TypeError, ValueError):
+                    pass
+        ring = reposition_ring_metrics(
+            observations,
+            target_ned=target_ned,
+            radius_m=radius,
+            tolerance_m=FW_REPOSITION_RING_TOLERANCE_M,
+        )
+    else:
+        ring = {
+            "fw_reposition_ring_error_p95_m": None,
+            "fw_reposition_dwell_s": 0.0,
+            "fw_reposition_swept_deg": 0.0,
+            "fw_reposition_success": False,
+        }
+    return {
+        **ring,
+        "fw_reposition_distance_m": relocation.get("distance_m") if relocation else None,
+        "fw_reposition_tolerance_m": FW_REPOSITION_RING_TOLERANCE_M,
+        "fw_reposition_radius_m": radius,
+    }
+
+
+def _delta_back_transition_metrics(mavlink: list[dict[str, Any]]) -> dict[str, Any]:
+    """Catch a back-transition that only survives because the ground arrived late.
+
+    Reaching "landed" says nothing about the transition: with all motors stopped
+    the airframe has fallen 50 m and still recovered a few metres above the ground.
+    """
+    start = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_post_transition_start"),
+        None,
+    )
+    end = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_post_transition_end"),
+        None,
+    )
+    start_s = _row_sim_time_s(start) if start else None
+    end_s = _row_sim_time_s(end) if end else None
+    motor_off_s = None
+    altitude_loss_m = None
+    if start_s is not None and end_s is not None and end_s >= start_s:
+        motor_off_s = 0.0
+        off_since = None
+        altitudes: list[float] = []
+        window_end_s = end_s + BACK_TRANSITION_SETTLE_S
+        for row, sim_time in zip(mavlink, _timeline(mavlink), strict=True):
+            if sim_time is None or not start_s <= sim_time <= window_end_s:
+                continue
+            kind = str(row.get("message_type", "")).upper()
+            try:
+                if kind == "LOCAL_POSITION_NED":
+                    altitudes.append(-float(_mav_value(row, "z")))
+                elif kind == "SERVO_OUTPUT_RAW":
+                    outputs = [float(_mav_value(row, f"servo{index}_raw")) for index in range(1, 5)]
+                    if all(value <= FW_SATURATION_LOW for value in outputs):
+                        off_since = sim_time if off_since is None else off_since
+                        motor_off_s = max(motor_off_s, sim_time - off_since)
+                    else:
+                        off_since = None
+            except (TypeError, ValueError):
+                continue
+        if altitudes:
+            altitude_loss_m = max(0.0, altitudes[0] - min(altitudes))
+    return {
+        "back_transition_motor_off_s": motor_off_s,
+        "back_transition_altitude_loss_m": altitude_loss_m,
+        "back_transition_success": bool(
+            motor_off_s is not None
+            and motor_off_s <= BACK_TRANSITION_MAX_MOTOR_OFF_S
+            and altitude_loss_m is not None
+            and altitude_loss_m <= BACK_TRANSITION_MAX_ALTITUDE_LOSS_M
+        ),
+    }
+
+
+def _delta_fw_overspeed_metrics(mavlink: list[dict[str, Any]]) -> dict[str, Any]:
+    start = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_fw_overspeed_start"),
+        None,
+    )
+    injection_end = next(
+        (
+            row
+            for row in mavlink
+            if row.get("message_type") == "delta_smoke_fw_overspeed_injection_end"
+        ),
+        None,
+    )
+    restored = next(
+        (
+            row
+            for row in mavlink
+            if row.get("message_type") == "delta_smoke_fw_overspeed_parameter_restored"
+        ),
+        None,
+    )
+    end = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_fw_overspeed_end"),
+        None,
+    )
+    start_s = _row_sim_time_s(start) if start else None
+    injection_end_s = _row_sim_time_s(injection_end) if injection_end else None
+    end_s = _row_sim_time_s(end) if end else None
+    aligned_times = _timeline(mavlink)
+    injection_speeds: list[float] = []
+    cycle_speeds: list[float] = []
+    motor_samples = 0
+    motor_saturated_samples = 0
+    hold_motor_samples = 0
+    hold_motor_saturated_samples = 0
+    motor_counts = [0, 0, 0, 0]
+    motor_saturated_counts = [0, 0, 0, 0]
+    # Clipping while braking from the injected speed is expected, and r34/r35
+    # show it settling about 5 s after the speed is back under the limit.  The
+    # gate asks whether the airframe is normal again, so only the tail of the
+    # stable hold counts against the saturation limit.
+    hold_start_s = None
+    if end is not None and end_s is not None:
+        try:
+            hold_start_s = end_s - min(float(end.get("stable_s")), FW_OVERSPEED_SETTLED_WINDOW_S)
+        except (TypeError, ValueError):
+            pass
+    state_updates = []
+    for row, sim_time in zip(mavlink, aligned_times, strict=True):
+        if str(row.get("message_type", "")).upper() != "EXTENDED_SYS_STATE" or sim_time is None:
+            continue
+        try:
+            state_updates.append((sim_time, int(_mav_value(row, "vtol_state"))))
+        except (TypeError, ValueError):
+            pass
+    state_updates.sort()
+    state_times = [item[0] for item in state_updates]
+    if start_s is not None and end_s is not None and end_s >= start_s:
+        for row, sim_time in zip(mavlink, aligned_times, strict=True):
+            if sim_time is None or not start_s <= sim_time <= end_s:
+                continue
+            kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
+            if kind == "VFR_HUD":
+                try:
+                    speed = float(_mav_value(row, "airspeed"))
+                    if math.isfinite(speed):
+                        cycle_speeds.append(speed)
+                        if injection_end_s is None or sim_time <= injection_end_s:
+                            injection_speeds.append(speed)
+                except (TypeError, ValueError):
+                    pass
+            if kind != "SERVO_OUTPUT_RAW":
+                continue
+            state_index = bisect.bisect_right(state_times, sim_time) - 1
+            if state_index < 0 or state_updates[state_index][1] != 4:
+                continue
+            outputs: list[float] = []
+            for index in range(1, 5):
+                try:
+                    outputs.append(float(_mav_value(row, f"servo{index}_raw")))
+                except (TypeError, ValueError):
+                    outputs = []
+                    break
+            if not outputs:
+                continue
+            motor_samples += 1
+            saturated = [
+                value <= FW_SATURATION_LOW or value >= FW_SATURATION_HIGH
+                for value in outputs
+            ]
+            motor_saturated_samples += int(any(saturated))
+            if hold_start_s is not None and sim_time >= hold_start_s:
+                hold_motor_samples += 1
+                hold_motor_saturated_samples += int(any(saturated))
+            for index, value in enumerate(outputs):
+                motor_counts[index] += 1
+                motor_saturated_counts[index] += int(saturated[index])
+
+    # The step stops on its own airspeed reading, which VFR_HUD's lower rate can miss.
+    injected_peak = max(injection_speeds, default=None)
+    if injection_end is not None:
+        try:
+            reported_peak = float(injection_end.get("peak_airspeed_mps"))
+        except (TypeError, ValueError):
+            pass
+        else:
+            injected_peak = max(injected_peak or reported_peak, reported_peak)
+    recovery_s = None
+    if end is not None:
+        try:
+            recovery_s = float(end.get("recovery_s"))
+        except (TypeError, ValueError):
+            pass
+    stable_s = None
+    height_error_p95 = None
+    if end is not None:
+        try:
+            stable_s = float(end.get("stable_s"))
+        except (TypeError, ValueError):
+            pass
+        try:
+            height_error_p95 = float(end.get("height_error_p95_m"))
+        except (TypeError, ValueError):
+            pass
+    injection_success = bool(
+        injection_end
+        and injection_end.get("status") == "reached"
+        and injected_peak is not None
+        and injected_peak >= 21.0
+    )
+    parameter_restored = bool(restored and restored.get("status") == "restored")
+    recovery_success = bool(
+        injection_success
+        and parameter_restored
+        and end
+        and end.get("status") == "complete"
+        and isinstance(recovery_s, (int, float))
+        and 0.0 <= recovery_s <= 40.0
+        and isinstance(stable_s, (int, float))
+        and stable_s >= 15.0
+        and end.get("continuous_fw") is True
+        and isinstance(height_error_p95, (int, float))
+        and height_error_p95 <= 10.0
+    )
+    per_motor = [
+        motor_saturated_counts[index] / count if count else None
+        for index, count in enumerate(motor_counts)
+    ]
+    transient_saturation_fraction = (
+        motor_saturated_samples / motor_samples if motor_samples else None
+    )
+    hold_saturation_fraction = (
+        hold_motor_saturated_samples / hold_motor_samples if hold_motor_samples else None
+    )
+    saturation_success = bool(
+        hold_motor_samples
+        and hold_saturation_fraction is not None
+        and hold_saturation_fraction <= FW_SATURATION_MAX_FRACTION
+    )
+    return {
+        "fw_overspeed_peak_mps": injected_peak,
+        "fw_overspeed_cycle_peak_mps": max(cycle_speeds, default=None),
+        "fw_overspeed_injection_success": injection_success,
+        "fw_overspeed_injection_status": injection_end.get("status") if injection_end else None,
+        "fw_overspeed_recovery_s": recovery_s,
+        "fw_overspeed_recovery_stable_s": stable_s,
+        "fw_overspeed_recovery_success": recovery_success,
+        "fw_overspeed_parameter_restored": parameter_restored,
+        "fw_overspeed_recovery_height_error_p95_m": height_error_p95,
+        "fw_overspeed_fw_continuous": bool(end and end.get("continuous_fw") is True),
+        "fw_overspeed_failure_reason": end.get("failure_reason") if end else (
+            injection_end.get("failure_reason") if injection_end else "overspeed_step_missing"
+        ),
+        "fw_overspeed_transient_saturation_fraction": transient_saturation_fraction,
+        "fw_overspeed_motor_saturation_fraction": hold_saturation_fraction,
+        "fw_overspeed_hold_motor_samples": hold_motor_samples,
+        "fw_overspeed_saturation_success": saturation_success,
+        "fw_overspeed_motor_saturation_fraction_by_motor": per_motor,
+        "fw_overspeed_motor_samples": motor_samples,
+    }
+
+
+def _takeoff_sim_time_s(
+    mavlink: list[dict[str, Any]], takeoff_altitude_m: float
+) -> float | None:
+    for row in mavlink:
+        if row.get("message_type") == "fixed_wing_takeoff_complete":
+            sim_time = _row_sim_time_s(row)
+            if sim_time is not None:
+                return sim_time
+    threshold_m = max(0.5, takeoff_altitude_m - 1.0)
+    for row in mavlink:
+        if str(row.get("message_type", "")).upper() != "LOCAL_POSITION_NED":
+            continue
+        try:
+            if -float(_mav_value(row, "z")) >= threshold_m:
+                sim_time = _row_sim_time_s(row)
+                if sim_time is not None:
+                    return sim_time
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _depth_self_occlusion(
+    episode_dir: Path,
+    steps: list[dict[str, Any]],
+    mavlink: list[dict[str, Any]],
+    *,
+    takeoff_altitude_m: float,
+) -> dict[str, Any]:
+    root = Path(episode_dir)
+    paths = sorted(
+        path
+        for suffix in ("*.npy", "*.npz", "*.png")
+        for path in (root / "depth").glob(suffix)
+    )
+    if not paths:
+        return {
+            "fraction": None,
+            "frame_count": 0,
+            "eligible_frame_count": 0,
+            "pixel_count": 0,
+            "near_pixel_count": 0,
+            "takeoff_time_s": None,
+        }
+    try:
+        import numpy as np
+    except ImportError:
+        return {
+            "fraction": None,
+            "frame_count": 0,
+            "eligible_frame_count": 0,
+            "pixel_count": 0,
+            "near_pixel_count": 0,
+            "error": "numpy unavailable",
+        }
+    takeoff_time_s = _takeoff_sim_time_s(mavlink, takeoff_altitude_m)
+    if takeoff_time_s is None:
+        return {
+            "fraction": None,
+            "frame_count": 0,
+            "eligible_frame_count": 0,
+            "pixel_count": 0,
+            "near_pixel_count": 0,
+            "takeoff_time_s": None,
+            "error": "takeoff simulation timestamp unavailable",
+        }
+    stamps_by_name: dict[str, int] = {}
+    for row in steps:
+        for observation_name in ("obs_before", "obs_after"):
+            observation = row.get(observation_name)
+            if not isinstance(observation, dict):
+                continue
+            frame_stamp = observation.get("frame_sensor_stamp_ns")
+            depth_path = observation.get("depth_path")
+            if frame_stamp is None or not isinstance(depth_path, str):
+                continue
+            try:
+                stamps_by_name[Path(depth_path).name] = int(frame_stamp)
+            except (TypeError, ValueError):
+                continue
+    pixel_count = 0
+    near_pixel_count = 0
+    eligible_frame_count = 0
+    unreadable_frame_count = 0
+    takeoff_stamp_ns = int(takeoff_time_s * 1e9)
+    for path in paths:
+        stamp_ns = stamps_by_name.get(path.name)
+        if stamp_ns is None:
+            try:
+                stamp_ns = int(path.stem.rsplit("_", 1)[-1])
+            except ValueError:
+                unreadable_frame_count += 1
+                continue
+        if stamp_ns < takeoff_stamp_ns:
+            continue
+        try:
+            if path.suffix == ".png":
+                from PIL import Image
+
+                with Image.open(path) as image:
+                    frame = np.asarray(image)
+            else:
+                loaded = np.load(path, allow_pickle=False)
+                if isinstance(loaded, np.lib.npyio.NpzFile):
+                    try:
+                        frame = loaded["depth"]
+                    finally:
+                        loaded.close()
+                else:
+                    frame = loaded
+        except (ImportError, OSError, ValueError, KeyError):
+            unreadable_frame_count += 1
+            continue
+        depth_m = frame.astype(np.float64, copy=False)
+        if np.issubdtype(frame.dtype, np.integer):
+            depth_m = depth_m / 1000.0
+        finite = np.isfinite(depth_m)
+        eligible_frame_count += 1
+        pixel_count += int(depth_m.size)
+        near_pixel_count += int(np.count_nonzero(finite & (depth_m > 0.0) & (depth_m < 1.0)))
+    return {
+        "fraction": near_pixel_count / pixel_count if pixel_count else None,
+        "frame_count": eligible_frame_count,
+        "eligible_frame_count": eligible_frame_count,
+        "available_frame_count": len(paths),
+        "unreadable_or_untimed_frame_count": unreadable_frame_count,
+        "pixel_count": pixel_count,
+        "near_pixel_count": near_pixel_count,
+        "takeoff_time_s": takeoff_time_s,
+    }
+
+
+def _delta_fw_metrics(
+    mavlink: list[dict[str, Any]],
+    steps: list[dict[str, Any]],
+    profile: AirframeProfile,
+    episode_dir: Path,
+    *,
+    takeoff_altitude_m: float,
+) -> dict[str, Any]:
+    start = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_fw_sustain_start"),
+        None,
+    )
+    end = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_fw_sustain_end"),
+        None,
+    )
+    start_s = _row_sim_time_s(start) if start else None
+    end_s = _row_sim_time_s(end) if end else None
+    commanded_altitude = start.get("commanded_altitude_m") if start else None
+    speeds: list[float] = []
+    bank_abs: list[float] = []
+    bank_signed: list[float] = []
+    pitch: list[float] = []
+    height_error: list[float] = []
+    motor_samples = 0
+    motor_saturated_samples = 0
+    motor_output_samples = 0
+    motor_output_saturated = 0
+    motor_counts = [0, 0, 0, 0]
+    motor_saturated_counts = [0, 0, 0, 0]
+    aligned_times = _timeline(mavlink)
+    state_updates: list[tuple[float, int]] = []
+    for row, sim_time in zip(mavlink, aligned_times, strict=True):
+        if str(row.get("message_type", "")).upper() != "EXTENDED_SYS_STATE" or sim_time is None:
+            continue
+        try:
+            state_updates.append((sim_time, int(_mav_value(row, "vtol_state"))))
+        except (TypeError, ValueError):
+            continue
+    state_updates.sort()
+    state_update_times = [item[0] for item in state_updates]
+    if start_s is not None and end_s is not None and end_s >= start_s:
+        for row, sim_time in zip(mavlink, aligned_times, strict=True):
+            kind = str(row.get("message_type", row.get("mavpackettype", ""))).upper()
+            if sim_time is None or not start_s <= sim_time <= end_s:
+                continue
+            state_index = bisect.bisect_right(state_update_times, sim_time) - 1
+            current_vtol_state = state_updates[state_index][1] if state_index >= 0 else None
+            if current_vtol_state != 4:
+                continue
+            if kind == "VFR_HUD":
+                try:
+                    speeds.append(float(_mav_value(row, "airspeed")))
+                except (TypeError, ValueError):
+                    pass
+            elif kind == "ATTITUDE_QUATERNION":
+                try:
+                    q = tuple(float(_mav_value(row, f"q{i}")) for i in range(1, 5))
+                    pitch_up, bank_angle = tailsitter_flight_angles_deg(q)
+                except (TypeError, ValueError):
+                    continue
+                pitch.append(pitch_up)
+                bank_signed.append(bank_angle)
+                bank_abs.append(abs(bank_angle))
+            elif kind == "LOCAL_POSITION_NED" and commanded_altitude is not None:
+                try:
+                    altitude = -float(_mav_value(row, "z"))
+                    height_error.append(abs(altitude - float(commanded_altitude)))
+                except (TypeError, ValueError):
+                    pass
+            elif kind == "SERVO_OUTPUT_RAW":
+                outputs: list[float] = []
+                for index in range(1, 5):
+                    try:
+                        outputs.append(float(_mav_value(row, f"servo{index}_raw")))
+                    except (TypeError, ValueError):
+                        outputs = []
+                        break
+                if outputs:
+                    motor_samples += 1
+                    saturated = [
+                        value <= FW_SATURATION_LOW or value >= FW_SATURATION_HIGH
+                        for value in outputs
+                    ]
+                    motor_output_samples += len(outputs)
+                    motor_output_saturated += sum(saturated)
+                    for index, value in enumerate(outputs):
+                        motor_counts[index] += 1
+                        motor_saturated_counts[index] += int(saturated[index])
+                    if any(saturated):
+                        motor_saturated_samples += 1
+
+    fw_duration_s = float(end.get("fw_duration_s", 0.0)) if end else 0.0
+    orbit_degrees = float(end.get("orbit_signed_degrees", 0.0)) if end else 0.0
+    sustain_success = bool(
+        end
+        and end.get("status") == "complete"
+        and end.get("continuous_fw") is True
+        and fw_duration_s >= 120.0
+        and abs(orbit_degrees) >= 360.0
+    )
+    motor_fraction = (
+        motor_saturated_samples / motor_samples if motor_samples else None
+    )
+    motor_output_fraction = (
+        motor_output_saturated / motor_output_samples if motor_output_samples else None
+    )
+    motor_saturation_by_motor = [
+        motor_saturated_counts[index] / count if count else None
+        for index, count in enumerate(motor_counts)
+    ]
+    bank_sign_flips, bank_sd = _bank_diagnostics(bank_signed)
+    r_limit_deg = float(profile.max_bank_deg)
+    metrics = {
+        "fw_sustain_duration_s": fw_duration_s if end else None,
+        "fw_orbit_signed_degrees": orbit_degrees if end else None,
+        "fw_airspeed_p5_mps": _percentile(speeds, 5),
+        "fw_airspeed_p95_mps": _percentile(speeds, 95),
+        "fw_bank_abs_p95_deg": _percentile(bank_abs, 95),
+        "fw_bank_sign_flips": bank_sign_flips,
+        "fw_bank_sd_deg": bank_sd,
+        "fw_pitch_p5_deg": _percentile(pitch, 5),
+        "fw_pitch_p95_deg": _percentile(pitch, 95),
+        "fw_height_error_p95_m": _percentile(height_error, 95),
+        "fw_motor_saturation_fraction": motor_fraction,
+        "fw_motor_output_saturation_fraction": motor_output_fraction,
+        "fw_motor_saturation_fraction_by_motor": motor_saturation_by_motor,
+        "fw_motor_saturation_samples": motor_saturated_samples,
+        "fw_motor_output_samples": motor_output_samples,
+        "fw_motor_output_saturated_count": motor_output_saturated,
+        "fw_sample_counts": {
+            "airspeed": len(speeds),
+            "attitude": len(pitch),
+            "altitude": len(height_error),
+            "motor_outputs": motor_samples,
+        },
+        "fw_thresholds": {
+            "airspeed_p5_min_mps": profile.min_airspeed_mps,
+            "airspeed_p95_max_mps": profile.max_airspeed_mps + 1.0,
+            "fw_r_lim_deg": r_limit_deg,
+            "bank_abs_p95_max_deg": r_limit_deg + 10.0,
+            "pitch_p5_min_deg": -15.0,
+            "pitch_p95_max_deg": 20.0,
+            "height_error_p95_max_m": 10.0,
+            "motor_saturation_fraction_max": FW_SATURATION_MAX_FRACTION,
+            "minimum_samples_per_metric": FW_MIN_METRIC_SAMPLES,
+            "motor_saturation_definition": "one sample is saturated if any of servo1..4 is <=5 or >=1095; per-motor and any-motor fractions are also reported",
+        },
+        "fw_sustain_success": sustain_success,
+    }
+    metrics["fw_metrics_pass"] = bool(
+        metrics["fw_airspeed_p5_mps"] is not None
+        and metrics["fw_airspeed_p5_mps"] >= profile.min_airspeed_mps
+        and metrics["fw_airspeed_p95_mps"] is not None
+        and metrics["fw_airspeed_p95_mps"] <= profile.max_airspeed_mps + 1.0
+        and metrics["fw_bank_abs_p95_deg"] is not None
+        and metrics["fw_bank_abs_p95_deg"] <= r_limit_deg + 10.0
+        and metrics["fw_pitch_p5_deg"] is not None
+        and metrics["fw_pitch_p5_deg"] >= -15.0
+        and metrics["fw_pitch_p95_deg"] is not None
+        and metrics["fw_pitch_p95_deg"] <= 20.0
+        and metrics["fw_height_error_p95_m"] is not None
+        and metrics["fw_height_error_p95_m"] <= 10.0
+        and len(speeds) >= FW_MIN_METRIC_SAMPLES
+        and len(pitch) >= FW_MIN_METRIC_SAMPLES
+        and len(height_error) >= FW_MIN_METRIC_SAMPLES
+        and motor_samples >= FW_MIN_METRIC_SAMPLES
+        and motor_fraction is not None
+        and motor_fraction <= FW_SATURATION_MAX_FRACTION
+        and motor_output_fraction is not None
+        and motor_output_fraction <= FW_SATURATION_MAX_FRACTION
+        and all(
+            value is not None and value <= FW_SATURATION_MAX_FRACTION
+            for value in motor_saturation_by_motor
+        )
+    )
+    ring_event = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_fw_ring_judgement"),
+        None,
+    )
+    if ring_event and ring_event.get("judgement_complete") is True:
+        ring = {
+            key: ring_event.get(key)
+            for key in (
+                "fw_reposition_ring_error_p95_m",
+                "fw_reposition_dwell_s",
+                "fw_reposition_swept_deg",
+                "fw_reposition_success",
+                "fw_reposition_distance_m",
+                "fw_reposition_tolerance_m",
+                "fw_reposition_radius_m",
+            )
+        }
+    else:
+        ring = _delta_fw_ring_metrics(mavlink, steps)
+    metrics.update(ring)
+    metrics.update(_delta_fw_overspeed_metrics(mavlink))
+    metrics.update(_delta_back_transition_metrics(mavlink))
+    post_transition = next(
+        (row for row in mavlink if row.get("message_type") == "delta_smoke_post_transition_end"),
+        None,
+    )
+    metrics["post_transition_climb_m"] = (
+        post_transition.get("climb_m") if post_transition else None
+    )
+    metrics["post_transition_climb_success"] = bool(
+        post_transition
+        and post_transition.get("status") == "complete"
+        and isinstance(post_transition.get("climb_m"), (int, float))
+        and float(post_transition["climb_m"]) <= 20.0
+    )
+    depth = _depth_self_occlusion(
+        episode_dir,
+        steps,
+        mavlink,
+        takeoff_altitude_m=takeoff_altitude_m,
+    )
+    metrics["self_occlusion_fraction"] = depth["fraction"]
+    metrics["self_occlusion_frame_count"] = depth["frame_count"]
+    metrics["self_occlusion_available_frame_count"] = depth.get("available_frame_count", 0)
+    metrics["self_occlusion_takeoff_time_s"] = depth.get("takeoff_time_s")
+    metrics["self_occlusion_unreadable_or_untimed_frame_count"] = depth.get(
+        "unreadable_or_untimed_frame_count", 0
+    )
+    metrics["self_occlusion_pixel_count"] = depth["pixel_count"]
+    metrics["self_occlusion_near_pixel_count"] = depth["near_pixel_count"]
+    metrics["self_occlusion_threshold_fraction"] = FW_SELF_OCCLUSION_MAX_FRACTION
+    metrics["self_occlusion_success"] = bool(
+        depth["fraction"] is not None
+        and depth["fraction"] < FW_SELF_OCCLUSION_MAX_FRACTION
+        and depth["frame_count"] >= FW_MIN_DEPTH_FRAMES
+    )
+    return metrics
+
+
 def evaluate_episode(
-    episode_dir: Path, profile: AirframeProfile, target_altitude_m: float = 5.0
+    episode_dir: Path,
+    profile: AirframeProfile,
+    target_altitude_m: float = 5.0,
+    position_error_m: float | None = None,
 ) -> dict[str, Any]:
     """Evaluate a completed collector artifact from telemetry and step records."""
     episode_dir = Path(episode_dir)
@@ -150,16 +939,18 @@ def evaluate_episode(
     takeoff_success = bool(
         local_altitudes and max(local_altitudes) >= max(0.5, target_altitude_m * 0.8)
     )
-    if episode.get("takeoff_altitude_m") is not None:
-        takeoff_success = (
-            takeoff_success or float(episode["takeoff_altitude_m"]) >= target_altitude_m * 0.8
-        )
     if profile.category == "vtol":
-        transition_success = 4 in vtol_states or 5 in vtol_states
+        # A pre-takeoff MC sample is always present.  Count the complete VTOL
+        # route only when FW was observed before a later return to MC.
+        fw_state_index = next(
+            (index for index, state in enumerate(vtol_states) if state in {4, 5}),
+            None,
+        )
+        transition_success = fw_state_index is not None and any(
+            state in {3, 6} for state in vtol_states[fw_state_index + 1 :]
+        )
     else:
         transition_success = True
-    if profile.category == "vtol" and transition_success:
-        transition_success = transition_success and any(s in {3, 6} for s in vtol_states)
     takeoff_method = str(episode.get("takeoff_method", profile.takeoff.methods[0]))
     launch_texts = [
         str(_mav_value(row, "text", ""))
@@ -204,6 +995,9 @@ def evaluate_episode(
         )
         if error is not None:
             reposition_errors.append(error)
+    reposition_success = bool(reposition_errors) and position_error_m is not None and position_error_m > 0
+    if reposition_success:
+        reposition_success = max(reposition_errors) <= position_error_m
     video = episode.get("video") or {}
     camera_frames = int(video.get("frames_written", video.get("frame_count", 0)) or 0)
     if not camera_frames:
@@ -216,6 +1010,19 @@ def evaluate_episode(
             and row["obs_after"].get("frame_sensor_stamp_ns") is not None
         )
     failure = episode.get("failure")
+    gimbal = episode.get("gimbal_smoke")
+    gimbal_enabled = profile.camera.mount == "gimbal"
+    delta_metrics = (
+        _delta_fw_metrics(
+            mavlink,
+            steps,
+            profile,
+            episode_dir,
+            takeoff_altitude_m=float(episode.get("takeoff_altitude_m", target_altitude_m)),
+        )
+        if profile.id in DELTA_TAILSITTER_PROFILE_IDS
+        else {}
+    )
     return {
         "takeoff_success": takeoff_success,
         "launch_detected": launch_detected if launch_required else True,
@@ -227,6 +1034,8 @@ def evaluate_episode(
         # Guided fixed-wing commands return on PX4's ACK, so the per-step deltas
         # are short-horizon samples, not route accuracy.
         "reposition_error_m": reposition_errors,
+        # 仅供参考：上面的误差是 ACK 后的短时采样，不是航线精度，不能作为通过条件。
+        "reposition_success": reposition_success,
         "max_distance_from_origin_m": max(horizontal) if horizontal else None,
         "stayed_in_area": bool(horizontal) and max(horizontal) <= MAX_SMOKE_RANGE_M,
         "rtl_entered": rtl_entered,
@@ -234,13 +1043,18 @@ def evaluate_episode(
         "landed": landed,
         "camera_frames": camera_frames,
         "frames_aligned": bool(aligned) and all(aligned),
+        "gimbal_command_success": (gimbal is not None and gimbal.get("status") == "reached") if gimbal_enabled else True,
+        "gimbal_error_deg": (gimbal or {}).get("error_deg") if gimbal_enabled else None,
         "failure_reason": failure,
+        **delta_metrics,
     }
 
 
 ALIASES = {
     "advanced_plane_mono_cam": "advanced_plane",
     "quadtailsitter_mono_cam": "quadtailsitter",
+    "delta_tailsitter_mono_cam": "delta_tailsitter",
+    "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal",
     "tiltrotor_mono_cam": "tiltrotor",
     "standard_vtol_mono_cam": "standard_vtol",
     "rc_cessna_mono_cam": "rc_cessna_runway",
@@ -248,6 +1062,9 @@ ALIASES = {
 SCENARIO_ALIASES = {
     "advanced_plane_mono_cam": "advanced_plane_mono_cam_001",
     "quadtailsitter_mono_cam": "quadtailsitter_mono_cam_001",
+    "delta_tailsitter": "delta_tailsitter_mono_cam_001",
+    "delta_tailsitter_mono_cam": "delta_tailsitter_mono_cam_001",
+    "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal_cam_001",
     "tiltrotor_mono_cam": "tiltrotor_mono_cam_001",
     "standard_vtol_mono_cam": "river_rescue_vtol_001",
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001",
@@ -291,6 +1108,7 @@ def build_plan(
     if selected not in methods and not (profile.category == "vtol" and selected == "runway"):
         raise ValueError(f"{airframe} 不支持起飞方式 {selected}; 可选: {', '.join(methods)}")
     transition = profile.category == "vtol"
+    delta_strict = profile.id in DELTA_TAILSITTER_PROFILE_IDS
     launch_note = None
     if selected in {"hand", "catapult"}:
         launch_note = (
@@ -306,6 +1124,15 @@ def build_plan(
         {"stage": "preflight", "action": "GCS heartbeat + prearm + arm", "timeout_s": 45},
         {"stage": "takeoff", "action": selected, "mav_cmd": 84 if selected == "vtol" else 22},
     ]
+    gimbal_enabled = profile.camera.mount == "gimbal"
+    if gimbal_enabled:
+        steps.append(
+            {
+                "stage": "gimbal_check",
+                "action": "DO_GIMBAL_MANAGER_CONFIGURE then DO_GIMBAL_MANAGER_PITCHYAW pitch=-45 yaw=0; verify manager ownership, GIMBAL_DEVICE_ATTITUDE_STATUS, and joint angles",
+                "tolerance_deg": 4.0,
+            }
+        )
     if transition:
         steps.append({"stage": "transition_fw", "action": "MC -> FW", "mav_cmd": 3000, "param1": 4})
     steps.extend(
@@ -315,16 +1142,31 @@ def build_plan(
                 "action": "orbit",
                 "mav_cmd": 34,
                 "airspeed_mps": [profile.min_airspeed_mps, profile.max_airspeed_mps],
+                **({"minimum_fw_duration_s": 120, "minimum_orbit_degrees": 360} if delta_strict else {}),
             },
             {
                 "stage": "reposition",
-                "action": "translate x3",
+                "action": "translate to one target and wait for arrival" if delta_strict else "translate x3",
                 "mav_cmd": 192,
-                "position_error_m": 15,
+                "position_error_m": 8 if delta_strict else 15,
             },
             {"stage": "rtl", "action": "return to launch", "mav_cmd": 192},
         ]
     )
+    if delta_strict:
+        reposition_index = next(
+            index for index, step in enumerate(steps) if step.get("stage") == "reposition"
+        )
+        steps.insert(
+            reposition_index,
+            {
+                "stage": "fw_overspeed_recovery",
+                "action": "raise FW_THR_MIN until 21 m/s, restore it, then recover below 19 m/s",
+                "injection_timeout_s": 60,
+                "recovery_timeout_s": 40,
+                "required_recovery_hold_s": 15,
+            },
+        )
     if transition:
         steps.append({"stage": "transition_mc", "action": "FW -> MC", "mav_cmd": 3000, "param1": 3})
     steps.append(
@@ -359,7 +1201,22 @@ def build_plan(
             "rtl",
             "landed_state",
             "frames_aligned",
-        ],
+        ]
+        + (["gimbal_command_success"] if gimbal_enabled else [])
+        + (
+            [
+                "fw_sustain_success",
+                "fw_reposition_success",
+                "fw_metrics_pass",
+                "fw_overspeed_recovery_success",
+                "fw_overspeed_saturation_success",
+                "back_transition_success",
+                "post_transition_climb_success",
+                "self_occlusion_success",
+            ]
+            if delta_strict
+            else []
+        ),
         "judgement": {
             "takeoff_success": None,
             "launch_detected": None if selected in {"hand", "catapult"} else True,
@@ -371,9 +1228,94 @@ def build_plan(
             "landed": None,
             "camera_frames": None,
             "frames_aligned": None,
+            "gimbal_command_success": None if gimbal_enabled else True,
+            "gimbal_error_deg": None,
             "failure_reason": None,
+            "failure_class": "none",
+            **(
+                {
+                    "fw_sustain_success": None,
+                    "fw_reposition_success": None,
+                    "fw_metrics_pass": None,
+                    "fw_overspeed_peak_mps": None,
+                    "fw_overspeed_cycle_peak_mps": None,
+                    "fw_overspeed_injection_success": None,
+                    "fw_overspeed_injection_status": None,
+                    "fw_overspeed_recovery_s": None,
+                    "fw_overspeed_recovery_stable_s": None,
+                    "fw_overspeed_recovery_success": None,
+                    "fw_overspeed_saturation_success": None,
+                    "fw_overspeed_parameter_restored": None,
+                    "fw_overspeed_recovery_height_error_p95_m": None,
+                    "fw_overspeed_fw_continuous": None,
+                    "fw_overspeed_failure_reason": None,
+                    "fw_overspeed_transient_saturation_fraction": None,
+                    "fw_overspeed_motor_saturation_fraction": None,
+                    "fw_overspeed_hold_motor_samples": None,
+                    "fw_overspeed_motor_saturation_fraction_by_motor": None,
+                    "fw_overspeed_motor_samples": None,
+                    "back_transition_motor_off_s": None,
+                    "back_transition_altitude_loss_m": None,
+                    "back_transition_success": None,
+                    "post_transition_climb_m": None,
+                    "post_transition_climb_success": None,
+                    "self_occlusion_fraction": None,
+                    "self_occlusion_success": None,
+                    "fw_airspeed_p5_mps": None,
+                    "fw_airspeed_p95_mps": None,
+                    "fw_bank_abs_p95_deg": None,
+                    "fw_bank_sign_flips": None,
+                    "fw_bank_sd_deg": None,
+                    "fw_pitch_p5_deg": None,
+                    "fw_pitch_p95_deg": None,
+                    "fw_height_error_p95_m": None,
+                    "fw_motor_saturation_fraction": None,
+                    "fw_motor_output_saturation_fraction": None,
+                    "fw_motor_saturation_fraction_by_motor": None,
+                    "fw_sample_counts": None,
+                    "fw_thresholds": None,
+                    "self_occlusion_frame_count": None,
+                    "self_occlusion_takeoff_time_s": None,
+                }
+                if delta_strict
+                else {}
+            ),
         },
     }
+
+
+def _failure_class_from_episode(episode: dict[str, object]) -> str:
+    diagnostic = episode.get("telemetry_silence", {})
+    diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
+    sensor_stall = episode.get("sensor_stream_stall", {})
+    sensor_stall = sensor_stall if isinstance(sensor_stall, dict) else {}
+    evidence = episode.get("container_evidence", {})
+    evidence = evidence if isinstance(evidence, dict) else {}
+    state = evidence.get("state_before_cleanup") or {}
+    state = state if isinstance(state, dict) else {}
+    if state.get("ExitCode") == 139:
+        kernel = evidence.get("kernel_segfault") or {}
+        kernel = kernel if isinstance(kernel, dict) else {}
+        if kernel.get("failure_class"):
+            return str(kernel["failure_class"])
+        if diagnostic.get("failure_class") in {"px4_logger_segfault", "px4_other_segfault"}:
+            return str(diagnostic["failure_class"])
+        return "px4_other_segfault"
+    if diagnostic.get("failure_class") == "telemetry_receiver":
+        return "telemetry_receiver"
+    if diagnostic.get("failure_class") == "px4_hang":
+        return "px4_hang"
+    if sensor_stall.get("failure_class") == "sensor_stream_stall":
+        return "sensor_stream_stall"
+    if "sensor stream produced no frame within" in str(episode.get("failure", "")):
+        return "sensor_stream_stall"
+    failure = str(episode.get("failure", ""))
+    if (
+        int(episode.get("step_count", 0) or 0) == 0
+        and "did not confirm armed heartbeat" in failure
+    ):
+        return "arming_failure"
+    return "flight"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -426,7 +1368,25 @@ def main(argv: list[str] | None = None) -> int:
     ]
     if plan["takeoff_method"] in {"hand", "catapult"}:
         command.extend(["--takeoff-method", plan["takeoff_method"]])
-    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    child: subprocess.Popen[str] | None = None
+
+    def _forward_termination(signum: int, _frame: object) -> None:
+        if child is not None and child.poll() is None:
+            child.send_signal(signum)
+
+    previous_term = signal.signal(signal.SIGTERM, _forward_termination)
+    previous_int = signal.signal(signal.SIGINT, _forward_termination)
+    try:
+        child = subprocess.Popen(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = child.communicate()
+        completed = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+    finally:
+        signal.signal(signal.SIGTERM, previous_term)
+        signal.signal(signal.SIGINT, previous_int)
+    # 结果里只留尾部；完整采集器输出落盘，PX4 控制台刷屏时仍能找到帧服务等诊断。
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "collector.stdout.log").write_text(completed.stdout or "", encoding="utf-8")
+    (args.out / "collector.stderr.log").write_text(completed.stderr or "", encoding="utf-8")
     result = dict(plan)
     result["status"] = "pass" if completed.returncode == 0 else "fail"
     result["collector_returncode"] = completed.returncode
@@ -437,7 +1397,21 @@ def main(argv: list[str] | None = None) -> int:
     result["judgement"] = dict(plan["judgement"])
     episodes = sorted(args.out.rglob("episode.json"), key=lambda path: path.stat().st_mtime)
     if episodes:
-        parsed = evaluate_episode(episodes[-1].parent, profile, DEFAULT_TAKEOFF_ALTITUDE_M)
+        reposition_tolerance = next(
+            (
+                float(step["position_error_m"])
+                for step in plan["steps"]
+                if step.get("stage") == "reposition"
+                and isinstance(step.get("position_error_m"), (int, float))
+            ),
+            None,
+        )
+        parsed = evaluate_episode(
+            episodes[-1].parent,
+            profile,
+            DEFAULT_TAKEOFF_ALTITUDE_M,
+            reposition_tolerance,
+        )
         result["judgement"].update(parsed)
         required = (
             "takeoff_success",
@@ -450,6 +1424,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         if plan["takeoff_method"] in {"hand", "catapult"}:
             required += ("launch_detected", "launch_climb_success")
+        if profile.camera.mount == "gimbal":
+            required += ("gimbal_command_success",)
+        if profile.id in DELTA_TAILSITTER_PROFILE_IDS:
+            required += (
+                "fw_sustain_success",
+                "fw_reposition_success",
+                "fw_metrics_pass",
+                "fw_overspeed_recovery_success",
+                "fw_overspeed_saturation_success",
+                "back_transition_success",
+                "post_transition_climb_success",
+                "self_occlusion_success",
+            )
         result["status"] = (
             "pass"
             if completed.returncode == 0
@@ -457,7 +1444,16 @@ def main(argv: list[str] | None = None) -> int:
             else "fail"
         )
     else:
+        result["status"] = "fail"
         result["judgement"]["failure_reason"] = "collector produced no episode.json artifact"
+    failure_class = "none"
+    if result["status"] != "pass":
+        if episodes:
+            episode = json.loads(episodes[-1].read_text(encoding="utf-8"))
+            failure_class = _failure_class_from_episode(episode)
+        if failure_class == "none":
+            failure_class = "flight"
+    result["judgement"]["failure_class"] = failure_class
     if completed.returncode != 0:
         result["judgement"]["failure_reason"] = result["failure_reason"]
     print(json.dumps(result, ensure_ascii=False, indent=2))

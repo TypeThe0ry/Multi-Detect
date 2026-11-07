@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import time
+from pathlib import Path
 
 import pytest
 from test_mission_supervisor import document
@@ -24,6 +26,19 @@ COLLECTOR_LABELS = {
     "fast_latency_s",
     "mission",
 }
+
+
+def test_split_policy_parts_have_no_script_imports_or_global_namespace_injection():
+    parts = Path(onboard_policy.ROOT) / "src/multidetect/autonomy/onboard_policy_parts"
+    for path in parts.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                assert all(name.name.split(".")[0] != "scripts" for name in node.names), path
+            elif isinstance(node, ast.ImportFrom):
+                assert (node.module or "").split(".")[0] != "scripts", path
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                assert node.func.id not in {"globals", "__import__", "exec", "eval"}, path
 
 
 @pytest.fixture
@@ -386,6 +401,144 @@ def test_sim_return_now_and_budget_escalation(tmp_path, model_stubs, mode):
         assert policy.supervisor.reason == (
             "operator link-loss policy" if mode == "link" else "remaining time at or below reserve"
         )
+    finally:
+        policy.close()
+
+
+@pytest.mark.parametrize(
+    "clock_field,units_per_ms",
+    [("pose_time_boot_ms", 1), ("pose_sim_stamp_ns", 1_000_000)],
+)
+def test_sim_reserve_follows_vehicle_clock_when_camera_runs_ahead(
+    tmp_path, model_stubs, clock_field, units_per_ms
+):
+    package = document()
+    package["budget"].update(time_s=150, reserve_time_s=30)
+    package["zones"] = {"zone:site": {"centre_ne": [0, 0], "radius_m": 55}}
+    package["plan"]["steps"][0] = {
+        "id": "work",
+        "skill": "monitor",
+        "params": {"region": "zone:site", "query": "backpacks", "duration_s": 900},
+        "on_success": "home",
+        "on_fail": "home",
+    }
+    policy = _construct(tmp_path, {"mission_package": package, "sim_ground_events": []})
+    supervisor = policy.supervisor
+
+    def advance(frame_ns, vehicle_ms):
+        policy.sim_timeline.advance(
+            {"frame_sensor_stamp_ns": frame_ns, clock_field: vehicle_ms * units_per_ms},
+            supervisor,
+            pose_ned=(30, 0, -20),
+        )
+        return supervisor.evaluate(pose_ned=(30, 0, -20))
+
+    try:
+        # Nightly step 0, then steps 33/34/42: PX4 stopped at 122.988 s
+        # while camera stamps advanced from 156.556 to 364.224 s.
+        assert advance(21_616_000_000, 21_616) == "continue"
+        assert advance(120_188_000_000, 120_188) == "continue"
+        assert advance(156_556_000_000, 122_988) == "continue"
+        assert advance(364_224_000_000, 122_988) == "continue"
+        assert policy.sim_timeline.now == pytest.approx(101.372)
+        assert supervisor._terminal is None
+        assert not supervisor.log.summary_path.exists()
+
+        # The original 150/30 s reserve contract still latches at exactly
+        # 120 s of vehicle progress, then brakes before starting return_home.
+        assert advance(400_000_000_000, 141_615) == "continue"
+        assert advance(401_000_000_000, 141_616) == "return_now"
+        assert policy.sim_timeline.now == 120
+        assert supervisor.reason == "remaining time at or below reserve"
+        action, _ = supervisor.next_action(pose_ned=(30, 0, -20), yaw_deg=180)
+        assert action.kind == "hold"
+        action, info = supervisor.next_action(pose_ned=(30, 0, -20), yaw_deg=180)
+        assert action.kind == "translate" and action.forward_m > 0
+        assert info["skill"] == "return_home"
+        assert info["supervisor_action"] == "return_now"
+        assert supervisor.executor.history == []
+        assert not [r for r in _records(policy) if r["kind"] == "ground_event"]
+    finally:
+        policy.close()
+
+
+@pytest.mark.parametrize("value", [None, True, -1, float("nan"), float("inf"), "1000"])
+def test_sim_timeline_keeps_bound_vehicle_clock_when_stamp_is_invalid(
+    tmp_path, model_stubs, value
+):
+    policy = _construct(tmp_path, {"mission_package": document(), "sim_ground_events": []})
+    try:
+        policy.sim_timeline.advance(
+            {"frame_sensor_stamp_ns": 10_000_000_000, "pose_time_boot_ms": 0},
+            policy.supervisor,
+        )
+        assert policy.sim_timeline.now == 0
+        with pytest.raises(ValueError, match="pose_time_boot_ms"):
+            policy.sim_timeline.advance(
+                {"frame_sensor_stamp_ns": 200_000_000_000, "pose_time_boot_ms": value},
+                policy.supervisor,
+            )
+        assert policy.sim_timeline.now == 0
+    finally:
+        policy.close()
+
+
+def test_sim_timeline_rejects_vehicle_clock_regression_despite_advancing_camera(
+    tmp_path, model_stubs
+):
+    policy = _construct(tmp_path, {"mission_package": document(), "sim_ground_events": []})
+    try:
+        for frame_ns, vehicle_ms in [(10_000_000_000, 1000), (20_000_000_000, 2000)]:
+            policy.sim_timeline.advance(
+                {"frame_sensor_stamp_ns": frame_ns, "pose_time_boot_ms": vehicle_ms},
+                policy.supervisor,
+            )
+        assert policy.sim_timeline.now == 1
+        with pytest.raises(ValueError, match="backwards"):
+            policy.sim_timeline.advance(
+                {"frame_sensor_stamp_ns": 30_000_000_000, "pose_time_boot_ms": 1999},
+                policy.supervisor,
+            )
+        assert policy.sim_timeline.now == 1
+    finally:
+        policy.close()
+
+
+def test_sim_ground_events_follow_bound_vehicle_clock_in_order(tmp_path, model_stubs):
+    events = [
+        {"t_s": 10, "event": "pause"},
+        {"t_s": 20, "event": "resume"},
+        {"t_s": 30, "event": "abort"},
+    ]
+    policy = _construct(tmp_path, {"mission_package": document(), "sim_ground_events": events})
+    try:
+        for index, (vehicle_ms, expected) in enumerate(
+            [
+                (0, "continue"),
+                (0, "continue"),
+                (10_000, "hold"),
+                (20_000, "continue"),
+                (30_000, "return_now"),
+                (30_000, "return_now"),
+            ]
+        ):
+            policy.sim_timeline.advance(
+                {
+                    "frame_sensor_stamp_ns": (100 + index * 100) * 1_000_000_000,
+                    "pose_time_boot_ms": vehicle_ms,
+                    # The boot clock takes precedence over the secondary pose stamp too.
+                    "pose_sim_stamp_ns": (100 + index * 100) * 1_000_000_000,
+                },
+                policy.supervisor,
+                pose_ned=(30, 0, -20),
+            )
+            assert policy.supervisor.evaluate(pose_ned=(30, 0, -20)) == expected
+        assert [
+            (r["timestamp"], r["event"])
+            for r in _records(policy)
+            if r["kind"] == "sim_ground_event"
+        ] == [(10, "pause"), (20, "resume"), (30, "abort")]
+        assert policy.supervisor.reason == "explicit operator abort"
     finally:
         policy.close()
 

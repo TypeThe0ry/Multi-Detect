@@ -749,6 +749,7 @@ def test_ports_duration_acknowledgement_and_sources_fail_closed() -> None:
 
 
 @pytest.mark.parametrize("trace", [False, True])
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_router_mirrors_px4_and_enforces_independent_return_policies(trace) -> None:
     import hashlib
 
@@ -950,6 +951,7 @@ def test_router_mirrors_px4_and_enforces_independent_return_policies(trace) -> N
     assert result["ready_barrier"]["ready_latency_seconds"] >= 0.0
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_router_stop_event_terminates_after_ready_barrier() -> None:
     excluded = {14550}
     ports: list[int] = []
@@ -1002,6 +1004,7 @@ def test_router_stop_event_terminates_after_ready_barrier() -> None:
     assert result["ready_barrier"]["stop_event_supplied"] is True
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_router_bind_failure_never_signals_ready_and_releases_prior_socket() -> None:
     occupied_qgc_router, occupied_qgc_router_port = _bound_udp_socket()
     excluded = {14550, occupied_qgc_router_port}

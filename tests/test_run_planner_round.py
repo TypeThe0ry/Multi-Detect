@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from scripts import run_planner_round as round_runner
 from scripts.run_planner_round import replacement_decision, stage_current
 
@@ -18,6 +20,18 @@ def test_replacement_decision_requires_all_gates():
     assert replacement_decision(candidate, baseline, passed, [])["replace_r14"] is False
 
 
+def test_replacement_decision_rejects_lower_v3_validity():
+    baseline = {"planning-v3": {"exact_sequence_rate": 0.60, "valid_rate": 0.9375},
+                "planning-v4": {"category_metrics": {"return_intent": {"count": 2, "accuracy": 0.5}}}}
+    candidate = {"planning-v3": {"exact_sequence_rate": 0.61, "valid_rate": 0.875},
+                 "planning-v4": {"category_metrics": {"return_intent": {"count": 2, "accuracy": 1.0}}}}
+    decision = replacement_decision(candidate, baseline, [{"ok": True}] * 15, [])
+    assert decision["replace_r14"] is False
+    assert "planning-v3 有效率低于 r14" in decision["reasons"]
+    candidate["planning-v3"]["valid_rate"] = 0.9375
+    assert replacement_decision(candidate, baseline, [{"ok": True}] * 15, [])["replace_r14"] is True
+
+
 def test_stage_current_requires_matching_hashes(tmp_path: Path):
     out = tmp_path
     for name in ("manifest.json", "train.jsonl", "val.jsonl"):
@@ -34,18 +48,43 @@ def test_stage_current_requires_matching_hashes(tmp_path: Path):
     assert not stage_current("data", out, state)
 
 
+def test_eval_cache_requires_matching_plan_pregate_mode(tmp_path: Path, monkeypatch):
+    output = tmp_path / "eval.json"
+    output.write_text("{}\n", encoding="utf-8")
+    import hashlib
+    state = {"stages": {"eval": {
+        "status": "complete", "plan_pregate": False,
+        "sha256": {str(output): hashlib.sha256(output.read_bytes()).hexdigest()},
+    }}}
+    monkeypatch.setattr(round_runner, "stage_outputs", lambda *args, **kwargs: (output,))
+    assert stage_current("eval", tmp_path, state, plan_pregate=False)
+    assert not stage_current("eval", tmp_path, state, plan_pregate=True)
+
+
 def test_dry_run_prints_commands_without_running_them(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
     out = tmp_path / "dry-run"
     assert round_runner.main(["--stage", "all", "--dry-run", "--out", str(out)]) == 0
     output = capsys.readouterr().out
     assert "build_plan_sft.py" in output
-    assert "D:\\Projects\\Multi-Detect\\.venv-vlm\\Scripts\\python.exe" in output
+    assert str(round_runner.VLM_PYTHON) in output
     assert "run_planner_probe.py" in output
     assert "--learning-rate 0.0001" in output
     assert "--r20-plan-intent-count 40" in output
     assert "--replay-planner-train" not in output
     assert not (out / "round-state.json").exists()
+
+
+def test_plan_pregate_is_passed_to_candidate_and_baseline(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "eval", "--dry-run", "--out", str(tmp_path / "pregate"),
+        "--eval-root", str(tmp_path / "eval"), "--plan-pregate",
+    ]) == 0
+    commands = capsys.readouterr().out.splitlines()
+    eval_commands = [line for line in commands if "run_model_round_eval.py" in line or "run_planner_probe.py" in line]
+    assert len(eval_commands) == 4
+    assert all("--plan-pregate" in line for line in eval_commands)
 
 
 def test_r22_options_are_explicit_without_changing_r21_defaults(tmp_path, monkeypatch, capsys):
@@ -73,6 +112,116 @@ def test_r23_recipe_selects_rebalanced_data_and_learning_rate(tmp_path, monkeypa
     assert "--r23-recipe --r23-v3-count 600 --r23-deliver-count 80" in output
     assert "--epochs 1" in output
     assert "--learning-rate 2.5e-05" in output
+
+
+def test_r24_recipe_transmits_reference_families_and_learning_rate(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r24"),
+        "--r24-recipe", "--r24-reference-count", "12", "--r24-unknown-count", "8",
+        "--r24-context-count", "6",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r24-recipe --r24-reference-count 12 --r24-unknown-count 8 --r24-context-count 6" in output
+    assert "--learning-rate 2e-05" in output
+
+
+def test_r29_recipe_transmits_families_without_enabling_decision_contract(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r29"), "--r29-recipe",
+        "--plan-pregate", "--include-planning-v5",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r23-recipe --r23-v3-count 600 --r23-deliver-count 80" in output
+    assert "--r24-recipe --r24-reference-count 80 --r24-unknown-count 80 --r24-context-count 80" in output
+    assert "--r29-recipe" in output
+    assert "--r29-query-ungrounded-count 72" in output
+    assert "--plan-pregate" in output
+    assert "--decision-contract" not in output
+
+
+def test_r25_recipe_and_model_paths_are_transmitted(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    init_adapter = tmp_path / "r24-adapter"
+    baseline = tmp_path / "r24.gguf"
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r25"),
+        "--r25-recipe", "--r25-missing-payload-count", "12",
+        "--r25-negated-query-count", "14", "--init-adapter", str(init_adapter),
+        "--baseline-gguf", str(baseline), "--baseline-label", "r24",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r23-recipe --r23-v3-count 600 --r23-deliver-count 80" in output
+    assert "--r24-recipe --r24-reference-count 80 --r24-unknown-count 80 --r24-context-count 80" in output
+    assert "--r25-recipe --r25-missing-payload-count 12 --r25-negated-query-count 14" in output
+    assert f"--init-adapter {init_adapter}" in output
+    assert f"--gguf {baseline}" in output
+    assert "--learning-rate 2e-05" in output
+
+
+def test_r26_recipe_passes_refusal_count_without_r25_negative_target_mode(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "data", "--dry-run", "--out", str(tmp_path / "r26"),
+        "--r26-recipe", "--r26-refusal-count", "24",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r26-recipe --r26-refusal-count 24" in output
+    assert "--r24-recipe" in output
+    assert "--r25-recipe" not in output
+
+
+def test_r26_recipe_enables_decision_contract_for_candidate_and_baseline(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "eval", "--dry-run", "--out", str(tmp_path / "r26"), "--r26-recipe",
+    ]) == 0
+    assert capsys.readouterr().out.count("--decision-contract") == 4
+
+
+def test_no_decision_contract_overrides_r26_auto_enable(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "eval", "--dry-run", "--out", str(tmp_path / "r26"), "--r26-recipe",
+        "--no-decision-contract",
+    ]) == 0
+    assert "--decision-contract" not in capsys.readouterr().out
+
+
+def test_r27_recipe_transmits_counts_and_enables_contract(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r27"),
+        "--r27-recipe", "--r27-refusal-count", "12", "--r27-complex-count", "420",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r23-recipe --r23-v3-count 600 --r23-deliver-count 80" in output
+    assert "--r24-recipe --r24-reference-count 80 --r24-unknown-count 80 --r24-context-count 80" in output
+    assert "--r27-recipe --r27-refusal-count 12 --r27-complex-count 420" in output
+    assert output.count("--decision-contract") == 4
+
+
+def test_r28_recipe_transmits_r27_base_and_new_counts(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(round_runner, "SCRATCH", tmp_path)
+    assert round_runner.main([
+        "--stage", "all", "--dry-run", "--out", str(tmp_path / "r28"),
+        "--r28-recipe", "--r28-stop-count", "80", "--r28-fixed-wing-count", "30",
+        "--r28-return-count", "30",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "--r27-recipe --r27-refusal-count 40 --r27-complex-count 400" in output
+    assert "--r28-recipe --r28-stop-count 80 --r28-fixed-wing-count 30 --r28-return-count 30" in output
+    assert output.count("--decision-contract") == 4
+
+
+def test_replacement_reasons_use_configured_baseline_label():
+    baseline = {"planning-v3": {"exact_sequence_rate": 0.6},
+                "planning-v4": {"category_metrics": {}}}
+    candidate = {"planning-v3": {"exact_sequence_rate": 0.5},
+                 "planning-v4": {"category_metrics": {}}}
+    decision = replacement_decision(candidate, baseline, [], [], "r24")
+    assert "planning-v3 低于 r24" in decision["reasons"]
 
 
 def test_default_lock_is_the_shared_sitl_lock_directory():

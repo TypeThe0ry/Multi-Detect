@@ -85,7 +85,7 @@ def _hybrid_mission_policy(tmp_path: Path, skills=("count", "count")):
     return policy
 
 
-@pytest.mark.parametrize("airframe", ["standard_vtol", "quadtailsitter"])
+@pytest.mark.parametrize("airframe", ["standard_vtol", "quadtailsitter", "delta_tailsitter"])
 def test_vtol_policy_plans_like_a_multirotor_and_returns_with_the_autopilot(
     tmp_path: Path, airframe: str
 ) -> None:

@@ -11,7 +11,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.onboard_navigation_evidence_support import requires_local_artifacts
+
 ROOT = Path(__file__).resolve().parents[1]
+pytestmark = requires_local_artifacts(ROOT)
 RECEIPT = ROOT / "docs/evidence/onboard-navigation-trained-adapter-20261007-r2.json"
 
 

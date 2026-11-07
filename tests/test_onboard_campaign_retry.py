@@ -111,17 +111,20 @@ def test_campaign_retries_same_output_without_duplicating_completed(tmp_path, mo
         "--report",
         str(tmp_path / "report.json"),
         "--episodes",
-        "3",
+        "2",
         "--retry-failed-episodes",
         "--min-free-disk-gb",
         "30",
     ]
     assert campaign.main(arguments) == 0
     assert complete.is_dir()
-    assert len(calls) == len(guards) == 2
-    assert len(list((out / "test/episodes").iterdir())) == 3
+    collector_calls = [
+        call for call in calls if any("collect_sim_teacher_episodes.py" in part for part in call)
+    ]
+    assert len(collector_calls) == len(guards) == 1
+    assert len(list((out / "test/episodes").iterdir())) == 2
     assert campaign.main(arguments) == 0
-    assert len(calls) == 2
+    assert len([call for call in calls if any("collect_sim_teacher_episodes.py" in part for part in call)]) == 1
 
 
 def test_campaign_stops_on_disk_guard_before_collector(tmp_path, monkeypatch):
@@ -149,8 +152,10 @@ def test_suite_forwards_retry_and_disk_options(tmp_path):
         retry_failed_episodes=True,
         min_free_disk_gb=30,
         disk_check_every=5,
+        keep_px4_ulog=True,
     )
     assert "--retry-failed-episodes" in command
+    assert "--keep-px4-ulog" in command
     assert command[command.index("--min-free-disk-gb") + 1] == "30"
     assert command[command.index("--disk-check-every") + 1] == "5"
 
@@ -163,10 +168,17 @@ def test_campaign_collector_failure_is_loud_only_in_strict_mode(tmp_path, monkey
     monkeypatch.setattr(
         campaign.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=7)
     )
+    monkeypatch.setattr(campaign, "build_provenance", lambda **kwargs: {})
     (tmp_path / "test.truth.json").write_text("{}")
-    assert campaign.main(["--index", str(index), "--out", str(tmp_path / "out")]) == 0
+    assert campaign.main([
+        "--index", str(index), "--out", str(tmp_path / "out"),
+        "--report", str(tmp_path / "report.json"),
+    ]) == 0
     with pytest.raises(RuntimeError, match="Collector failed for test: exit 7"):
-        campaign.main(["--index", str(index), "--out", str(tmp_path / "out2"), "--strict"])
+        campaign.main([
+            "--index", str(index), "--out", str(tmp_path / "out2"),
+            "--report", str(tmp_path / "report-strict.json"), "--strict",
+        ])
 
 
 def test_complete_requires_nonempty_parseable_consistent_steps(tmp_path):
@@ -201,6 +213,7 @@ def test_retry_preserves_original_seed_and_does_not_reuse_complete_seed(tmp_path
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(campaign.subprocess, "run", run)
+    monkeypatch.setattr(campaign, "build_provenance", lambda **kwargs: {})
     monkeypatch.setattr(campaign, "ensure_free_disk", lambda *args: None)
     monkeypatch.setattr(
         campaign,
@@ -223,6 +236,8 @@ def test_retry_preserves_original_seed_and_does_not_reuse_complete_seed(tmp_path
                 "--episodes",
                 "2",
                 "--retry-failed-episodes",
+                "--report",
+                str(tmp_path / "report.json"),
             ]
         )
         == 0
@@ -249,6 +264,7 @@ def test_initial_low_disk_abort_persists_seed_and_retry_reuses_it(tmp_path, monk
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(campaign.subprocess, "run", run)
+    monkeypatch.setattr(campaign, "build_provenance", lambda **kwargs: {})
     monkeypatch.setattr(campaign, "ensure_free_disk", lambda *args: None)
     monkeypatch.setattr(
         campaign,
@@ -258,7 +274,7 @@ def test_initial_low_disk_abort_persists_seed_and_retry_reuses_it(tmp_path, monk
     )
     assert campaign.main([
         "--index", str(index), "--out", str(campaign_out), "--episodes", "1",
-        "--retry-failed-episodes",
+        "--retry-failed-episodes", "--report", str(tmp_path / "report.json"),
     ]) == 0
     assert seeds == ["100"]
 
@@ -278,14 +294,15 @@ def test_zero_exit_abort_does_not_fill_missing_and_reports_low_disk(tmp_path, mo
     monkeypatch.setattr(campaign.subprocess, "run", run)
     monkeypatch.setattr(campaign, "ensure_free_disk", lambda *args: None)
     assert campaign.main(
-        ["--index", str(index), "--out", str(tmp_path / "out"), "--episodes", "1"]
+        ["--index", str(index), "--out", str(tmp_path / "out"), "--episodes", "1",
+         "--report", str(tmp_path / "report.json")]
     ) == 0
-    assert len(calls) == 1
+    assert len([call for call in calls if any("collect_sim_teacher_episodes.py" in part for part in call)]) == 1
     assert "not filled: low disk" in capsys.readouterr().out
     with pytest.raises(RuntimeError, match="not filled: low disk"):
         campaign.main([
             "--index", str(index), "--out", str(tmp_path / "strict-out"),
-            "--episodes", "1", "--strict"
+            "--episodes", "1", "--strict", "--report", str(tmp_path / "report-strict.json")
         ])
 
 
@@ -312,9 +329,9 @@ def test_complete_replacement_reduces_missing(tmp_path, monkeypatch):
     )
     assert campaign.main([
         "--index", str(index), "--out", str(tmp_path / "out"), "--episodes", "2",
-        "--disk-check-every", "2",
+        "--disk-check-every", "2", "--report", str(tmp_path / "report.json"),
     ]) == 0
-    assert len(calls) == 1
+    assert len([call for call in calls if any("collect_sim_teacher_episodes.py" in part for part in call)]) == 1
 
 
 def test_training_admission_normalizes_backslash_depth_paths(tmp_path):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -37,6 +38,9 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
     assert plan.no_new_privileges is True
     assert plan.container_security_gate_passed is True
     assert "--publish" in plan.command
+    assert plan.command[plan.command.index("--add-host") + 1] == (
+        "host.docker.internal:host-gateway"
+    )
     assert "127.0.0.1:14540:14540/udp" in plan.command
     # PX4 sends telemetry to the host target; publishing the same port through
     # Docker Desktop would hairpin/drop that outbound UDP stream.
@@ -119,6 +123,107 @@ def test_docker_plan_hash_and_json_are_stable(tmp_path: Path) -> None:
     assert not (out.parent / ".evidence.json.tmp").exists()
 
 
+def test_docker_plan_uses_selected_network_for_container_and_px4_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MULTIDETECT_SIM_DOCKER_NETWORK", "sitl-private")
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "selected-network",
+    )
+    assert plan.container_network_mode == "sitl-private"
+    assert plan.command[plan.command.index("--network") + 1] == "sitl-private"
+    startup = plan.command[-1]
+    if os.name == "nt":
+        assert "host.docker.internal" in startup
+    else:
+        assert "ip -4 route" not in startup  # the PX4 image has no iproute2
+        assert 'DOCKER_HOST_IP="' in startup
+
+
+def test_host_network_plan_uses_loopback_partition_and_instance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_SIM_NETWORK", raising=False)
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "host",
+        container_name="r15-worker-1",
+        control_port=14570,
+        telemetry_port=14571,
+        sim_network="host",
+        sim_instance=1,
+    )
+    assert plan.container_network_mode == "host"
+    assert ("--network", "host") == plan.command[
+        plan.command.index("--network") : plan.command.index("--network") + 2
+    ]
+    assert "--publish" not in plan.command
+    assert "--add-host" not in plan.command
+    assert dict(plan.environment)["GZ_PARTITION"] == "r15-worker-1"
+    assert dict(plan.environment)["PX4_SIM_HOST"] == "127.0.0.1"
+    startup = plan.command[-1]
+    assert "mavlink start -x -t 127.0.0.1" in startup
+    assert "export PX4_NET_INTERFACE=lo;" in startup
+    assert "px4 -i 1" in startup
+
+
+def test_host_network_gpu_render_plan_keeps_both_runtime_controls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_SIM_NETWORK", raising=False)
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "host-gpu",
+        container_name="r15-worker-1",
+        control_port=14570,
+        telemetry_port=14571,
+        image="multidetect/px4-sitl-gazebo:gpu",
+        sim_network="host",
+        sim_instance=1,
+        gpu_render=True,
+        gpu_device=2,
+    )
+    assert plan.command[plan.command.index("--gpus") : plan.command.index("--gpus") + 2] == (
+        "--gpus",
+        "device=2",
+    )
+    assert plan.command[plan.command.index("--network") : plan.command.index("--network") + 2] == (
+        "--network",
+        "host",
+    )
+    assert "--publish" not in plan.command
+    assert "--add-host" not in plan.command
+    environment = dict(plan.environment)
+    assert environment["NVIDIA_VISIBLE_DEVICES"] == "2"
+    assert environment["EGL_PLATFORM"] == "surfaceless"
+    assert environment["PX4_SIM_HOST"] == "127.0.0.1"
+    assert environment["GZ_PARTITION"] == "r15-worker-1"
+    startup = plan.command[-1]
+    assert "mavlink start -x -t 127.0.0.1" in startup
+    assert "export PX4_NET_INTERFACE=lo;" in startup
+    assert "--headless-rendering" in startup
+    assert "--render-engine ogre2" in startup
+    assert "px4 -i 1" in startup
+
+
+def test_host_network_env_switch_and_windows_rejection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MULTIDETECT_SIM_NETWORK", "host")
+    plan = build_docker_simulator_plan(SCENARIO, repository_root=ROOT, job_dir=tmp_path / "env")
+    assert plan.container_network_mode == "host"
+    monkeypatch.setattr(
+        "scripts.run_simulator_docker.sim_network_mode",
+        lambda _mode=None: (_ for _ in ()).throw(ValueError("SIM network mode 'host' is supported on Linux only")),
+    )
+    with pytest.raises(ValueError, match="Linux only"):
+        build_docker_simulator_plan(SCENARIO, repository_root=ROOT, job_dir=tmp_path / "win")
+
+
 def test_docker_plan_rejects_protected_or_duplicate_ports(tmp_path: Path) -> None:
     with pytest.raises(DockerSimulatorPlanError, match="protected"):
         build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "protected", control_port=14550)
@@ -148,6 +253,27 @@ def test_docker_plan_supports_fixed_wing_assets(tmp_path: Path) -> None:
     assert plan.scenario_id == "coastal_patrol_fixed_wing_001"
     assert plan.model_root.name == "models"
     assert plan.world_path.name == "coastal_patrol_fixed_wing_001.sdf"
+
+
+@pytest.mark.parametrize("invalid,error", [
+    ("hash", "hash mismatch"), ("path", "relative and contained"),
+])
+def test_external_manifest_must_keep_runtime_channel_bound(tmp_path: Path, invalid, error) -> None:
+    manifest = json.loads(SCENARIO.read_text(encoding="utf-8"))
+    reference = manifest["channels"]["runtime_input"]
+    runtime = tmp_path / reference["path"]
+    runtime.write_bytes((SCENARIO.parent / reference["path"]).read_bytes())
+    if invalid == "hash":
+        payload = json.loads(runtime.read_text(encoding="utf-8"))
+        payload["seed"] += 1
+        runtime.write_text(json.dumps(payload), encoding="utf-8")
+    else:
+        reference["path"] = "../outside.runtime_input.json"
+    scenario = tmp_path / "exported.scenario.json"
+    scenario.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(DockerSimulatorPlanError, match=error):
+        build_docker_simulator_plan(scenario, repository_root=ROOT, job_dir=tmp_path / "job")
 
 
 def test_docker_cli_prints_json_and_writes_out_without_invoking_docker(
@@ -192,7 +318,7 @@ def test_docker_cli_strict_only_checks_discovery_and_still_does_not_start(
     # network pull or starting a container.
     assert code in {0, 2}
     if code == 2:
-        assert "Docker Desktop" in capsys.readouterr().out
+        assert "Docker" in capsys.readouterr().out
 
 
 def test_airframe_profile_identity_excludes_per_run_stack_wiring(tmp_path):

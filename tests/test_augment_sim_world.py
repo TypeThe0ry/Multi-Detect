@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
 from argparse import Namespace
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import pytest
 
-from scripts.augment_sim_world import transform
+from scripts.augment_sim_world import register_variant, transform
 
 
 def _args(**overrides: object) -> Namespace:
@@ -57,6 +58,22 @@ def test_camera_noise_only_changes_explicit_world_sensors(tmp_path: Path) -> Non
     )
     assert report["camera_sensors_noised"] == 1
     assert ET.parse(output).findtext(".//noise/stddev") == "0.02"
+
+
+def test_register_variant_rejects_missing_source_before_advertising_files(tmp_path: Path) -> None:
+    source = Path("configs/scenarios/generated-count-site")
+    shutil.copytree(source, tmp_path / "scenarios")
+    index = tmp_path / "scenarios/index.json"
+    before = index.read_bytes()
+    (index.parent / "gen_cnt2_w0000.truth.json").unlink()
+    world = tmp_path / "gen_cnt2_w0000__dusk.sdf"
+    transform(Path("simulation/gazebo/worlds/gen_cnt2_w0000.sdf"), world, _args())
+
+    with pytest.raises(FileNotFoundError, match="gen_cnt2_w0000.truth.json"):
+        register_variant(index, "gen_cnt2_w0000.sdf", world.name, world_path=world)
+
+    assert index.read_bytes() == before
+    assert not (index.parent / "gen_cnt2_w0000__dusk.scenario.json").exists()
 
 
 def test_pinned_mono_cam_overlay_contains_rgb_noise() -> None:

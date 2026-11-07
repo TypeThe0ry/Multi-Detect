@@ -1583,6 +1583,25 @@ def _land_only_plan():
     )
 
 
+def _target_land_plan(target_ref):
+    return validate_mission_plan(
+        {
+            "plan_version": 1,
+            "goal": "land",
+            "steps": [
+                {
+                    "id": "land",
+                    "skill": "land",
+                    "params": {"target_ref": target_ref},
+                    "on_success": None,
+                    "on_fail": None,
+                }
+            ],
+            "report": [],
+        }
+    )
+
+
 def test_land_requires_host_confirmation_or_records_unknown_state():
     pose = (0.0, 0.0, -20.0)
     confirmed = MissionExecutor(_land_only_plan(), loop_factory=_factory())
@@ -1603,6 +1622,79 @@ def test_land_requires_host_confirmation_or_records_unknown_state():
         if airborne.done:
             break
     assert airborne.history[-1]["reason"] == "landing_timeout"
+
+
+def test_land_target_home_returns_home_before_landing():
+    executor = MissionExecutor(
+        _target_land_plan("home"),
+        loop_factory=_factory(),
+    )
+    executor.home = (30.0, 0.0)
+    sim = Sim()
+    for _ in range(20):
+        action, _ = executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw, landed=True)
+        sim.apply(action)
+        if executor.done:
+            break
+    assert executor.history[-1]["reason"] == "landed"
+    assert math.dist(sim.pose[:2], executor.home) <= executor.config.arrive_tolerance_m
+    assert executor.report().landing_positions == ("30.0,0.0",)
+
+
+def test_land_target_finding_uses_clear_approach_offset_and_reports_it():
+    executor = MissionExecutor(
+        _target_land_plan("finding:1"),
+        loop_factory=_factory(),
+    )
+    executor.findings.append(
+        {
+            "step": "land",
+            "query": "object",
+            "position_ne": (30.0, 0.0),
+            "footprint_m": 2.0,
+        }
+    )
+    executor._successful_step_ids.append("land")
+    sim = Sim()
+    for _ in range(30):
+        action, _ = executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw, landed=True)
+        sim.apply(action)
+        if executor.done:
+            break
+    assert executor.history[-1]["reason"] == "landed"
+    chosen = next(item for item in executor.mission_log if item["event"] == "landing_target_selected")
+    assert chosen["reference_position_ne"] == [30.0, 0.0]
+    assert chosen["landing_position_ne"] == [25.0, 0.0]
+    assert chosen["footprint_radius_m"] == 2.0
+    assert executor.report().landing_positions == ("25.0,0.0",)
+    assert "land:landing_target:25.0,0.0" in executor.report().state_answers
+
+
+def test_land_target_named_ref_flies_there_before_landing():
+    executor = MissionExecutor(
+        _target_land_plan("poi:pad"),
+        loop_factory=_factory(),
+        refs={"poi:pad": (30.0, 0.0)},
+    )
+    sim = Sim()
+    for _ in range(20):
+        action, _ = executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw, landed=True)
+        sim.apply(action)
+        if executor.done:
+            break
+    assert executor.history[-1]["reason"] == "landed"
+    assert math.dist(sim.pose[:2], (30.0, 0.0)) <= executor.config.arrive_tolerance_m
+
+
+def test_land_target_unresolved_ref_fails_safely():
+    executor = MissionExecutor(
+        _target_land_plan("poi:missing"),
+        loop_factory=_factory(),
+    )
+    action, _ = executor.next_action(pose_ned=Sim().ned, yaw_deg=0.0, landed=True)
+    assert action.kind == "stop"
+    assert executor.history[-1]["reason"] == "unknown_ref"
+    assert executor.history[-1]["state"] == "failed"
 
 
 def test_vertical_move_uses_clearance_and_fails_after_retries():

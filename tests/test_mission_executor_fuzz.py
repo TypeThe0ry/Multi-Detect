@@ -25,7 +25,11 @@ from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeC
 from multidetect.sim_teacher.primitives import ActionPrimitive
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRATCH = Path("D:/Projects/mdwt/_scratch/cx-executor-fuzz")
+# Debug trace of the last fuzz case; the old Windows scratch path stays the default there.
+SCRATCH = Path(
+    os.environ.get("MULTIDETECT_FUZZ_TRACE_DIR")
+    or ("D:/Projects/mdwt/_scratch/cx-executor-fuzz" if os.name == "nt" else ROOT / ".tmp/cx-executor-fuzz")
+)
 CAMERA = CameraModel(fx=540, fy=540, cx=640, cy=480, width=1280, height=960)
 
 

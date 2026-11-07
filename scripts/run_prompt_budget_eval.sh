@@ -13,9 +13,7 @@ if [[ -z "$DATA_ROOT" ]]; then
     fi
 fi
 if [[ -z "${PYTHON:-}" ]]; then
-    if [[ -f "$DATA_ROOT/.venv-vlm/Scripts/python.exe" ]]; then
-        PYTHON="$DATA_ROOT/.venv-vlm/Scripts/python.exe"
-    elif [[ -x "$DATA_ROOT/.venv-vlm/bin/python" ]]; then
+    if [[ -x "$DATA_ROOT/.venv-vlm/bin/python" ]]; then
         PYTHON="$DATA_ROOT/.venv-vlm/bin/python"
     else
         PYTHON=python3
@@ -23,7 +21,7 @@ if [[ -z "${PYTHON:-}" ]]; then
 fi
 GGUF="${GGUF:-$DATA_ROOT/artifacts/models/slow-system-lora-v2-r12-multi-merged-gguf/slow-system-v2r12multi-merged-Q5_K_M.gguf}"
 MMPROJ="${MMPROJ:-$DATA_ROOT/artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf}"
-LLAMA_SERVER="${LLAMA_SERVER:-$DATA_ROOT/artifacts/cache/llama-cpp/b11552/llama-server.exe}"
+LLAMA_SERVER="${LLAMA_SERVER:-$DATA_ROOT/artifacts/cache/llama-cpp/b11552/llama-server}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT/artifacts/benchmarks/prompt-budget-v2-r12-multi-$(date -u +%Y%m%dT%H%M%SZ)}"
 PORT="${PORT:-9957}"
 dry_run=false

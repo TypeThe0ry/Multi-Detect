@@ -144,6 +144,89 @@ def test_replay_planner_rows_are_preserved_and_holdout_normalized():
         shutil.rmtree(workspace, ignore_errors=True)
 
 
+def test_r25_rows_keep_missing_payload_and_negated_query_candidates_admissible(tmp_path):
+    from train_slow_system_lora import admit_train_rows
+
+    output = tmp_path / "r25"
+    assert build_plan_sft.main([
+        "--output", str(output), "--rows", "1", "--val-rows", "0", "--version", "v4",
+        "--r25-recipe", "--r23-v3-count", "0", "--r23-deliver-count", "0",
+        "--r24-reference-count", "0", "--r24-unknown-count", "0", "--r24-context-count", "0",
+        "--r25-missing-payload-count", "2", "--r25-negated-query-count", "2",
+        "--negative-target-mode", "rejected_candidate", "--require-skills",
+    ]) == 0
+    rows, _ = admit_train_rows(output)
+    r25 = [row for row in rows if str(row.get("family", "")).startswith("r25_")]
+    assert len(r25) == 8
+    missing = [row for row in r25 if row["family"] == "r25_missing_payload"]
+    capable = [row for row in r25 if row["family"] == "r25_payload_capable"]
+    negated = [row for row in r25 if row["family"] == "r25_negated_query" and not row["expected_valid"]]
+    assert len(missing) == len(capable) == len(negated) == 2
+    assert all(row["capabilities"] == [] for row in missing)
+    assert all(row["assistant_target"]["steps"][0]["skill"] == "deliver" for row in missing)
+    assert all(row["negative_target_mode"] == "rejected_candidate" for row in missing + negated)
+    assert all(row["expected_findings"] == ["missing_capability"] for row in missing)
+    assert all(row["expected_findings"] == ["ungrounded_query"] for row in negated)
+
+
+def test_r26_recipe_emits_structured_refusals_and_admits_without_r25_candidates(tmp_path):
+    from train_slow_system_lora import admit_train_rows
+
+    output = tmp_path / "r26"
+    assert build_plan_sft.main([
+        "--output", str(output), "--rows", "200", "--val-rows", "0", "--version", "v4",
+        "--r26-recipe", "--r26-refusal-count", "6", "--r23-v3-count", "0",
+        "--r23-deliver-count", "0", "--r24-reference-count", "0",
+        "--r24-unknown-count", "0", "--r24-context-count", "0",
+        "--require-skills", "return_home",
+    ]) == 0
+    rows, _ = admit_train_rows(output)
+    refusals = [row for row in rows if str(row.get("family", "")).startswith("r26_")]
+    decisions = [row for row in refusals if row.get("pair_role") == "refusal"]
+    positives = [row for row in rows if row.get("pair_role") == "positive"]
+    assert len(decisions) == len(positives) == 30
+    assert sum(row["assistant_target"].get("decision") == "reject" for row in decisions) == 18
+    assert sum(row["assistant_target"].get("decision") == "clarify" for row in decisions) == 12
+    assert {row["reason_code"] for row in decisions} == {
+        "missing_capability", "unknown_place", "ungrounded_query", "ambiguous_task", "unsafe_request"
+    }
+    assert all("reason_code" in row["prompt"] for row in decisions)
+    assert all("rejected_candidate" not in row for row in refusals)
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["r26_recipe"]["r25_rejected_candidate_rows_included"] is False
+
+
+def test_r26_converts_r24_unknown_place_target_and_balances_its_positive_pair(tmp_path):
+    from train_slow_system_lora import admit_train_rows
+
+    output = tmp_path / "r26-r24-upgrade"
+    assert build_plan_sft.main([
+        "--output", str(output), "--rows", "1", "--val-rows", "0", "--version", "v4",
+        "--r26-recipe", "--r26-refusal-count", "6", "--r23-v3-count", "0",
+        "--r23-deliver-count", "0", "--r24-reference-count", "0",
+        "--r24-unknown-count", "4", "--r24-context-count", "0", "--require-skills", "return_home",
+    ]) == 0
+    rows, _ = admit_train_rows(output)
+    unknown = [row for row in rows if row.get("reason_code") == "unknown_place"]
+    refusals = [row for row in unknown if row["assistant_target"].get("decision") == "clarify"]
+    positives = [row for row in unknown if row.get("pair_role") == "positive"]
+    assert len(refusals) == len(positives) == 6
+    legacy = [row for row in refusals if row["family"] == "r24_unknown_place"]
+    assert len(legacy) == 4
+    assert all(row["assistant_target"]["unresolved_refs"] for row in legacy)
+    assert all(row["assistant_target"] != row["rejected_candidate"] for row in legacy)
+
+
+def test_r26_fails_when_finite_template_pool_cannot_meet_request(tmp_path):
+    with pytest.raises(ValueError, match="template pool exhausted"):
+        build_plan_sft.main([
+            "--output", str(tmp_path / "r26-exhausted"), "--rows", "1", "--val-rows", "0",
+            "--version", "v4", "--r26-recipe", "--r26-refusal-count", "1000",
+            "--r23-v3-count", "0", "--r23-deliver-count", "0",
+            "--r24-reference-count", "0", "--r24-unknown-count", "0", "--r24-context-count", "0",
+        ])
+
+
 @pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_cli_writes_requested_rows(version):
     output = ROOT / "tmp" / f"plan-sft-test-{version}-{uuid.uuid4().hex}"

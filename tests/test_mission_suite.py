@@ -6,9 +6,16 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import pytest
 
+from multidetect.runtime import RuntimeMode
+from multidetect.simulation import load_runtime_scenario
+from multidetect.simulation.index import load_scenario_index, load_verified_channel
+from multidetect.simulator.stack import resolve_simulator_assets
+from scripts import augment_sim_world as augment
+from scripts import collect_sim_teacher_episodes as collector
 from scripts import run_mission_suite as suite
 
 
@@ -77,6 +84,37 @@ def test_build_command_uses_same_interpreter_and_absolute_paths(work_tmp):
     assert command[command.index("--episodes") + 1] == "3"
     assert command[command.index("--steps") + 1] == "42"
     assert command[command.index("--max-episode-s") + 1] == "120"
+
+
+def test_k1_command_keeps_legacy_slot_arguments_absent(work_tmp):
+    command = suite.build_command(_mission(), work_tmp / "onboard.json", work_tmp / "campaign", work_tmp / "report.json")
+    assert not {"--control-port", "--telemetry-port", "--container-prefix", "--operator-port"} & set(command)
+
+
+def test_worker_dry_run_assigns_unique_ports_and_container_names(work_tmp, monkeypatch, capsys):
+    monkeypatch.setenv("MULTIDETECT_SITL_SLOTS", "2")
+    suite_path = work_tmp / "suite.json"
+    suite_path.write_text(json.dumps({"defaults": {"mission": "from_text"}, "missions": [_mission(id="one"), _mission(id="two", world="gen_cnt2_w0001")]}), encoding="utf-8")
+    assert suite.main(["--suite", str(suite_path), "--out", str(work_tmp / "out"), "--workers", "2", "--dry-run"]) == 0
+    output = capsys.readouterr().out
+    decoder = json.JSONDecoder()
+    rows = []
+    offset = 0
+    while offset < len(output):
+        while offset < len(output) and output[offset].isspace():
+            offset += 1
+        if offset == len(output):
+            break
+        row, offset = decoder.raw_decode(output, offset)
+        rows.append(row)
+    commands = [row["command"] for row in rows]
+    controls = [command[command.index("--control-port") + 1] for command in commands]
+    telemetry = [command[command.index("--telemetry-port") + 1] for command in commands]
+    prefixes = [command[command.index("--container-prefix") + 1] for command in commands]
+    operators = [command[command.index("--operator-port") + 1] for command in commands]
+    model_ports = [row["config"]["port"] for row in rows]
+    assert len(set(controls)) == len(set(telemetry)) == len(set(prefixes)) == 2
+    assert len(set(operators)) == len(set(model_ports)) == 2
 
 
 def test_build_table_maps_metrics_and_missing_episode_is_failure():
@@ -172,6 +210,27 @@ def test_main_only_filters_and_runner_receives_expected_command(work_tmp):
     assert "gen_cnt2_w0001" in calls[0][0]
 
 
+def test_parallel_worker_reports_are_aggregated(work_tmp, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_SITL_SLOTS", "2")
+    suite_path = work_tmp / "suite.json"
+    _write_suite(suite_path)
+
+    def fake_runner(command, *, cwd, check):
+        world = command[command.index("--worlds") + 1]
+        Path(command[command.index("--report") + 1]).write_text(
+            json.dumps({"episodes": [{"world": world, "status": "complete", "mission_completed": True}]}),
+            encoding="utf-8",
+        )
+
+    assert suite.main(
+        ["--suite", str(suite_path), "--out", str(work_tmp / "parallel"), "--workers", "2"],
+        runner=fake_runner,
+    ) == 0
+    report = json.loads((work_tmp / "parallel/suite-report.json").read_text(encoding="utf-8"))
+    assert [row["id"] for row in report["missions"]] == ["count-cones", "count-hydrants"]
+    assert report["summary"]["completion_rate"] == 1.0
+
+
 def test_main_dry_run_writes_configs_and_does_not_call_runner(work_tmp, capsys):
     suite_path = work_tmp / "suite.json"
     _write_suite(suite_path)
@@ -223,6 +282,197 @@ def test_variant_generates_world_before_runner_and_labels_report(work_tmp):
     assert calls[0][calls[0].index("--worlds") + 1] == "gen_cnt2_w0000__wind6_gust3p4"
     table = json.loads((work_tmp / "out/suite-report.json").read_text(encoding="utf-8"))
     assert table["missions"][0]["variant"] == "wind-mps-6+gust-mps-3+gust-period-4"
+
+
+@pytest.mark.onboard
+def test_copy_variant_index_uses_explicit_windows_channel_bindings(work_tmp):
+    original = suite.ROOT / "configs/scenarios/generated-count-site"
+    world = "gen_cnt2_w0000"
+    source = work_tmp / "source"
+    bundle = source / "bundle"
+    channels = bundle / "channels"
+    channels.mkdir(parents=True)
+    manifest = json.loads((original / f"{world}.scenario.json").read_text(encoding="utf-8"))
+    for name, binding in manifest["channels"].items():
+        # The runtime filename need not use the canonical runtime_input suffix.
+        filename = "runtime.json" if name == "runtime_input" else f"{name}.json"
+        shutil.copyfile(original / binding["path"], channels / filename)
+        binding["path"] = f"channels\\{filename}"
+    suite.write_json(bundle / "manifest.json", manifest)
+    suite.write_json(source / "index.json", {"worlds": [{
+        "world_id": world, "world_file": f"{world}.sdf", "split": "test",
+        "files": {"scenario": {"path": "bundle\\manifest.json"}},
+    }]})
+    destination = work_tmp / "output/scenario-index.json"
+
+    suite._copy_variant_index(source / "index.json", destination, world=world)
+
+    scenario, staged = load_scenario_index(destination.parent / f"{world}.scenario.json")
+    for name in ("runtime_input", "truth", "expectations"):
+        assert getattr(staged, name).path == f"{world}.{name}.json"
+        channel = load_verified_channel(scenario, getattr(staged, name), name=name)
+        assert channel["scenario_id"] == world
+    assert json.loads((bundle / "manifest.json").read_text(encoding="utf-8")) == manifest
+
+
+@pytest.mark.onboard
+def test_missing_source_channel_fails_before_publishing_variant_index(work_tmp):
+    original = suite.ROOT / "configs/scenarios/generated-count-site"
+    source = work_tmp / "source"
+    shutil.copytree(original, source)
+    (source / "gen_cnt2_w0000.truth.json").unlink()
+    destination = work_tmp / "output/scenario-index.json"
+
+    with pytest.raises(FileNotFoundError, match="gen_cnt2_w0000.truth.json"):
+        suite._copy_variant_index(source / "index.json", destination, world="gen_cnt2_w0000")
+
+    assert not destination.exists()
+
+
+@pytest.mark.onboard
+@pytest.mark.parametrize("variant,world", [
+    ({"wind_mps": 6, "gust_mps": 3}, "gen_cnt2_w0000__wind6_gust3p5"),
+    ({"wind_mps": 0, "camera_noise": 0}, "gen_cnt2_w0000__wind0_noise0"),
+    ({"time_of_day": "dusk"}, "gen_cnt2_w0000__dusk"),
+])
+def test_variant_dry_run_and_generator_use_same_world_id(
+    work_tmp, capsys, monkeypatch, variant, world
+):
+    suite_path = work_tmp / "suite.json"
+    suite.write_json(suite_path, {"defaults": {}, "missions": [_mission(variant=variant)]})
+
+    def no_run(*args, **kwargs):
+        pytest.fail("dry-run must not start the collector or generator")
+
+    assert suite.main(
+        ["--suite", str(suite_path), "--out", str(work_tmp / "out"), "--dry-run"],
+        runner=no_run, generator_runner=no_run,
+    ) == 0
+    row = json.loads(capsys.readouterr().out)
+    assert row["command"][row["command"].index("--worlds") + 1] == world
+    # Run the printed generator command offline with all outputs isolated.
+    command = row["variant_command"]
+    command[command.index("--out-dir") + 1] = str(work_tmp / "worlds")
+    register_position = command.index("--register-index")
+    command = command[:register_position] + command[register_position + 2:]
+    monkeypatch.setattr(sys, "argv", command[1:])
+    assert augment.main() == 0
+    assert (work_tmp / "worlds" / f"{world}.sdf").is_file()
+
+
+@pytest.mark.onboard
+@pytest.mark.parametrize("name", ["robustness", "follow", "airframes"])
+@pytest.mark.parametrize("version", ["", "-r21idr3-r24plan"])
+def test_suite_scenario_channels_are_ready_before_collector(
+    work_tmp, monkeypatch, name, version
+):
+    # Run the real augmenter against an isolated repository. Never publish test
+    # worlds into the checkout or the shared artifacts symlink.
+    root = work_tmp / "repo"
+    source_root = suite.ROOT
+    suite_path = source_root / f"configs/onboard/suite-{name}{version}.json"
+    document = json.loads(suite_path.read_text(encoding="utf-8"))
+    for mission in document["missions"]:
+        source_index = source_root / mission["index"]
+        destination = root / mission["index"]
+        if not destination.parent.exists():
+            shutil.copytree(source_index.parent, destination.parent)
+        for directory, suffix in (
+            ("gazebo/worlds", ".sdf"), ("maps", ".geojson"), ("terrain", ".dem.json")
+        ):
+            relative = Path("simulation") / directory / f"{mission['world']}{suffix}"
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_root / relative, target)
+    shutil.copytree(source_root / "simulation/gazebo/models", root / "simulation/gazebo/models")
+    (root / "scripts").mkdir()
+    shutil.copyfile(
+        source_root / "scripts/gazebo_sensor_stream.py", root / "scripts/gazebo_sensor_stream.py"
+    )
+    monkeypatch.setattr(suite, "ROOT", root)
+    monkeypatch.setattr(augment, "ROOT", root)
+    monkeypatch.setattr(collector, "ROOT", root)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU", "0")
+    # Relative --out must be resolved from the caller's cwd, whereas the
+    # generator/collector run with cwd=ROOT (as in a pinned nightly worktree).
+    monkeypatch.chdir(work_tmp)
+    generated, collected = [], []
+
+    def generate(command, *, cwd, check):
+        assert cwd == root and check is True
+        generated.append(command)
+        monkeypatch.setattr(sys, "argv", command[1:])
+        assert augment.main() == 0
+
+    def collect(command, *, cwd, check):
+        assert cwd == root and check is True
+        index = Path(command[command.index("--index") + 1])
+        world = command[command.index("--worlds") + 1]
+        entries = json.loads(index.read_text(encoding="utf-8"))["worlds"]
+        entry = next(row for row in entries if row["world_id"] == world)
+        assert entry["split"] == command[command.index("--split") + 1]
+        scenario, manifest = load_scenario_index(index.parent / f"{world}.scenario.json")
+        assert manifest.scenario_id == world
+        for name in ("runtime_input", "truth", "expectations"):
+            channel = load_verified_channel(scenario, getattr(manifest, name), name=name)
+            assert channel["scenario_id"] == world
+        runtime = load_runtime_scenario(scenario, mode=RuntimeMode.SIM)
+        assets = resolve_simulator_assets(runtime, repository_root=root)
+        assert assets.world.path.is_file()
+        if entry.get("variant_of"):
+            assert set(entry["files"]) == {
+                "scenario", "runtime_input", "truth", "expectations", "world"
+            }
+            for binding in entry["files"].values():
+                assert (index.parent / binding["path"]).is_file(), binding
+            local_sdf = index.parent / entry["world_file"]
+            assert local_sdf.read_bytes() == assets.world.path.read_bytes()
+            sdf = ET.parse(local_sdf).getroot().find("world")
+            mission = next(row for row in document["missions"] if row["id"] == index.parent.name)
+            variant = mission["variant"]
+            if variant.get("time_of_day") == "dusk":
+                assert sdf.findtext("light/intensity") == "0.3"
+                assert sdf.findtext("scene/ambient") == "0.12 0.14 0.2 1"
+            if "wind_mps" in variant:
+                assert sdf.findtext("wind/linear_velocity") == "6 0 0"
+                assert "amplitude_percent=0.5 period=4" in local_sdf.read_text(encoding="utf-8")
+            if variant.get("actors"):
+                assert len(sdf.findall("actor")) == variant["actors"]
+                assert (index.parent / "actor_box.dae").is_file()
+            original_world = Path(entry["variant_of"]).stem
+            original_entry = next(row for row in entries if row["world_id"] == original_world)
+            assert entry["split"] == original_entry["split"]
+            # Target/trajectory truth and expectations stay identical except
+            # for the variant identity; weather must not regenerate targets.
+            for name in ("truth", "expectations"):
+                actual_path = index.parent / f"{world}.{name}.json"
+                expected_path = index.parent / f"{original_world}.{name}.json"
+                actual = json.loads(actual_path.read_text(encoding="utf-8"))
+                expected = json.loads(expected_path.read_text(encoding="utf-8"))
+                assert actual == {**expected, "scenario_id": world}
+            # The real collector must also be able to plan a launch when --out
+            # is outside its pinned worktree. Planning starts no Docker process.
+            runtime_path, truth_path = collector._scenario_channels(scenario)
+            plan = collector.CollectionPlan(
+                str(scenario), str(runtime_path), str(truth_path), "onboard", 1, 1, 0,
+                str(index.parent / "campaign"),
+            )
+            docker_command = collector.docker_command(plan)
+            assert any(f"source={assets.world.path}," in token for token in docker_command)
+        collected.append(world)
+        Path(command[command.index("--report") + 1]).write_text(
+            json.dumps({"episodes": [{"world": world, "status": "complete"}]}),
+            encoding="utf-8",
+        )
+
+    assert suite.main(
+        ["--suite", str(suite_path), "--out", "out"],
+        runner=collect,
+        generator_runner=generate,
+    ) == 0
+    assert len(collected) == len(document["missions"])
+    assert len(generated) == sum(bool(m.get("variant")) for m in document["missions"])
 
 
 def test_default_mission_does_not_invoke_variant_generator(work_tmp):

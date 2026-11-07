@@ -345,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", nargs="*", type=Path)
     parser.add_argument(
-        "--source-artifacts", type=Path, default=Path("D:/Projects/Multi-Detect/artifacts")
+        "--source-artifacts", type=Path, default=ROOT / "artifacts"
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--radius-m", type=float, default=4.0)

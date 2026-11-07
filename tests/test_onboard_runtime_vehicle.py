@@ -115,6 +115,22 @@ def test_missing_invalid_and_old_telemetry_never_refreshes_pose() -> None:
     assert state.velocity_ned is None
 
 
+def test_vehicle_gimbal_yaw_correction_is_opt_in_and_preserves_default() -> None:
+    q = (math.cos(math.radians(90.0) / 2), 0.0, 0.0, math.sin(math.radians(90.0) / 2))
+    status = {"type": "GIMBAL_DEVICE_ATTITUDE_STATUS", "flags": 64, "q": q}
+    attitude = {"type": "ATTITUDE", "roll": 0.0, "pitch": 0.0, "yaw": math.radians(45)}
+
+    vehicle = PymavlinkVehicle("replay")
+    vehicle.ingest(attitude, 1.0)
+    vehicle.ingest(status, 1.1)
+    assert vehicle.snapshot().gimbal_angles_deg[2] == pytest.approx(45.0)
+
+    corrected = PymavlinkVehicle("replay", gimbal_yaw_correction_deg=-45.0)
+    corrected.ingest(attitude, 1.0)
+    corrected.ingest(status, 1.1)
+    assert corrected.snapshot().gimbal_angles_deg[2] == pytest.approx(0.0)
+
+
 def test_unknown_battery_and_landed_state_remain_unknown() -> None:
     vehicle = PymavlinkVehicle("replay")
     vehicle.ingest({"type": "SYS_STATUS", "battery_remaining": -1}, 10)

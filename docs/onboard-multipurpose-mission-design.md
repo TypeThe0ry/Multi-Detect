@@ -24,6 +24,8 @@
 
 位置、区域、路线、轨迹和 payload 都是 `zone:A`、`home`、`track:7`、`poi:gate` 这样的符号引用，由 host 绑定；模型不能输出原始经纬度。query 最多 8 个词，供 YOLOE prompt 或 VLM 属性问题使用。
 
+`land` 不带 `target_ref` 时在当前位置降落；指定 `home` 时沿返航路径回到 home 后降落；指定已知位置引用时先按 `goto` 的高度、分段移动和障碍处理到达该位置，再执行原有落地确认。指定 `finding:N` 时不会落在目标物体上，而是在当前来向的目标前方选择清空点，至少避开目标 footprint 半径和安全余量；已知尺寸优先使用，缺失时按 4 米保守半径。所选落点写入 mission log/report。固定翼的 target landing capability 约束保持不变。
+
 ## 规划和执行
 
 任务文本（例如“检查停车场内三辆红车，逐辆拍照后回家”）先由 SLOW 生成版本化计划。host 校验字段、参数边界、引用、终止步骤和图结构后才交给 FAST。每个步骤有 `on_success` 与 `on_fail`，最多 12 步；只有显式 `patrol` 循环计数允许环。运行中 `target_lost`、障碍、定位退化、异常发现等事件可以触发当前步骤重规划。

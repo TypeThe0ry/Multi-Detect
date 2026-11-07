@@ -323,6 +323,7 @@ def test_alert_link_hardware_mode_rejects_ack_without_observed_sender_source(
     assert verified["recomputed_passed"] is False
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_authenticated_udp_alert_link_bench_exercises_real_loopback_socket() -> None:
     key = b"alert-link-bench-test-key-material-32-bytes"
     received: list[object] = []

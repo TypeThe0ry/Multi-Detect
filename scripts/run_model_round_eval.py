@@ -25,6 +25,7 @@ STAGES = (
     "planning-v2",
     "planning-v3",
     "planning-v4",
+    "planning-v5",
     "find",
     "suite-v1",
     "suite-v2",
@@ -248,6 +249,8 @@ def build_stages(args) -> list[Stage]:
                     "--output",
                     str(report),
                 ]
+                + (["--plan-pregate"] if getattr(args, "plan_pregate", False) else [])
+                + (["--decision-contract"] if getattr(args, "decision_contract", False) else [])
                 + common
             )
         else:
@@ -381,6 +384,8 @@ def save_summary(out: Path, summary: dict) -> None:
         "",
         f"Baseline: {summary.get('baseline_model') or 'not supplied'}",
         "",
+        f"Host preflight: {'enabled' if summary.get('plan_pregate') else 'disabled'}",
+        "",
         "| Stage | Metric | Current | Baseline | Delta |",
         "| --- | --- | --- | --- | --- |",
     ]
@@ -391,6 +396,12 @@ def save_summary(out: Path, summary: dict) -> None:
                 "| — | — | — |"
             ]
         else:
+            if stage.get("planning_sources"):
+                counts = stage["planning_sources"]
+                lines.append(
+                    f"{stage['name']}: host preflight hits {counts['host_pregate']}; "
+                    f"model processed {counts['model_processed']}"
+                )
             for row in stage["comparison"]:
                 cells = [stage["name"], row["metric"]] + [
                     "—" if row[key] is None else f"{row[key]:.6g}"
@@ -432,12 +443,21 @@ def main(argv=None, *, runner=None) -> int:
         action="store_true",
         help="bypass GPU process inspection; never bypass lock/disk/validity",
     )
-    parser.add_argument("--gpu-heavy-mib", type=int, default=512)
+    parser.add_argument(
+        "--gpu-heavy-mib",
+        type=int,
+        # Override for shared GPUs (e.g. SITL rendering on the same card).
+        default=int(os.environ.get("MULTIDETECT_GPU_HEAVY_MIB", "512")),
+    )
     parser.add_argument("--min-free-disk-gb", type=float, default=30)
     parser.add_argument("--disk-check-every", type=int, default=1)
     parser.add_argument("--min-valid-rate", type=float, default=0.99)
     parser.add_argument("--max-transport-rate", type=float, default=0.01)
     parser.add_argument("--retry-failed-episodes", action="store_true")
+    parser.add_argument("--decision-contract", action="store_true",
+                        help="enable structured reject/clarify output in planning stages")
+    parser.add_argument("--plan-pregate", action="store_true",
+                        help="run deterministic host preflight before planning models")
     parser.add_argument("--episodes", type=int, default=2)
     parser.add_argument(
         "--index", type=Path, default=ROOT / "configs/scenarios/generated-v2/index.json"
@@ -472,6 +492,7 @@ def main(argv=None, *, runner=None) -> int:
     summary = {
         "model": args.model,
         "baseline_model": args.baseline_model if args.baseline else None,
+        "plan_pregate": args.plan_pregate,
         "status": "running",
         "stages": [],
     }
@@ -519,8 +540,9 @@ def main(argv=None, *, runner=None) -> int:
                         raise RuntimeError(
                             f"Stage exited {result.returncode}; see {stage.name}.log"
                         )
+                    document = read_json(stage.report)
                     checked = validate_result(
-                        read_json(stage.report),
+                        document,
                         expected=stage.expected,
                         min_valid_rate=args.min_valid_rate,
                         max_transport_rate=args.max_transport_rate,
@@ -606,6 +628,12 @@ def main(argv=None, *, runner=None) -> int:
                         validation=checked,
                         comparison=comparison(checked["metrics"], previous),
                     )
+                    if "rows" in document:
+                        host_count = sum(row.get("source") == "host_pregate" for row in document["rows"])
+                        record["planning_sources"] = {
+                            "host_pregate": host_count,
+                            "model_processed": len(document["rows"]) - host_count,
+                        }
                 except Exception as exc:
                     record["error"] = str(exc)
                     raise

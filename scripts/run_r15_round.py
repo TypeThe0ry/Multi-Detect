@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import os
+import queue
 import random
 import shutil
 import subprocess
@@ -26,9 +27,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from multidetect.simulator.cpu import resolve_cpu_isolation
+from multidetect.sim_network import sim_network_mode
+from scripts.platform_paths import default_llama_server
+from scripts.sitl_lock import SitlLock, configured_slot_count, default_lock_path
+from scripts.run_simulator_docker import gpu_assignment_for_worker
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
 R15_EPISODES_PER_WORLD = 4
+MAX_COLLECT_WORKERS = 8
 # Collection plan requires a continuous far-to-near pass through roughly
 # 14-16 m, 9 m, 6 m and 4.5 m, plus 80 frames below 4 m. At 20 FPS, four
 # 80-frame observation windows are the smallest round-number budget that
@@ -670,6 +677,29 @@ def frame_key_root(episodes: Path) -> Path:
     raise RuntimeError(f"采集目录 {resolved} 不在任何 git 仓库内，build_sft 无法生成相对帧路径")
 
 
+
+def with_worker_slot(cmd: list[str], slot: int) -> list[str]:
+    """Rewrite a planned collector command onto collection worker ``slot``."""
+    values = {
+        "--container-prefix": f"r15-worker-{slot}",
+        "--worker-index": str(slot),
+        "--control-port": str(R15_BASE_CONTROL_PORT + slot * 10),
+        "--telemetry-port": str(R15_BASE_TELEMETRY_PORT + slot * 10),
+        "--sim-instance": str(slot),
+    }
+    out = list(cmd)
+    for index, token in enumerate(out[:-1]):
+        if token in values:
+            out[index + 1] = values[token]
+    return out
+
+
+def worker_gpu_assignments(worker_count: int) -> tuple[tuple[int, str | None], ...]:
+    """Resolve the GPU selected for each runtime worker slot without launching Docker."""
+    if isinstance(worker_count, bool) or not isinstance(worker_count, int) or worker_count < 1:
+        raise ValueError("worker_count must be a positive integer")
+    return tuple((slot, gpu_assignment_for_worker(slot)) for slot in range(worker_count))
+
 class Round:
     def __init__(self, args):
         self.a = args
@@ -919,7 +949,7 @@ class Round:
             )
         )
 
-    def _collect_one(self, key: str, cmd: list[str], target: Path) -> dict:
+    def _collect_one(self, key: str, cmd: list[str], target: Path, *, env=None) -> dict:
         # Each attempt writes to its own directory so a failed or partial attempt can
         # never be mistaken for this key's episode (or another key's).
         prefix = cmd[cmd.index("--container-prefix") + 1]
@@ -939,7 +969,7 @@ class Round:
             try_index += 1
             attempt_cmd = [*cmd[:-1], str(attempt_dir)]
             _remove_worker_containers(prefix)
-            completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True)
+            completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True, env=env)
             output = "\n".join(
                 part for part in (getattr(completed, "stdout", ""), getattr(completed, "stderr", "")) if part
             )
@@ -990,6 +1020,13 @@ class Round:
         raise AssertionError("unreachable")
 
     def collect(self):
+        # Validate all globally leaseable CPU blocks before any container or
+        # retries, even when this round uses fewer workers than global slots.
+        cpu_assignments = [
+            cpu.to_mapping()
+            for slot in range(configured_slot_count())
+            if (cpu := resolve_cpu_isolation(slot_index=slot)) is not None
+        ]
         # Read IDs from the supplied index so fresh rounds can use an isolated
         # prefix (for example ``gen_r19_w``) without touching r15 worlds.
         world_ids = round_world_ids(self.a.r15_index)
@@ -1036,6 +1073,7 @@ class Round:
             )
         # Only the worlds that survived the category filter are planned and dispatched.
         scenarios = [scenario for scenario in scenarios if scenario in collection_options]
+        selected_sim_network = sim_network_mode(getattr(self.a, "sim_network", None))
         # Build the same collector/docker plan used by workers before dispatch,
         # including the resolved airframe and fixed-wing takeoff method.
         from scripts.collect_sim_teacher_episodes import CollectionPlan, docker_command
@@ -1050,6 +1088,7 @@ class Round:
                     self.a.steps_per_episode, 20261016, str(self.a.out / "preflight"),
                     airframe=airframe, takeoff_method=takeoff_method,
                     control_port=R15_BASE_CONTROL_PORT, telemetry_port=R15_BASE_TELEMETRY_PORT,
+                    sim_network=getattr(self.a, "sim_network", None),
                 ), name=f"r15-preflight-{scenario.stem}")
             except Exception as exc:
                 raise RuntimeError(f"场景 {scenario} 无法构建 SIM stack：{exc}") from exc
@@ -1090,11 +1129,13 @@ class Round:
                     "--min-free-gb",
                     str(self.collector_min_free_gb()),
                     "--timeout-s",
-                    "900",
+                    str(getattr(self.a, "episode_timeout_s", 900)),
                     "--max-episode-s",
-                    "900",
+                    str(getattr(self.a, "episode_timeout_s", 900)),
                     "--container-prefix",
                     f"r15-worker-{worker}",
+                    "--worker-index",
+                    str(worker),
                     "--control-port",
                     str(R15_BASE_CONTROL_PORT + worker * 10),
                     "--telemetry-port",
@@ -1106,6 +1147,10 @@ class Round:
                     "--out",
                     str(target),
                 ]
+                if getattr(self.a, "sim_network", None) is not None:
+                    cmd[-2:-2] = ["--sim-network", selected_sim_network]
+                if selected_sim_network == "host":
+                    cmd[-2:-2] = ["--sim-instance", str(worker)]
                 if takeoff_method is not None:
                     cmd[-2:-2] = ["--takeoff-method", takeoff_method]
                 if getattr(self.a, "low_disk", False):
@@ -1125,10 +1170,47 @@ class Round:
             f"低磁盘={getattr(self.a, 'low_disk', False)}"
         )
         if self.a.dry_run:
+            assignments = ", ".join(
+                f"slot {slot}->GPU {gpu if gpu is not None else 'off'}"
+                for slot, gpu in worker_gpu_assignments(self.a.workers)
+            )
+            print(f"[dry-run] GPU worker slots: {assignments}")
+            if cpu_assignments:
+                print(f"[dry-run] CPU slot allocations: {json.dumps(cpu_assignments, sort_keys=True)}")
             return
         self._docker_abort = threading.Event()
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.a.workers)
-        futures = {pool.submit(self._collect_one, key, cmd, target): key for key, cmd, target in jobs}
+        active_workers = min(self.a.workers, configured_slot_count())
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=active_workers)
+        # Each job's ports/container prefix were planned from its episode index,
+        # which can repeat across concurrently running jobs.  Lease a free worker
+        # slot at run time instead so two live containers never share ports.
+        slots: queue.Queue[int] = queue.Queue()
+        for slot in range(active_workers):
+            slots.put(slot)
+
+        def run_on_free_slot(key: str, cmd: list[str], target: Path):
+            slot = slots.get()
+            try:
+                lock = SitlLock(
+                    getattr(self.a, "sitl_lock_path", default_lock_path()),
+                    label=f"r15-worker-slot-{slot}",
+                    slots=configured_slot_count(),
+                    min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
+                )
+                lock.acquire()
+                try:
+                    slot = lock.slot if lock.slot is not None else slot
+                    slotted = with_worker_slot(cmd, slot)
+                    slot_env = os.environ.copy()
+                    slot_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
+                    slot_env["MULTIDETECT_SITL_SLOT"] = str(slot)
+                    return self._collect_one(key, slotted, target, env=slot_env)
+                finally:
+                    lock.release()
+            finally:
+                slots.put(slot)
+
+        futures = {pool.submit(run_on_free_slot, key, cmd, target): key for key, cmd, target in jobs}
         try:
             for future in concurrent.futures.as_completed(futures):
                 key = futures[future]
@@ -1216,7 +1298,10 @@ class Round:
         self.out.mkdir(parents=True, exist_ok=True)
         if self.a.stage in ("all", "collect"):
             self.guards("collect")
-            self.collect()
+            if getattr(self.a, "dry_run", False):
+                self.collect()
+            else:
+                self.collect()
         if self.a.stage in ("all", "annotate"):
             self.guards("annotate")
             cmd = self.annotate_command()
@@ -1261,6 +1346,20 @@ class Round:
             ]
             if getattr(self.a, "r21id_r2_filter", False):
                 cmd.append("--confusable-negatives")
+            elif getattr(self.a, "confusable_negatives", False):
+                cmd.append("--confusable-negatives")
+            if getattr(self.a, "task_text_variants", False):
+                cmd.append("--task-text-variants")
+            task_variant_positive_cap = getattr(self.a, "task_variant_positive_cap", None)
+            if task_variant_positive_cap is not None:
+                cmd.extend(("--task-variant-positive-cap", str(task_variant_positive_cap)))
+            if getattr(self.a, "balance_identity_views", False):
+                cmd.append("--balance-identity-views")
+            if getattr(self.a, "balance_confusable_negative_views", False):
+                cmd.append("--balance-confusable-negative-views")
+            max_upsample = getattr(self.a, "max_upsample", None)
+            if max_upsample is not None:
+                cmd.extend(("--max-upsample", str(max_upsample)))
             self.run(
                 "build_sft",
                 cmd,
@@ -1392,7 +1491,7 @@ class Round:
             )
             mmproj = self.data_path(self.a.mmproj, "artifacts/models/mmproj.gguf")
             llama_server = self.data_path(
-                self.a.llama_server, "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+                self.a.llama_server, str(default_llama_server(ROOT, prefer_tools=True))
             )
             for label, dataset in datasets:
                 cmd = [
@@ -1763,8 +1862,16 @@ def main():
             "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
         ),
     )
-    p.add_argument("--llama-server", type=Path, default=ROOT / "tools/llama.cpp/llama-server.exe")
+    p.add_argument(
+        "--llama-server", type=Path, default=default_llama_server(ROOT, prefer_tools=True)
+    )
     p.add_argument("--min-free-gb", type=float, default=30)
+    p.add_argument(
+        "--episode-timeout-s",
+        type=int,
+        default=900,
+        help="collector --timeout-s/--max-episode-s per episode; software rendering needs more",
+    )
     p.add_argument(
         "--collector-min-free-gb",
         type=float,
@@ -1807,7 +1914,7 @@ def main():
         "--r12-adapter",
         type=Path,
         default=Path(
-            "D:/Projects/Multi-Detect/artifacts/models/slow-system-lora-v2-r12-multi/adapter"
+            str(ROOT / "artifacts/models/slow-system-lora-v2-r12-multi/adapter")
         ),
     )
     p.add_argument(
@@ -1823,10 +1930,11 @@ def main():
         "--source-root",
         type=Path,
         default=None,
-        help="YOLOE 缓存键的根：保存 episodes 的仓库根（如 D:/Projects/Multi-Detect）；"
+        help="YOLOE 缓存键的根：保存 episodes 的仓库根；"
         "默认自动推断",
     )
     p.add_argument("--workers", type=int, default=R15_WORKERS)
+    p.add_argument("--sim-network", choices=("bridge", "host"), default=None)
     p.add_argument("--steps-per-episode", type=int, default=R15_STEPS_PER_EPISODE)
     p.add_argument("--episodes-per-world", type=int, default=R15_EPISODES_PER_WORLD,
                    help="collection episodes per world (default 4)")
@@ -1835,6 +1943,7 @@ def main():
         "--docker-wait-minutes", type=float, default=20,
         help="Docker daemon 不可用时等待恢复的分钟数（每 30 秒检查）",
     )
+    p.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     p.add_argument(
         "--extra-episodes",
         type=Path,
@@ -1858,6 +1967,20 @@ def main():
         "--r21id-keep-small-true-targets", action="store_true",
         help="with --r21id-r2-filter, do not down-weight true-target positives below 16 px",
     )
+    p.add_argument("--balance-identity-views", action="store_true",
+                   help="pass through build_slow_system_sft.py --balance-identity-views")
+    p.add_argument("--balance-confusable-negative-views", action="store_true",
+                   help="pass through build_slow_system_sft.py --balance-confusable-negative-views")
+    p.add_argument("--max-upsample", type=int, default=None,
+                   help="pass through build_slow_system_sft.py --max-upsample")
+    p.add_argument("--confusable-negatives", action="store_true",
+                   help="pass through build_slow_system_sft.py --confusable-negatives")
+    p.add_argument("--task-text-variants", action="store_true",
+                   help="pass through build_slow_system_sft.py --task-text-variants")
+    p.add_argument(
+        "--task-variant-positive-cap", type=float, default=None, metavar="RATIO",
+        help="pass through build_slow_system_sft.py --task-variant-positive-cap only when set",
+    )
     p.add_argument("--learning-rate", type=float, default=1e-4)
     a = p.parse_args()
     if a.no_category_holdout:
@@ -1873,8 +1996,10 @@ def main():
         p.error("--retries must be >= 0")
     if a.docker_wait_minutes < 0:
         p.error("--docker-wait-minutes must be >= 0")
-    if not 1 <= a.workers <= 2:
-        p.error("--workers must be 1 or 2")
+    # The old 8 GB dev box capped this at 2; ports are spaced by 10 per worker
+    # and host-network workers get their own PX4 instance and GZ_PARTITION.
+    if not 1 <= a.workers <= MAX_COLLECT_WORKERS:
+        p.error(f"--workers must be between 1 and {MAX_COLLECT_WORKERS}")
     if a.steps_per_episode < 1:
         p.error("--steps-per-episode must be positive")
     if (a.collector_min_free_gb is not None and a.collector_min_free_gb < 0) or a.min_free_gb < 0:

@@ -108,13 +108,13 @@ def _llama_property_orders(schema: object):
 def test_plan_schema_grammar_order_matches_sorted_keys() -> None:
     from multidetect.autonomy.mission_planner import plan_json_schema
 
-    schema = trained_key_order_schema(plan_json_schema())
+    schema = trained_key_order_schema(plan_json_schema(include_decision_contract=True))
     for names, emitted in _llama_property_orders(schema):
         assert names == sorted(names)
         assert emitted == names
     count = next(
         step
-        for step in schema["properties"]["steps"]["items"]["anyOf"]
+        for step in schema["anyOf"][0]["properties"]["steps"]["items"]["anyOf"]
         if step["properties"]["skill"]["enum"] == ["count"]
     )
     branches = count["properties"]["params"]["anyOf"]
@@ -123,6 +123,19 @@ def test_plan_schema_grammar_order_matches_sorted_keys() -> None:
     assert ["query", "region"] in orders
     # Every branch keeps the required parameters.
     assert all({"query", "region"} <= set(branch["required"]) for branch in branches)
+
+
+def test_plan_schema_top_level_anyof_survives_key_ordering() -> None:
+    from multidetect.autonomy.mission_planner import plan_json_schema
+
+    schema = trained_key_order_schema(plan_json_schema(include_decision_contract=True))
+    assert set(schema) == {"anyOf"}
+    assert len(schema["anyOf"]) == 3
+    assert [branch["properties"]["decision"]["enum"][0]
+            for branch in schema["anyOf"][1:]] == ["reject", "clarify"]
+    for branch in schema["anyOf"][1:]:
+        assert list(branch["properties"]) == sorted(branch["properties"])
+        assert branch["required"] == sorted(branch["required"])
 
 
 def test_zoom_v2_multi_candidate_prompt_names_the_event_focus(tmp_path: Path) -> None:

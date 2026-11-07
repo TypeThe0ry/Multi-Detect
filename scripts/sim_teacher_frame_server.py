@@ -42,6 +42,47 @@ from gazebo_sensor_stream import (
 )
 
 
+MAX_CONSECUTIVE_ODOMETRY_VELOCITY_REJECTIONS = 3
+ODOMETRY_VELOCITY_BOUND_ERROR = "wire Odometry velocity exceeds the safety bound"
+MAX_JOINT_STATE_SKEW_NS = 100_000_000
+GIMBAL_JOINT_NAMES = {
+    "yaw": "c11_yaw_joint",
+    "roll": "c11_roll_joint",
+    "pitch": "c11_pitch_joint",
+}
+
+
+class OdometrySamplePolicy:
+    """Drop isolated velocity spikes while failing closed on a persistent stream fault."""
+
+    def __init__(self, max_consecutive_rejections: int = MAX_CONSECUTIVE_ODOMETRY_VELOCITY_REJECTIONS) -> None:
+        if max_consecutive_rejections < 1:
+            raise ValueError("max_consecutive_rejections must be positive")
+        self.max_consecutive_rejections = max_consecutive_rejections
+        self.consecutive_rejections = 0
+        self.velocity_rejections = 0
+        self.max_observed_consecutive_rejections = 0
+
+    def accepted(self) -> None:
+        self.consecutive_rejections = 0
+
+    def reject(self, error: Exception) -> str:
+        """Return ``drop`` for a recoverable velocity spike or ``fail`` otherwise."""
+        if str(error) != ODOMETRY_VELOCITY_BOUND_ERROR:
+            return "fail"
+        self.velocity_rejections += 1
+        self.consecutive_rejections += 1
+        self.max_observed_consecutive_rejections = max(
+            self.max_observed_consecutive_rejections,
+            self.consecutive_rejections,
+        )
+        return (
+            "fail"
+            if self.consecutive_rejections >= self.max_consecutive_rejections
+            else "drop"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class Candidate:
     stamp_ns: int
@@ -57,6 +98,7 @@ class Candidate:
     depth_height: int
     segmentation: bytes | None = None
     segmentation_topic: str | None = None
+    joint_state: dict[str, Any] | None = None
 
 
 class ExactSegmentationPairer:
@@ -259,6 +301,8 @@ def encode_candidate(
         "cx_px": float(depth_contract["cx_px"]) * depth_size[0] / candidate.depth_width,
         "cy_px": float(depth_contract["cy_px"]) * depth_size[1] / candidate.depth_height,
     }
+    if candidate.joint_state is not None:
+        metadata["joint_state"] = candidate.joint_state
     output = rgb_record + build_depth_wire_record(metadata=metadata, payload=depth_payload)
     if candidate.segmentation is not None:
         segmentation_payload = scale_bgr24(
@@ -277,6 +321,54 @@ def encode_candidate(
 
 def _diagnostic(event: str, **fields: Any) -> None:
     print(json.dumps({"event": event, **fields}, sort_keys=True), file=sys.stderr, flush=True)
+
+
+def _joint_sample_from_message(message: Any) -> dict[str, Any]:
+    stamp_ns = _stamp_ns(message)
+    joints: dict[str, dict[str, float]] = {}
+    for joint in getattr(message, "joint", ()):
+        name = str(getattr(joint, "name", ""))
+        axis = getattr(joint, "axis1", None)
+        if not name or axis is None:
+            continue
+        position = float(getattr(axis, "position", math.nan))
+        velocity = float(getattr(axis, "velocity", math.nan))
+        if math.isfinite(position) and math.isfinite(velocity):
+            joints[name] = {"position_rad": position, "velocity_rad_s": velocity}
+    if not joints:
+        raise ValueError("joint state message contains no finite axis-1 samples")
+    return {"stamp_ns": stamp_ns, "joints": joints}
+
+
+def _frame_joint_state(sample: dict[str, Any] | None, frame_stamp_ns: int) -> dict[str, Any] | None:
+    if sample is None:
+        return None
+    source_stamp_ns = int(sample["stamp_ns"])
+    skew_ns = int(frame_stamp_ns) - source_stamp_ns
+    if skew_ns < 0 or skew_ns > MAX_JOINT_STATE_SKEW_NS:
+        return None
+    joints = sample["joints"]
+    if not all(name in joints for name in GIMBAL_JOINT_NAMES.values()):
+        return None
+    return {
+        "timestamp_ns": int(frame_stamp_ns),
+        "source_timestamp_ns": source_stamp_ns,
+        "source_skew_ns": skew_ns,
+        "gimbal_joint_state": {
+            "timestamp_ns": int(frame_stamp_ns),
+            "position_rad": {
+                axis: float(joints[name]["position_rad"])
+                for axis, name in GIMBAL_JOINT_NAMES.items()
+            },
+            "velocity_rad_s": {
+                axis: float(joints[name]["velocity_rad_s"])
+                for axis, name in GIMBAL_JOINT_NAMES.items()
+            },
+            "source": "gazebo_joint_state",
+            "fresh": True,
+        },
+        "propeller_joint_state": None,
+    }
 
 
 def main() -> int:
@@ -314,6 +406,7 @@ def main() -> int:
 
     from gz.msgs10.camera_info_pb2 import CameraInfo
     from gz.msgs10.image_pb2 import Image
+    from gz.msgs10.model_pb2 import Model
     from gz.msgs10.navsat_pb2 import NavSat
     from gz.msgs10.odometry_with_covariance_pb2 import OdometryWithCovariance
     from gz.transport13 import Node
@@ -333,6 +426,7 @@ def main() -> int:
     odometry_topic = args.odometry_topic or f"/model/{model}/odometry_with_covariance"
     depth_topic = str(contract["source_topic"])
     depth_info_topic = str(contract["depth_camera_info_topic"])
+    joint_state_topic = f"/world/{world}/model/{model}/joint_state"
     buffers = {
         "camera": CausalSourceBuffer("CameraInfo"),
         "navsat": CausalSourceBuffer("NavSat"),
@@ -346,7 +440,19 @@ def main() -> int:
     image_lock = threading.Lock()
     latest = LatestCandidate()
     pairer = ExactSegmentationPairer(latest) if args.segmentation else None
-    stats = {"images": 0, "incomplete": 0, "stale_sources": 0, "depth_missing": 0}
+    joint_states = CausalSourceBuffer("JointStatePublisher", maximum_samples=128)
+    clock_diagnostic_lock = threading.Lock()
+    last_clock_diagnostic_wall = [0.0]
+    stats = {
+        "images": 0,
+        "incomplete": 0,
+        "stale_sources": 0,
+        "depth_missing": 0,
+        "odometry_invalid": 0,
+        "odometry_velocity_rejected": 0,
+        "odometry_max_consecutive_velocity_rejections": 0,
+    }
+    odometry_policy = OdometrySamplePolicy()
 
     def guard(name: str, operation: Any) -> None:
         try:
@@ -414,7 +520,25 @@ def main() -> int:
     def on_odometry(message: OdometryWithCovariance) -> None:
         def update() -> None:
             stamp = _stamp_ns(message)
-            fields = _odometry_from_message(message)
+            try:
+                fields = _odometry_from_message(message)
+            except Exception as exc:
+                with state_lock:
+                    stats["odometry_invalid"] += 1
+                    action = odometry_policy.reject(exc)
+                    stats["odometry_velocity_rejected"] = odometry_policy.velocity_rejections
+                    stats[
+                        "odometry_max_consecutive_velocity_rejections"
+                    ] = odometry_policy.max_observed_consecutive_rejections
+                if action == "drop":
+                    _diagnostic(
+                        "sim_teacher_odometry_dropped",
+                        stamp_ns=stamp,
+                        reason=str(exc),
+                        consecutive_rejections=odometry_policy.consecutive_rejections,
+                    )
+                    return
+                raise
             names = (
                 "position_east_m",
                 "position_north_m",
@@ -431,6 +555,7 @@ def main() -> int:
             row["attitude_covariance_enu_rad2"] = fields[10:]
             row["stamp_ns"] = stamp
             with state_lock:
+                odometry_policy.accepted()
                 buffers["odometry"].append(row)
 
         guard("Odometry", update)
@@ -447,6 +572,11 @@ def main() -> int:
     def on_image(message: Image) -> None:
         def update() -> None:
             stamp = _stamp_ns(message)
+            now = time.monotonic()
+            with clock_diagnostic_lock:
+                if now - last_clock_diagnostic_wall[0] >= 1.0:
+                    last_clock_diagnostic_wall[0] = now
+                    _diagnostic("sim_teacher_sim_clock", stamp_ns=stamp)
             with image_lock:
                 with state_lock:
                     stats["images"] += 1
@@ -479,6 +609,8 @@ def main() -> int:
                     ):
                         raise ValueError("RGB image geometry differs from CameraInfo")
                     copied = (dict(camera), dict(navsat), dict(odometry), dict(depth))
+                    joint_sample = joint_states.latest_at_or_before(stamp)
+                    frame_joint_state = _frame_joint_state(joint_sample, stamp)
                 bgr = normalize_bgr24(
                     message.data,
                     width=int(message.width),
@@ -500,10 +632,21 @@ def main() -> int:
                         bytes(depth["payload"]),
                         int(contract["width"]),
                         int(contract["height"]),
+                        joint_state=frame_joint_state,
                     )
                 )
 
         guard("RGB Image", update)
+
+    def on_joint_state(message: Model) -> None:
+        try:
+            sample = _joint_sample_from_message(message)
+            with state_lock:
+                joint_states.append(sample)
+        except Exception as exc:
+            with state_lock:
+                stats["joint_state_invalid"] = stats.get("joint_state_invalid", 0) + 1
+            _diagnostic("sim_teacher_joint_state_dropped", reason=str(exc))
 
     def on_segmentation(message: Image) -> None:
         def update() -> None:
@@ -524,6 +667,7 @@ def main() -> int:
         (CameraInfo, camera_topic, on_camera),
         (NavSat, navsat_topic, on_navsat),
         (OdometryWithCovariance, odometry_topic, on_odometry),
+        (Model, joint_state_topic, on_joint_state),
     ]
     if args.segmentation:
         subscriptions.append((Image, args.segmentation_topic, on_segmentation))

@@ -317,6 +317,7 @@ def test_campaign_workbench_rejects_non_annotation_stages(tmp_path: Path) -> Non
         field_replay_annotation_workbench_argv(workspace)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_campaign_annotation_ui_runs_bound_loopback_workbench(tmp_path: Path) -> None:
     model, manifest = _placeholder_model(tmp_path / "model")
     workspace = tmp_path / "campaign"

@@ -18,8 +18,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Any, Protocol, runtime_checkable
 
-from multidetect.sim_teacher.executor import SetpointStreamer
-from multidetect.sim_teacher.streams import MavlinkReader
+from multidetect.sim_teacher.executor import (
+    GCS_SOURCE_COMPONENT,
+    GCS_SOURCE_SYSTEM,
+    GIMBAL_MANAGER_DEVICE_ID,
+    GIMBAL_MANAGER_FLAGS_PITCH_LOCK,
+    GIMBAL_MANAGER_FLAGS_ROLL_LOCK,
+    GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME,
+    MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+    MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+    SetpointStreamer,
+)
+from multidetect.sim_teacher.streams import MavlinkReader, gimbal_angles_from_status
 
 from .fw_vtol_commands import (
     CommandSpec,
@@ -113,6 +123,8 @@ class VehicleState:
     landed_state: int | None = None
     nav_state: str | None = None
     time_boot_ms: int | None = None
+    gimbal_angles_deg: Vector3 | None = None
+    gimbal_observed_monotonic: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +188,11 @@ class FixedWingVtolVehicle(VehicleInterface, Protocol):
     def fw_takeoff(self, method: str = "runway", **kwargs: Any) -> CommandResult: ...
 
     def fw_land(self, method: str = "runway", **kwargs: Any) -> CommandResult: ...
+
+    def gimbal_control(
+        self, *, pitch_deg: float, yaw_deg: float = 0.0, roll_deg: float = 0.0,
+        timeout_s: float = 1.0,
+    ) -> CommandResult: ...
 
 
 
@@ -253,6 +270,7 @@ class PymavlinkVehicle:
         target_component: int | None = None,
         write_timeout_s: float = 0.05,
         clock: Callable[[], float] = _precise_monotonic,
+        gimbal_yaw_correction_deg: float = 0.0,
     ) -> None:
         if not isinstance(endpoint, str) or not endpoint.strip():
             raise ValueError("MAVLink endpoint must be nonempty")
@@ -271,6 +289,7 @@ class PymavlinkVehicle:
         self.target_system = target_system
         self.target_component = target_component
         self._clock = clock
+        self._gimbal_yaw_correction_deg = float(gimbal_yaw_correction_deg)
         self._write_timeout_s = write_timeout_s
         self._state = VehicleState()
         self._state_lock = threading.Lock()
@@ -397,6 +416,25 @@ class PymavlinkVehicle:
                                    attitude_monotonic=stamp)
                 if message.get("time_boot_ms") is not None:
                     updates["time_boot_ms"] = int(message["time_boot_ms"])
+            elif kind == "GIMBAL_DEVICE_ATTITUDE_STATUS":
+                angles = gimbal_angles_from_status(message)
+                flags = int(message.get("flags", 0) or 0)
+                if angles is not None and flags & 64 and state.attitude_deg is not None:
+                    angles = dict(angles)
+                    angles["yaw"] = (
+                        angles["yaw"] - state.attitude_deg[2]
+                        + self._gimbal_yaw_correction_deg + 180.0
+                    ) % 360.0 - 180.0
+                if angles is not None and (
+                    state.gimbal_observed_monotonic is None
+                    or stamp >= state.gimbal_observed_monotonic
+                ):
+                    updates.update(
+                        gimbal_angles_deg=(
+                            angles["roll"], angles["pitch"], angles["yaw"]
+                        ),
+                        gimbal_observed_monotonic=stamp,
+                    )
             elif kind == "HOME_POSITION":
                 home = _vector(message, ("latitude", "longitude", "altitude"))
                 if state.home_monotonic is None or stamp >= state.home_monotonic:
@@ -597,6 +635,76 @@ class PymavlinkVehicle:
             return CommandResult("rejected", spec.command, result, f"MAV_RESULT={result}")
         except (RuntimeError, TimeoutError, OSError, ValueError) as exc:
             return CommandResult("failed", spec.command, detail=str(exc))
+
+    def gimbal_control(
+        self,
+        *,
+        pitch_deg: float,
+        yaw_deg: float = 0.0,
+        roll_deg: float = 0.0,
+        timeout_s: float = 1.0,
+    ) -> CommandResult:
+        """Command a MAVLink mount and wait for a fresh attitude readback."""
+        values = (float(pitch_deg), float(roll_deg), float(yaw_deg))
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("gimbal angles must be finite")
+        started = self._clock()
+        configure = self._command_with_ack(
+            CommandSpec(
+                MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+                (float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID)),
+                "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
+            ), timeout_s=min(timeout_s, 5.0),
+        )
+        if not configure.ok:
+            return configure
+        configure_started_ns = int(started * 1_000_000_000)
+        deadline = self._clock() + min(max(timeout_s, 0.1), 2.0)
+        manager_owned = False
+        while self._clock() < deadline:
+            reader = self._reader
+            state = getattr(reader, "state", None)
+            manager = state.get("GIMBAL_MANAGER_STATUS") if state is not None else None
+            received = getattr(state, "received_monotonic_ns", {}) if state is not None else {}
+            manager_ns = received.get("GIMBAL_MANAGER_STATUS", -1) if isinstance(received, dict) else -1
+            primary = manager.get("primary_control_sysid", 0) if isinstance(manager, dict) else getattr(manager, "primary_control_sysid", 0)
+            primary_component = manager.get("primary_control_compid", 0) if isinstance(manager, dict) else getattr(manager, "primary_control_compid", 0)
+            if (manager is not None and manager_ns >= configure_started_ns
+                    and int(primary or 0) == GCS_SOURCE_SYSTEM
+                    and int(primary_component or 0) == GCS_SOURCE_COMPONENT):
+                manager_owned = True
+                break
+            time.sleep(0.02)
+        if not manager_owned:
+            return CommandResult(
+                "rejected", MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+                detail=f"gimbal manager ownership was not confirmed (primary={int(primary or 0)}/{int(primary_component or 0)})",
+            )
+        result = self._command_with_ack(
+            CommandSpec(
+                MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+                (float(pitch_deg), float(yaw_deg), math.nan, math.nan,
+                 float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK | GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+                 0.0, float(GIMBAL_MANAGER_DEVICE_ID)),
+                "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
+            ), timeout_s=timeout_s,
+        )
+        if not result.ok or timeout_s <= 0:
+            return result
+        deadline = self._clock() + float(timeout_s)
+        while self._clock() < deadline:
+            state = self.snapshot()
+            actual = state.gimbal_angles_deg
+            if actual is not None and state.gimbal_observed_monotonic is not None and state.gimbal_observed_monotonic >= started:
+                error = {
+                    "pitch": abs((actual[1] - float(pitch_deg) + 180.0) % 360.0 - 180.0),
+                    "roll": abs((actual[0] - float(roll_deg) + 180.0) % 360.0 - 180.0),
+                    "yaw": abs((actual[2] - float(yaw_deg) + 180.0) % 360.0 - 180.0),
+                }
+                if max(error.values()) <= 4.0:
+                    return result
+            time.sleep(0.02)
+        return CommandResult("timeout", MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, detail="GIMBAL_DEVICE_ATTITUDE_STATUS readback timeout")
 
     def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float:
         """Read one parameter.

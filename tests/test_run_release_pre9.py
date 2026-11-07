@@ -66,3 +66,38 @@ def test_every_and_separator_runs_its_own_subprocess():
     assert _split_commands(["only"]) == [["only"]]
     with pytest.raises(ValueError):
         _split_commands(["a", "&&", "&&", "b"])
+
+
+def test_preflight_uses_posix_disks_and_tmpdir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(runner.os, "name", "posix")
+    monkeypatch.setenv("TMPDIR", str(tmp_path / ".tmp"))
+    (tmp_path / ".tmp").mkdir()
+    report = runner.preflight_report(tmp_path)
+    assert "disk_root_free_bytes" in report
+    assert "disk_repo_free_bytes" in report
+    assert report["temp_expected"] is True
+    assert report["msvc_vswhere"] is None
+
+
+def test_preflight_requires_explicit_posix_tmpdir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(runner.os, "name", "posix")
+    monkeypatch.delenv("TMPDIR", raising=False)
+    (tmp_path / ".tmp").mkdir()
+    assert runner.preflight_report(tmp_path)["temp_expected"] is False
+
+
+def test_command_format_follows_host_shell() -> None:
+    command = ["tool", "value with spaces"]
+    assert runner._format_command(command, platform="posix") == "tool 'value with spaces'"
+    assert runner._format_command(command, platform="nt") == 'tool "value with spaces"'
+
+
+def test_stage_shell_tools_keep_native_suffix() -> None:
+    powershell_stage = next(
+        stage for stage in runner.stage_definitions() if stage.name == "windows_gcs_build"
+    )
+    assert powershell_stage.command[0] == runner.executable_name("powershell")

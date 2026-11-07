@@ -66,7 +66,11 @@ def test_cleanup_targets_only_recorded_resources(monkeypatch):
 
 
 def test_sitl_lock_release_preserves_foreign_owner(tmp_path):
-    lock = SitlLock(tmp_path / "sitl.lock", label="demo", retry_s=0, stale_s=0)
+    lock = SitlLock(
+        tmp_path / "sitl.lock", label="demo", retry_s=0, stale_s=0,
+        runner=lambda *_a, **_kw: types.SimpleNamespace(returncode=0, stdout=""),
+        memory_fn=lambda: 10.0, slots=1,
+    )
     lock.acquire(wait=False)
     lock.owner.write_text("other 999999999\n", encoding="utf-8")
     lock.release()
@@ -75,7 +79,11 @@ def test_sitl_lock_release_preserves_foreign_owner(tmp_path):
 
 
 def test_sitl_lock_acquire_and_release(tmp_path):
-    lock = SitlLock(tmp_path / "sitl.lock", label="demo", retry_s=0)
+    lock = SitlLock(
+        tmp_path / "sitl.lock", label="demo", retry_s=0,
+        runner=lambda *_a, **_kw: types.SimpleNamespace(returncode=0, stdout=""),
+        memory_fn=lambda: 10.0, slots=1,
+    )
     lock.acquire(wait=False)
     assert lock.path.is_dir()
     assert "demo " in lock.owner.read_text(encoding="utf-8")

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Start an interactive PX4/Gazebo session in Docker Desktop.
+"""Start an interactive PX4/Gazebo session in Docker.
 
 The session owns one container and removes it on Ctrl+C.  It deliberately
 reuses ``run_simulator_docker`` for the pinned image and repository asset
-contract, then adds the WSLg display bindings needed by Gazebo's client.
+contract, then adds the container-side browser viewer.
 """
 
 from __future__ import annotations
@@ -34,6 +34,9 @@ from scripts.run_simulator_docker import (  # noqa: E402
     DockerSimulatorPlan,
     build_docker_simulator_plan,
 )
+from scripts.platform_paths import default_llama_server
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
+from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 
 DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
 DEFAULT_AIRFRAME_WORLDS = {
@@ -41,6 +44,10 @@ DEFAULT_AIRFRAME_WORLDS = {
     "x500_mono_cam": DEFAULT_WORLD,
     "standard_vtol": "river_rescue_vtol_001.sdf",
     "quadtailsitter": "quadtailsitter_mono_cam_001.sdf",
+    "delta_tailsitter": "delta_tailsitter_mono_cam_001.sdf",
+    "delta_tailsitter_mono_cam": "delta_tailsitter_mono_cam_001.sdf",
+    "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal_cam_001.sdf",
+    "delta_tailsitter_gimbal": "delta_tailsitter_gimbal_cam_001.sdf",
     "tiltrotor": "tiltrotor_mono_cam_001.sdf",
     "rc_cessna": "coastal_patrol_fixed_wing_001.sdf",
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001.sdf",
@@ -48,7 +55,7 @@ DEFAULT_AIRFRAME_WORLDS = {
 BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
 VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
 RESOLVED_FUEL_CACHE = ROOT / "artifacts/cache/gz-fuel/resolved"
-DEFAULT_LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+DEFAULT_LLAMA_SERVER = default_llama_server(ROOT)
 # Onboard-policy defaults for --onboard-task (the r18 mission-suite defaults).
 # Values starting with "artifacts/" resolve against --artifacts-root.
 DEFAULT_ONBOARD_DEFAULTS = ROOT / "configs/onboard/sim-session-r18-defaults.json"
@@ -76,6 +83,14 @@ AIRFRAME_SCENARIOS = {
     "tiltrotor": ROOT / "configs/scenarios/airframes/tiltrotor_mono_cam_001.scenario.json",
     "quadtailsitter": ROOT
     / "configs/scenarios/airframes/quadtailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter_mono_cam": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter_gimbal_cam": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_gimbal_cam_001.scenario.json",
+    "delta_tailsitter_gimbal": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_gimbal_cam_001.scenario.json",
     "rc_cessna": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_mono_cam": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_runway": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
@@ -85,10 +100,19 @@ AIRFRAME_SCENARIOS = {
 WORLD_SCENARIOS.update(
     {
         "quadtailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["quadtailsitter"],
+        "delta_tailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["delta_tailsitter"],
+        "delta_tailsitter_gimbal_cam_001.sdf": AIRFRAME_SCENARIOS["delta_tailsitter_gimbal_cam"],
         "tiltrotor_mono_cam_001.sdf": AIRFRAME_SCENARIOS["tiltrotor"],
     }
 )
-VTOL_AIRFRAMES = ("standard_vtol", "quadtailsitter", "tiltrotor")
+VTOL_AIRFRAMES = (
+    "standard_vtol",
+    "quadtailsitter",
+    "delta_tailsitter",
+    "delta_tailsitter_gimbal_cam",
+    "delta_tailsitter_gimbal",
+    "tiltrotor",
+)
 FIXED_WING_TAKEOFFS = ("runway", "hand", "catapult")
 
 
@@ -99,6 +123,9 @@ def _canonical_airframe(value: str) -> str:
         "multirotor": "x500_mono_cam",
         "standard_vtol_mono_cam": "standard_vtol",
         "quadtailsitter_mono_cam": "quadtailsitter",
+        "delta_tailsitter_mono_cam": "delta_tailsitter",
+        "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal_cam",
+        "delta_tailsitter_gimbal": "delta_tailsitter_gimbal_cam",
         "tiltrotor_mono_cam": "tiltrotor",
         "rc_cessna": "rc_cessna_mono_cam",
         "rc_cessna_runway": "rc_cessna_mono_cam",
@@ -112,6 +139,8 @@ def _vehicle_family(value: str | None) -> str | None:
     """Coarse vehicle family of an airframe id or a runtime vehicle model."""
     text = str(value or "").lower()
     for token, family in (
+        ("delta_tailsitter_gimbal", "delta_tailsitter_gimbal"),
+        ("delta_tailsitter", "delta_tailsitter"),
         ("quadtailsitter", "quadtailsitter"),
         ("tiltrotor", "tiltrotor"),
         ("vtol", "standard_vtol"),
@@ -250,7 +279,7 @@ def _scenario_for(world: Path, airframe: str) -> Path:
     except KeyError as exc:
         raise ValueError(
             f"airframe {airframe!r} has no known scenario; use x500, standard_vtol, "
-            "quadtailsitter, tiltrotor, or rc_cessna"
+            "quadtailsitter, delta_tailsitter, tiltrotor, or rc_cessna"
         ) from exc
 
 
@@ -305,7 +334,7 @@ def build_session_command(
     image_index = command.index(plan.image)
     command[image_index] = VIEWER_IMAGE
     if viewer != "novnc":
-        raise ValueError("the browser viewer is the only supported viewer on docker-desktop")
+        raise ValueError("the browser viewer is the only supported viewer")
     env = ["HEADLESS=1", "DISPLAY=:99", "LIBGL_ALWAYS_SOFTWARE=1", f"VIEWER_PORT={viewer_port}"]
     if gcs_port is not None:
         if not 1024 <= gcs_port <= 65535 or gcs_port == control_port:
@@ -360,7 +389,7 @@ def _heartbeat(port: int, timeout: float = 20.0) -> bool:
     except ImportError:
         return False
     try:
-        connection = mavutil.mavlink_connection(f"udpin:127.0.0.1:{port}", autoreconnect=False)
+        connection = mavutil.mavlink_connection(sim_udpin_endpoint(port), autoreconnect=False)
     except OSError as exc:
         print(f"PX4 heartbeat socket unavailable on UDP {port}: {exc}", file=sys.stderr)
         return False
@@ -377,7 +406,7 @@ def _heartbeat_details(port: int, timeout: float) -> dict[str, object] | None:
     try:
         from pymavlink import mavutil
 
-        connection = mavutil.mavlink_connection(f"udpin:0.0.0.0:{port}", autoreconnect=False)
+        connection = mavutil.mavlink_connection(sim_udpin_endpoint(port), autoreconnect=False)
         try:
             message = connection.wait_heartbeat(timeout=timeout)
         finally:
@@ -474,7 +503,7 @@ def validate_runtime_prerequisites(*, onboard: bool = False) -> None:
         raise RuntimeError(
             "resolved Gazebo Fuel cache is missing: "
             f"{RESOLVED_FUEL_CACHE}. Create the repository artifacts "
-            "junction/cache before starting."
+            "asset cache before starting."
         )
     if onboard and not DEFAULT_LLAMA_SERVER.is_file():
         raise RuntimeError(
@@ -640,6 +669,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--container-name")
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
+    parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.snapshot_interval <= 0 or args.check_heartbeat < 0:
         parser.error("snapshot-interval must be positive and check-heartbeat non-negative")
@@ -663,7 +693,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.error(str(exc))
     docker = plan.docker_executable or shutil.which("docker")
     if not docker:
-        parser.error("Docker Desktop executable not found")
+        parser.error("Docker executable not found")
     ensure_viewer_image(docker, force=args.build_viewer)
     command[0] = docker
     snapshot_dir = args.snapshot_dir.resolve() if args.snapshot_dir else None
@@ -678,18 +708,16 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(f"Gazebo world: {world}")
     print(
         f"PX4 control UDP: 127.0.0.1:{args.control_port}; "
-        f"telemetry: 127.0.0.1:{args.telemetry_port}"
+        f"telemetry: {sim_listen_host()}:{args.telemetry_port}"
     )
     if args.gcs_port:
         print(f"GCS UDP: 127.0.0.1:{args.gcs_port}")
     print(f"Browser viewer: http://127.0.0.1:{args.viewer_port}/vnc.html?autoconnect=1")
+    sitl_lock = SitlLock(args.sitl_lock_path, label="sim-session", min_memory_gb=5.0)
+    lock_context = sitl_lock_context(sitl_lock)
+    lock_context.__enter__()
     try:
         subprocess.run(command, cwd=ROOT, check=True)
-    except (OSError, subprocess.CalledProcessError):
-        subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
-        subprocess.run([docker, "rm", plan.container_name], check=False)
-        raise
-    try:
         _session_log(session_log, "container_started", container=plan.container_name)
         for _ in range(60):
             state = subprocess.run(
@@ -782,6 +810,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         _session_log(session_log, "teardown", container=plan.container_name)
         subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
         subprocess.run([docker, "rm", plan.container_name], check=False)
+        lock_context.__exit__(*sys.exc_info())
     return 0
 
 

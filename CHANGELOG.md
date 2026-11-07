@@ -1,4 +1,23 @@
 ## [Unreleased]
+### Linux SITL、身份模型与路线图（2026-11-01—03）
+- 2026-11-02：采集器的 OFFBOARD 确认预算由 10 s 调整为 30 s，适应慢速 lockstep 启动；LAND 等待按遥测与下降进度延长，但仍受硬墙钟上限约束，低高度停稳后才走 disarm 收尾（`c073bb8e`、`3bf070d8`；前序停稳与 episode 硬上限修复 `344e6ed1`）。
+- 2026-11-01—02：nightly 向子采集器传递 `MULTIDETECT_SITL_LOCK_HELD`，随后将嵌套锁处理统一到共享 helper，各 SITL 入口尊重父进程持锁标记，避免父子重复抢锁导致自死锁（`0b4788c6`、`2414a992`）。
+- 2026-11-02：frame server 丢弃偶发的越界速度 odometry 样本，连续 3 次异常仍失败关闭；nightly、mission suite 与 campaign 透传 `--keep-px4-ulog`。遥测停滞调查区分了 PX4 vehicle clock 冻结和 frame server 退出，PX4 内部冻结根因仍未确认，不能把样本丢弃修复视为全部停滞已解决（`c309983a`、`d9457a2a`；[`调查记录`](docs/episode-telemetry-stall-investigation.md)）。
+- 2026-11-02：计划意图校验将已验证任务包预设计划中、同一技能声明的非占位查询视为有依据；自由文本和模型生成计划仍需任务依据，地点和返航意图约束保留（`c5ee4e43`）。`land(target_ref)` 先前往引用位置再降落；引用 finding 时按物体占地与安全余量选旁侧落点，并记录选择与最终摘要（`44a8d4ee`；[`任务设计`](docs/onboard-multipurpose-mission-design.md)）。
+- 2026-11-01—02：r21id-r4 的 24 个 train/val 世界补齐远距离小目标检测范围、保持原点出生的场景净空平移，以及目标落到相机视场下方时的观察站外移；交换任务文本支持同帧正例与反向拒绝数据，r3 冻结测试世界保持独立（`399095d4`、`39d7d446`、`a0a28dfe`、`d33f9119`）。
+- 2026-11-02：**r21id-r4 不替换 r21id-r3**。相同 v3 集上的 `<12 px` 真目标召回由 0.622 升至 0.757，四视角一致率由 0.733 升至 0.833；但 v3 干扰物拒绝率下降 2.6 个百分点，超过 2 个百分点替换门槛，四视角一致率与误收率也仍未达绝对门槛。现役身份/规划组合继续为 **r21id-r3 + r24**（`aab24178`；[`结果与 r5 配方`](docs/slow-system-r21id-plan.md)）。
+- 2026-11-02—03：**r21id-r5 进行中，已完成离线准备**：新增 12 个 train/val hard-reject 世界，覆盖 SUV→postbox、person→jersey_barrier、red stop sign→jersey_barrier、car→postbox 四个方向及 8–12、12–16、16–24 px 设计档。SFT 新增 opt-in `--task-variant-positive-cap`，限制交换任务正例，并修复分组排序遇到 `None` 的问题；后续按 r3 adapter 热启动配方采集、训练和评测，尚无 r5 替换结论（`df5105e8`、`cd16c2d6`）。
+- 2026-11-01—03：采集审计从实际数据计算 readiness/重采清单，不能只凭 `complete` 放行；新增 `--sft-dir`，按方向、视角和 split 核对交换任务覆盖。审计随后支持通用尺寸档与 r21id world 名，距离检查跟随教师调整后的观察站；短边设计估计与实测像素继续区分（`7ec94c7d`、`3acb0e80`、`5e998bdc`、`8908a847`；[`采集审计`](docs/r21id-r4-collection-audit.md)）。身份错误另可按类别对、视角、尺寸和 world 分层报告（`80ae60c0`）。
+- 2026-11-01：planning-v5 扩充到每类 14 个任务，确定性规划前置门加入标签引用与改写任务处理，推荐配置启用该门，并在规划轮 baseline/candidate 两侧一致评测；r25—r29 评测后继续保留 r24，规划训练暂缓（`40ae4713`、`82ea8d8c`、`d7f62aa5`、`3d4ea8f5`、`9b86a69c`、`d47ad690`；[`规划轮记录`](docs/planner-round.md)）。
+
+### 开发环境与规划评测
+- 2026-11-01：现役机载模型组合已更新为身份模型 **r21id-r3** 与规划模型 **r24**，推荐使用 `configs/onboard/sim-loop-v3-r21idr3-r24plan-defaults.json`；r21id-r3 在新开发机上的真实飞行集和冻结测试世界评测均优于 r18，r24 已通过替换门槛（`41772068`、`9f660f29`）。
+- 2026-11-01：规划器新增结构化“拒绝/澄清”契约，但默认关闭。现役 r24 尚未按新格式训练，开启后会让通用规划和未知地点判断退化，因此只有后续模型通过替换门槛后才应打开（`193e78f7`、`c7440e15`）。
+- 2026-11-01：Linux 上的 SITL 采集链路已打通：支持宿主网络/网桥选择、NVIDIA GPU 渲染，并修复并行采集时 worker 端口占用和解锁/进度确认时序问题；采集器现在按遥测进度判断是否真正停滞（`4b4ad661`、`583a7aee`、`8a025c58`、`d3c5580a`、`108d10a9`、`16d59fd2`）。
+- 2026-11-01：规划评测已修正打分一致性和校验器语义：无效候选按原始输出评分，能力/意图校验与产品路径对齐，并补上固定翼 `goto→land`、否定查询等边界（`c98b594b`、`dc040a24`、`828015fd`）。
+- 2026-10-31：开发环境从 Windows 11/RTX 4060 迁至 Ubuntu 工作站（2× EPYC 7402、404 GiB、4× RTX 3080）；建立主 Python 环境与独立 VLM 环境，在 CUDA 13.1 上本机编译 llama.cpp b11552。Linux 兼容修复覆盖规划轮与 GPU 检查、llama-server 端口等待、训练后端和路径处理，onboard 回归闸门已通过（`5932c1ac`、`f282d702`、`c2d15eb8`；相关路径调整 `b9afa8db`）。运行 Python 工具时可激活 `.venv`，设置 `PYTHONPATH=src:.` 后执行 `python scripts/run_onboard_gate.py -q -p no:warnings`。
+- 2026-10-31：r23 规划轮在新机器完成；规划评测链路与旧环境结果一致，但候选在 planning-v3 仍落后 r14，且出现引用编造问题，因此继续保留 r14。VLM 身份轮 r21id-r3 已进入训练。详见 [`docs/planner-round.md`](docs/planner-round.md)。
+
 ### 端到端操作员链路与安全
 - 2026-10-22：机载与地面站现已通过签名任务包、异步规划审批、分页最终摘要和断链后的幂等收尾串成真实 operator-link 闭环，未签名、重放或过期审批会被拒绝（`6916ca6`、`b4cf7d3`、`8bb3b1b`、`2c033de`）。
 - 2026-10-23：计划意图一致性检查拦截任务文本与地点、查询或终止动作不一致的模型计划，完整套件达到计划准确率和预期通过率 1.000（`7abda1e`、`11a8118`）。

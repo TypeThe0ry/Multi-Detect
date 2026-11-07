@@ -104,6 +104,75 @@ def test_operator_prompt_planner_failure_falls_back_to_identity(monkeypatch, tmp
     assert active["count"] == 0
 
 
+def test_operator_planning_resolves_runner_and_http_after_construction(monkeypatch, tmp_path):
+    policy, package, events, active, _ = _setup(monkeypatch, tmp_path)
+    previous = policy.executor
+    runner_type = type(policy.slow)
+    _, plan = _prompt_package()
+    calls = []
+
+    def runner(*args, **kwargs):
+        calls.append(("runner", str(args[0])))
+        return runner_type(*args, **kwargs)
+
+    def http(url, body, *, timeout):
+        calls.append(("http", url, body, timeout))
+        return {"choices": [{"message": {"content": "patched response"}}]}
+
+    def build(task, refs, post, **kwargs):
+        assert policy._model_lock._is_owned()
+        assert policy.slow.role == "planner"
+        assert post("patched prompt", {"type": "object"}) == "patched response"
+        calls.append(("build", task, refs))
+        return plan, {"error": None}
+
+    monkeypatch.setattr("scripts.eval_slow_system.LlamaServerRunner", runner)
+    monkeypatch.setattr("scripts.eval_slow_system._http_json", http)
+    monkeypatch.setattr(onboard_policy, "build_mission_from_text", build)
+    try:
+        candidate = policy.prepare_operator_package(package)
+        assert [call[0] for call in calls] == ["runner", "http", "build"]
+        assert "r14" in calls[0][1]
+        assert calls[1][1] == f"http://127.0.0.1:{policy._identity_port}/v1/chat/completions"
+        assert calls[1][2]["messages"] == [{"role": "user", "content": "patched prompt"}]
+        assert calls[1][3] == policy.slow_call_timeout_s
+        assert candidate.executor.plan is plan
+        assert policy.executor is previous and policy.operator_link_waiting
+        assert events[-1][:2] == ("start", "identity")
+        assert active["maximum"] == 1 and active["count"] == 1
+    finally:
+        policy.close()
+    assert active["count"] == 0
+
+
+def test_operator_fallback_resolves_replaced_facade_builder(monkeypatch, tmp_path):
+    policy, package, _, active, _ = _setup(monkeypatch, tmp_path)
+    _, plan = _prompt_package()
+    calls = []
+
+    def identity_build(*args, **kwargs):
+        calls.append(policy.slow.role)
+        assert policy._model_lock._is_owned()
+        return plan, {"error": None}
+
+    def planner_build(*args, **kwargs):
+        calls.append(policy.slow.role)
+        monkeypatch.setattr(onboard_policy, "build_mission_from_text", identity_build)
+        raise ValueError("planner failed")
+
+    monkeypatch.setattr(onboard_policy, "build_mission_from_text", planner_build)
+    try:
+        candidate = policy.prepare_operator_package(package)
+        assert calls == ["planner", "identity"]
+        assert candidate.executor.plan is plan
+        assert policy._model_runtime["planning_fallback_to_identity"] is True
+        assert policy.health.state.planning_failures == 1
+        assert active["maximum"] == 1 and active["count"] == 1
+    finally:
+        policy.close()
+    assert active["count"] == 0
+
+
 def test_operator_prompt_cancel_during_planner_start_closes_without_orphan(
     monkeypatch, tmp_path
 ):

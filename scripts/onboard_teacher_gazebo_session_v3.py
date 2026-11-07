@@ -25,8 +25,8 @@ from scripts.onboard_teacher_gazebo_session import (
 
 CONTRACT = "multidetect.onboard-teacher-gazebo-session-v3"
 _BASE = Path(__file__).with_name("onboard_teacher_gazebo_session.py")
-if len(_BASE.read_bytes()) != 30690 or hashlib.sha256(_BASE.read_bytes()).hexdigest() != (
-    "f439d621d8391299e9682967f0ef079fcfd7a7f7aa997251da99d47f861f0c82"
+if len(_BASE.read_bytes()) != 30832 or hashlib.sha256(_BASE.read_bytes()).hexdigest() != (
+    "da5d4e164a54b23548d5c7fba90c23143fad825e5ef586b0167e5a97b2a1e2fb"
 ):
     raise RuntimeError("Frozen owned teacher session source differs")
 

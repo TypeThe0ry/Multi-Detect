@@ -4,13 +4,15 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import collect_sim_teacher_episodes as collector
 
 
 def _plan(tmp_path: Path, config: dict) -> SimpleNamespace:
     path = tmp_path / "onboard.json"
     path.write_text(json.dumps(config), encoding="utf-8")
-    return SimpleNamespace(onboard_config=str(path))
+    return SimpleNamespace(onboard_config=str(path), operator_port=14580)
 
 
 def test_operator_link_mission_starts_the_gcs_endpoint(tmp_path, monkeypatch) -> None:
@@ -59,6 +61,7 @@ def test_operator_link_is_a_known_mission_template(tmp_path) -> None:
     assert policy.operator_link_waiting is True
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_fake_gcs_console_uploads_prompt_and_approves_the_onboard_plan(tmp_path) -> None:
     import socket
     import threading
@@ -143,6 +146,7 @@ def test_fake_gcs_console_uploads_prompt_and_approves_the_onboard_plan(tmp_path)
     assert supervisors and supervisors[0].plan_approved
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_console_gets_a_prompt_finding_and_full_summary_after_a_minute_of_heartbeats(
     tmp_path,
 ) -> None:

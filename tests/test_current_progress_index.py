@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,42 @@ import scripts.verify_current_progress_index as progress_verifier
 from scripts.verify_current_progress_index import verify, verify_release_parity_sources
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def current_progress_evidence() -> None:
+    artifacts = (ROOT / "artifacts").resolve()
+    if not artifacts.is_relative_to(ROOT):
+        pytest.skip(
+            "current-progress 绑定测试需要仓库内完整证据包；"
+            f"只读共享 artifacts 解析到 worktree 外：{artifacts}"
+        )
+
+    def artifact_paths(value: object) -> Iterator[str]:
+        if isinstance(value, dict):
+            for item in value.values():
+                yield from artifact_paths(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from artifact_paths(item)
+        elif isinstance(value, str) and value.startswith("artifacts/"):
+            yield value
+
+    progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
+    for value in sorted(set(artifact_paths(progress))):
+        path = (ROOT / value).resolve()
+        if not path.is_relative_to(ROOT):
+            pytest.skip(f"current-progress 固定证据解析到仓库外：{value}")
+        if not path.exists():
+            pytest.skip(f"current-progress 缺少完整固定证据包：{value}")
+
+
+@pytest.fixture
+def progress_scratch() -> Iterator[Path]:
+    directory = ROOT / ".tmp"
+    directory.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="current-progress-", dir=directory) as name:
+        yield Path(name)
 
 
 def test_release_parity_sources_recompute_against_current_workspace() -> None:
@@ -34,6 +72,7 @@ def test_release_parity_sources_reject_recomputed_document_drift(monkeypatch) ->
         verify_release_parity_sources(ROOT)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_current_progress_index_is_bound() -> None:
     result = verify(ROOT)
     assert result["status"] == "passed"
@@ -58,6 +97,7 @@ def test_current_progress_index_is_bound() -> None:
     assert result["v030_pre1_foundation_bound"] is True
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_v030_pre1_foundation_receipt() -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     entry = progress["v030_pre1_foundation_acceptance_20261003_r5"]
@@ -72,6 +112,7 @@ def test_progress_index_binds_v030_pre1_foundation_receipt() -> None:
     assert all(value["passed"] is True for value in evidence["checks"].values())
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_v030_pre1_foundation_source_drift(monkeypatch) -> None:
     original_sha256 = progress_verifier._sha256
     drifted_source = (ROOT / "scripts/verify_v030_pre1_foundation.py").resolve()
@@ -86,6 +127,7 @@ def test_progress_index_rejects_v030_pre1_foundation_source_drift(monkeypatch) -
         verify(ROOT)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_current_qgc_combined_sim() -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     entry = progress["combined_sim_qgc_external_vtol_pass_20261003_r4"]
@@ -108,6 +150,7 @@ def test_progress_index_binds_current_qgc_combined_sim() -> None:
     ).hexdigest()
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_current_qgc_combined_sim_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["combined_sim_qgc_external_vtol_pass_20261003_r4"]["source_evidence_sha256"] = "0" * 64
@@ -117,6 +160,7 @@ def test_progress_index_rejects_current_qgc_combined_sim_hash_drift(tmp_path: Pa
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_external_fixed_wing_shared_policy_depth_mission() -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     entry = progress["external_fixed_wing_shared_policy_depth_mission_20260930"]
@@ -134,6 +178,7 @@ def test_progress_index_binds_external_fixed_wing_shared_policy_depth_mission() 
     assert evidence["mission_transaction"]["flight_started"] is False
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_external_mission_matrix() -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     matrix = progress["external_mission_matrix_20260927_r6"]
@@ -148,6 +193,7 @@ def test_progress_index_binds_external_mission_matrix() -> None:
     assert document["flight_started"] is False
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_current_shared_policy_vtol_campaign() -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     entry = progress["shared_policy_current_vtol_campaign_20260928_r2"]
@@ -165,6 +211,7 @@ def test_progress_index_binds_current_shared_policy_vtol_campaign() -> None:
     assert receipt["final_release_allowed"] is False
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_current_vtol_receipt_bound_to_old_parity(
     tmp_path: Path,
 ) -> None:
@@ -184,6 +231,7 @@ def test_progress_index_rejects_current_vtol_receipt_bound_to_old_parity(
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_current_shared_policy_runtime_matrix() -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     entry = progress["shared_policy_runtime_matrix_20260927_r3"]
@@ -197,6 +245,7 @@ def test_progress_index_binds_current_shared_policy_runtime_matrix() -> None:
     assert document["mavlink_sent"] is False
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_shared_policy_runtime_matrix_hash_drift(
     tmp_path: Path,
 ) -> None:
@@ -208,6 +257,7 @@ def test_progress_index_rejects_shared_policy_runtime_matrix_hash_drift(
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_external_mission_matrix_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["external_mission_matrix_20260927_r6"]["evidence_sha256"] = "0" * 64
@@ -249,6 +299,7 @@ def test_progress_index_rejects_parity_drift(tmp_path: Path, field: str) -> None
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_external_report_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["shared_policy_external_campaign_api_update"][
@@ -260,6 +311,7 @@ def test_progress_index_rejects_external_report_hash_drift(tmp_path: Path) -> No
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_shared_policy_training_report_hash_drift(
     tmp_path: Path,
 ) -> None:
@@ -273,6 +325,7 @@ def test_progress_index_rejects_shared_policy_training_report_hash_drift(
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_trained_artifact_receipt_canonical_drift(
     tmp_path: Path,
 ) -> None:
@@ -286,11 +339,13 @@ def test_progress_index_rejects_trained_artifact_receipt_canonical_drift(
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_all_external_gazebo_fault_sources() -> None:
     result = verify(ROOT)
     assert result["external_gazebo_sensor_fault_runs_bound"] is True
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_external_multirotor_shared_policy_depth_mission() -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     entry = progress["external_multirotor_shared_policy_depth_mission_20260930"]
@@ -326,6 +381,7 @@ def test_progress_index_binds_external_multirotor_shared_policy_depth_mission() 
     assert evidence["mission_transaction"]["protocol_hash"] == evidence["task_binding"]["wire_hash"]
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 @pytest.mark.parametrize(
     ("field", "message"),
     [
@@ -336,9 +392,9 @@ def test_progress_index_binds_external_multirotor_shared_policy_depth_mission() 
     ],
 )
 def test_progress_index_rejects_external_multirotor_cross_binding_drift(
-    tmp_path: Path, field: str, message: str
+    tmp_path: Path, progress_scratch: Path, field: str, message: str
 ) -> None:
-    temp_dir = ROOT / "artifacts" / "evaluation" / ".verify-current-progress-cross-binding"
+    temp_dir = progress_scratch / "cross-binding"
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
     temp_dir.mkdir(parents=True)
@@ -367,10 +423,12 @@ def test_progress_index_rejects_external_multirotor_cross_binding_drift(
         shutil.rmtree(temp_dir)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_external_multirotor_ranker_semantic_drift(
     tmp_path: Path,
+    progress_scratch: Path,
 ) -> None:
-    temp_dir = ROOT / "artifacts" / "evaluation" / ".verify-current-progress-ranker-drift"
+    temp_dir = progress_scratch / "ranker-drift"
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
     temp_dir.mkdir(parents=True)
@@ -393,6 +451,7 @@ def test_progress_index_rejects_external_multirotor_ranker_semantic_drift(
         shutil.rmtree(temp_dir)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_external_multirotor_depth_evidence_hash_drift(
     tmp_path: Path,
 ) -> None:
@@ -406,6 +465,7 @@ def test_progress_index_rejects_external_multirotor_depth_evidence_hash_drift(
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -416,9 +476,9 @@ def test_progress_index_rejects_external_multirotor_depth_evidence_hash_drift(
     ],
 )
 def test_progress_index_rejects_external_fixed_wing_depth_binding_drift(
-    tmp_path: Path, mutation: str, message: str
+    tmp_path: Path, progress_scratch: Path, mutation: str, message: str
 ) -> None:
-    temp_dir = ROOT / "artifacts" / "evaluation" / ".verify-current-progress-fixed-wing"
+    temp_dir = progress_scratch / "fixed-wing"
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
     temp_dir.mkdir(parents=True)
@@ -447,6 +507,7 @@ def test_progress_index_rejects_external_fixed_wing_depth_binding_drift(
         shutil.rmtree(temp_dir)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -459,9 +520,9 @@ def test_progress_index_rejects_external_fixed_wing_depth_binding_drift(
     ],
 )
 def test_progress_index_rejects_external_fixed_wing_runtime_identity_drift(
-    tmp_path: Path, mutation: str, message: str
+    tmp_path: Path, progress_scratch: Path, mutation: str, message: str
 ) -> None:
-    temp_dir = ROOT / "artifacts" / "evaluation" / ".verify-current-progress-fixed-wing"
+    temp_dir = progress_scratch / "fixed-wing"
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
     temp_dir.mkdir(parents=True)
@@ -502,6 +563,7 @@ def test_progress_index_rejects_external_fixed_wing_runtime_identity_drift(
         shutil.rmtree(temp_dir)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_external_gazebo_fault_evidence_hash_drift(
     tmp_path: Path,
 ) -> None:
@@ -515,6 +577,7 @@ def test_progress_index_rejects_external_gazebo_fault_evidence_hash_drift(
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_ai_flight_parity_receipt_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["external_docker_ai_flight_parity_receipt_20260927_r2"][
@@ -526,6 +589,7 @@ def test_progress_index_rejects_ai_flight_parity_receipt_hash_drift(tmp_path: Pa
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_ai_flight_parity_canonical_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["external_docker_ai_flight_parity_receipt_20260927_r2"][
@@ -537,6 +601,7 @@ def test_progress_index_rejects_ai_flight_parity_canonical_drift(tmp_path: Path)
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_field_link_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["evidence"]["field_link_read_only_current_probe"]["file_sha256"] = "0" * 64
@@ -546,6 +611,7 @@ def test_progress_index_rejects_field_link_hash_drift(tmp_path: Path) -> None:
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_field_link_byte_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["evidence"]["field_link_read_only_current_probe"]["file_bytes"] += 1
@@ -555,6 +621,7 @@ def test_progress_index_rejects_field_link_byte_drift(tmp_path: Path) -> None:
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_observed_session_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["shared_policy_observed_session_20260924"]["evidence_sha256"] = "0" * 64
@@ -564,6 +631,7 @@ def test_progress_index_rejects_observed_session_hash_drift(tmp_path: Path) -> N
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_observed_session_completion_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["shared_policy_observed_session_20260924"]["all_tasks_completed"] = False
@@ -573,6 +641,7 @@ def test_progress_index_rejects_observed_session_completion_drift(tmp_path: Path
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_binds_current_shared_policy_observed_session() -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     entry = progress["shared_policy_observed_session_20260927_r17"]
@@ -588,6 +657,7 @@ def test_progress_index_binds_current_shared_policy_observed_session() -> None:
     ]
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_current_observed_session_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["shared_policy_observed_session_20260927_r17"]["evidence_sha256"] = "0" * 64
@@ -597,6 +667,7 @@ def test_progress_index_rejects_current_observed_session_hash_drift(tmp_path: Pa
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_campaign_receipt_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["shared_policy_campaign_receipts_20260925"]["parent_receipt_sha256"] = "0" * 64
@@ -606,6 +677,7 @@ def test_progress_index_rejects_campaign_receipt_hash_drift(tmp_path: Path) -> N
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_campaign_receipt_parity_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["shared_policy_campaign_receipts_20260925"]["release_parity_bound"] = True
@@ -615,6 +687,7 @@ def test_progress_index_rejects_campaign_receipt_parity_drift(tmp_path: Path) ->
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_positive_replay_accuracy_hash_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     progress["evidence"]["replay_set_positive_fixture_20260924"][
@@ -626,9 +699,12 @@ def test_progress_index_rejects_positive_replay_accuracy_hash_drift(tmp_path: Pa
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 @pytest.mark.parametrize("missing_field", ["report_path", "manifest_path"])
-def test_progress_index_rejects_missing_release_gate_artifact(missing_field: str) -> None:
-    temp_dir = ROOT / "artifacts" / "evaluation" / ".verify-current-progress-missing"
+def test_progress_index_rejects_missing_release_gate_artifact(
+    missing_field: str, progress_scratch: Path
+) -> None:
+    temp_dir = progress_scratch / "missing"
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
     temp_dir.mkdir(parents=True)
@@ -639,10 +715,7 @@ def test_progress_index_rejects_missing_release_gate_artifact(missing_field: str
             .read_text(encoding="utf-8")
         )
         audit_path = temp_dir / "audit.json"
-        missing_path = (
-            "artifacts/evaluation/.verify-current-progress-missing/missing-"
-            f"{missing_field}.json"
-        )
+        missing_path = (temp_dir / f"missing-{missing_field}.json").relative_to(ROOT).as_posix()
         audit[missing_field] = missing_path
         progress["evidence"]["release_gate_report"]["audit_summary_path"] = str(
             audit_path.relative_to(ROOT)
@@ -660,6 +733,7 @@ def test_progress_index_rejects_missing_release_gate_artifact(missing_field: str
             shutil.rmtree(temp_dir)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_field_link_report_binding_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     field = progress["evidence"]["field_link_read_only_current_probe"]
@@ -679,6 +753,7 @@ def test_progress_index_rejects_field_link_report_binding_drift(tmp_path: Path) 
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 @pytest.mark.parametrize("field", ["file_sha256", "file_bytes", "local_path"])
 def test_progress_index_rejects_release_gate_report_binding_drift(
     tmp_path: Path, field: str
@@ -697,6 +772,7 @@ def test_progress_index_rejects_release_gate_report_binding_drift(
         verify(ROOT, path)
 
 
+@pytest.mark.usefixtures("current_progress_evidence")
 def test_progress_index_rejects_release_gate_parity_binding_drift(tmp_path: Path) -> None:
     progress = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
     reference = progress["evidence"]["release_gate_report"]

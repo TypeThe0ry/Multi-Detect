@@ -1,3 +1,20 @@
+### 当前执行（2026-11-03，Linux SITL 稳定性与身份模型迭代）
+
+以下状态依据集成分支 2026-11-01—03 的提交及专题记录；下方旧日期条目保留为历史阶段。当前推荐机载身份/规划组合仍为 **r21id-r3 + r24**。
+
+- [x] Linux 采集器 OFFBOARD 确认预算增至 30 s；LAND 按遥测与下降进度等待、保留硬墙钟上限，并在低高度停稳后 disarm（`c073bb8e`、`3bf070d8`；前序 `344e6ed1`）。
+- [x] nightly 父子进程持锁标记与共享嵌套锁 helper 接通，各 SITL 入口尊重 `MULTIDETECT_SITL_LOCK_HELD`，修复重复抢锁自死锁（`0b4788c6`、`2414a992`；[锁约定](sitl-lock.md)）。
+- [x] frame server 丢弃偶发越界速度 odometry，连续 3 次仍失败关闭；nightly/suite/campaign 透传 `--keep-px4-ulog`（`c309983a`）。
+- [x] 已验证预设任务计划中同技能的非占位查询可作为意图依据，自由文本/模型生成计划仍需依据；`land(target_ref)` 先前往引用位置，finding 落点按占地与安全余量偏移到物体旁并记录（`c5ee4e43`、`44a8d4ee`；[任务设计](onboard-multipurpose-mission-design.md)）。
+- [x] r21id-r4 的 24 个 train/val 世界完成小目标检测范围、场景净空平移、观察站可见性修复及交换任务 SFT 支持（`399095d4`、`39d7d446`、`a0a28dfe`、`d33f9119`）。
+- [x] r21id-r4 完成同集对照并决定**不替换 r3**：v3 小目标召回与四视角指标改善，但 v3 干扰物拒绝下降 2.6 个百分点，超过 2 个百分点门槛；一致率和误收率仍未达绝对门槛（`aab24178`；[结果与配方](slow-system-r21id-plan.md)）。
+- [x] r21id-r5 离线准备：12 个 train/val 世界覆盖 SUV/postbox、person/jersey barrier、red stop sign/jersey barrier、car/postbox hard rejects；加入交换任务正例上限及 `None` 安全排序（`df5105e8`、`cd16c2d6`）。
+- [x] 采集审计按数据计算 readiness/重采清单，支持 `--sft-dir` 方向/视角/split 覆盖、通用尺寸档及教师调整后的观察站距离检查；设计短边不冒充实测（`3acb0e80`、`5e998bdc`、`8908a847`；[历史采集审计](r21id-r4-collection-audit.md)）。身份误判分层工具已支持类别对、视角、尺寸和 world（`80ae60c0`）。
+- [x] planning-v5 与规划前置门评测接通；r25—r29 未替换 r24，规划训练暂缓（`40ae4713`、`9b86a69c`、`d47ad690`；[规划轮](planner-round.md)）。
+- [ ] r21id-r5 进行中：按 r3 adapter 热启动配方补 hard rejects、限制交换任务正例，完成采集质量/SFT 覆盖审计、训练及相同 frozen v1/v3、r3 四视角和新增 world 留出测试，再决定是否替换；离线世界与配方不代表已训练或通过。
+- [ ] Linux SITL 任务套件继续验证；PX4 vehicle clock 冻结与 frame server 退出分别归因，保留 ULog 并补容器侧诊断，不能宣称遥测停滞根因已解决（[调查记录](episode-telemetry-stall-investigation.md)）。
+- [ ] 规划拒绝/澄清契约仍默认关闭，等待模型通过替换门槛；Jetson、HIL/REAL、真实硬件和最终发布仍需各自验收证据。
+
 ### 当前执行（2026-10-08，原始 3D 导航动作训练 pilot）
 
 - [x] NEW有限预算／V4采集／原件账本及显式主入口接线；地图／DEM及完整路线软件检查。原始开始时刻绑定，不续期，不造Grant。

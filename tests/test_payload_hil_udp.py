@@ -78,6 +78,7 @@ def _client(controller: UdpInertPayloadHilController, *, attempts: int = 3):
     )
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_udp_hil_retries_identical_request_and_receives_cached_terminal_results() -> None:
     with _controller() as controller:
 
@@ -106,6 +107,7 @@ def test_udp_hil_retries_identical_request_and_receives_cached_terminal_results(
         assert controller.physical_release_enabled is False
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_udp_hil_returns_authenticated_rejection_for_wrong_slot() -> None:
     with _controller() as controller:
         thread = threading.Thread(target=controller.serve_once)
@@ -124,6 +126,7 @@ def test_udp_hil_returns_authenticated_rejection_for_wrong_slot() -> None:
         assert controller.rejected_datagrams == 1
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_udp_hil_never_reports_execution_without_explicit_inert_simulation() -> None:
     with _controller() as controller:
 

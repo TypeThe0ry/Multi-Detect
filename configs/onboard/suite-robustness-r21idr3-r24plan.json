@@ -1,0 +1,190 @@
+{
+  "defaults": {
+    "gguf": "artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf",
+    "planning_model": "artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf",
+    "mission": "from_text",
+    "plan_sorted_keys": true,
+    "confirm_max_range_m": 40,
+    "step_budget": 320,
+    "size_aware_search": true,
+    "fast_identity": true,
+    "camera_noise_overlay": true,
+    "wind_vehicle_overlay": true
+  },
+  "missions": [
+    {
+      "id": "count-cones-wind-gust",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0000",
+      "task_text": "Count the orange traffic cones in the site and report their positions.",
+      "variant": {
+        "wind_mps": 6,
+        "gust_mps": 3,
+        "gust_period": 4,
+        "actors": 2
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 180,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "count-cones-dusk",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0000",
+      "task_text": "Count the orange traffic cones in the site and report their positions.",
+      "variant": {
+        "time_of_day": "dusk"
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 180,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "count-cones-noise-fog",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0000",
+      "task_text": "Count the orange traffic cones in the site and report their positions.",
+      "variant": {
+        "camera_noise": 0.01,
+        "fog": true
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 180,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "count-fire-hydrants-wind-gust",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0001",
+      "task_text": "Count the fire hydrants in the site and report their positions.",
+      "variant": {
+        "wind_mps": 6,
+        "gust_mps": 3,
+        "gust_period": 4,
+        "actors": 2
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 180,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "count-fire-hydrants-dusk",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0001",
+      "task_text": "Count the fire hydrants in the site and report their positions.",
+      "variant": {
+        "time_of_day": "dusk"
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 180,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "count-fire-hydrants-noise-fog",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0001",
+      "task_text": "Count the fire hydrants in the site and report their positions.",
+      "variant": {
+        "camera_noise": 0.01,
+        "fog": true
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 180,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "monitor-backpacks-wind-gust",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0003",
+      "task_text": "Monitor the site for backpacks for five minutes and report alerts.",
+      "variant": {
+        "wind_mps": 6,
+        "gust_mps": 3,
+        "gust_period": 4,
+        "actors": 2
+      },
+      "expect": {
+        "skills": [
+          "monitor",
+          "return_home"
+        ],
+        "min_alert_recall": 0
+      },
+      "steps": 320,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "monitor-backpacks-dusk",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0003",
+      "task_text": "Monitor the site for backpacks for five minutes and report alerts.",
+      "variant": {
+        "time_of_day": "dusk"
+      },
+      "expect": {
+        "skills": [
+          "monitor",
+          "return_home"
+        ],
+        "min_alert_recall": 0
+      },
+      "steps": 320,
+      "max_episode_s": 2400
+    },
+    {
+      "id": "monitor-backpacks-noise-fog",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0003",
+      "task_text": "Monitor the site for backpacks for five minutes and report alerts.",
+      "variant": {
+        "camera_noise": 0.01,
+        "fog": true
+      },
+      "expect": {
+        "skills": [
+          "monitor",
+          "return_home"
+        ],
+        "min_alert_recall": 0
+      },
+      "steps": 320,
+      "max_episode_s": 2400
+    }
+  ]
+}

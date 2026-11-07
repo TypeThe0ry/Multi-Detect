@@ -917,6 +917,19 @@ bool MultiDetectMissionController::_adopt(const QByteArray& json)
             auto& list = kind == QStringLiteral("finding") ? _findings : _alerts;
             list.append(obj.toVariantMap());
         } else if (kind == QStringLiteral("mission_refused")) {
+            // A planner refusal is fail-closed: do not leave an older
+            // executable plan visible or approvable for this mission.
+            _plan.clear();
+            const QJsonValue decisionValue = obj.value(QStringLiteral("decision"));
+            if (decisionValue.isObject()) {
+                const QJsonObject decision = decisionValue.toObject();
+                _plan.insert(QStringLiteral("planner_decision"), decision.value(QStringLiteral("decision")).toString());
+                _plan.insert(QStringLiteral("reason_code"), decision.value(QStringLiteral("reason_code")).toString());
+                _plan.insert(QStringLiteral("planner_reason"), decision.value(QStringLiteral("reason")).toString());
+                _plan.insert(QStringLiteral("question"), decision.value(QStringLiteral("question")).toString());
+                _plan.insert(QStringLiteral("missing_capabilities"), decision.value(QStringLiteral("missing_capabilities")).toArray().toVariantList());
+                _plan.insert(QStringLiteral("unresolved_refs"), decision.value(QStringLiteral("unresolved_refs")).toArray().toVariantList());
+            }
             QVariantList reasons;
             QVariantList questions;
             const QJsonValue violations = obj.value(QStringLiteral("violations"));

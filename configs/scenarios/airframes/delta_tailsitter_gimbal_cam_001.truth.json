@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "scenario_id": "delta_tailsitter_gimbal_cam_001",
+  "scenario_version": 1,
+  "targets": [{"target_id": "delta_tailsitter-marker-001", "label": "orange_rescue_marker", "position": {"latitude_deg": 1.300200, "longitude_deg": 103.800200}, "behavior": "stationary"}]
+}

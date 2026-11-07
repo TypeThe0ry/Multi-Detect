@@ -88,3 +88,28 @@ def test_retention_cap_only_removes_runner_created_logs(tmp_path):
         runner.close()
     assert unrelated.is_file()
     assert [path.exists() for _, path in runners] == [False, False, True]
+
+
+@pytest.mark.usefixtures("require_loopback_sockets")
+def test_port_wait_ignores_time_wait_after_server_close(tmp_path):
+    import socket
+
+    from scripts.eval_slow_system import LlamaServerRunner
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+    server.listen(1)
+    client = socket.create_connection(("127.0.0.1", port))
+    accepted, _ = server.accept()
+    accepted.close()  # server side closes first -> its end sits in TIME_WAIT
+    client.close()
+    server.close()
+
+    runner = LlamaServerRunner.__new__(LlamaServerRunner)
+    runner.port = port
+    runner.process = None
+    runner._closed = False
+    runner.wait_port_free = True
+    runner.close()

@@ -58,6 +58,7 @@ if __package__ in {None, ""}:
 
 from multidetect.geolocation_accuracy import wgs84_distance_m
 from multidetect.product_version import PRODUCT_VERSION
+from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 from multidetect.qgc_readonly_bridge import MavlinkFrame
 from multidetect.simulator import (
     SimulatorAiExecutor,
@@ -242,7 +243,29 @@ def parse_literal_loopback_udp_endpoint(
 
 
 def _validate_telemetry_endpoint(endpoint: object) -> tuple[str, int]:
-    return parse_literal_loopback_udp_endpoint(endpoint, scheme="udpin")
+    try:
+        return parse_literal_loopback_udp_endpoint(endpoint, scheme="udpin")
+    except DockerAiAcceptanceError:
+        pass
+    if not isinstance(endpoint, str):
+        raise DockerAiAcceptanceError("telemetry endpoint must be a string")
+    match = re.fullmatch(r"udpin:(?P<host>[^:]+):(?P<port>\d{1,5})", endpoint)
+    if match is None:
+        raise DockerAiAcceptanceError(
+            "telemetry endpoint must be a literal loopback or selected SIM gateway UDP URI"
+        )
+    host = match.group("host")
+    if host not in {"127.0.0.1", "::1"} and host != sim_listen_host():
+        raise DockerAiAcceptanceError(
+            "telemetry endpoint must use literal loopback or the selected SIM Docker gateway"
+        )
+    port = int(match.group("port"))
+    if not 1 <= port <= 65535:
+        raise DockerAiAcceptanceError(
+            "telemetry endpoint must use literal loopback or selected SIM Docker gateway "
+            "with a port in 1..65535"
+        )
+    return host, port
 
 
 def _validate_control_endpoint(endpoint: object) -> tuple[str, int]:
@@ -663,7 +686,7 @@ class DockerAiTelemetryProbe:
             raise ValueError(str(exc)) from exc
         # Preserve the caller's exact URI for evidence (including bracketed
         # IPv6 spelling), while retaining parsed values for validation and
-        # endpoint-family-aware fallback handling.
+        # endpoint-family-aware validation.
         self.endpoint = endpoint
         self.requested_endpoint = endpoint
         self.control_endpoint = control_endpoint
@@ -671,7 +694,6 @@ class DockerAiTelemetryProbe:
         self._telemetry_port = telemetry_port
         self._control_host = control_host
         self._control_port = control_port
-        self._internal_wildcard_fallback = False
         self.connection_factory = telemetry_connection_factory or connection_factory
         self.control_connection_factory = control_connection_factory
         self.mavutil = mavutil_module
@@ -800,10 +822,7 @@ class DockerAiTelemetryProbe:
 
     def _connect_telemetry(self, endpoint: str | None = None) -> Any:
         target = self.endpoint if endpoint is None else endpoint
-        if target != self.endpoint and not self._internal_wildcard_fallback:
-            # The only alternate target this class may open is the narrowly
-            # scoped Windows Docker UDP-proxy fallback created by ``observe``;
-            # arbitrary caller-supplied targets remain rejected.
+        if target != self.endpoint:
             _validate_telemetry_endpoint(target)
         factory = self.connection_factory
         if factory is not None:
@@ -1874,25 +1893,7 @@ class DockerAiTelemetryProbe:
         telemetry: Any | None = None
         self.observe_exit_reason = "running"
         try:
-            try:
-                telemetry = self._connect_telemetry()
-            except OSError as exc:
-                code = getattr(exc, "winerror", None) or getattr(exc, "errno", None)
-                if code != 10013 or not self.endpoint.startswith("udpin:127.0.0.1:"):
-                    raise
-                fallback = "udpin:0.0.0.0:" + self.endpoint.rsplit(":", 1)[-1]
-                # Docker Desktop's Windows UDP proxy can reserve the
-                # published 127.0.0.1 socket exclusively.  Permit exactly
-                # this internally generated wildcard *receive* bind after the
-                # literal loopback attempt fails; it is never accepted as a
-                # caller endpoint and the host publication remains loopback.
-                self._internal_wildcard_fallback = True
-                try:
-                    telemetry = self._connect_telemetry(fallback)
-                finally:
-                    self._internal_wildcard_fallback = False
-                self.bind_endpoint = fallback
-                self.wildcard_bind_fallback = True
+            telemetry = self._connect_telemetry()
             self.bridge.enable_ai()
             # For a real PX4 startup the first socket connection can precede
             # commander/GPS readiness by several seconds.  Keep the arm
@@ -2292,7 +2293,7 @@ def _run_dry_fixture(
     telemetry_connection = _FixtureConnection()
     control_connection = _FixtureConnection()
     probe = DockerAiTelemetryProbe(
-        "udpin:127.0.0.1:24541",
+        sim_udpin_endpoint(24541),
         control_endpoint="udpout:127.0.0.1:24540",
         connection_factory=lambda *_args, **_kwargs: telemetry_connection,
         control_connection_factory=lambda *_args, **_kwargs: control_connection,
@@ -2813,7 +2814,7 @@ def run_acceptance(
     # dry-run therefore exercises the same literal-loopback contract as an
     # execute run and cannot be used to hide an unsafe transport selection.
     _validate_control_endpoint(f"udpout:127.0.0.1:{control_port}")
-    _validate_telemetry_endpoint(f"udpin:127.0.0.1:{telemetry_port}")
+    _validate_telemetry_endpoint(sim_udpin_endpoint(telemetry_port))
 
     parity_start = (
         _capture_release_parity(release_parity_path)

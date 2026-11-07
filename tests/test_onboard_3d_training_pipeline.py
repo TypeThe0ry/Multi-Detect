@@ -10,6 +10,7 @@ import pytest
 import scripts.run_onboard_3d_training_pipeline as pipeline
 
 ROOT = Path(__file__).resolve().parents[1]
+pytestmark = pytest.mark.usefixtures("require_current_onboard_model")
 
 
 def _preflight_stub(**_kwargs: object) -> dict[str, object]:

@@ -316,7 +316,7 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-root", type=Path, default=Path("D:/Projects/Multi-Detect"))
+    parser.add_argument("--source-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", type=Path, default=ROOT / "tmp/small-object-proposals")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--sample-size", type=int, default=200)

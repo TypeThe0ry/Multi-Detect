@@ -299,6 +299,10 @@ def test_docker_down_aborts_collect_without_consuming_episode_attempt(monkeypatc
     import json
     import pytest
     import scripts.run_r15_round as r15
+    # Slot ownership is outside this test's Docker-down state transition.
+    monkeypatch.setattr(r15, "SitlLock", lambda *_a, **_kw: types.SimpleNamespace(
+        acquire=lambda: None, release=lambda: None, slot=None,
+    ))
 
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir()
@@ -324,6 +328,11 @@ def test_docker_down_aborts_collect_without_consuming_episode_attempt(monkeypatc
     monkeypatch.setattr(r15, "_docker_daemon_reachable", lambda: False)
     monkeypatch.setattr(r15, "_wait_for_docker", lambda _minutes: False)
     monkeypatch.setattr(r15, "_remove_worker_containers", lambda _prefix: pytest.fail("cleanup must not run"))
+    # The test models a daemon outage; acquiring a real lease would itself
+    # poll Docker and wait indefinitely before reaching the mocked outage.
+    monkeypatch.setattr(r15, "SitlLock", lambda *_a, **_kw: Namespace(
+        slot=0, acquire=lambda: None, release=lambda: None,
+    ))
     runner = r15.Round(args)
     monkeypatch.setattr(runner, "_collection_airframe", lambda _scenario: ("x500_mono_cam", None, runtime))
     import scripts.collect_sim_teacher_episodes as collector
@@ -523,7 +532,10 @@ def test_identity_summary_reads_the_metrics_block_and_size_buckets():
     assert not any("<12 px" in r for r in reasons)  # 46% -> 92% is a real improvement
 
 
-def _annotate_round(tmp_path: Path, **overrides) -> Round:
+def _annotate_round(tmp_path: Path, monkeypatch, **overrides) -> Round:
+    # TMPDIR may itself be inside the real checkout. Model a distinct current
+    # worktree so the synthetic episodes repository remains external to it.
+    monkeypatch.setattr("scripts.run_r15_round.ROOT", tmp_path / "worktree")
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True, exist_ok=True)
     episodes = repo / "artifacts" / "r19-round" / "episodes"
@@ -548,8 +560,8 @@ def _annotate_round(tmp_path: Path, **overrides) -> Round:
     return Round(Namespace(**args))
 
 
-def test_annotate_caches_the_index_worlds_keyed_from_the_episodes_repository(tmp_path: Path):
-    runner = _annotate_round(tmp_path)
+def test_annotate_caches_the_index_worlds_keyed_from_the_episodes_repository(tmp_path: Path, monkeypatch):
+    runner = _annotate_round(tmp_path, monkeypatch)
     cmd = runner.annotate_command()
     campaigns = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--campaign"]
     episodes = tmp_path / "repo" / "artifacts" / "r19-round" / "episodes"
@@ -560,21 +572,21 @@ def test_annotate_caches_the_index_worlds_keyed_from_the_episodes_repository(tmp
     assert cmd[cmd.index("--source-root") + 1] == str((tmp_path / "repo").resolve())
 
 
-def test_annotate_rejects_a_source_root_whose_keys_build_sft_never_looks_up(tmp_path: Path):
+def test_annotate_rejects_a_source_root_whose_keys_build_sft_never_looks_up(tmp_path: Path, monkeypatch):
     import pytest
 
     wrong = tmp_path / "repo" / "artifacts"
-    runner = _annotate_round(tmp_path, source_root=wrong)
+    runner = _annotate_round(tmp_path, monkeypatch, source_root=wrong)
     with pytest.raises(RuntimeError, match="不一致"):
         runner.annotate_command()
-    explicit = _annotate_round(tmp_path, source_root=tmp_path / "repo")
+    explicit = _annotate_round(tmp_path, monkeypatch, source_root=tmp_path / "repo")
     assert "--source-root" in explicit.annotate_command()
 
 
-def test_annotate_refuses_when_no_round_world_was_collected(tmp_path: Path):
+def test_annotate_refuses_when_no_round_world_was_collected(tmp_path: Path, monkeypatch):
     import pytest
 
-    runner = _annotate_round(tmp_path)
+    runner = _annotate_round(tmp_path, monkeypatch)
     runner.a.r15_index.write_text('{"worlds": [{"world_id": "gen_x_w0000"}]}', encoding="utf-8")
     with pytest.raises(RuntimeError, match="找不到"):
         runner.annotate_command()
@@ -757,7 +769,8 @@ def test_merge_gate_still_fails_when_true_positives_alone_tilt_the_mix(tmp_path:
         merge_cli(_merge_args(tmp_path))
 
 
-def test_collect_plans_the_configured_episodes_per_world():
+def test_collect_plans_the_configured_episodes_per_world(tmp_path):
+    import os
     import subprocess
     import sys
 
@@ -766,15 +779,18 @@ def test_collect_plans_the_configured_episodes_per_world():
     index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
     result = subprocess.run(
         [sys.executable, "scripts/run_r15_round.py", "--stage", "collect", "--dry-run",
-         "--episodes-per-world", "2", "--r15-index", str(index),
+         "--episodes-per-world", "2", "--workers", "4", "--r15-index", str(index),
+         "--out", str(tmp_path / "round"), "--episodes", str(tmp_path / "episodes"),
          "--scenarios", str(index.parent)],
         cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
-        env={**__import__("os").environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"},
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1",
+             "MULTIDETECT_SIM_GPU": "1", "MULTIDETECT_SIM_GPU_DEVICES": "1,2"},
     )
     assert "worlds x 2 episodes" in result.stdout, result.stdout + result.stderr
+    assert "GPU worker slots: slot 0->GPU 1, slot 1->GPU 2, slot 2->GPU 1, slot 3->GPU 2" in result.stdout
 
 
-def test_build_sft_stage_passes_keep_small_true_targets_to_the_merge():
+def test_build_sft_stage_passes_keep_small_true_targets_to_the_merge(tmp_path):
     import os
     import subprocess
     import sys
@@ -784,16 +800,87 @@ def test_build_sft_stage_passes_keep_small_true_targets_to_the_merge():
     index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
     result = subprocess.run(
         [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
+         "--out", str(tmp_path / "round"),
          "--r15-index", str(index), "--scenarios", str(index.parent),
          "--r21id-r2-filter", "--r21id-keep-small-true-targets"],
         cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
-        env={**os.environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"},
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"},
     )
     merge = [line for line in result.stdout.splitlines() if "--merge-only" in line]
     assert merge and "--r21id-keep-small-true-targets" in merge[0], result.stdout + result.stderr
 
 
-def test_no_category_holdout_drops_the_default_v2_holdout_from_build_sft():
+def test_build_sft_stage_passes_optional_view_balancing_flags(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    from scripts import run_r15_round as round_mod
+
+    index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
+    result = subprocess.run(
+        [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
+         "--out", str(tmp_path / "round"),
+         "--r15-index", str(index), "--scenarios", str(index.parent),
+         "--confusable-negatives", "--task-text-variants", "--balance-identity-views",
+         "--balance-confusable-negative-views", "--max-upsample", "2"],
+        cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    build = next(line for line in result.stdout.splitlines() if "build_slow_system_sft.py" in line)
+    assert "--confusable-negatives" in build
+    assert "--task-text-variants" in build
+    assert "--balance-identity-views" in build
+    assert "--balance-confusable-negative-views" in build
+    assert "--max-upsample 2" in build
+
+
+def test_build_sft_view_balancing_defaults_off(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    from scripts import run_r15_round as round_mod
+
+    index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
+    result = subprocess.run(
+        [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
+         "--out", str(tmp_path / "round"),
+         "--r15-index", str(index), "--scenarios", str(index.parent)],
+        cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    build = next(line for line in result.stdout.splitlines() if "build_slow_system_sft.py" in line)
+    assert "--balance-identity-views" not in build
+    assert "--balance-confusable-negative-views" not in build
+    assert "--task-text-variants" not in build
+    assert "--max-upsample" not in build
+
+
+def test_build_sft_stage_passes_task_variant_positive_cap_only_when_set(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    from scripts import run_r15_round as round_mod
+
+    index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"}
+    base = [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
+            "--out", str(tmp_path / "round"),
+            "--r15-index", str(index), "--scenarios", str(index.parent), "--task-text-variants"]
+    plain = subprocess.run(base, cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8", env=env)
+    line = next(line for line in plain.stdout.splitlines() if "build_slow_system_sft.py" in line)
+    assert "--task-variant-positive-cap" not in line
+    capped = subprocess.run(base + ["--task-variant-positive-cap", "1.0"], cwd=round_mod.ROOT,
+                            capture_output=True, text=True, encoding="utf-8", env=env)
+    line = next(line for line in capped.stdout.splitlines() if "build_slow_system_sft.py" in line)
+    assert "--task-variant-positive-cap 1.0" in line
+
+
+def test_no_category_holdout_drops_the_default_v2_holdout_from_build_sft(tmp_path):
     import os
     import subprocess
     import sys
@@ -802,8 +889,9 @@ def test_no_category_holdout_drops_the_default_v2_holdout_from_build_sft():
 
     index = round_mod.ROOT / "configs/scenarios/generated-r21id-r3/index.json"
     base = [sys.executable, "scripts/run_r15_round.py", "--stage", "build_sft", "--dry-run",
+            "--out", str(tmp_path / "round"),
             "--r15-index", str(index), "--scenarios", str(index.parent)]
-    env = {**os.environ, "PYTHONPATH": "src;.", "PYTHONUTF8": "1"}
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"}
 
     def build_line(extra):
         out = subprocess.run(base + extra, cwd=round_mod.ROOT, capture_output=True, text=True,
@@ -812,3 +900,33 @@ def test_no_category_holdout_drops_the_default_v2_holdout_from_build_sft():
 
     assert "--holdout-from" in build_line([])
     assert "--holdout-from" not in build_line(["--no-category-holdout"])
+
+
+def test_with_worker_slot_rewrites_ports_and_prefix():
+    from scripts.run_r15_round import (
+        R15_BASE_CONTROL_PORT, R15_BASE_TELEMETRY_PORT, with_worker_slot,
+    )
+
+    cmd = ["python", "collect.py", "--container-prefix", "r15-worker-0", "--worker-index", "0",
+           "--control-port", str(R15_BASE_CONTROL_PORT), "--telemetry-port",
+           str(R15_BASE_TELEMETRY_PORT), "--sim-instance", "0", "--out", "x"]
+    out = with_worker_slot(cmd, 3)
+    assert out[out.index("--container-prefix") + 1] == "r15-worker-3"
+    assert out[out.index("--worker-index") + 1] == "3"
+    assert out[out.index("--control-port") + 1] == str(R15_BASE_CONTROL_PORT + 30)
+    assert out[out.index("--telemetry-port") + 1] == str(R15_BASE_TELEMETRY_PORT + 30)
+    assert out[out.index("--sim-instance") + 1] == "3"
+    assert out[-2:] == ["--out", "x"] and cmd[3] == "r15-worker-0"
+
+
+def test_worker_gpu_assignments_follow_runtime_slots(monkeypatch):
+    from scripts import run_r15_round as round_mod
+
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU", "1")
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU_DEVICES", "1,2")
+    assert round_mod.worker_gpu_assignments(4) == (
+        (0, "1"),
+        (1, "2"),
+        (2, "1"),
+        (3, "2"),
+    )

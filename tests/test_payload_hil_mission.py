@@ -178,6 +178,7 @@ def test_hil_timeout_fails_closed_as_uncertain() -> None:
     assert slot.uncertain_release is True
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_real_udp_loopback_closes_authorized_fixed_wing_hil_path() -> None:
     config = MissionConfig.from_json(
         ROOT / "configs/missions/fire_suppression_fixed_wing.demo.json"

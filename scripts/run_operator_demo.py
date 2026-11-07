@@ -17,12 +17,14 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRATCH = Path(r"D:\Projects\mdwt\_scratch\cx-demo-launcher")
-DEFAULT_LOCK = Path(r"D:\Projects\mdwt\_scratch\sitl.lock")
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.mission_security import AuthenticationKey, sign_document  # noqa: E402
-from scripts.run_nightly_regression import SitlLock  # noqa: E402
+from multidetect.host_paths import host_path  # noqa: E402
+from scripts.sitl_lock import SitlLock, sitl_lock_context  # noqa: E402
+
+SCRATCH = host_path("MULTIDETECT_DEMO_SCRATCH", r"D:\Projects\mdwt\_scratch\cx-demo-launcher", ROOT / ".tmp/cx-demo-launcher")
+DEFAULT_LOCK = host_path("MULTIDETECT_SITL_LOCK", r"D:\Projects\mdwt\_scratch\sitl.lock", ROOT / ".tmp/sitl.lock")
 
 
 @dataclass
@@ -226,53 +228,56 @@ def main(argv: Iterable[str] | None = None) -> int:
     lock = SitlLock(args.lock, label="operator-demo", retry_s=2)
     resources = OwnedResources(container_name=container)
     try:
-        lock.acquire(wait=False)
-        out.mkdir(parents=True, exist_ok=True)
-        resources.session = subprocess.Popen(
-            session_cmd,
-            cwd=ROOT,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
-        )
-        link_path = out / "operator-link.json"
-        deadline = time.monotonic() + args.wait_timeout
-        while (
-            not link_path.is_file()
-            and resources.session.poll() is None
-            and time.monotonic() < deadline
-        ):
-            time.sleep(0.5)
-        if not link_path.is_file():
-            raise RuntimeError("operator-link.json was not produced before timeout/session exit")
-        link = json.loads(link_path.read_text(encoding="utf-8"))
-        env = gcs_environment(link)
-        package = args.task_package
-        if package:
-            signed = out / (package.stem + ".signed.json")
-            sign_task_package(package.resolve(), signed, str(link["operator_package_key_hex"]))
-            package = signed
-            env["MULTIDETECT_MISSION_PACKAGE_PATH"] = str(package.resolve())
-        resources.gcs = subprocess.Popen(
-            [str(gcs_exe)],
-            cwd=gcs_exe.parent,
-            env=env,
-            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
-        )
-        print("地面站联合验收已启动。")
-        print(
-            "任务包已预选到面板；请人工点击上传/发送按钮后再下发。收到计划后使用批准/拒绝按钮。可用暂停、恢复、中止验证控制链路，结束后查看最终摘要。"
-        )
-        if package:
-            print(f"已生成会话签名任务包：{package}")
-        print("noVNC：http://127.0.0.1:6080/vnc.html?autoconnect=1")
-        while resources.gcs.poll() is None and resources.session.poll() is None:
-            time.sleep(1)
-        return resources.gcs.returncode or resources.session.returncode or 0
+        with sitl_lock_context(lock, wait=False):
+            return _run_locked(args, session_cmd, out, resources, gcs_exe)
     except KeyboardInterrupt:
         return 0
     finally:
         cleanup(resources, shutil.which("docker"))
-        lock.release()
+
+
+def _run_locked(args, session_cmd, out, resources, gcs_exe):
+    out.mkdir(parents=True, exist_ok=True)
+    resources.session = subprocess.Popen(
+        session_cmd,
+        cwd=ROOT,
+        text=True,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+    )
+    link_path = out / "operator-link.json"
+    deadline = time.monotonic() + args.wait_timeout
+    while (
+        not link_path.is_file()
+        and resources.session.poll() is None
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.5)
+    if not link_path.is_file():
+        raise RuntimeError("operator-link.json was not produced before timeout/session exit")
+    link = json.loads(link_path.read_text(encoding="utf-8"))
+    env = gcs_environment(link)
+    package = args.task_package
+    if package:
+        signed = out / (package.stem + ".signed.json")
+        sign_task_package(package.resolve(), signed, str(link["operator_package_key_hex"]))
+        package = signed
+        env["MULTIDETECT_MISSION_PACKAGE_PATH"] = str(package.resolve())
+    resources.gcs = subprocess.Popen(
+        [str(gcs_exe)],
+        cwd=gcs_exe.parent,
+        env=env,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+    )
+    print("地面站联合验收已启动。")
+    print(
+        "任务包已预选到面板；请人工点击上传/发送按钮后再下发。收到计划后使用批准/拒绝按钮。可用暂停、恢复、中止验证控制链路，结束后查看最终摘要。"
+    )
+    if package:
+        print(f"已生成会话签名任务包：{package}")
+    print("noVNC：http://127.0.0.1:6080/vnc.html?autoconnect=1")
+    while resources.gcs.poll() is None and resources.session.poll() is None:
+        time.sleep(1)
+    return resources.gcs.returncode or resources.session.returncode or 0
 
 
 if __name__ == "__main__":

@@ -407,6 +407,7 @@ class CameraProfile:
     mount: str
     body_to_camera_rotation: tuple[float, ...]
     attitude_rotations: Mapping[str, tuple[float, ...]] = MappingProxyType({})
+    gimbal: Mapping[str, Any] = MappingProxyType({})
 
     def __post_init__(self) -> None:
         if self.mount not in _MOUNTS:
@@ -421,6 +422,8 @@ class CameraProfile:
             for k, v in dict(self.attitude_rotations).items()
         }
         object.__setattr__(self, "attitude_rotations", MappingProxyType(rotations))
+        gimbal = self.gimbal if isinstance(self.gimbal, Mapping) else {}
+        object.__setattr__(self, "gimbal", MappingProxyType(dict(gimbal)))
 
     @classmethod
     def from_mapping(cls, raw: Any) -> CameraProfile:
@@ -428,12 +431,17 @@ class CameraProfile:
             raw,
             "camera",
             {"mount", "body_to_camera_rotation"},
-            {"attitude_rotations", "body_to_camera_by_mode"},
+            {"attitude_rotations", "body_to_camera_by_mode", "gimbal"},
         )
         rotations = value.get("attitude_rotations", value.get("body_to_camera_by_mode", {}))
         if not isinstance(rotations, Mapping):
             raise AirframeProfileError("camera.attitude_rotations 必须是对象")
-        return cls(value["mount"], tuple(value["body_to_camera_rotation"]), dict(rotations))
+        gimbal = value.get("gimbal", {})
+        if not isinstance(gimbal, Mapping):
+            raise AirframeProfileError("camera.gimbal 必须是对象")
+        return cls(
+            value["mount"], tuple(value["body_to_camera_rotation"]), dict(rotations), dict(gimbal)
+        )
 
     def to_mapping(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -442,6 +450,8 @@ class CameraProfile:
         }
         if self.attitude_rotations:
             result["attitude_rotations"] = {k: list(v) for k, v in self.attitude_rotations.items()}
+        if self.gimbal:
+            result["gimbal"] = dict(self.gimbal)
         return result
 
 
@@ -806,12 +816,23 @@ class AirframeProfile:
             mode = "loiter"
         else:
             mode = "hover" if self.can_hover else "fixed_wing_loiter"
-        return {
+        result = {
             "hover": self.can_hover,
             "loiter": self.loiter_radius_m(),
             "mode_choice": mode,
             "stop_near_target": self.can_stop_near_target(),
         }
+        gimbal = self.camera.gimbal if isinstance(self.camera.gimbal, Mapping) else {}
+        if bool(gimbal.get("enabled")):
+            result["gimbal"] = {
+                "capability": "gimbal_control",
+                "axes": list(gimbal.get("axes", ("yaw", "roll", "pitch"))),
+                "angle_range_deg": dict(gimbal.get("angle_range_deg", {})),
+                "configure_command": "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
+                "command": "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
+                "feedback": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            }
+        return result
 
 
 def load_airframe_profile(path: str | Path) -> AirframeProfile:

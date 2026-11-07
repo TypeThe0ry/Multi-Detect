@@ -363,9 +363,7 @@ def main(argv=None):
     depth_target_buckets = defaultdict(list)
     tri_cov = [[], []]
     depth_status = "not_loaded"
-    model_path = Path(
-        "D:/Projects/Multi-Detect/artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx"
-    )
+    model_path = ROOT / "artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx"
     depth_sha = (
         hashlib.sha256(model_path.read_bytes()).hexdigest() if model_path.is_file() else None
     )

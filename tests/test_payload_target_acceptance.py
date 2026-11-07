@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from multidetect.payload_target_acceptance import run_mode2_payload_hil_acceptance
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_mode2_payload_hil_closes_signed_loop_and_fails_closed() -> None:
     report = run_mode2_payload_hil_acceptance(ROOT)
 

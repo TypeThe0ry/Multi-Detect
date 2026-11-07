@@ -213,14 +213,28 @@ class GPULock:
         self.path.unlink()
 
 
+def _visible_device_args() -> list[str]:
+    """``nvidia-smi -i`` arguments for numeric CUDA_VISIBLE_DEVICES, else all devices."""
+
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    indices = [part.strip() for part in visible.split(",") if part.strip()]
+    if not indices or not all(part.isdigit() for part in indices):
+        return []
+    return ["-i", ",".join(indices)]
+
+
 def check_gpu(*, force: bool = False, heavy_mib: int = 512, idle_device_mib: int = 1536, runner=None) -> None:
     if force:
         return
     runner = runner or subprocess.run
+    # Only inspect the devices this process will use, so parallel jobs pinned
+    # to other GPUs via CUDA_VISIBLE_DEVICES do not block each other.
+    select = _visible_device_args()
     try:
         result = runner(
             [
                 "nvidia-smi",
+                *select,
                 "--query-compute-apps=pid,process_name,used_gpu_memory",
                 "--format=csv,noheader,nounits",
             ],
@@ -245,7 +259,12 @@ def check_gpu(*, force: bool = False, heavy_mib: int = 512, idle_device_mib: int
             device_used = None
             try:
                 device = runner(
-                    ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                    [
+                        "nvidia-smi",
+                        *select,
+                        "--query-gpu=memory.used",
+                        "--format=csv,noheader,nounits",
+                    ],
                     capture_output=True,
                     text=True,
                     check=True,

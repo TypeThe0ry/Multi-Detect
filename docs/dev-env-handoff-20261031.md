@@ -17,7 +17,7 @@
 | `.venv` | 3.12.7 | 主环境：`pip install -e .`（见 `pyproject.toml` / `uv.lock`） |
 | `.venv-vlm` | 3.12.7 | 慢模型训练/评测：torch 2.6.0+cu124、transformers 4.57.6、peft 0.17.1，另装 `requirements-vlm-*.txt` |
 
-运行脚本时：`PYTHONPATH="src;."`（Linux 用 `src:.`），`PYTHONUTF8=1`。
+运行脚本时：Windows 使用 `PYTHONPATH="src;."`，Linux 使用 `PYTHONPATH="src:."`，并设置 `PYTHONUTF8=1`。
 
 ## 3. 外部依赖（不在 Git 里，需要在新环境重新下载）
 
@@ -87,3 +87,146 @@ python scripts/run_r15_round.py --stage train --low-disk --out artifacts/r21id-r
 - 受证据约束的文件只经生成器或真实运行修改：`configs/release-parity.json`、`docs/current-progress.json`、`configs/schemas/*.json`、`configs/product-version.json`。
 - 文档用中文；commit message 用小写英文 Conventional Commits。
 - 联合 QGC 验收与 HIL/真机飞行由负责人执行。
+
+## Linux 仿真环境
+
+Linux 端的 SITL 入口已经保留 Windows 参数语义，并把宿主机相关路径和进程探测改成平台实现。Docker 仍使用 bridge 网络：PX4 容器通过 `host.docker.internal` 回传宿主遥测，命令带有 `--add-host=host.docker.internal:host-gateway`；只有控制 UDP 端口发布到 `127.0.0.1`，遥测端口保持容器主动发出，避免 Docker 端口 hairpin。
+
+迁移前后的 Windows 专属写法盘点如下：
+
+| 位置 | 问题 | 修法 |
+| --- | --- | --- |
+| `scripts/run_simulator_docker.py` | Docker Desktop 路径和 `host.docker.internal` 假设 | Docker 可执行文件按平台发现；Linux 使用原生 Docker，保留 `host-gateway` 映射和现有 UDP 端口设计 |
+| `scripts/collect_sim_teacher_episodes.py` | 固定 `docker.exe`，独立采集没有互斥 | Linux 优先 `PATH` 中的 `docker`；采集阶段接入 `scripts/sitl_lock.py` |
+| `scripts/run_r15_round.py` | `.exe` llama-server、`D:/Projects/...` 默认值，collect 没有统一 SITL 锁 | 按平台选择 `llama-server`，默认路径改为仓库相对路径；collect 使用同一把锁 |
+| `scripts/run_nightly_regression.py` | `D:\...` 锁路径、PowerShell 内存计数器、仅 PID 存活判断 | 复用跨平台 Python 锁；Linux 使用 `psutil`/`/proc/meminfo`，owner 同时记录 PID 和进程启动时间 |
+| `scripts/run_sim_session.py` | `.exe` 默认名和 junction 错误提示 | `LLAMA_SERVER`/平台文件名解析，资产缓存按普通目录准备 |
+| `scripts/run_crash_resume_sitl.py` | `PYTHONPATH` 使用 `;` | 使用 `os.pathsep`，Linux 生成 `src:.` |
+| `scripts/generate_r15_worlds.py`、`src/multidetect/simulator/world_gen.py` | 未发现 Windows 专属运行时写法；依赖缺失 Fuel 缓存 | 保持生成逻辑，增加 `scripts/fetch_sim_assets.py` 负责下载、哈希校验和 resolved 构建 |
+
+准备镜像和资产（不会由脚本自动联网）：
+
+```bash
+export PYTHONPATH=src:.
+export PYTHONUTF8=1
+export TMPDIR="$PWD/.tmp"
+mkdir -p "$TMPDIR"
+
+docker pull px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8
+python scripts/fetch_sim_assets.py \
+  --catalog configs/sim-assets/fuel-catalog.json \
+  --raw-root artifacts/cache/gz-fuel/OpenRobotics \
+  --resolved-root artifacts/cache/gz-fuel/resolved
+```
+
+锁默认位于 `/data/scratch/multidetect-sitl.lock`，也可以用 `MULTIDETECT_SITL_LOCK` 或 `--sitl-lock-path` 指定。它会等待没有 `md-*`/`r15-worker*` 运行容器且可用内存至少 5 GiB；owner 进程死亡并且锁超过 120 秒才回收。llama.cpp 可执行文件默认查找 `artifacts/cache/llama-cpp/b11552/llama-server`，也可设置 `LLAMA_SERVER`。
+
+一次无头教师采集冒烟（真实 Docker/SITL 由负责人执行）：
+
+```bash
+python scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/urban_inspection_multirotor_001.teacher_spawn_probe_r1.scenario.json \
+  --teacher expert_search --episodes 1 --steps-per-episode 20 \
+  --rgb-size 1280x960 --depth-size 1280x960 \
+  --out artifacts/smoke/sim-teacher-linux \
+  --control-port 14540 --telemetry-port 14541
+```
+
+资产缺失、Docker daemon 不可用或内存门禁未满足时，先修复环境再重试；不要把 `artifacts/` 软链接指向的共享缓存提交到 Git。
+
+### GPU 渲染
+
+Linux 上 GPU 渲染默认关闭。采集或 Docker 计划命令加入 `--gpu-render` 后，容器会请求 NVIDIA Container Toolkit 的单卡设备，设置 `NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute`，并让 Gazebo Harmonic 使用 `--headless-rendering`、EGL surfaceless 和 Ogre2。也可以设置 `MULTIDETECT_SIM_GPU=1` 全局开启；设置为数字（例如 `MULTIDETECT_SIM_GPU=2`）可固定到指定卡。显式的 `--no-gpu-render` 会关闭环境变量开关。
+
+现有 `simulation/docker/viewer/Dockerfile` 是带 Xvfb/noVNC 的 GUI viewer，并明确设置 `LIBGL_ALWAYS_SOFTWARE=1`；它保留原有软件渲染语义。无头采集走下面的 GPU 派生镜像和计划参数。
+
+多个采集进程用 `--worker-index 0`, `--worker-index 1`, … 区分 worker；`run_r15_round.py --workers N` 生成的 collector 命令会自动带上对应 index。默认轮询 GPU1、GPU2，避开 GPU0（桌面串流）和 GPU3（稳定性问题）；可用 `--gpu-devices 1,2`、`MULTIDETECT_SIM_GPU_DEVICES` 和 `MULTIDETECT_SIM_GPU_AVOID` 覆盖。
+
+如果基础镜像缺少 EGL 用户态入口，先构建派生镜像（驱动库仍由 toolkit 注入）：
+
+```bash
+docker build -f simulation/docker/gpu/Dockerfile -t multidetect/px4-sitl-gazebo:gpu .
+```
+
+一次采集示例（也可用 `MULTIDETECT_SIM_IMAGE=multidetect/px4-sitl-gazebo:gpu` 让并行 worker 继承派生镜像）：
+
+```bash
+python scripts/collect_sim_teacher_episodes.py \
+  --scenario configs/scenarios/urban_inspection_multirotor_001.scenario.json \
+  --teacher expert_search --episodes 1 --steps-per-episode 20 \
+  --out artifacts/smoke/sim-teacher-linux-gpu \
+  --gpu-render --image multidetect/px4-sitl-gazebo:gpu \
+  --worker-index 0 --gpu-devices 1,2
+```
+
+启动后可用自检脚本读取 EGL/Gazebo 日志并复用传感器流测量相机帧率：
+
+```bash
+python scripts/check_sim_gpu_render.py \
+  --scenario configs/scenarios/urban_inspection_multirotor_001.scenario.json \
+  --image multidetect/px4-sitl-gazebo:gpu --gpu-device 1 --frames 60
+```
+
+输出中的 `gpu_rendering_active` 和 `fps` 分别表示是否检测到 NVIDIA EGL 渲染器以及实际收到的 RGB 帧率；若仍看到 llvmpipe/software rasterizer，检查 toolkit 注入的 `libEGL_nvidia` 与 `/usr/share/glvnd/egl_vendor.d/10_nvidia.json`，必要时取消 `__EGL_VENDOR_LIBRARY_FILENAMES` 让 GLVND 自动发现清单。
+
+### 不改防火墙：宿主网络模式
+
+Linux 上如果 ufw 的 `INPUT` 默认策略阻止了 bridge 网关发往宿主的遥测，可以把 SITL
+容器切到宿主网络：
+
+```bash
+export MULTIDETECT_SIM_NETWORK=host
+python scripts/collect_sim_teacher_episodes.py ...
+```
+
+也可以在单次运行中传 `--sim-network host`；命令行参数优先于环境变量。该模式只在 Linux
+可用，Windows 会在生成 Docker 计划时失败。容器命令使用 `--network host`，因此不会再带
+`--publish` 或 `--add-host`；PX4 的 MAVLink 目标和宿主采集监听均为 `127.0.0.1`。
+
+宿主网络共享 UDP 端口和 Gazebo transport。每个容器设置唯一的 `GZ_PARTITION`（容器名），
+避免不同 worker 互相发现 Gazebo 话题；同时给 PX4 传入 worker 对应的 `-i` 实例号。r15
+默认 worker 0/1 使用控制端口 `14560/14570`、遥测端口 `14561/14571`，端口段相差 10；
+显式改写的端口就是每个 worker 在宿主上占用的 MAVLink 控制输入和遥测回环端口。PX4
+`simulator_mavlink`、uXRCE-DDS 以及 rc 文件中的其它默认 UDP 端口由 `-i` 实例号按 PX4
+启动脚本的实例规则区分，不能把多个 worker 手工改回同一个实例号；保护端口 `14550`
+仍不使用。
+
+`mavlink start -t 127.0.0.1` 指定的是发送目标，不等于自动限制本地 bind 地址。启动包装器
+在 host 模式设置 `PX4_NET_INTERFACE=lo`，让 PX4 rc 的 `-f` 参数选择 loopback；使用其它
+PX4 镜像时仍应检查 rc 文件是否支持该参数，并用 `ss -lunp` 确认 MAVLink/uXRCE-DDS 只在
+回环上监听。若镜像忽略接口参数，宿主网络下的 PX4 UDP socket 可能仍绑定 `0.0.0.0`，这是
+该模式的残余暴露风险。
+
+GPU 渲染可以与宿主网络模式同时启用，例如：
+
+```bash
+python scripts/collect_sim_teacher_episodes.py \
+  --sim-network host --sim-instance 0 --gpu-render --gpu-device 1 ...
+```
+
+### GPU 渲染实测（2026-11-01）
+
+派生镜像 `multidetect/px4-sitl-gazebo:gpu` 已在本机构建（`docker build -f simulation/docker/gpu/Dockerfile -t multidetect/px4-sitl-gazebo:gpu simulation/docker/gpu`）。`scripts/check_sim_gpu_render.py` 在 GPU1 上：固定镜像（无 EGL 用户态库）回退软件渲染，1280×960 相机 1.46 帧/秒；派生镜像 EGL 厂商为 NVIDIA、渲染器 RTX 3080，2.71 帧/秒（同时有 3 个 CPU 渲染采集 worker 在跑，空载时差距应更大）。之后的采集默认用派生镜像加 `--gpu-render`。
+
+### 用现役模型跑任务套件
+
+夜间回归默认仍使用原有套件配置。指定 `--model-set r21idr3-r24plan`（或设置
+`MULTIDETECT_MODEL_SET=r21idr3-r24plan`）会切换到身份 r21id-r3、规划 r24 的四份套件配置；
+任务内容和套件参数保持原样。Linux 上先准备运行环境，再 dry-run 检查计划：
+
+```bash
+export PYTHONPATH=src:.
+export PYTHONUTF8=1
+export TMPDIR="$PWD/.tmp"
+export MULTIDETECT_SIM_GPU=1
+export MULTIDETECT_SIM_IMAGE=multidetect/px4-sitl-gazebo:gpu
+mkdir -p "$TMPDIR"
+
+python scripts/run_nightly_regression.py \
+  --model-set r21idr3-r24plan --dry-run \
+  --out /data/scratch/cx-nightly/dry-check
+```
+
+dry-run 会报告 SITL 锁路径、控制/遥测 UDP 端口（`14540/14541`）、传给套件子进程的
+GPU/镜像环境变量和每套实际配置及命令，不启动 Docker。确认后去掉 `--dry-run` 即可运行；
+也可用 `--no-gpu-render` 关闭 GPU 渲染，或用 `--sim-image IMAGE` 覆盖镜像。

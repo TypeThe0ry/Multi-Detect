@@ -6,7 +6,7 @@ import math
 import threading
 import time
 from bisect import bisect_left
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, BinaryIO
@@ -75,6 +75,7 @@ class SensorSample:
     depth_frame: Any = None
     segmentation: Any = None
     segmentation_info: dict[str, Any] | None = None
+    joint_state: dict[str, Any] | None = None
 
 
 def _import_wire_helpers() -> tuple[Any, Any, Any]:
@@ -264,6 +265,11 @@ class SensorStreamReader:
                         .copy()
                     )
                     segmentation_info = dict(segmentation_frame.metadata)
+                joint_state = None
+                if depth_frame is not None:
+                    sidecar = depth_frame.metadata.get("joint_state")
+                    if isinstance(sidecar, Mapping):
+                        joint_state = dict(sidecar)
                 stamp = self.clock()
                 sample = SensorSample(
                     rgb=bytes(payload),
@@ -299,6 +305,7 @@ class SensorStreamReader:
                     depth_frame=depth_frame,
                     segmentation=segmentation,
                     segmentation_info=segmentation_info,
+                    joint_state=joint_state,
                 )
                 self.buffer.put(sample)
                 self.latest = sample
@@ -373,14 +380,61 @@ def _energy_telemetry(state: MavlinkState) -> list[dict[str, Any]]:
     return sorted(samples, key=lambda sample: sample["received_monotonic_s"])
 
 
+def gimbal_angles_from_status(
+    status: Any,
+    *,
+    vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, float] | None:
+    """Decode MAVLink gimbal-device quaternion into yaw/roll/pitch degrees."""
+    q = status.get("q") if isinstance(status, Mapping) else _field(status, "q", None)
+    if not isinstance(q, (list, tuple)) or len(q) < 4:
+        return None
+    try:
+        w, x, y, z = (float(value) for value in q[:4])
+        norm = math.sqrt(w * w + x * x + y * y + z * z)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(norm) or norm <= 1e-9:
+        return None
+    w, x, y, z = (value / norm for value in (w, x, y, z))
+    yaw_deg = math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
+    flags = int(_field(status, "flags", 0) or 0)
+    if vehicle_yaw_deg is not None and flags & 64:
+        yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
+    yaw_deg = (yaw_deg + float(yaw_correction_deg) + 180.0) % 360.0 - 180.0
+    return {
+        "roll": math.degrees(math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
+        "pitch": math.degrees(math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))),
+        "yaw": yaw_deg,
+    }
+
+
+def gimbal_angles_from_joint_state(joint_state: Any) -> dict[str, float] | None:
+    """Decode the Gazebo joint sidecar as authoritative simulation angles."""
+    if not isinstance(joint_state, Mapping) or joint_state.get("fresh") is False:
+        return None
+    positions = joint_state.get("position_rad")
+    if not isinstance(positions, Mapping):
+        return None
+    try:
+        result = {
+            axis: math.degrees(float(positions[axis]))
+            for axis in ("yaw", "roll", "pitch")
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+    return result if all(math.isfinite(value) for value in result.values()) else None
+
+
 class MavlinkReader:
     POSE_TYPES = frozenset({"LOCAL_POSITION_NED", "ATTITUDE", "GLOBAL_POSITION_INT"})
     # PX4 streams pose at tens of Hz of its own clock; a second of that clock
     # with nothing on the wire is a delivery gap, not a slow stream.
     VEHICLE_GAP_MS = 1_000
     VEHICLE_GAPS_KEPT = 16
-    POSE_HISTORY_MS = 5_000
-    POSE_HISTORY_MAX_SAMPLES = 1_024
+    POSE_HISTORY_MS = 30_000
+    POSE_HISTORY_MAX_SAMPLES = 16_384
     TRACKED = frozenset(
         {
             "LOCAL_POSITION_NED",
@@ -403,6 +457,8 @@ class MavlinkReader:
             "WIND_COV",
             "HEALTH_REPORT",
             "STATUSTEXT",
+            "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            "GIMBAL_MANAGER_STATUS",
         }
     )
 
@@ -424,9 +480,14 @@ class MavlinkReader:
         self._thread = None
         self._vehicle_newest_ms: int | None = None
         self.progress = progress
+        self._health_check: Callable[[], None] | None = None
         self.message_counts: Counter[str] = Counter()
+        self.last_message_type: str | None = None
+        self.last_message_monotonic_ns: int | None = None
+        self.last_message_vehicle_ms: int | None = None
         self.parse_errors = 0
         self.bad_crc = 0
+        self.recent_messages: deque[dict[str, Any]] = deque(maxlen=16)
         self._pose_condition = threading.Condition()
         self._pose_history: dict[str, list[tuple[int, dict[str, Any], int, float]]] = {
             name: [] for name in self.POSE_TYPES
@@ -511,6 +572,21 @@ class MavlinkReader:
     def stats(self) -> dict[str, Any]:
         """Return a snapshot suitable for progress logs and diagnostics."""
         thread = self._thread
+        socket_state: dict[str, Any] = {"available": False}
+        for attribute in ("port", "socket"):
+            candidate = getattr(self.connection, attribute, None)
+            if candidate is None:
+                continue
+            socket_state = {"available": True, "attribute": attribute}
+            try:
+                socket_state["closed"] = bool(candidate._closed)
+            except Exception:
+                pass
+            try:
+                socket_state["fileno"] = int(candidate.fileno())
+            except Exception as exc:
+                socket_state["fileno_error"] = repr(exc)
+            break
         return {
             "received_messages": self.state.count,
             "message_counts": dict(self.message_counts),
@@ -518,16 +594,28 @@ class MavlinkReader:
             "bad_crc": self.bad_crc,
             "thread_alive": bool(thread is not None and thread.is_alive()),
             "error": None if self.error is None else repr(self.error),
+            "last_exception": None if self.error is None else repr(self.error),
+            "socket": socket_state,
+            "recent_messages": list(self.recent_messages),
+            "last_message_type": self.last_message_type,
+            "last_message_monotonic_ns": self.last_message_monotonic_ns,
+            "last_message_vehicle_ms": self.last_message_vehicle_ms,
         }
 
     def raise_if_failed(self) -> None:
         """Raise a reader failure in the owning episode thread."""
+        if self._health_check is not None:
+            self._health_check()
         if self.error is not None:
             raise RuntimeError(
                 "MAVLink reader failed: "
                 f"{self.error}; messages={self.state.count}; "
                 f"parse_errors={self.parse_errors}; bad_crc={self.bad_crc}"
             ) from self.error
+
+    def set_health_check(self, callback: Callable[[], None] | None) -> None:
+        """Attach an owning-loop health check evaluated at existing poll points."""
+        self._health_check = callback
 
     def start(self) -> MavlinkReader:
         if self._thread is not None:
@@ -582,8 +670,15 @@ class MavlinkReader:
                         selector(0.01)
                     continue
                 name = self._type(message)
+                boot_ms = _field(message, "time_boot_ms", None)
+                self.recent_messages.append({
+                    "type": name,
+                    "time_boot_ms": boot_ms if isinstance(boot_ms, int) else None,
+                    "receive_monotonic_ns": self.clock(),
+                })
                 self.message_counts[name] += 1
                 self.state.count += 1
+                self.last_message_type = name
                 if name == "BAD_DATA":
                     self.parse_errors += 1
                     reason = str(_field(message, "reason", "")).lower()
@@ -603,6 +698,8 @@ class MavlinkReader:
                 mono = self.clock()
                 wall = time.time()
                 boot_ms = _field(message, "time_boot_ms", None)
+                self.last_message_monotonic_ns = mono
+                self.last_message_vehicle_ms = int(boot_ms) if isinstance(boot_ms, int) and not isinstance(boot_ms, bool) and boot_ms >= 0 else self.last_message_vehicle_ms
                 if isinstance(boot_ms, int) and not isinstance(boot_ms, bool) and boot_ms >= 0:
                     with self._pose_condition:
                         # Measured from the newest clock seen, so a stray older
@@ -793,6 +890,7 @@ def build_observation(
     *,
     camera_info: Mapping[str, object] | None = None,
     ground_agl_max_age_s: float | None = None,
+    gimbal_yaw_correction_deg: float | None = None,
 ) -> dict[str, Any]:
     local, attitude, global_pos, gps = (
         mavlink.get(name)
@@ -814,6 +912,25 @@ def build_observation(
     extended_state = mavlink.get("EXTENDED_SYS_STATE")
     landed_state = _field(extended_state, "landed_state", None)
     vtol_state = _field(extended_state, "vtol_state", None)
+    gimbal_status = mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_observed_ns = mavlink.received_monotonic_ns.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_angles = gimbal_angles_from_status(
+        gimbal_status,
+        vehicle_yaw_deg=(
+            math.degrees(float(_field(attitude, "yaw", 0.0)))
+            if gimbal_yaw_correction_deg is not None
+            else None
+        ),
+        yaw_correction_deg=float(gimbal_yaw_correction_deg or 0.0),
+    )
+    sidecar = getattr(sensor, "joint_state", None)
+    joint_angles = (
+        gimbal_angles_from_joint_state(sidecar.get("gimbal_joint_state"))
+        if isinstance(sidecar, Mapping)
+        else None
+    )
+    if joint_angles is not None:
+        gimbal_angles = joint_angles
     landed = (
         landed_state == 1
         if isinstance(landed_state, int)
@@ -928,6 +1045,14 @@ def build_observation(
             "vtol_state": vtol_state,
             "landed_state": landed_state,
             "airspeed_mps": airspeed_mps,
+            "gimbal_status": (
+                MavlinkReader._mapping(gimbal_status) if gimbal_status is not None else None
+            ),
+        },
+        "gimbal": {
+            "available": gimbal_status is not None,
+            "angles_deg": gimbal_angles,
+            "observed_at_ns": gimbal_observed_ns,
         },
         "airspeed_mps": airspeed_mps,
         "sensor_status": "live",
@@ -963,4 +1088,6 @@ __all__ = [
     "MavlinkReader",
     "simulation_stamp_skew_ms",
     "build_observation",
+    "gimbal_angles_from_status",
+    "gimbal_angles_from_joint_state",
 ]

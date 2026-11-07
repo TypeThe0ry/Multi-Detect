@@ -25,7 +25,7 @@ from ..onboard_runtime.fw_vtol_commands import (
     nav_takeoff,
     nav_vtol_takeoff,
 )
-from .executor import ExecutionResult
+from .executor import ExecutionResult, execute_gimbal_action
 from .primitives import ActionPrimitive, CompletionCriterion, body_to_ned
 
 if TYPE_CHECKING:  # motion_intent imports sim_teacher (via safety_envelope); avoid the cycle
@@ -54,6 +54,11 @@ class FixedWingVtolExecutor:
         geo_reference: Callable[[], tuple[Any, Any]] | None = None,
         clock: Callable[[], float] = time.monotonic,
         transition_after_takeoff: bool = True,
+        airframe_profile: Any = None,
+        telemetry_reader: Any = None,
+        gimbal_timeout_s: float = 15.0,
+        gimbal_tolerance_deg: float = 4.0,
+        gimbal_yaw_correction_deg: float = 0.0,
     ) -> None:
         normalized = airframe.strip().lower().replace("-", "_")
         # Profile IDs are intentionally accepted here so the collector can
@@ -107,6 +112,12 @@ class FixedWingVtolExecutor:
         self._commanded = tuple(float(v) for v in self._position())
         self._commanded_yaw = float(self._yaw())
         self._armed = False
+        self._loiter_captured = False
+        self.airframe_profile = airframe_profile
+        self.telemetry_reader = telemetry_reader
+        self.gimbal_timeout_s = float(gimbal_timeout_s)
+        self.gimbal_tolerance_deg = float(gimbal_tolerance_deg)
+        self.gimbal_yaw_correction_deg = float(gimbal_yaw_correction_deg)
 
     @staticmethod
     def _ok(result: Any) -> bool:
@@ -118,6 +129,22 @@ class FixedWingVtolExecutor:
         if value is not None:
             return bool(value)
         return getattr(result, "status", "") in {"accepted", "sent", "success"}
+
+    def sync_commanded_state(self) -> tuple[float, float, float]:
+        """Rebase local guided commands on the latest measured pose and heading."""
+        position = tuple(float(value) for value in self._position())
+        if len(position) != 3 or not all(math.isfinite(value) for value in position):
+            raise ValueError("measured position must contain three finite NED coordinates")
+        yaw = float(self._yaw())
+        if not math.isfinite(yaw):
+            raise ValueError("measured heading must be finite")
+        self._commanded = position
+        self._commanded_yaw = yaw
+        return position
+
+    def note_loiter_captured(self) -> None:
+        """Keep a telemetry-confirmed loiter active across subsequent hold steps."""
+        self._loiter_captured = True
 
     _GEO_COMMANDS = frozenset({"reposition", "orbit", "loiter_at", "fw_takeoff", "fw_land"})
 
@@ -343,6 +370,13 @@ class FixedWingVtolExecutor:
     }
 
     def _state_timeout(self, phase: str) -> float:
+        """Return a budget in the executor clock's seconds.
+
+        The collector injects PX4's lockstep simulation clock here.  A
+        ``wait_for_state`` adapter must therefore compare this budget against
+        that same clock and keep its own generous wall-clock ceiling for a
+        stalled simulator.
+        """
         return max(self._timeout(), self.STATE_TIMEOUT_S.get(phase, self._timeout()))
 
     def _wait_state(self, phase: str) -> tuple[bool, Any | None]:
@@ -383,13 +417,19 @@ class FixedWingVtolExecutor:
         started = self._clock()
         altitude = self.altitude_m if altitude_m is None else float(altitude_m)
         try:
-            arm = getattr(self.vehicle, "arm", None) or getattr(
-                self.vehicle, "arducopter_arm", None
-            )
-            if callable(arm):
-                arm_result = arm()
-                if not self._ok(arm_result):
-                    return self._failure(started, phase="arm", result=arm_result)
+            # The collector confirms arming through its bounded ARM/heartbeat
+            # helper before entering this executor.  Do not send a second raw
+            # ARM command in that case: on a slow lockstep run PX4 can still
+            # report the first command as temporarily rejected even though
+            # SYS_STATUS has just become healthy.
+            if not self._armed:
+                arm = getattr(self.vehicle, "arm", None) or getattr(
+                    self.vehicle, "arducopter_arm", None
+                )
+                if callable(arm):
+                    arm_result = arm()
+                    if not self._ok(arm_result):
+                        return self._failure(started, phase="arm", result=arm_result)
             method = "vtol" if self.airframe == "vtol" else self.takeoff_method
             if self.airframe == "vtol" and not self.transition_after_takeoff:
                 # PX4's NAV_VTOL_TAKEOFF transitions to FW on its own after the
@@ -421,12 +461,29 @@ class FixedWingVtolExecutor:
                         started, phase="transition_fw_state", result=state, reason="timeout"
                     )
             self._armed = True
-            self._commanded = (self._commanded[0], self._commanded[1], -altitude)
+            # Takeoff and transition can carry a tailsitter far from the
+            # preflight position before the first guided translation.  Start
+            # subsequent local-NED legs from the measured FW position/heading,
+            # rather than the stale position captured in __init__.
+            current_position = tuple(float(value) for value in self._position())
+            self._commanded = (current_position[0], current_position[1], -altitude)
+            self._commanded_yaw = float(self._yaw())
             return ExecutionResult("success", self._clock() - started, ack={"takeoff": result})
         except (RuntimeError, OSError, ValueError, TypeError) as exc:
             return ExecutionResult("failed", self._clock() - started, ack={"error": str(exc)})
 
     def execute(self, action: ActionPrimitive) -> ExecutionResult:
+        if action.kind == "gimbal":
+            return execute_gimbal_action(
+                self.vehicle,
+                action,
+                profile=self.airframe_profile,
+                reader=self.telemetry_reader,
+                clock=self._clock,
+                timeout_s=self.gimbal_timeout_s,
+                tolerance_deg=self.gimbal_tolerance_deg,
+                yaw_correction_deg=self.gimbal_yaw_correction_deg,
+            )
         started = self._clock()
         origin = self._commanded
         yaw = self._commanded_yaw
@@ -435,17 +492,22 @@ class FixedWingVtolExecutor:
 
             if isinstance(action, MotionCommand):
                 return self.execute_command(action)
+            if action.kind not in {"hold", "stop"}:
+                self._loiter_captured = False
             if action.kind == "hold":
-                result = self._invoke(
-                    "orbit",
-                    origin[:2],
-                    self.loiter_radius_m,
-                    self.ground_speed_mps,
-                    alt=-origin[2],
-                    timeout_s=self._timeout(),
-                )
-                if not self._ok(result):
-                    return self._failure(started, phase="orbit", result=result)
+                if self._loiter_captured:
+                    result = {"status": "already_active", "ok": True}
+                else:
+                    result = self._invoke(
+                        "orbit",
+                        origin[:2],
+                        self.loiter_radius_m,
+                        self.ground_speed_mps,
+                        alt=-origin[2],
+                        timeout_s=self._timeout(),
+                    )
+                    if not self._ok(result):
+                        return self._failure(started, phase="orbit", result=result)
                 ok, state = self._wait_state("orbit")
                 if not ok:
                     return self._failure(
@@ -470,6 +532,20 @@ class FixedWingVtolExecutor:
                 return ExecutionResult(
                     "success", self._clock() - started, ack={"reposition": result}
                 )
+            if self.airframe == "vtol" and self.mode == "FW":
+                # A tailsitter can move substantially during the MC→FW
+                # transition.  Rebase every relative translation on the
+                # measured FW pose at dispatch time so a cached takeoff pose
+                # cannot become the next guided waypoint.
+                commanded_down = self._commanded[2]
+                measured = self.sync_commanded_state()
+                # Preserve the commanded cruise altitude.  Transition
+                # dynamics can momentarily overshoot it; the guided waypoint
+                # should rebase its horizontal origin and heading without
+                # turning that transient into a new altitude command.
+                self._commanded = (measured[0], measured[1], commanded_down)
+                origin = self._commanded
+                yaw = self._commanded_yaw
             north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw)
             target = (origin[0] + north, origin[1] + east, origin[2] + down)
             result = self._invoke(
@@ -500,6 +576,22 @@ class FixedWingVtolExecutor:
             if command.rejected:
                 return ExecutionResult(
                     "failed", self._clock() - started, ack={"reason": command.reason}
+                )
+            if command.kind == "gimbal":
+                action = command.action or ActionPrimitive.gimbal(
+                    pitch_deg=float(command.gimbal_pitch_deg or 0.0),
+                    yaw_deg=float(command.gimbal_yaw_deg or 0.0),
+                    roll_deg=float(command.gimbal_roll_deg or 0.0),
+                )
+                return execute_gimbal_action(
+                    self.vehicle,
+                    action,
+                    profile=self.airframe_profile,
+                    reader=self.telemetry_reader,
+                    clock=self._clock,
+                    timeout_s=self.gimbal_timeout_s,
+                    tolerance_deg=self.gimbal_tolerance_deg,
+                    yaw_correction_deg=self.gimbal_yaw_correction_deg,
                 )
             centre = command.target_ned or self._commanded
             altitude = -centre[2]
