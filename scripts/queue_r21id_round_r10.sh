@@ -21,6 +21,14 @@ R9R_INDEX=$R/configs/scenarios/generated-r21id-r9r/index.json
 R9R_PROPOSALS=$A/r21id-r9rb/gpu-annotate-full/proposals.jsonl
 R9R_REBUILT=$A/r21id-r9rb/gpu-annotate-full/sft-rebuilt
 
+run_preflight() {
+  "$BUILDER_PY" scripts/check_identity_r10_inputs.py \
+    --base-dataset "$BASE_DATA" --index "$R9R_INDEX" \
+    --campaign "$R9R_CAMPAIGN" --proposals "$R9R_PROPOSALS"
+}
+
+run_preflight
+
 run() {
   printf '+ '
   printf '%q ' "$@"
