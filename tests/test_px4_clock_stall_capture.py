@@ -599,3 +599,39 @@ def test_run_episode_stall_reaches_exit_before_cleanup_and_capture_survives(
     capture = json.loads(capture_path.read_text())
     assert capture["captured_before_container_removal"] is True
     assert capture["path"] == str(capture_path)
+
+
+def test_analyze_capture_keeps_camera_unknown_and_reports_imu_progress(tmp_path: Path) -> None:
+    output = tmp_path / "gz-gdb.txt"
+    output.write_text(
+        "=== GDB before_delay ===\n"
+        "Thread 1 (LWP 300):\n"
+        "#0 pthread_mutex_lock ()\n#1 gz::sim::SimulationRunner::PublishStats()\n"
+        "#2 gz::sim::SimulationRunner::Step()\n"
+        "=== GDB after_delay ===\n"
+        "Thread 1 (LWP 300):\n"
+        "#0 pthread_mutex_lock ()\n#1 gz::sim::SimulationRunner::PublishStats()\n"
+        "#2 gz::sim::SimulationRunner::Step()\n"
+    )
+    samples = [_sample(clock=None, threads=[]), _sample(clock=None, threads=[])]
+    samples[0]["px4_listener_sensor_combined"] = {"returncode": 0, "stdout": "timestamp_sample: 100\n"}
+    samples[1]["px4_listener_sensor_combined"] = {"returncode": 0, "stdout": "timestamp_sample: 200\n"}
+    result = analyze_capture({
+        "samples": samples,
+        "gz_gdb": {"output_path": str(output)},
+    })
+    assert result["imu_progress"]["advanced"] is True
+    assert result["camera_progress"]["advanced"] == "unknown"
+    assert result["gz_publish_stats_mutex_wait_observed"] is True
+    assert result["gz_publish_stats_mutex_wait_both_snapshots"] is True
+    assert result["supports"]["gz_publish_stats_mutex_wait"] is True
+    assert result["gz_runner_stack_classification"][0]["classification"] == "publish_stats_mutex_wait"
+
+
+def test_sensor_progress_unknown_when_listener_has_no_timestamp() -> None:
+    samples = [_sample(clock=None, threads=[]), _sample(clock=None, threads=[])]
+    samples[0]["px4_listener_sensor_combined"] = {"returncode": 124, "stdout": ""}
+    samples[1]["px4_listener_sensor_combined"] = {"returncode": 124, "stdout": ""}
+    result = analyze_capture({"samples": samples})
+    assert result["imu_progress"]["advanced"] == "unknown"
+    assert result["camera_progress"]["advanced"] == "unknown"
