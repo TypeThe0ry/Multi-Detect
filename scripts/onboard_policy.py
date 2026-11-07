@@ -531,6 +531,27 @@ class OnboardPolicy(RuntimeAdmissionMixin):
         """Optional transport adapter: timestamps are local receipt times."""
         return self.supervisor.ground_event(event) if self.supervisor is not None else False
 
+    def report_primitive_outcome(self, action, status: str, *, before, after) -> bool:
+        """Feed PX4 execution evidence back to active return-home recovery."""
+        supervisor = self.supervisor
+        executor = (
+            getattr(supervisor, "_recovery", None)
+            if supervisor is not None and getattr(supervisor, "action", None) in {"return_now", "land_now"}
+            else self.executor
+        )
+        check = getattr(executor, "report_primitive_outcome", None)
+        if not callable(check) or not check(action, status, before=before, after=after):
+            return False
+        if supervisor is not None:
+            supervisor.log.append(
+                "climb_failed_suspected_loss_of_control",
+                supervisor.clock(),
+                sim_time_s=float((after.get("pose_time_boot_ms") or 0)) / 1000.0,
+                height_m=max(0.0, -float(after["pose"]["local_ned_m"][2])),
+            )
+            supervisor._escalate("land_now", "climb_failed_suspected_loss_of_control")
+        return True
+
     def set_downlink_sender(self, sender: Callable[[dict[str, Any]], object] | None) -> None:
         """Attach an optional acknowledged transport; delivery runs in the queue worker."""
         if self.downlink is not None:

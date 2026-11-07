@@ -582,6 +582,137 @@ def test_return_home_climbs_out_of_obstacle_footprint_before_clearance_check():
     assert executor.history[0]["reason"] == "arrived"
 
 
+def test_return_home_climb_failure_replays_operator_abort_after_two_failed_climbs():
+    from pathlib import Path
+    import json
+
+    episode = Path(
+        "artifacts/benchmarks/nightly-linux-r21idr3-r24plan-28-head/main/operator-abort/"
+        "campaign/gen_cnt2_w0003/episodes/episode-0000-06a1a47d"
+    )
+    if not (episode / "steps.jsonl").is_file():
+        pytest.skip("shared read-only benchmark artifacts are unavailable")
+    plan = validate_mission_plan({
+        "plan_version": 1, "goal": "return", "report": [],
+        "steps": [{"id": "s", "skill": "return_home", "params": {},
+                   "on_success": None, "on_fail": None}],
+    })
+    executor = MissionExecutor(
+        plan,
+        loop_factory=lambda task, region=None, **overrides: OnboardLoop(
+            camera=CAMERA,
+            search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+            config=LoopConfig(**overrides),
+        ),
+    )
+    rows = [json.loads(line) for line in (episode / "steps.jsonl").read_text().splitlines()]
+    matches = []
+    for row in rows:
+        action = ActionPrimitive(**row["action"])
+        if executor.report_primitive_outcome(
+            action,
+            row["outcome"]["status"],
+            before=row["obs_before"],
+            after=row["obs_after"],
+        ):
+            matches.append(row["step_index"])
+            break
+    assert matches == [41]
+    assert executor.history[0]["reason"] == "climb_failed_suspected_loss_of_control"
+    assert executor.mission_log[-1]["event"] == "climb_failed_suspected_loss_of_control"
+
+
+def test_return_home_climb_failure_ignores_single_timeout_progress_and_terminal_actions():
+    plan = validate_mission_plan({
+        "plan_version": 1, "goal": "return", "report": [],
+        "steps": [{"id": "s", "skill": "return_home", "params": {},
+                   "on_success": None, "on_fail": None}],
+    })
+    executor = MissionExecutor(
+        plan,
+        loop_factory=lambda task, region=None, **overrides: OnboardLoop(
+            camera=CAMERA,
+            search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+            config=LoopConfig(**overrides),
+        ),
+    )
+
+    def observations(z_before, z_after, boot):
+        before = {"pose": {"local_ned_m": [0.0, 0.0, z_before]}, "pose_time_boot_ms": boot}
+        after = {
+            "pose": {"local_ned_m": [0.0, 0.0, z_after]},
+            "pose_time_boot_ms": boot + 20000,
+            "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0},
+            "landed": False,
+            "flight_state": {"landed_state": 2},
+        }
+        return before, after
+
+    climb = ActionPrimitive.translate(0, 0, 15)
+    before, after = observations(-0.8, -0.8, 1)
+    assert not executor.report_primitive_outcome(climb, "timeout", before=before, after=after)
+    before, after = observations(-0.8, -1.5, 21000)
+    assert not executor.report_primitive_outcome(climb, "success", before=before, after=after)
+    before, after = observations(-0.8, -0.8, 41000)
+    assert not executor.report_primitive_outcome(ActionPrimitive.land(), "timeout", before=before, after=after)
+    assert not executor.report_primitive_outcome(ActionPrimitive.hold(1), "timeout", before=before, after=after)
+    assert not executor.report_primitive_outcome(climb, "timeout", before=before, after=after)
+    assert not executor.return_climb_failure_suspected
+
+
+def test_return_home_climb_failure_requires_near_ground_airborne_state():
+    plan = validate_mission_plan({
+        "plan_version": 1, "goal": "return", "report": [],
+        "steps": [{"id": "s", "skill": "return_home", "params": {},
+                   "on_success": None, "on_fail": None}],
+    })
+    executor = MissionExecutor(
+        plan,
+        loop_factory=lambda task, region=None, **overrides: OnboardLoop(
+            camera=CAMERA,
+            search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+            config=LoopConfig(**overrides),
+        ),
+    )
+    climb = ActionPrimitive.translate(0, 0, 15)
+    for boot, altitude in ((1, 10.0), (21000, 10.0)):
+        before = {"pose": {"local_ned_m": [0.0, 0.0, -altitude]}, "pose_time_boot_ms": boot}
+        after = {
+            "pose": {"local_ned_m": [0.0, 0.0, -altitude]},
+            "pose_time_boot_ms": boot + 20000,
+            "landed": False,
+        }
+        assert not executor.report_primitive_outcome(climb, "timeout", before=before, after=after)
+    assert not executor.return_climb_failure_suspected
+
+
+def test_return_home_slow_px4_climb_uses_sim_time_without_wall_timeout():
+    plan = validate_mission_plan({
+        "plan_version": 1, "goal": "return", "report": [],
+        "steps": [{"id": "s", "skill": "return_home", "params": {},
+                   "on_success": None, "on_fail": None}],
+    })
+    executor = MissionExecutor(
+        plan,
+        loop_factory=lambda task, region=None, **overrides: OnboardLoop(
+            camera=CAMERA,
+            search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+            config=LoopConfig(**overrides),
+        ),
+    )
+    climb = ActionPrimitive.translate(0, 0, 15)
+    for boot, z_before, z_after in ((1000, -0.8, -0.8), (101000, -0.8, -1.6), (201000, -1.6, -1.6)):
+        before = {"pose": {"local_ned_m": [0.0, 0.0, z_before]}, "pose_time_boot_ms": boot}
+        after = {
+            "pose": {"local_ned_m": [0.0, 0.0, z_after]},
+            "pose_time_boot_ms": boot + 90000,
+            "landed": False,
+            "flight_state": {"landed_state": 2},
+        }
+        assert not executor.report_primitive_outcome(climb, "timeout", before=before, after=after)
+    assert not executor.return_climb_failure_suspected
+
+
 @pytest.mark.parametrize("confirmed", [0, 2])
 def test_count_budget_reports_successful_lower_bound_even_with_zero_detections(confirmed):
     executor = _executor(
