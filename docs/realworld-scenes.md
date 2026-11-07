@@ -278,7 +278,7 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 | `rw_port_oakland` | 0.899 | 46–46 | 3615 | 103.8 |
 | `rw_city_zurich` | 0.648 | 100–100 | 3992 | 157.4 |
 | `rw_alpine_grindelwald` | 0.762 | 70–71 | 2893 | 109.2 |
-| `rw_port_rotterdam` | 0.741 | 81–82 | 3878 | 86.7 |
+| `rw_port_rotterdam` | 0.968 | 46–47 | 3529 | 139.6 |
 | `rw_canal_amsterdam` | 0.629 | 112–112 | 4230 | 137.4 |
 | `rw_city_tokyo` | 0.926 | 52–52 | 3930 | 133.1 |
 | `rw_city_berlin` | 0.979 | 44–45 | 3710 | 117.7 |
@@ -293,12 +293,15 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 
 | 标签 | 机型 / 地点 | 结果 | 最高相对高度/m | 对齐帧 |
 |---|---|---|---:|---:|
+| `tilt-rotterdam-land-slot7` | tiltrotor / Rotterdam 新陆地原点槽7 | PASS | 54.24 | 7 |
+| `tilt-davis-final` | tiltrotor / Davis | FAIL | 0.00 | 0 |
 | `x500-sf-texturefix` | x500 / SF | PASS | 39.83 | 7 |
 | `x500-berlin-padfix` | x500 / Berlin | PASS | 35.49 | 7 |
 | `vtol-zurich` | standard_vtol / Zurich | PASS | 42.60 | 7 |
 | `vtol-davis-control` | standard_vtol / Davis | PASS | 31.07 | 7 |
 | `qts-singapore-texturefix` | quadtailsitter / Singapore | PASS | 73.03 | 7 |
 | `tilt-rotterdam` | tiltrotor / Rotterdam 旧水上原点（设计无效） | PASS | 53.93 | 7 |
+| `tilt-rotterdam-land` | tiltrotor / Rotterdam 新陆地原点 | FAIL | 0.07 | 0 |
 | `plane-farm` | advanced_plane / Iowa | PASS | 40.83 | 7 |
 | `cessna-farm` | rc_cessna / Iowa | PASS | 35.90 | 7 |
 | `gimbal-fixed` | x500_gimbal / Davis | PASS | 15.81 | 7 |
