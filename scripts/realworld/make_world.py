@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import sys
 import xml.etree.ElementTree as ET
@@ -18,7 +19,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 
 ASSET_ROOT = Path("/data/datasets/multidetect-sim-assets")
-RESOLVED = ROOT / "artifacts/cache/gz-fuel/resolved"
+RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved")))
+SOURCE_ROOT = Path(os.environ.get("RW_SOURCE_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
 CATALOG = {a["slug"]: a for a in json.loads((ROOT / "configs/sim-assets/fuel-catalog.json").read_text())["assets"]}
 OUT = ROOT / "simulation/gazebo/worlds"
 
@@ -39,7 +41,7 @@ WEATHER = {
 
 def visuals_of(slug: str) -> tuple[list[ET.Element], tuple[float, float, float]]:
     """Visual elements of a Fuel model, with URIs pinned to the local cache and any mesh scale applied."""
-    root = ET.fromstring((RESOLVED / slug / "model.sdf").read_text(encoding="utf-8-sig").lstrip())
+    root = ET.fromstring((SOURCE_ROOT / slug / "model.sdf").read_text(encoding="utf-8-sig").lstrip())
     model = root.find("model")
     out = []
     if model is None:
@@ -216,7 +218,7 @@ def street_lights(objects: list[dict], limit=24) -> str:
         for i, o in enumerate(near))
 
 
-def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "") -> Path:
+def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", out_dir: Path | None = None) -> Path:
     scene = json.loads((ASSET_ROOT / "sites" / site / "scene.json").read_text())
     w = WEATHER[weather]
     wname = f"{site}__{weather}{name_suffix}"
@@ -245,7 +247,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     label = 100
     # Trees and most props already live in the merged terrain model.
     for i, o in enumerate(scene["objects"]):
-        if o.get("merged") or o["cat"] not in CATALOG or not (RESOLVED / o["cat"] / "model.sdf").exists():
+        if o.get("merged") or o["cat"] not in CATALOG or not (SOURCE_ROOT / o["cat"] / "model.sdf").exists():
             continue
         parts.append(labelled_model(f"rw_obj_{i:04d}", o["cat"], o["x"], o["y"], o["z"], o["yaw"], label))
         o["label"] = label
@@ -266,8 +268,9 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
         parts.insert(1, f"<!-- multidetect-wind-gust amplitude_percent={min(1.0, gust / spd):.4g} period={GUST_PERIOD_S:.6g} -->")
         parts.append(f'<wind><linear_velocity>{spd * math.cos(ang):.2f} {spd * math.sin(ang):.2f} 0</linear_velocity></wind>')
     parts.append("</world></sdf>\n")
-    OUT.mkdir(parents=True, exist_ok=True)
-    path = OUT / f"{wname}.sdf"
+    destination = out_dir or OUT
+    destination.mkdir(parents=True, exist_ok=True)
+    path = destination / f"{wname}.sdf"
     path.write_text("".join(parts))
     return path
 
@@ -334,10 +337,13 @@ def main() -> None:
     ap.add_argument("--weather", nargs="*", default=list(WEATHER))
     ap.add_argument("--max-trees", type=int)
     ap.add_argument("--scenario-airframe", default="x500_mono_cam")
+    ap.add_argument("--world-out-dir", type=Path)
+    ap.add_argument("--skip-scenarios", action="store_true")
     a = ap.parse_args()
     for wx in a.weather:
-        p = build(a.site, wx, [], a.max_trees, 0)
-        write_scenario(p, a.site, a.scenario_airframe)
+        p = build(a.site, wx, [], a.max_trees, 0, out_dir=a.world_out_dir)
+        if not a.skip_scenarios:
+            write_scenario(p, a.site, a.scenario_airframe)
         print(p, p.stat().st_size // 1024, "KB")
 
 

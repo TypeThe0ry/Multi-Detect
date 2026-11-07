@@ -9,10 +9,12 @@ match the Gazebo ENU frame directly.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
 import requests
@@ -294,6 +296,12 @@ def stac_items(url: str, collection: str, lat: float, lon: float, half: float, *
     return list(catalog.search(collections=[collection], bbox=[w, s, e, n], max_items=500).items())
 
 
+def public_asset_url(href: str) -> str:
+    """Keep provenance reproducible without persisting temporary signed query tokens."""
+    parts = urlsplit(href)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 def rasterize_stac_items(items, asset_key: str, lat: float, lon: float, bounds, size, *, bands=None, dtype=None):
     import rasterio
     from rasterio.crs import CRS
@@ -473,9 +481,16 @@ def fetch_global(out: Path, lat: float, lon: float, half: float) -> dict:
         for i in range(nt):
             tile = rgba[j*TILE_CRS_PX:(j+1)*TILE_CRS_PX, i*TILE_CRS_PX:(i+1)*TILE_CRS_PX]
             save_rgba(tile, out / f"naip_{i}_{j}.png")
+    dem_item = dem_items[0]
     return {"imagery_years": [image.datetime.year] if image.datetime else [],
-            "dem_years": [dem_items[0].datetime.year] if dem_items[0].datetime else [],
-            "cloud_cover_percent": image.properties.get("eo:cloud_cover")}
+            "dem_years": [dem_item.datetime.year] if dem_item.datetime else [],
+            "cloud_cover_percent": image.properties.get("eo:cloud_cover"),
+            "imagery_item_id": image.id, "imagery_datetime": image.datetime.isoformat() if image.datetime else None,
+            "imagery_gsd_m": image.properties.get("gsd", 10.0),
+            "imagery_asset_urls": {k: public_asset_url(v.href) for k, v in image.assets.items() if k in {"visual", "B02", "B03", "B04"}},
+            "dem_item_id": dem_item.id, "dem_datetime": dem_item.datetime.isoformat() if dem_item.datetime else None,
+            "dem_asset_url": public_asset_url(dem_item.assets[dem_key].href),
+            "raster_grid_res_m": 2 * half / max(n - 1, 1)}
 
 
 def main() -> None:
@@ -504,7 +519,7 @@ def main() -> None:
             dem_res_m = 0.5
         elif provider == "global":
             years = fetch_global(out, site["lat"], site["lon"], half)
-            dem_res_m = 2.0
+            dem_res_m = 30.0
         else:
             raise ValueError(f"unknown provider {provider!r} for {name}")
         fetch_osm(out, site["lat"], site["lon"], half)
@@ -530,20 +545,28 @@ def main() -> None:
             }
         else:
             sources = {
-                "dem": {"name": "Copernicus DEM GLO-30", "url": f"{PC_STAC}/collections/cop-dem-glo-30", "license": "Copernicus free and open data"},
-                "imagery": {"name": "Sentinel-2 L2A", "url": f"{PC_STAC}/collections/sentinel-2-l2a", "license": "Copernicus free and open data"},
+                "dem": {"name": "Copernicus DEM GLO-30", "url": f"{PC_STAC}/collections/cop-dem-glo-30", "license": "Free & Open; modified-data notice required", "attribution": "Produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"},
+                "imagery": {"name": "Sentinel-2 L2A", "url": f"{PC_STAC}/collections/sentinel-2-l2a", "license": "Copernicus full, free and open data policy"},
             }
+        hashes = {}
+        for file in sorted(out.iterdir()):
+            if file.is_file() and file.name != "provenance.json":
+                h = hashlib.sha256()
+                with file.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        h.update(chunk)
+                hashes[file.name] = h.hexdigest()
         (out / "provenance.json").write_text(json.dumps({
             "site": name, "lat": site["lat"], "lon": site["lon"], "size_m": site["size_m"],
             "proj4": proj4(site["lat"], site["lon"]),
             "fetched_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "provider": provider, "dem_res_m": dem_res_m, "building_height_years": building_height_years, "imagery_res_m": {
-                "us": 0.6, "swiss": 0.1, "nl": 0.08, "global": 10.0
+                "us": 0.6, "swiss": 0.1, "nl": 0.08, "global": years.get("imagery_gsd_m", 10.0)
             }[provider], "source_years": years,
             "sources": {**sources,
                 "vectors": {"name": "OpenStreetMap via Overpass", "license": "ODbL-1.0",
                             "attribution": "(c) OpenStreetMap contributors"},
-            },
+            }, "sha256": hashes,
         }, indent=2))
 
 

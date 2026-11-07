@@ -76,6 +76,24 @@
       "size_m": 2000,
       "kind": "urban",
       "provider": "nl"
+    },
+    "rw_city_singapore": {
+      "title": "新加坡 Upper Thomson 开阔草地（距默认家点约 0.7 km）",
+      "lat": 1.357442,
+      "lon": 103.82375,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM landuse=grass 开阔草地（约 1.42 ha 多边形）；起飞点附近按 25 m 压平"
+    },
+    "rw_city_shenzhen": {
+      "title": "深圳南山 深圳湾公园开阔地",
+      "lat": 22.523177,
+      "lon": 113.942624,
+      "size_m": 2000,
+      "kind": "coast",
+      "provider": "global",
+      "takeoff_surface": "OSM leisure=park 开阔公园地（约 0.45 ha 多边形）；起飞点附近按 25 m 压平"
     }
   }
 }

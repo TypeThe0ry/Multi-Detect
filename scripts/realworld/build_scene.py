@@ -35,7 +35,8 @@ ROOT = Path(__file__).resolve().parents[2]
 CFG = json.loads((ROOT / "configs/sim-assets/realworld-sites.json").read_text())
 ASSET_ROOT = Path(CFG["asset_root"])
 LIB = ASSET_ROOT / "library"
-RESOLVED = Path(os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
+RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved")))
+SOURCE_ROOT = Path(os.environ.get("RW_SOURCE_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
 DEM_RES = 2.0
 TILE_M = 1000
 PAD_R = 25.0
@@ -779,14 +780,14 @@ def main() -> None:
     keep_ids = {id(o) for o in keep}
     for o in scene["objects"]:
         o["merged"] = id(o) not in keep_ids
-        if o["merged"] and (RESOLVED / o["cat"] / "model.sdf").exists() and o["role"] != "person":
+        if o["merged"] and (SOURCE_ROOT / o["cat"] / "model.sdf").exists() and o["role"] != "person":
             merger.add(o["cat"], o["x"], o["y"], o["z"], o["yaw"])
     vis_xml += merger.write(write_obj, face_normals_to_vertex)
     if kind == "industrial":
         n_containers = add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml)
         print("containers", n_containers, flush=True)
     print("merged groups", len(merger.groups), flush=True)
-    write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch)
+    ground_classes = write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm)
     # ---- Model files
     provenance = json.loads((raw / "provenance.json").read_text()) if (raw / "provenance.json").exists() else {}
     attributions = [source.get("attribution") for source in provenance.get("sources", {}).values()
@@ -799,8 +800,13 @@ def main() -> None:
         f'<?xml version="1.0"?><sdf version="1.9"><model name="{name}"><static>true</static><link name="terrain">'
         + "".join(coll_xml) + "".join(vis_xml) + "</link></model></sdf>\n")
 
+    provenance = json.loads((raw / "provenance.json").read_text())
     scene.update({"site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
-                  "stats": {"buildings": len(buildings), "trees": len(trees), "road_km": sum(r["line"].length for r in road_lines) / 1000},
+                  "takeoff_surface": site.get("takeoff_surface"),
+                  "source_resolution": {"imagery_m": provenance["imagery_res_m"], "dem_native_m": provenance["dem_res_m"], "dem_grid_m": provenance.get("source_years", {}).get("raster_grid_res_m")},
+                  "stats": {"buildings": len(buildings), "trees": len(trees), "road_km": sum(r["line"].length for r in road_lines) / 1000,
+                            "roads": len(road_lines), "ground_class_pixels": ground_classes,
+                            "osm_ways": len(osm.ways), "osm_relations": len(osm.rel_polys)},
                   "footprints": [[round(v, 1) for v in b["poly"].bounds] + [round(b["h"], 1)] for b in buildings]})
     (ASSET_ROOT / "sites" / name / "scene.json").write_text(json.dumps(scene, ensure_ascii=False))
     print({k: (len(v) if isinstance(v, list) else v) for k, v in scene.items() if k != "footprints"}, flush=True)
@@ -865,7 +871,7 @@ def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng,
     return count
 
 
-def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch) -> None:
+def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm=None) -> dict[str, int]:
     """Sharp ground around the takeoff point: the aerial photo sets colour, CC0 photos add fine detail."""
     core_half = 300.0
     px = 8192
@@ -920,8 +926,66 @@ def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch
     g = ndi.gaussian_filter(np.clip((vegetation - threshold) / span, 0, 1), 6)
     s = ndi.gaussian_filter(np.clip((rgb[..., 0] - rgb[..., 2]) / 40.0, 0, 1), 6) * (1 - g)
     c = np.clip(1 - g - s, 0, 1)
+    # Sentinel is a low-frequency reference. OSM polygons decide the local class so
+    # 10 m pixels do not turn roads, parks and water into the same blurry surface.
+    class_masks: dict[str, np.ndarray] = {}
+    if osm is not None:
+        class_polys: dict[str, list] = {"water": [], "wood": [], "grass": [], "soil": [], "urban": []}
+        for w in osm.ways:
+            t = w["tags"]
+            key = None
+            if t.get("natural") == "water" or t.get("waterway"):
+                key = "water"
+            elif t.get("natural") == "wood" or t.get("landuse") in {"forest", "wood"}:
+                key = "wood"
+            elif t.get("natural") in {"grassland", "scrub", "heath"} or t.get("landuse") in {"grass", "meadow", "recreation_ground", "village_green"} or t.get("leisure") == "park":
+                key = "grass"
+            elif t.get("landuse") in {"farmland", "orchard", "vineyard", "allotments", "brownfield", "construction"}:
+                key = "soil"
+            elif t.get("landuse") in {"commercial", "industrial", "residential", "retail"} or t.get("amenity"):
+                key = "urban"
+            if key and w["closed"] and len(w["pts"]) >= 4:
+                p = Polygon(w["pts"]).buffer(0).intersection(box(-half, -half, half, half))
+                if not p.is_empty:
+                    class_polys[key].append(p)
+        for feature in osm.rel_polys:
+            t, p = feature["tags"], feature["poly"]
+            if t.get("natural") == "water" or t.get("waterway"):
+                key = "water"
+            elif t.get("natural") == "wood" or t.get("landuse") in {"forest", "wood"}:
+                key = "wood"
+            elif t.get("natural") in {"grassland", "scrub", "heath"} or t.get("landuse") in {"grass", "meadow", "recreation_ground", "village_green"} or t.get("leisure") == "park":
+                key = "grass"
+            elif t.get("landuse") in {"farmland", "orchard", "vineyard", "allotments", "brownfield", "construction"}:
+                key = "soil"
+            elif t.get("landuse") in {"commercial", "industrial", "residential", "retail"} or t.get("amenity"):
+                key = "urban"
+            else:
+                key = None
+            if key:
+                p = p.buffer(0).intersection(box(-half, -half, half, half))
+                if not p.is_empty:
+                    class_polys[key].append(p)
+        for key, polys in class_polys.items():
+            if polys:
+                mask = rasterize(polys, half, res)
+                class_masks[key] = ndi.gaussian_filter(mask.astype(np.float32), 1.2)
+    class_colors = {
+        "water": np.array([72, 128, 158], np.float32),
+        "wood": np.array([52, 105, 58], np.float32),
+        "grass": np.array([98, 142, 72], np.float32),
+        "soil": np.array([142, 119, 83], np.float32),
+        "urban": np.array([126, 126, 121], np.float32),
+    }
+    weights = np.zeros(rgb.shape[:2], np.float32)
+    classified = np.zeros_like(rgb)
+    for key, mask in class_masks.items():
+        m = np.clip(mask, 0, 1) * (1 - weights)
+        classified += m[..., None] * class_colors[key]
+        weights += m
+    classified += (1 - weights)[..., None] * rgb
     d = 1 + g * 0.24 * grass + s * 0.18 * soil + c * 0.07 * conc
-    out_rgb = np.clip(rgb * d[..., None], 0, 255).astype(np.uint8)
+    out_rgb = np.clip((classified * d[..., None]) * 0.78 + rgb * 0.22, 0, 255).astype(np.uint8)
     Image.fromarray(out_rgb).save(out / "textures" / "ground_core.jpg", quality=88)
     k = 301
     ax = np.linspace(-core_half, core_half, k)
@@ -937,6 +1001,7 @@ def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch
     vt = np.column_stack([(xx.ravel() + core_half) / (2 * core_half), (yy.ravel() + core_half) / (2 * core_half)])
     write_obj(out / "meshes" / "ground_core.obj", v, vt, nrm.reshape(-1, 3), f)
     vis_xml.append(pbr_visual("ground_core", f"model://{name}/meshes/ground_core.obj", f"model://{name}/textures/ground_core.jpg", 0.95))
+    return {k: int(np.count_nonzero(v > 0.2)) for k, v in class_masks.items()}
 
 
 def mosaic_res(mosaic: np.ndarray, half: float) -> float:

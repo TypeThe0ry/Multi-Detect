@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 import warnings
 import xml.etree.ElementTree as ET
@@ -20,7 +21,8 @@ import trimesh
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
-RESOLVED = ROOT / "artifacts/cache/gz-fuel/resolved"
+RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", os.environ.get("RW_MODEL_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved")))
+LOOKUP_ROOT = Path(os.environ.get("RW_SOURCE_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
 CATALOG = {a["slug"]: a for a in json.loads((ROOT / "configs/sim-assets/fuel-catalog.json").read_text())["assets"]}
 GRID_M = 500.0
 
@@ -121,7 +123,7 @@ def _obj_parts(path: Path, model_dir: Path) -> list[dict]:
 
 
 def load_parts(slug: str) -> list[dict]:
-    model_dir = RESOLVED / slug
+    model_dir = LOOKUP_ROOT / slug
     root = ET.fromstring((model_dir / "model.sdf").read_text(encoding="utf-8-sig").lstrip())
     visuals = list(root.iter("visual"))
     out: list[dict] = []
