@@ -365,13 +365,16 @@ def _frame_gimbal_state(
 
 
 def _frame_joint_state(
-    sample: dict[str, object] | None, frame_stamp_ns: int
+    sample: dict[str, object] | None,
+    frame_stamp_ns: int,
+    *,
+    require_complete: bool = False,
 ) -> dict[str, object] | None:
     """Bind causal x500 rotor/gimbal state to one RGB simulation timestamp.
 
-    Rotor state is optional: a fixed or older model may publish no matching
-    rotor joints and must continue to emit ordinary RGB/depth frames.  A
-    gimbal frame remains gated by the existing all-three-joints requirement.
+    Rotor state is optional for fixed/legacy callers.  Gimbal callers pass
+    ``require_complete`` so RGB is accepted only with all three gimbal axes
+    and all four rotor joints.
     """
     if sample is None:
         return None
@@ -412,6 +415,11 @@ def _frame_joint_state(
             "source": "gazebo_joint_state",
             "fresh": True,
         }
+    if require_complete and (
+        result["gimbal_joint_state"] is None
+        or result["propeller_joint_state"] is None
+    ):
+        return None
     if result["gimbal_joint_state"] is None and result["propeller_joint_state"] is None:
         return None
     return result
@@ -2037,7 +2045,11 @@ def main() -> int:
                     odometry = selected["odometry"]
                     assert camera is not None and navsat is not None and odometry is not None
                     joint_state = (
-                        _frame_joint_state(selected.get("joint"), stamp_ns)
+                        _frame_joint_state(
+                            selected.get("joint"),
+                            stamp_ns,
+                            require_complete=gimballed_airframe,
+                        )
                         if rotor_joint_state_enabled
                         else None
                     )

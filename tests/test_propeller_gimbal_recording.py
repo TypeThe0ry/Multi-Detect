@@ -75,11 +75,25 @@ def test_sidecar_joint_state_survives_episode_recording(tmp_path: Path) -> None:
         "propeller_joint_state": {"timestamp_ns": 10, "angles_rad": [1.0], "spin_rad_s": [12.0]},
         "camera_pose": {"center_ned": [1.0, 2.0, 3.0]},
     }
-    recorder.record_step(obs, {})
+    after = {
+        **obs,
+        "gimbal_joint_state": {
+            "timestamp_ns": 20,
+            "position_rad": {"pitch": 0.4, "yaw": 0.5, "roll": 0.6},
+        },
+        "propeller_joint_state": {
+            "timestamp_ns": 20,
+            "angles_rad": [1.1, 2.1, 3.1, 4.1],
+            "spin_rad_s": [12.0, 13.0, 14.0, 15.0],
+        },
+    }
+    recorder.record_step(obs, {}, obs_after=after)
     row = json.loads((recorder.episode_dir / "steps.jsonl").read_text().strip())
     assert row["obs_before"]["gimbal_joint_state"]["position_rad"]["pitch"] == 0.2
     assert row["obs_before"]["propeller_joint_state"]["spin_rad_s"] == [12.0]
     assert row["obs_before"]["camera_pose"]["center_ned"] == [1.0, 2.0, 3.0]
+    assert row["obs_after"]["gimbal_joint_state"]["position_rad"]["yaw"] == 0.5
+    assert row["obs_after"]["propeller_joint_state"]["angles_rad"] == [1.1, 2.1, 3.1, 4.1]
 
 
 def test_esc_rpm_is_used_for_spin_but_actuator_output_is_not() -> None:

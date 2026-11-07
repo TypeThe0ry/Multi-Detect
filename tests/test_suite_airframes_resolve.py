@@ -50,7 +50,10 @@ def test_gimbal_nightly_suite_contains_expanded_gimbal_missions():
         "gimbal-operator-pause-resume",
         "gimbal-count-fire-hydrants",
     }
-    assert {mission["id"] for mission in suite["missions"]} == expected_ids
+    mission_ids = [mission["id"] for mission in suite["missions"]]
+    assert len(mission_ids) == 7
+    assert len(mission_ids) == len(set(mission_ids))
+    assert set(mission_ids) == expected_ids
     assert all(mission["airframe"] == "x500_gimbal" for mission in suite["missions"])
     assert all(
         mission["recording"] == {
@@ -93,6 +96,24 @@ def test_gimbal_variants_keep_non_gimbal_expectations_and_record_joint_state():
     assert missions["gimbal-operator-pause-resume"]["mission_package"]["mission_id"] == (
         "gimbal-operator-pause-resume"
     )
+
+
+def test_fixed_camera_counterparts_do_not_gain_gimbal_recording_fields():
+    suite = json.loads(
+        (ROOT / "configs/onboard/suite-main-r21idr3-r24plan.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    by_id = {mission["id"]: mission for mission in suite["missions"]}
+    for mission_id in (
+        "find-suv-land",
+        "monitor-backpacks",
+        "operator-pause-resume",
+        "count-fire-hydrants",
+    ):
+        mission = by_id[mission_id]
+        assert mission.get("airframe") is None
+        assert "recording" not in mission
 
 
 def test_gimbal_rgb_topics_follow_the_px4_camera_link():

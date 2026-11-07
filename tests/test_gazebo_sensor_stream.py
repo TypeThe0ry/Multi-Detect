@@ -133,6 +133,55 @@ def test_joint_state_gate_records_x500_rotors_with_the_rgb_timestamp() -> None:
     assert propeller["velocity_slowdown"] == 10
 
 
+def test_gimbal_joint_sample_contains_both_camera_axes_and_all_rotors() -> None:
+    joints = {
+        **{
+            f"rotor_{index}_joint": {
+                "position_rad": float(index),
+                "velocity_rad_s": float(index + 1),
+            }
+            for index in range(4)
+        },
+        "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.2},
+        "cgo3_vertical_arm_joint": {"position_rad": 0.3, "velocity_rad_s": 0.4},
+        "cgo3_horizontal_arm_joint": {"position_rad": 0.5, "velocity_rad_s": 0.6},
+    }
+    state = _frame_joint_state(
+        {"stamp_ns": 900, "joints": joints}, 1_000, require_complete=True
+    )
+
+    assert state is not None
+    assert state["gimbal_joint_state"]["position_rad"] == {
+        "pitch": 0.1,
+        "yaw": 0.3,
+        "roll": 0.5,
+    }
+    assert state["propeller_joint_state"]["angles_rad"] == [0.0, 1.0, 2.0, 3.0]
+    assert state["propeller_joint_state"]["spin_rad_s"] == [1.0, 2.0, 3.0, 4.0]
+
+
+@pytest.mark.parametrize("missing", ["rotors", "gimbal"])
+def test_gimbal_frame_contract_rejects_partial_actuator_state(missing: str) -> None:
+    joints = {
+        **{
+            f"rotor_{index}_joint": {"position_rad": 0.0, "velocity_rad_s": 1.0}
+            for index in range(4)
+        },
+        "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.0},
+        "cgo3_vertical_arm_joint": {"position_rad": 0.2, "velocity_rad_s": 0.0},
+        "cgo3_horizontal_arm_joint": {"position_rad": 0.3, "velocity_rad_s": 0.0},
+    }
+    if missing == "rotors":
+        del joints["rotor_2_joint"]
+    else:
+        del joints["cgo3_vertical_arm_joint"]
+
+    state = _frame_joint_state(
+        {"stamp_ns": 900, "joints": joints}, 1_000, require_complete=True
+    )
+    assert state is None
+
+
 def test_rotor_state_is_optional_for_legacy_joint_samples() -> None:
     sample = {
         "stamp_ns": 950_000_000,
