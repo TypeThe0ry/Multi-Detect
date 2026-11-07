@@ -215,7 +215,7 @@ def test_different_bearing_positive_views_confirm() -> None:
 def test_earlier_independent_positive_view_survives_stationary_final_pair() -> None:
     loop = _loop()
     target = (0.0, 40.0)
-    poses = [(0.0, 0.0, -20.0), (0.0, 0.0, -10.0), (0.0, 0.0, -10.0)]
+    poses = [(0.0, 0.0, -20.0), (20.0, 0.0, -10.0), (20.0, 0.0, -10.0)]
     track = None
     for index, pose in enumerate(poses):
         current = loop.update_tracks(

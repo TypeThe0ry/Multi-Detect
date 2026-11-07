@@ -2030,21 +2030,11 @@ class OnboardLoop:
                         - float(first["observation_bearing_deg"])
                     )
                 )
-                target_n, target_e = track.ground
-                pose_a, pose_b = first["camera_pose_ned"], second["camera_pose_ned"]
-                ray_a = (target_n - float(pose_a[0]), target_e - float(pose_a[1]), float(pose_a[2]))
-                ray_b = (target_n - float(pose_b[0]), target_e - float(pose_b[1]), float(pose_b[2]))
-                norm_a = math.sqrt(sum(value * value for value in ray_a))
-                norm_b = math.sqrt(sum(value * value for value in ray_b))
-                ray_angle = math.degrees(
-                    math.acos(
-                        max(-1.0, min(1.0, sum(a * b for a, b in zip(ray_a, ray_b)) / (norm_a * norm_b)))
-                    )
-                )
-                if (
-                    bearing_delta >= self.config.confirm_min_view_bearing_deg
-                    or ray_angle >= self.config.confirm_min_view_pitch_deg
-                ):
+                # Vertical descent changes the 3-D ray angle without exposing a
+                # new horizontal face.  Treat only horizontal bearing change as
+                # independent evidence; near-range confirmation is handled by
+                # the caller once the vehicle can no longer improve the view.
+                if bearing_delta >= self.config.confirm_min_view_bearing_deg:
                     return True
         return False
 
@@ -4046,7 +4036,7 @@ class OnboardLoop:
                 and not best.needs_fresh_verdict
                 and not best.verdict_remembered
                 and (
-                    (votes >= self.config.confirm_matches and independent)
+                    (votes >= self.config.confirm_matches and (independent or near))
                     or (
                         self.config.confirm_matches > 1
                         and votes < self.config.confirm_matches
