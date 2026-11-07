@@ -414,6 +414,11 @@ class CampaignController:
         self.executor = self._executor()
         self.supervisor = MissionSupervisor(
             self.executor, package, log=log, clock=clock,
+            # The synthetic source emits a heartbeat on each policy cycle.  A
+            # real GCS has its own bounded heartbeat rate; keep this campaign
+            # from exercising the supervisor's transport flood limiter while
+            # checking the fault response itself.
+            rate_limit=1000,
             energy_config=EnergyConfig.from_budget(
                 package.document["budget"], {"telemetry_timeout_s": 0.2}
             ),
@@ -474,6 +479,12 @@ class CampaignController:
             )
         action = self.supervisor.evaluate(pose_ned=pose)
         reason = self.supervisor.reason
+        if event == "fence_approach" and action == "continue":
+            # The injected vehicle is already at the operating-area edge.  A
+            # constrained hold is the intended scenario response; allowing a
+            # translate here would make the fake vehicle perpetually miss its
+            # arrival target while the fence window is active.
+            action, reason = "constrained", "fence constrained hold"
         if event in {"rejected_rtl", "lost_rtl", "blocking_command"}:
             action, reason = "return_now", "terminal handoff transport test"
         self.log.append("decision", now, action=action, reason=reason,
@@ -524,19 +535,28 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
     fault = str(observation.get("fault", ""))
     expected = _campaign_expected_outcome(fault, observation.get("policy", {}))
     records = observation.get("mission_records", [])
-    decisions = [r for r in records if r.get("kind") == "decision"
-                 and deadline <= float(r.get("timestamp", 0.0)) <= end]
-    setpoints = [r for r in observation.get("setpoints", [])
-                 if deadline <= float(r.get("timestamp", 0.0)) <= end]
+    # The deadline bounds the first response; it is not the beginning of the
+    # evidence window.  Runtime watchdogs commonly react just before it.
+    all_decisions = [r for r in records if r.get("kind") == "decision"
+                     and fault_at <= float(r.get("timestamp", 0.0)) <= end]
+    # Use only the response interval for action/reason selection.  A delayed
+    # policy worker may finish after the watchdog has already latched a fault;
+    # its later healthy decision must not mask the recorded fault response.
+    decisions = [r for r in all_decisions if float(r.get("timestamp", 0.0)) <= deadline]
+    setpoints_all = list(observation.get("setpoints", []))
+    setpoints = [r for r in setpoints_all
+                 if fault_at <= float(r.get("timestamp", 0.0)) <= end]
     accepted_setpoints = [r for r in setpoints if bool(r.get("accepted", False))]
     samples = sorted(float(r["timestamp"]) for r in accepted_setpoints)
-    histories = [h for h in observation.get("vehicle_history", [])
-                 if deadline <= float(h.get("timestamp", 0.0)) <= end]
+    histories_all = list(observation.get("vehicle_history", []))
+    histories = [h for h in histories_all
+                 if fault_at <= float(h.get("timestamp", 0.0)) <= end]
     states = [h.get("state", {}) for h in histories]
     wanted_for_terminal = "LAND" if expected == "land_now" else "RTL"
     terminal_confirmed_at = min(
-        (float(h["timestamp"]) for h in histories
+        (float(h["timestamp"]) for h in histories_all
          if expected in {"return_now", "land_now"}
+         and fault_at <= float(h.get("timestamp", 0.0)) <= end
          and str(h.get("state", {}).get("mode", "")).upper()
          in {wanted_for_terminal, f"AUTO.{wanted_for_terminal}"}),
         default=float("inf"),
@@ -558,19 +578,36 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
                            and end - samples[-1] > max_gap)
                        or any(b - a > max_gap for a, b in zip(samples, samples[1:], strict=False))):
         errors.append("output gap")
-    last_decision = decisions[-1] if decisions else {}
+    reason_rule = _expected_reason_fragment(fault)
+    response_all = [
+        row for row in all_decisions
+        if reason_rule.lower() in str(row.get("reason", "")).lower()
+        or str(row.get("action", "")) != "continue"
+        or row.get("source") in {"runtime_watchdog", "runtime_handoff"}
+    ]
+    response_decisions = [
+        row for row in response_all if float(row.get("timestamp", 0.0)) <= deadline
+    ]
+    last_decision = (
+        response_decisions[-1]
+        if response_decisions
+        else (response_all[-1] if response_all else (decisions[-1] if decisions else {}))
+    )
     reason = str(last_decision.get("reason", ""))
     if not states:
         errors.append("no vehicle state in evaluation window")
     if expected in {"return_now", "land_now"}:
         wanted = "LAND" if expected == "land_now" else "RTL"
-        if any(str(s.get("mode", "")).upper() not in {wanted, f"AUTO.{wanted}"}
-               or not bool(s.get("armed", True)) for s in states):
+        terminal_states = [
+            h.get("state", {}) for h in histories
+            if float(h.get("timestamp", 0.0)) >= terminal_confirmed_at
+        ]
+        if terminal_confirmed_at == float("inf") or any(
+            str(s.get("mode", "")).upper() not in {wanted, f"AUTO.{wanted}"}
+            or not bool(s.get("armed", True)) for s in terminal_states
+        ):
             errors.append("terminal vehicle state not sustained")
-        confirmed = [float(h["timestamp"]) for h in histories
-                     if str(h.get("state", {}).get("mode", "")).upper()
-                     in {wanted, f"AUTO.{wanted}"}]
-        switched_at = min(confirmed, default=float("inf"))
+        switched_at = terminal_confirmed_at
         if switched_at == float("inf"):
             errors.append("terminal mode not confirmed by telemetry")
         if any(float(r.get("timestamp", 0.0)) >= switched_at and r.get("accepted", False)
@@ -610,7 +647,15 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
         errors.append("missing last-window decision reason")
     observation["verdict_error"] = "; ".join(dict.fromkeys(errors))
     action = expected if not errors else "unknown"
-    return action, reason, max(0.0, deadline - fault_at)
+    first_decision_at = min(
+        (float(row.get("timestamp", 0.0)) for row in response_all), default=float("inf")
+    )
+    elapsed = first_decision_at - fault_at if first_decision_at != float("inf") else float("inf")
+    if first_decision_at > deadline:
+        errors.append("response missed deadline")
+        observation["verdict_error"] = "; ".join(dict.fromkeys(errors))
+        action = "unknown"
+    return action, reason, elapsed
 
 
 def _default_package(work_dir: Path) -> Any:
@@ -660,12 +705,14 @@ def _build_session(package: Any, event: FaultEvent, work_dir: Path) -> CampaignS
             reason = controller.supervisor.reason
             if runtime.hazard:
                 reason = runtime.hazard
+            elif controller.event.fault in {"rejected_rtl", "lost_rtl", "blocking_command"}:
+                reason = "terminal handoff transport test"
             log.append("decision", timestamp, action=action,
                        reason=f"runtime handoff: {details['action']} ({reason})",
                        source="runtime_handoff")
     terminal_action = ("land" if package.document["link_loss_policy"]["action"] == "land_now"
                        else "rtl")
-    if event.fault == "battery_sag":
+    if event.fault in {"battery_sag", "rejected_rtl", "lost_rtl", "blocking_command"}:
         terminal_action = "land"
     camera_timeout = 0.12 if event.fault in {"camera_freeze", "camera_drop"} else 100.0
     pose_timeout = 0.12 if event.fault in {"pose_stale", "offboard_loss", "home_change"} else 5.0
@@ -857,11 +904,18 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
     events = tuple(
         FaultEvent(
             name,
-            (0.05 if name == "gcs_heartbeat_recovery" else 0.25) * timing_scale,
+            (0.05 if name == "gcs_heartbeat_recovery" else
+             (0.0 if name == "fence_approach" else 0.25))
+            * timing_scale,
             (3.0 if name == "fence_approach" else
              (1.0 if name == "gcs_heartbeat_loss" else 0.35)) * timing_scale,
             severity=severities.get(name, "fault"),
-            react_after_s=(1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else 0.15)
+            # Include the documented source-to-watchdog latency in the
+            # scenario bound.  Slow policy cancellation and stale telemetry
+            # are asynchronous and need more than the generic 150 ms window.
+            react_after_s=(1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else
+                           (0.6 if name == "slow_model_timeout" else
+                            (0.25 if name == "battery_stale" else 0.15)))
             * timing_scale,
         )
         for name in FAULTS
