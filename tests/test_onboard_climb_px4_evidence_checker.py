@@ -9,6 +9,8 @@ from scripts.check_onboard_climb_px4_evidence import (
     PX4,
     check_climb_fault_evidence,
 )
+from scripts import eval_onboard_loop_campaign as campaign
+from scripts import run_mission_suite as campaign_suite
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,3 +76,44 @@ def test_checker_does_not_write_artifact(tmp_path):
     after = sorted(path.relative_to(root) for path in root.rglob("*"))
     assert before == after == []
     assert all(point["class"] == MISSING for point in report["points"])
+
+
+def test_campaign_attaches_checker_only_when_climb_injection_is_enabled(tmp_path):
+    episode = tmp_path / "episode"
+    episode.mkdir()
+    (episode / "steps.jsonl").write_text("{}\n", encoding="utf-8")
+
+    assert campaign._climb_fault_evidence(episode, enabled=False) is None
+    report = campaign._climb_fault_evidence(episode, enabled=True)
+
+    assert report is not None
+    assert report["checker"] == "onboard-climb-px4-evidence-checker"
+    assert report["read_only"] is True
+    assert report["counts"] == {PX4: 0, ONBOARD: 0, MISSING: 10}
+    assert not any(path.name == "evidence.json" for path in episode.rglob("*"))
+
+
+def test_real_sitl3_evidence_can_render_in_offline_suite_report():
+    evidence = check_climb_fault_evidence(ARTIFACT)
+    mission = {
+        "id": "operator-abort",
+        "world": "gen_cnt2_w0003",
+        "expect": {"skills": ["monitor", "return_home"]},
+        "episodes": 1,
+    }
+    episode = {
+        "world": "gen_cnt2_w0003",
+        "status": "complete",
+        "mission_plan_skills": ["monitor", "return_home"],
+        "climb_fault_evidence": evidence,
+    }
+
+    table = campaign_suite.build_table([mission], {mission["id"]: {"episodes": [episode]}})
+    markdown = campaign_suite.render_markdown(table)
+    assert table["missions"][0]["climb_fault_evidence"]["counts"] == {
+        PX4: 6,
+        ONBOARD: 4,
+        MISSING: 0,
+    }
+    assert "land_now_handoff" in markdown
+    assert "land_mode_switch_ack" in markdown

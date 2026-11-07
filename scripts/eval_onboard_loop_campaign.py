@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance  # noqa: E402
 from scripts.model_round_guard import ensure_free_disk  # noqa: E402
 from scripts.score_onboard_loop import score_episode  # noqa: E402
+from scripts.check_onboard_climb_px4_evidence import check_climb_fault_evidence  # noqa: E402
 
 
 def _episode_metadata(episode: Path) -> dict[str, Any]:
@@ -33,6 +34,23 @@ def _episode_metadata(episode: Path) -> dict[str, Any]:
     except (OSError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _climb_fault_evidence(episode: Path, enabled: bool) -> dict[str, Any] | None:
+    """Attach the read-only evidence classification only to opted-in campaigns."""
+    if not enabled:
+        return None
+    try:
+        return check_climb_fault_evidence(episode)
+    except Exception as exc:  # evidence must never change campaign scoring
+        return {
+            "checker": "onboard-climb-px4-evidence-checker",
+            "read_only": True,
+            "artifact": str(episode.resolve()),
+            "error": f"{type(exc).__name__}: {exc}",
+            "counts": None,
+            "points": [],
+        }
 
 
 def _is_count_task(row: dict[str, Any]) -> bool:
@@ -487,6 +505,12 @@ def main(argv: list[str] | None = None) -> int:
                 task_text=world.get("task_text"),
                 target=world.get("target_combo"),
             )
+            evidence = _climb_fault_evidence(
+                episode,
+                bool(mission_config and mission_config.get("sim_climb_timeout_injection")),
+            )
+            if evidence is not None:
+                scored["climb_fault_evidence"] = evidence
             rows.append(scored)
             print(
                 json.dumps(

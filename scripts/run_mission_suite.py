@@ -320,6 +320,8 @@ def build_table(
                 **{key: episode.get(source) for key, source in METRICS.items()},
                 "step_outcomes": episode.get("mission_step_outcomes"),
             }
+            if "climb_fault_evidence" in episode:
+                row["climb_fault_evidence"] = episode["climb_fault_evidence"]
             if mission.get("variant") or mission.get("variant_label", "base") != "base":
                 row["variant"] = mission.get("variant_label", "base")
             # Keep legacy suite rows byte-for-byte compatible in shape.
@@ -329,19 +331,42 @@ def build_table(
             row["expectations_passed"] = all(row["expectation_checks"].values())
             rows.append(row)
     total = len(rows)
+    evidence_rows = [
+        row["climb_fault_evidence"]
+        for row in rows
+        if isinstance(row.get("climb_fault_evidence"), dict)
+    ]
+    evidence_summary = None
+    if evidence_rows:
+        counts = {
+            key: sum(
+                (evidence.get("counts") or {}).get(key, 0)
+                for evidence in evidence_rows
+                if isinstance(evidence.get("counts"), dict)
+            )
+            for key in (
+                "provable_from_px4_mavlink",
+                "provable_only_from_onboard_logs",
+                "missing",
+            )
+        }
+        evidence_summary = {"episodes": len(evidence_rows), "counts": counts}
     if any("variant" in row for row in rows):
         for row in rows:
             row.setdefault("variant", "base")
+    summary = {
+        "missions": len(missions),
+        "episodes": total,
+        "plan_accuracy": sum(r["plan_match"] for r in rows) / total if total else None,
+        "completion_rate": sum(r["mission_completed"] for r in rows) / total if total else None,
+        "expectation_pass_rate": (
+            sum(r["expectations_passed"] for r in rows) / total if total else None
+        ),
+    }
+    if evidence_summary is not None:
+        summary["climb_fault_evidence"] = evidence_summary
     return {
-        "summary": {
-            "missions": len(missions),
-            "episodes": total,
-            "plan_accuracy": sum(r["plan_match"] for r in rows) / total if total else None,
-            "completion_rate": sum(r["mission_completed"] for r in rows) / total if total else None,
-            "expectation_pass_rate": (
-                sum(r["expectations_passed"] for r in rows) / total if total else None
-            ),
-        },
+        "summary": summary,
         "missions": rows,
     }
 
@@ -432,6 +457,56 @@ def render_markdown(table: dict[str, Any]) -> str:
                 failed,
             ]
             lines.append("| " + " | ".join(_cell(value) for value in values) + " |")
+    climb_rows = [row for row in table["missions"] if "climb_fault_evidence" in row]
+    if climb_rows:
+        lines += [
+            "",
+            "## Climb-fault evidence",
+            "",
+            "分类分别表示 PX4 MAVLink 可证明、仅机载日志可证明或缺失；此项不改变任务预期判定。",
+            "",
+            "| 任务 | Episode | PX4 | 机载日志 | 缺失 | 证据目录 |",
+            "| --- | --- | ---: | ---: | ---: | --- |",
+        ]
+        for row in climb_rows:
+            evidence = row["climb_fault_evidence"]
+            counts = evidence.get("counts") or {}
+            lines.append(
+                "| " + " | ".join(
+                    _cell(value)
+                    for value in (
+                        row["id"],
+                        row["episode"],
+                        counts.get("provable_from_px4_mavlink"),
+                        counts.get("provable_only_from_onboard_logs"),
+                        counts.get("missing"),
+                        evidence.get("artifact"),
+                    )
+                ) + " |"
+            )
+            if evidence.get("error"):
+                lines.append(f"\n证据检查错误：{_cell(evidence['error'])}")
+        lines += [
+            "",
+            "逐项分类：",
+            "",
+            "| 任务 | Episode | 证据点 | 分类 | 详情 |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        for row in climb_rows:
+            for point in row["climb_fault_evidence"].get("points", []):
+                lines.append(
+                    "| " + " | ".join(
+                        _cell(value)
+                        for value in (
+                            row["id"],
+                            row["episode"],
+                            point.get("id"),
+                            point.get("class_label"),
+                            point.get("detail"),
+                        )
+                    ) + " |"
+                )
     if table.get("errors"):
         lines += ["", "运行错误：", ""] + [f"- {_cell(e)}" for e in table["errors"]]
     return "\n".join(lines) + "\n"
