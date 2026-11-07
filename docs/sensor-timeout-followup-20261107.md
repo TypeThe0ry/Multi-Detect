@@ -76,3 +76,13 @@ burst 统计按 episode 窗口计数，不按 trace 行计数；边界写入分�
 
 1. 运行 `.tmp/jobs/38-sensor-stream-trace.sh` 的单槽 `comms-free-count` 采集，检查成功/失败 episode 的 `frame_wait_timeline`、`host_pressure.jsonl`、MAVLink gzip/JSONL 和 `failure_class`；只写新目录 `artifacts/benchmarks/sensor-timeout-followup-20261107-comms-free-count`，完成后把逐事件统计写入 `docs/sensor-timeout-followup-sitl-20261107.md`。
 2. 基于新采集目录与 `/data/projects/Multi-Detect-env/runs/host-trace/20261107.jsonl`，运行 `scripts/analyze_sensor_timeouts.py`，核对 frame stamp/pose 水位/PX4 接收时钟/pressure 覆盖，区分 `no_new_frame_observed`、`frame_timestamp_below_pose_watermark` 与 `px4_clock_and_telemetry_stalled`；不修改 15 秒等待、PX4 timeout、retry 或任务 expected，结果写入 `docs/sensor-timeout-followup-analysis-20261107.md`。
+
+## 2026-11-07 实测回灌：comms-free-count
+
+实际产物：`artifacts/benchmarks/sensor-timeout-followup-20261107-comms-free-count/comms-free-count/campaign/gen_cnt2_w0000/episodes/episode-0000-4470bdb1/`。运行完成且 `episode.json.status=complete`，共 93 步；`mavlink.jsonl` 中 Accel、Gyro、MAG timeout 均为 0，`failure_class`/`error` 为空。与文档原先按历史旧产物等待 timeout 的预测相比，本次没有传感器 timeout 事件，不能从“0”反推故障根因已经消失，只能说明该次有界采集没有触发。
+
+frame wait 记录完整：`frame_wait_timeline` 共 372 行（每步的 started/satisfied 水位记录），0 行带 error，分类只有 `frame_wait_started` 和 `frame_wait_satisfied`；单次 wait 最大约 0.600 s，未接近 15 s 超时。PX4 `time_boot_ms` 从 26.996 s 推进到 309.576 s，相机 frame sensor stamp 从 26.996 s 推进到 309.576 s；93 步中有 3 个上升 primitive，但没有 timeout。由此可确认本次采集同时具备持续的 PX4 telemetry 和 frame 进展。
+
+host-pressure sidecar 有 221 条样本，覆盖 `1794045522.049096`--`1794046622.7180965`；sidecar 统计的 CPU PSI some 平均约 35.70、load1 峰值 131.44。使用 `scripts/analyze_sensor_timeouts.py` 对 `/data/projects/Multi-Detect-env/runs/host-trace/20261107.jsonl` 于 2026-11-07 20:44 (+08:00) 重算得到 1234 个 trace sample、该 episode 覆盖 37 个 trace sample；本次输出的 burst cutoff 为 43.905，episode classified 为 quiet，`burst_vs_quiet` 为 0/0/0/1，Fisher 双侧 `p=1.0`。没有 timeout event，所以没有 event-level trace/pressure 对齐样本；这些压力值只能作为运行环境记录，不能证明或排除历史 timeout 的因果关系。
+
+本次没有发现 `scripts/analyze_sensor_timeouts.py` 的明确缺陷，也没有调整 15 s frame wait、PX4 timeout、retry 或 expected。旧文档中 r9r/28-head 的缺失 sidecar/timeline 限制仍然成立；新 run 只证明采集链能够在无 timeout 的成功 episode 中落盘完整 frame timeline 和 pressure sidecar。
