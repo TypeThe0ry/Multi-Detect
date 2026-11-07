@@ -232,3 +232,5 @@ SF 和 Berlin 的 x500 首次回归均在 `takeoff_reached` 超时，高度约 0
 补齐首轮目检：Grindelwald 的四视角已打开，村落与山坡可辨，但建筑底部与航拍地表错层明显，局部像压在坡上或悬空，树影叠影仍在；新加坡起飞区为草地，森林区几乎只有程序地面，远处孤立建筑和粗高程明显，四相机显存峰值 3223 MiB；深圳起飞草地开阔，高楼轮廓可辨，但地表与屋顶被 Sentinel 低分颜色拉成大片色块，立面为程序近似，四相机显存峰值 3977 MiB。以上只能证明已经渲染并检查，不能判为接近真实世界或达到 2 GiB 预算。
 
 默认 14 站×9 天气共 126 个世界已生成，`.tmp/review/final/world-audit.json` 检查没有 world `<plugin>`/`<include>`、没有网络 URI、本地资源引用存在。模型侧检查见 `resource-audit.json`，当前 14 站引用检查无缺失。该静态检查不证明网格内部贴图、画面或飞行正确。
+
+柏林墙面修复后的 `x500-berlin-padfix` 已完整通过，实测最高 35.49 m，7 帧对齐并降落；飞行中仍记录 `Accel #0 fail: TIMEOUT`，因此该症状不只在 Iowa 出现，尚不能据此定位唯一原因。`plane-farm`（advanced_plane）也已完整通过，最高 40.83 m、7 帧对齐、返航并降落。最终 JSON 摘要在 `.tmp/review/final/flight-results.json`；原始遥测和报告以 `.tmp/flights/<标签>/` 及同名日志为准。
