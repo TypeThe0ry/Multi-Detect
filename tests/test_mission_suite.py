@@ -223,6 +223,51 @@ def test_build_table_maps_metrics_and_missing_episode_is_failure():
     assert missing["summary"]["completion_rate"] == 0.0
 
 
+def test_climb_fault_evidence_flows_into_suite_json_and_markdown():
+    mission = _mission(expect={"skills": ["monitor", "return_home"]})
+    evidence = {
+        "checker": "onboard-climb-px4-evidence-checker",
+        "read_only": True,
+        "artifact": "/evidence/episode-1",
+        "counts": {
+            "provable_from_px4_mavlink": 6,
+            "provable_only_from_onboard_logs": 4,
+            "missing": 0,
+        },
+        "points": [
+            {
+                "id": "two_climb_timeouts_no_altitude_gain",
+                "class": "provable_only_from_onboard_logs",
+                "class_label": "只能由机载日志证明",
+                "detail": "两次 timeout。",
+            }
+        ],
+    }
+    episode = {
+        "world": mission["world"],
+        "status": "complete",
+        "mission_plan_skills": ["monitor", "return_home"],
+        "climb_fault_evidence": evidence,
+    }
+
+    table = suite.build_table([mission], {mission["id"]: {"episodes": [episode]}})
+    row = table["missions"][0]
+    assert row["climb_fault_evidence"] == evidence
+    assert table["summary"]["climb_fault_evidence"] == {
+        "episodes": 1,
+        "counts": {
+            "provable_from_px4_mavlink": 6,
+            "provable_only_from_onboard_logs": 4,
+            "missing": 0,
+        },
+    }
+    markdown = suite.render_markdown(table)
+    assert "Climb-fault evidence" in markdown
+    assert "two_climb_timeouts_no_altitude_gain" in markdown
+    assert "只能由机载日志证明" in markdown
+    assert "此项不改变任务预期判定" in markdown
+
+
 def test_listed_alternative_plan_passes_all_expectations():
     mission = _mission(
         expect={
