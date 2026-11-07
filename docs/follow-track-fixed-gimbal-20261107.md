@@ -90,3 +90,9 @@ suite 校验和相关测试证明：fixed-camera 不被强加 gimbal recording�
 
 1. 在 slow model 可用且 Docker/SITL 资源稳定的主机上，复用 `artifacts/benchmarks/follow-track-fixed-gimbal-20261108/` 对应的四 mission 配置各重跑 1 episode，确保至少进入 `follow` 并生成非空 follow metrics；保留 `steps.jsonl`、report、slot 和 provenance，不修改 expected、follow 阈值、任务预算、`scripts/gazebo_sensor_stream.py` 或 recording contract；将结果追加到 `docs/follow-track-fixed-gimbal-20261107.md`。
 2. 在一次包含非零云台姿态命令的 `x500_gimbal` episode 上，按 `scripts/analyze_mavlink_postflight.py` 与每个 `obs_before/obs_after` 联合审计命令四元数、三轴角度、RGB stamp 和四 rotor 状态，区分真实命令响应与静态抖动；不写入既有 `artifacts/`，不改变采集脚本或阈值；将审计结论写入 `docs/follow-track-fixed-gimbal-20261107.md`。
+
+## 2026-11-08 v2 重跑计划
+
+针对上述 `slow_unavailable` 结果，新增单槽 nightly 重跑 job：`.tmp/jobs/01-follow-track-v2.sh`。job 选择 `--model-set r21idr3-r24plan`，通过 nightly harness 的 `--custom-suite NAME=PATH` 使用运行时生成的 suite，并固定 `.venv-vlm/bin/python`、GPU0、`MULTIDETECT_SITL_SLOTS=1`、`--workers 1`。suite 从该 model-set 的 follow 配置继承慢模型路径以及原始 expected、180 step 预算和 2400 秒 episode 上限；将同一任务映射到两个 world 的 fixed-camera 与 `x500_gimbal`，共四项。第五项复用 nightly gimbal suite 的 postbox inspect 任务，`inspect` 的目标瞄准会请求非零俯仰/偏航姿态，逐步保留 `gimbal_joint_state` 和 `propeller_joint_state`，用于命令响应审计。
+
+新输出目标为 `artifacts/benchmarks/follow-track-fixed-gimbal-20261108-v2/`，本轮只写入 job 和文档，没有启动 SITL，也没有向只读 `artifacts/` 写入任何数据。执行后应先确认第五项的 `steps.jsonl` 中实际发出了有限且非零的 `GIMBAL_DEVICE_SET_ATTITUDE` 四元数，再联合 MAVLink 与 `obs_before/obs_after` 审计 RGB 时间戳、云台三轴和四 rotor；若 mission 没有进入 inspect，则命令响应结论仍为未取得。不得修改 expected、阈值、预算或 recording contract。
