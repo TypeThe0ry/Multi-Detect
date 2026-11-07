@@ -15,10 +15,20 @@ if str(ROOT) not in sys.path:
 from scripts.nightly_trend import _read_json
 from scripts.run_nightly_regression import mission_triage
 
-FAILURE_CLASSES = ("px4_crashed", "clock_stalled_alive", "px4_alive_other_failure",
-                   "vehicle_lost_control", "sensor_stream_stalled",
-                   "climb_failed_suspected_loss_of_control", "none")
-EVENT_FAILURES = FAILURE_CLASSES[3:-1]
+FAILURE_CLASSES = (
+    "px4_crashed",
+    "clock_stalled_alive",
+    "sensor_stream_stalled",
+    "px4_alive_other_failure",
+    "vehicle_lost_control",
+    "climb_failed_suspected_loss_of_control",
+    "none",
+)
+EVENT_FAILURES = (
+    "vehicle_lost_control",
+    "sensor_stream_stalled",
+    "climb_failed_suspected_loss_of_control",
+)
 
 
 def _number(value: Any) -> float | int | None:

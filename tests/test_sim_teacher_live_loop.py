@@ -249,6 +249,21 @@ def test_pose_sim_stamp_helper_converts_px4_boot_time() -> None:
     assert collector._pose_sim_stamp_ns(state) == 7_160_000_000
 
 
+def test_achieved_delta_uses_primitive_pose_displacement_from_crash_evidence() -> None:
+    collector = _collector_module()
+    before = [-0.6, 0.0, -18.62]
+    after = [-0.5, 0.1, 0.76]
+    assert collector._achieved_delta_ned(before, after) == pytest.approx([0.1, 0.1, 19.38])
+
+    # The reported delta is local to the adjacent pose pair; it cannot inherit
+    # the executor's cumulative 15 m setpoint drift after the aircraft stops.
+    near_ground_before = [-0.5, 0.1, 0.76]
+    near_ground_after = [-0.4, 0.1, 0.70]
+    assert collector._achieved_delta_ned(near_ground_before, near_ground_after) == pytest.approx(
+        [0.1, 0.0, -0.06]
+    )
+
+
 def test_simulation_stamp_skew_helper() -> None:
     assert simulation_stamp_skew_ms(7_160_000_000, 7_000) == 160.0
     assert simulation_stamp_skew_ms(7_160_000_000, None) is None
