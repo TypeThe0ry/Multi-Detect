@@ -152,3 +152,65 @@ v4 作业在生成单任务 suite 时将这两个 supervisor 期望改为 `land_
 LAND 执行链由 PX4 MAVLink 记录确认：collector 在 land 阶段发出的 `MAV_CMD_DO_SET_MODE`（command 176）得到 PX4 `COMMAND_ACK result=0`；随后 heartbeat `custom_mode=100925440`、`base_mode=157`，并有 `EXTENDED_SYS_STATE.landed_state=4`，确认已进入 LAND 模式。之后出现 fresh `landed_state=1`，heartbeat 保持 armed 的 base_mode 157；再后 heartbeat 为 `base_mode=17`、`custom_mode=393216` 且 `landed_state=1`，证明已 disarm。PX4 `STATUSTEXT` 还记录 `Landing detected` 和 `Disarmed by landing`。因此 LAND 模式切换 ACK、LAND 模式、fresh landed_state=1、disarm 均通过 PX4 证据。`land_waiting` 的 harness 摘要与 `cleanup removed=true` 仅作辅助，不作为这些判定的来源。
 
 结论：v3 的低空前置条件、PX4 时钟推进及 LAND 收尾均通过；onboard 证据记录两次 timeout、保护失败事件/告警、`land_now` handoff，且没有第三步 climb。退出码 1 是两个 supervisor expectation 不匹配造成的 harness false negative。没有修改 LAND 优先级、阈值、vehicle-loss 规则或安全断言，也没有写入共享 `artifacts/`。
+
+## v4 超时复核（2026-11-08）
+
+### 运行边界与证据
+
+v4 的链路记录为：
+
+```text
+start 2026-11-08T03:27:00+08:00
+exit 124 2026-11-08T04:12:00+08:00
+```
+
+只读目录 `/data/projects/Multi-Detect-env/runs/src-followup2/.tmp/jobs/climb-fault-sitl4-2548086/` 的有效文件只有：
+
+| 证据 | 结果 |
+| --- | --- |
+| `suite.json` | 已生成；只包含一个 `operator-abort` mission |
+| `operator-abort/onboard.json` | 03:27:02 生成；是 suite 配置快照，不是 episode |
+| `job.log` | 0 字节 |
+| `operator-abort/campaign/` | 不存在 |
+| `episode.json`、`steps.jsonl`、`mavlink.jsonl`、mission log、PX4 ULog | 均不存在 |
+
+`run_mission_suite.py` 在写出 `operator-abort/onboard.json` 后才调用 `SitlLock.acquire()`，拿到 SITL 租约后才启动 `eval_onboard_loop_campaign.py`。因此从 03:27:02 到 04:12:00 的约 2698 秒全部发生在 suite 调度/锁等待阶段；v4 没有进入 container、PX4 heartbeat、pre-arm、下降、onboard mission 或 teardown。现有证据不能把这 45 分钟归因给 RTF、模型推理或 PX4 LAND。
+
+作业脚本把 `MULTIDETECT_SITL_SLOTS=1` 固定为单槽位。该设置要求无后缀的全局锁；当其他作业占用全局锁或多槽位租约时，v4 不会使用可用的 `.slot-N` 租约，只能继续等待。v4 的 124 是外层 `timeout --signal=TERM --kill-after=120s 2700s` 在这段等待上触发的。由于没有 collector 启动，不能从 v4 证明或否定保护行为。
+
+### 与 v3 的阶段基线
+
+v3 episode 证据目录为 `artifacts/benchmarks/onboard-climb-fault-sitl3-20261107T172724Z-1332460/`。`episode.json` 的 wall 时间是 2026-11-07 17:52:47--17:59:15 UTC（约 6 分 28 秒）；suite 配置在 17:27:26 UTC 已生成，前置约 25 分钟属于 onboard policy/model 初始化，不是 PX4 飞行阶段。campaign log 的阶段时间如下，均为同一 collector 的 monotonic 记录：
+
+| 阶段 | 观测耗时 | 证据 |
+| --- | ---: | --- |
+| container 启动到 `px4_ready` | 16.2 s | `campaign/gen_cnt2_w0003.log` |
+| heartbeat/EKF/sensor/pre-arm | 约 73.2 s；其中 pre-arm health 最终在 89.5 s 时通过 | 同上，`prearm_health*` |
+| arm、OFFBOARD、18.8 m 起飞 | 48.9 s | `arm_ack` 到 `takeoff_reached` |
+| 1.5 m 前置下降 | 47.9 s | `sim_pre_abort_descent_started` 到 `..._reached` |
+| mission loop | 168.4 s | 首个 `onboard_step` 到 `policy_stop`；包含 hold 和两个 20 s climb timeout |
+| LAND/teardown | 约 31 s | `land`、`land_waiting`、`cleanup` |
+
+v3 的保护证据仍与此前审计一致：`steps.jsonl` 有一个 hold 成功和两个 `return_home up` timeout，没有第三个 climb；onboard mission log 有 `climb_failed_suspected_loss_of_control`、`recovery:...` 和 `land_now`；PX4 MAVLink 有 command 176 `COMMAND_ACK result=0`、LAND mode、fresh `landed_state=1` 及后续 disarm。v4 没有任何对应文件，所以只能复用 v3 作为代码/场景基线，不能把 v3 的 PX4 结果移植成 v4 live 结果。
+
+### 超时判断与修复
+
+本次不是“RTF 0.1--0.2 下 45 分钟不足以完成 v3 mission”的证据。v3 的实际 episode 飞行阶段约 6 分 28 秒，前置模型初始化约 25 分钟；v4 的 45 分钟则全部耗在 SITL 锁等待。若要继续运行同一类作业，外层 wall timeout 应至少取 `3600 s`：它覆盖 v3 已观测的约 25 分钟模型初始化、约 7 分钟 episode/teardown，并保留约 8 分钟排队余量。更关键的是，作业应继承并使用主机的多槽位配置（当前链路使用 3 槽位时设为 `MULTIDETECT_SITL_SLOTS=3`），不能固定为 1 槽位；本次不改只读的 `/data/projects/Multi-Detect-env/runs/src-followup2/.tmp/jobs/44-climb-fault-sitl4.sh`。
+
+已修复的仓库 harness 缺陷是锁等待无任何进度输出：`scripts/sitl_lock.py` 现在在 legacy lock、队列、槽位竞争或前置条件等待时向 stderr 输出节流后的 `sitl_lock_waiting` JSON 事件，包含等待原因、槽位数、队列路径、次数和累计时间。这样外层 job log 能区分 slot wait 与 collector 阶段；`tests/test_sitl_lock.py` 覆盖 legacy lock 等待事件。该修复不改变租约、公平队列、超时、LAND 或安全阈值语义。
+
+### PX4 evidence checker 状态
+
+请求中的 `docs/onboard-climb-px4-evidence-checker-20261108.md` 在当前 HEAD 不存在；`wt/cx-climb-px4-evidence-checker` 也与当前 HEAD 同指，未发现已合并的 checker 脚本或文档。因此本次没有调用未合并的 checker；v3 的 PX4 判定继续按 `mavlink.jsonl` 原始字段和前述证据边界审计，v4 判定为“未启动、live protection 未观察”。
+
+## v4 验证
+
+运行环境为 `.venv`，设置 `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp`，单进程：
+
+```text
+python -m pytest tests/test_sitl_lock.py tests/test_climb_fault_sitl4_job.py \
+  -q -p no:xdist -o addopts=''
+16 passed in 1.95s
+```
+
+未启动新的 SITL、Docker、GPU、模型服务或训练；未写入共享 `artifacts/`；未修改外部只读作业脚本。v4 live protection 仍是未观察状态，下一次运行必须先解决槽位配置/排队问题并保留新的阶段日志。

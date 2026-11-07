@@ -8,11 +8,13 @@ same two-minute grace period used by the legacy shell lock.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -155,6 +157,8 @@ class SitlLock:
         self._ticket: Path | None = None
         self._heartbeat_stop: threading.Event | None = None
         self._heartbeat_thread: threading.Thread | None = None
+        self._wait_started: float | None = None
+        self._wait_count = 0
 
     @property
     def _queue_path(self) -> Path:
@@ -278,6 +282,32 @@ class SitlLock:
             memory_required = self.min_memory_gb
         return containers == () and self.memory_fn() >= memory_required
 
+    def _wait_for_retry(self, reason: str) -> None:
+        """Report bounded lock waits so an outer job timeout remains diagnosable."""
+        if self._wait_started is None:
+            self._wait_started = time.monotonic()
+        self._wait_count += 1
+        if self._wait_count == 1 or self._wait_count % 10 == 0:
+            print(
+                json.dumps(
+                    {
+                        "event": "sitl_lock_waiting",
+                        "reason": reason,
+                        "lock": str(self.root_path),
+                        "slots": self.slots,
+                        "requested_slot": self.slot,
+                        "queue": str(self._queue_path),
+                        "wait_count": self._wait_count,
+                        "elapsed_s": round(time.monotonic() - self._wait_started, 3),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+        time.sleep(self.retry_s)
+
     def acquire(self, wait: bool = True) -> None:
         if self.acquired:
             return
@@ -299,7 +329,7 @@ class SitlLock:
                 if not wait:
                     self._ticket.unlink(missing_ok=True)
                     raise RuntimeError(f"legacy SITL lock busy: {self.root_path}")
-                time.sleep(self.retry_s)
+                self._wait_for_retry("legacy_lock_busy")
                 continue
             candidates = (self.slot,) if self.slot is not None else range(self.slots)
             free_count = sum(
@@ -310,7 +340,7 @@ class SitlLock:
                 if not wait:
                     self._ticket.unlink(missing_ok=True)
                     raise RuntimeError(f"SITL slots busy: {self.root_path}")
-                time.sleep(self.retry_s)
+                self._wait_for_retry("queue_wait")
                 continue
             acquired_path = None
             for slot in candidates:
@@ -332,7 +362,7 @@ class SitlLock:
             if acquired_path is None:
                 if not wait:
                     raise RuntimeError(f"SITL slots busy: {self.root_path}")
-                time.sleep(self.retry_s)
+                self._wait_for_retry("slot_race")
                 continue
             alive, start = _process_snapshot(os.getpid())
             start = start if alive and start is not None else time.time()
@@ -355,7 +385,7 @@ class SitlLock:
                 if not wait:
                     self.release()
                     raise RuntimeError("SITL prerequisites are busy or memory is below threshold")
-                time.sleep(self.retry_s)
+                self._wait_for_retry("prerequisites_busy")
             return
 
     def release(self) -> None:
