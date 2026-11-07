@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 import warnings
 import xml.etree.ElementTree as ET
@@ -20,9 +21,16 @@ import trimesh
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
-RESOLVED = ROOT / "artifacts/cache/gz-fuel/resolved"
+RESOLVED = Path(os.environ.get(
+    "RW_RESOLVED_ROOT",
+    os.environ.get("RW_MODEL_ROOT", os.environ.get("REALWORLD_OUTPUT_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved")),
+))
 CATALOG = {a["slug"]: a for a in json.loads((ROOT / "configs/sim-assets/fuel-catalog.json").read_text())["assets"]}
+LIBRARY = Path(json.loads((ROOT / "configs/sim-assets/realworld-library.json").read_text())["asset_root"])
+ASSET_SETS = json.loads((ROOT / "configs/sim-assets/realworld-asset-sets.json").read_text()) if (ROOT / "configs/sim-assets/realworld-asset-sets.json").exists() else {"assets": []}
+ASSET_BY_SLUG = {a["slug"]: a for a in ASSET_SETS.get("assets", [])}
 GRID_M = 500.0
+MAX_PROP_TRIANGLES = 4_000_000
 
 warnings.filterwarnings("ignore")
 
@@ -120,8 +128,47 @@ def _obj_parts(path: Path, model_dir: Path) -> list[dict]:
     return parts
 
 
+def _gltf_parts(path: Path) -> list[dict]:
+    scene = trimesh.load(str(path), force="scene", skip_materials=False)
+    parts = []
+    for node in scene.graph.nodes_geometry:
+        tf, gname = scene.graph[node]
+        g = scene.geometry[gname]
+        uv = getattr(g.visual, "uv", None)
+        uv = np.zeros((len(g.vertices), 2)) if uv is None else np.asarray(uv)
+        material = getattr(g.visual, "material", None)
+        image = getattr(material, "baseColorTexture", None) if material is not None else None
+        alpha = getattr(material, "alphaMode", "") in {"BLEND", "MASK"} if material is not None else False
+        tex = None
+        if image is not None:
+            tex_dir = Path(os.environ.get("TMPDIR", "/tmp")) / "realworld-gltf-textures"
+            tex_dir.mkdir(parents=True, exist_ok=True)
+            tex = tex_dir / f"{path.parent.name}_{gname}.png"
+            image.save(tex)
+        faces = np.asarray(g.faces, dtype=np.int64)
+        v = (tf @ np.c_[g.vertices, np.ones(len(g.vertices))].T).T[:, :3]
+        parts.append({"v": v[faces.reshape(-1)], "uv": uv[faces.reshape(-1), :2], "tex": tex, "color": None, "alpha": alpha})
+    return parts
+
+
+def _model_dir(slug: str) -> Path | None:
+    for base in (RESOLVED, LIBRARY / "fuel" / "models"):
+        candidate = base / slug
+        if (candidate / "model.sdf").is_file():
+            return candidate
+    return None
+
+
 def load_parts(slug: str) -> list[dict]:
-    model_dir = RESOLVED / slug
+    model_dir = _model_dir(slug)
+    if model_dir is None:
+        model_dir = LIBRARY / "polyhaven" / "models" / slug
+        gltfs = list(model_dir.glob("*.gltf")) + list(model_dir.glob("*.glb"))
+        if not gltfs:
+            raise FileNotFoundError(f"no local model files for asset {slug}")
+        parts = _gltf_parts(gltfs[0])
+        _normalize_parts(parts, slug)
+        return parts
     root = ET.fromstring((model_dir / "model.sdf").read_text(encoding="utf-8-sig").lstrip())
     visuals = list(root.iter("visual"))
     out: list[dict] = []
@@ -159,23 +206,62 @@ def load_parts(slug: str) -> list[dict]:
                     p["tex"] = found
             out.append(p)
     # Unit handling differs between loaders. The catalogue holds what Gazebo really renders.
-    cat = CATALOG.get(slug)
-    if cat and out:
-        allv = np.vstack([p["v"] for p in out])
-        lo, hi = allv.min(0), allv.max(0)
-        size = hi - lo
-        k = cat["measured_size_m"][2] / max(size[2], 1e-6)
-        target_lo = np.array(cat["bbox_min_m"])
-        for p in out:
-            p["v"] = (p["v"] - lo) * k + target_lo
+    _normalize_parts(out, slug)
     return out
+
+
+def _normalize_parts(parts: list[dict], slug: str) -> None:
+    if not parts:
+        return
+    allv = np.vstack([p["v"] for p in parts])
+    lo, hi = allv.min(0), allv.max(0)
+    measured = ASSET_BY_SLUG.get(slug, {}).get("size_m")
+    cat = CATALOG.get(slug)
+    if measured:
+        target = np.asarray(measured, dtype=float)
+        scale = float(np.median(target / np.maximum(hi - lo, 1e-6)))
+    elif cat:
+        target = np.asarray(cat["measured_size_m"], dtype=float)
+        scale = float(np.median(target / np.maximum(hi - lo, 1e-6)))
+    else:
+        scale = 1.0
+    category = ASSET_BY_SLUG.get(slug, {}).get("category", "")
+    budget = 1000 if category in {"broadleaf_tree", "conifer"} else 3000 if category == "rock" else 2500 if category in {"shrub", "grass"} else 12000
+    total = sum(len(part["v"]) // 3 for part in parts)
+    if total > budget:
+        alpha_parts = [i for i, part in enumerate(parts) if part.get("alpha")]
+        alpha_total = sum(len(parts[i]["v"]) // 3 for i in alpha_parts)
+        opaque_total = sum(len(part["v"]) // 3 for i, part in enumerate(parts) if i not in alpha_parts)
+        alpha_budget = min(max(100, budget * 3 // 4), alpha_total)
+        opaque_budget = max(100, budget - alpha_budget)
+        for i, part in enumerate(parts):
+            tri = len(part["v"]) // 3
+            target = (max(1, int(alpha_budget * tri / max(alpha_total, 1))) if i in alpha_parts
+                      else max(4, int(opaque_budget * tri / max(opaque_total, 1))))
+            if tri <= target:
+                continue
+            vertices = part["v"].reshape(-1, 3)
+            uv = part["uv"].reshape(-1, 2)
+            if part.get("alpha"):
+                keep = np.sort(np.random.default_rng(sum(map(ord, slug)) + i).choice(tri, target, replace=False))
+                part["v"] = vertices.reshape(-1, 3, 3)[keep].reshape(-1, 3) * 1.04
+                part["uv"] = uv.reshape(-1, 3, 2)[keep].reshape(-1, 2)
+                continue
+            keep = np.linspace(0, tri - 1, target, dtype=np.int64)
+            part["v"] = vertices.reshape(-1, 3, 3)[keep].reshape(-1, 3)
+            part["uv"] = uv.reshape(-1, 3, 2)[keep].reshape(-1, 2)
+    for part in parts:
+        part["v"] = (part["v"] - lo) * scale
 
 
 def copy_texture(src: Path, dst: Path) -> None:
     """Bleed colour into transparent texels: mipmaps otherwise fade leaf cards toward white."""
     im = Image.open(src)
     if im.mode not in {"RGBA", "LA"}:
-        shutil.copy(src, dst)
+        im = im.convert("RGB")
+        if max(im.size) > 768:
+            im.thumbnail((768, 768), Image.Resampling.LANCZOS)
+        im.save(dst, quality=90)
         return
     a = np.asarray(im.convert("RGBA"), np.float32)
     mask = a[..., 3] > 128
@@ -184,7 +270,10 @@ def copy_texture(src: Path, dst: Path) -> None:
         return
     _, (iy, ix) = ndi.distance_transform_edt(~mask, return_indices=True)
     a[..., :3] = a[iy, ix, :3]
-    Image.fromarray(a.astype(np.uint8), "RGBA").save(dst)
+    im = Image.fromarray(a.astype(np.uint8), "RGBA")
+    if max(im.size) > 768:
+        im.thumbnail((768, 768), Image.Resampling.LANCZOS)
+    im.save(dst)
 
 
 class Merger:
@@ -192,11 +281,20 @@ class Merger:
         self.site, self.out = site, out
         self.groups: dict[tuple, dict] = {}
         self.parts: dict[str, list[dict]] = {}
+        self.stats: dict[str, dict[str, int]] = {}
+        self.triangle_count = 0
 
     def add(self, slug: str, x, y, z, yaw, scale=1.0) -> None:
         if slug not in self.parts:
             self.parts[slug] = load_parts(slug)
             print("loaded", slug, [(len(p["v"]) // 3, p["tex"].name if p["tex"] else p["color"]) for p in self.parts[slug]], flush=True)
+        model_triangles = sum(len(p["v"]) // 3 for p in self.parts[slug])
+        if self.triangle_count + model_triangles > MAX_PROP_TRIANGLES:
+            return
+        self.stats.setdefault(slug, {"instances": 0, "triangles": 0})
+        self.stats[slug]["instances"] += 1
+        self.stats[slug]["triangles"] += model_triangles
+        self.triangle_count += model_triangles
         c, s = math.cos(yaw), math.sin(yaw)
         rot = np.array([[c, -s], [s, c]])
         cell = (int(x // GRID_M), int(y // GRID_M))
@@ -223,10 +321,18 @@ class Merger:
                     dst = f"inst_{slug}_{i}{p['tex'].suffix.lower()}"
                     copy_texture(p["tex"], self.out / "textures" / dst)
                     tex_done[p["tex"]] = dst
-                mat = (f"<material><diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><double_sided>true</double_sided><pbr><metal>"
+                alpha = "<transparency>0.55</transparency>" if p.get("alpha") else ""
+                mat = (f"<material><diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><double_sided>true</double_sided>{alpha}<pbr><metal>"
                        f"<albedo_map>model://{self.site}/textures/{tex_done[p['tex']]}</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>")
             else:
                 col = p["color"] or (0.5, 0.5, 0.5)
                 mat = f"<material><diffuse>{col[0]:.3f} {col[1]:.3f} {col[2]:.3f} 1</diffuse><specular>0.1 0.1 0.1 1</specular><double_sided>true</double_sided></material>"
             xml.append(f'<visual name="{name}"><cast_shadows>true</cast_shadows><geometry><mesh><uri>model://{self.site}/meshes/{name}.obj</uri></mesh></geometry>{mat}</visual>')
         return xml
+
+
+def has_local_model(slug: str) -> bool:
+    if _model_dir(slug) is not None:
+        return True
+    model_dir = LIBRARY / "polyhaven" / "models" / slug
+    return bool(list(model_dir.glob("*.gltf")) + list(model_dir.glob("*.glb")))

@@ -1,6 +1,6 @@
 # 真实地点仿真场景
 
-用公开数据重建 6 个真实地点，生成可直接跑 PX4 SITL 的 Gazebo 世界。不改动现有世界和回归。
+用公开数据重建真实地点，生成可直接跑 PX4 SITL 的 Gazebo 世界。不改动现有世界和回归。美国地点继续默认使用美国数据源；新增地点可在配置中显式设置 `provider`。
 
 ## 世界
 
@@ -14,17 +14,20 @@
 | `rw_mountain_boulder` | 科罗拉多博尔德 | 3 km | 山坡、针叶林、住宅 |
 | `rw_coast_santacruz` | 加州圣克鲁斯 | 3 km | 海岸、港口、沙滩 |
 | `rw_port_oakland` | 奥克兰港 | 3 km | 货柜场、仓库、铁路 |
+| `rw_city_zurich` | 苏黎世老城与湖滨 | 2 km | swisstopo 10 cm 正射、0.5 m DEM |
+| `rw_alpine_grindelwald` | 格林德瓦山村 | 2 km | swisstopo 10 cm 正射、0.5 m DEM |
+| `rw_port_rotterdam` | 鹿特丹港区 | 2 km | PDOK 航拍、AHN DTM、3D BAG 建筑高度 |
+| `rw_canal_amsterdam` | 阿姆斯特丹运河区 | 2 km | PDOK 航拍、AHN DTM、3D BAG 建筑高度 |
 
 天气（天空是 Poly Haven HDRI 贴的无光照穹顶，因为 Gazebo 忽略 `cubemap_uri`）：`clear_noon`、`partly_cloudy`、`morning`、`evening`、`overcast`、`rain`、`dusk`、`night`、`windy`。
 
 ## 场景里有什么
 
-- 地形：USGS 3DEP 2 m DEM，起飞点 25 m 内压平。视觉网格 4 m，碰撞网格 8 m，所以起飞点外的视觉和碰撞高度会差一点。
-- 地面贴图：NAIP 航拍，每块 1 km 用 4096 px（源分辨率 0.6 m，部分州更低）。起飞点 ±300 m 内用 8192 px，叠加 CC0 细节纹理。解码贴图含 mipmap 的估算预算约 3 GiB；生成统计会打印估算用量，不改变 8192/4096 px 分辨率。
-- 建筑：OSM 轮廓和高度，缺高度时按类型估计。屋顶内面贴航拍，平屋顶的女儿墙和按面积布置的空调箱/水箱单独着色；住宅是人字顶，外墙贴图按真实层高绘制。
-- 道路：OSM 路网贴在地形上，路面颜色按航拍路域像素中位数匹配，带车道线和斑马线。人行道沿用航拍。
-- 水面：OSM 水域上覆盖带法线贴图的暗青材质，SDF 透明度为 0.55，以透出近岸航拍颜色；Gazebo 实际透明混合仍需渲染目视确认。
-- 树：从航拍 NDVI 和粗糙度找树冠位置，每个地点最多约 2500 棵，真实位置但树种是近似的。
+- 地形：美国地点使用 USGS 3DEP 2 m；瑞士使用 swissALTI3D 0.5 m；荷兰使用 AHN4 DTM 0.5 m。起飞点 25 m 内压平。视觉网格 4 m，碰撞网格 8 m；DEM 采样按实际网格间距读取。
+- 地面贴图：每块 1 km 用 4096 px，起飞点 ±300 m 内优先使用 8192 px `core.png`，没有 `core.png` 时从图块拼接；美国 NAIP 约 0.6 m，SWISSIMAGE 10 cm，荷兰 HR 航拍约 5–8 cm，Sentinel-2 约 10 m。解码贴图含 mipmap 的估算预算约 3 GiB，生成统计会打印估算用量。
+- 建筑：OSM 轮廓和高度，荷兰有 3D BAG 高度时优先使用；缺高度时按类型估计。屋顶贴航拍，平屋顶带女儿墙和按面积布置的空调箱/水箱，住宅是人字顶，外墙贴图按真实层高绘制。
+- 道路：OSM 路网贴在地形上，路面颜色按航拍路域像素中位数匹配，带车道线和斑马线；人行道沿用航拍。桥按 OSM 层级抬高，水面覆盖带法线贴图的暗青材质并以 0.55 透明度透出近岸颜色。
+- 树：有 NIR 时从航拍 NDVI 和粗糙度找树冠；RGB-only 自动使用 VARI/ExG 和粗糙度。每个地点最多约 2500 棵，真实位置但树种是近似的；重复植被和道具合并进网格，模型/贴图/三角形预算写入 `scene.json`。
 - 街道设施：路灯、停车标志、消防栓、邮筒、电线杆，优先用 OSM 位置，其余沿路摆放。住宅区每户路边一个邮箱。
 - 动态物体：沿真实道路行驶的车和行走的行人（actor，不占物理计算）。
 - 标签：起飞点附近的车、人、邮箱等约 100 个是独立模型，带分割 label；其余合并进地形模型，否则 RTF 会掉到 0.16。
@@ -37,11 +40,11 @@
 - 货柜位置只按航拍里的货场区域估计，不是逐个对应。
 - 大世界加载到第一帧要 40~60 秒，跑采集和飞行要设 `MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=240`。
 - `sim_teacher` 的障碍物读取只认 `bounds` 盒子，看不到合并进地形的建筑；建筑范围在 `scene.json` 的 `footprints`。
-- 高分辨率免费航拍只覆盖美国，其他国家见下面的付费清单。
+- `global` 使用 Sentinel-2 L2A（约 10 m）和 Copernicus DEM GLO-30；仅适合宏观环境，贴近地面无法辨认车辆、行人或小型设施。按云量挑选单景，不保证无云拼接。
 
 ## 重新生成
 
-大文件不进 git。原始数据和资源库在 `/data/datasets/multidetect-sim-assets/`，模型输出在 `artifacts/cache/gz-fuel/resolved/rw_*`，每个地点约 0.9 GB。
+大文件不进 git。原始数据和资源库在 `/data/datasets/multidetect-sim-assets/`，默认模型输出在 `artifacts/cache/gz-fuel/resolved/rw_*`，每个地点约 0.9 GB。只做离线构建验证时，可设置 `RW_RESOLVED_ROOT=$PWD/.tmp/realworld-models RW_SCENE_ROOT=$PWD/.tmp/realworld-scenes`；兼容旧脚本的 `RW_MODEL_ROOT` 和 `REALWORLD_OUTPUT_ROOT` 也可用。
 
 ```bash
 PY=/data/datasets/multidetect-sim-assets/tools/venv/bin/python
@@ -55,7 +58,7 @@ $PY scripts/realworld/build_scene.py rw_suburb_davis
 $PY scripts/realworld/make_world.py rw_suburb_davis
 ```
 
-新增地点时在 `configs/sim-assets/realworld-sites.json` 加一条。检查和飞行：
+新增地点时在 `configs/sim-assets/realworld-sites.json` 加一条；`provider` 可选 `us`、`swiss`、`nl`、`global`，省略时仍走美国流程。来源 URL、产品年份、分辨率、许可证和署名记录在每个 raw 目录的 `provenance.json`。检查和飞行：
 
 ```bash
 $PY scripts/realworld/verify_prop_spin.py
@@ -70,6 +73,11 @@ $PY scripts/realworld/shoot_scene.py simulation/gazebo/worlds/rw_suburb_davis__c
 |---|---|---|
 | 地形 | USGS 3DEP | 公有领域 |
 | 航拍 | USDA NAIP（Microsoft Planetary Computer 镜像） | 公有领域 |
+| 瑞士地形/航拍 | swisstopo swissALTI3D / SWISSIMAGE STAC | swisstopo Open Government Data 条款；署名 © swisstopo。当前 STAC collection `license` 字段仍标为 proprietary，使用时需保留署名并核对产品条款 |
+| 荷兰地形 | PDOK AHN4 DTM | CC0-1.0；2020–2022 测绘 |
+| 荷兰航拍 | PDOK Luchtfoto `Actueel_orthoHR` | CC BY 4.0；注明 Beeldmateriaal Nederland / Kadaster |
+| 荷兰建筑高度 | 3D BAG `pand` | CC BY 4.0；署名 © 3DBAG by tudelft3d and 3DGI；产品版本 2023-10-08 |
+| 全球影像/地形 | Sentinel-2 L2A / Copernicus DEM GLO-30（Microsoft Planetary Computer STAC） | Copernicus free and open data；所选影像日期和云量应写入 provenance |
 | 建筑、道路、设施位置 | OpenStreetMap，经 Overpass | ODbL，需署名 © OpenStreetMap contributors，公开发布衍生数据库要同样授权 |
 | 模型 | Gazebo Fuel | CC0 或 CC BY 4.0，需署名，逐项见清单 |
 | 贴图 | ambientCG | CC0 |
@@ -77,11 +85,13 @@ $PY scripts/realworld/shoot_scene.py simulation/gazebo/worlds/rw_suburb_davis__c
 
 每项下载的 URL、许可证和 SHA-256 在 `configs/sim-assets/realworld-library.json`。Fuel 只保留了可再使用的许可证，排除了 NC 和 ND。
 
+道具白名单见 `configs/sim-assets/realworld-asset-sets.json`。未列入白名单的商品扫描、玩具、鞋、明显品牌车辆和影视版权物不会被实例化。Poly Haven 的 CC0 模型支持 glTF/glb 读取；高复杂度网格按类别预算抽样，透明叶片保留透明材质并抽稀，贴图最长边缩至 768 px。树目标约 1000 三角形，所有道具合计上限 4,000,000 三角形；`scene.json` 分开记录地形贴图预算和道具贴图字节数。模型处理依赖 realworld 工具 venv 中的 `trimesh`、`pycollada` 等库；没有登录或注册第三方资源站点。
+
 ## 付费资源（未购买，价格是 2026-11 查到的公开报价，下单前需向厂商确认）
 
 | 资源 | 价格 | 用途和注意 |
 |---|---|---|
-| 30~49 cm 卫星影像（SkyWatch） | 存档 $19/km²，新拍 $29/km²，最小 1 km² | 美国以外的地点。一个 2 km 场景约 $76 |
+| 30~49 cm 卫星影像（SkyWatch） | 存档 $19/km²，新拍 $29/km²，最小 1 km² | 高分辨率公开源未覆盖的地区。一个 2 km 场景约 $76 |
 | Vantor（原 Maxar）30 cm | 经销商报价，存档约 $22~55/km²，常见最小 25 km² | 同上，25 km² 约 $550~1400 |
 | Cesium ion Commercial | $149/月（个人），$524/月（团队） | 3D Tiles 托管和处理 |
 | Google Photorealistic 3D Tiles | 论坛报告约 $6/千次根请求，未核实 | 不建议：论坛称条款禁止缓存、离线和训练机器学习，需核对原条款 |

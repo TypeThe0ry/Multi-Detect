@@ -29,14 +29,17 @@ from shapely.strtree import STRtree
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from instancing import Merger  # noqa: E402
+from instancing import ASSET_BY_SLUG, Merger, has_local_model  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CFG = json.loads((ROOT / "configs/sim-assets/realworld-sites.json").read_text())
 ASSET_ROOT = Path(CFG["asset_root"])
 SCENE_ROOT = Path(os.environ.get("RW_SCENE_ROOT", ASSET_ROOT))
 LIB = ASSET_ROOT / "library"
-RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
+RESOLVED = Path(os.environ.get(
+    "RW_RESOLVED_ROOT",
+    os.environ.get("RW_MODEL_ROOT", os.environ.get("REALWORLD_OUTPUT_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved")),
+))
 DEM_RES = 2.0
 TILE_M = 1000
 PAD_R = 25.0
@@ -56,10 +59,11 @@ class Terrain:
     def __init__(self, site: dict, raw: Path) -> None:
         self.half = site["size_m"] / 2
         self.dem = np.load(raw / "dem.npy").astype(np.float64)
-        self.dem[~np.isfinite(self.dem) | (self.dem < -500)] = 0.0
+        self.dem[~np.isfinite(self.dem) | (self.dem < -500) | (self.dem > 1e6)] = 0.0
         self.elev0 = float(self.dem[self.dem.shape[0] // 2, self.dem.shape[1] // 2])
         self.h = self.dem - self.elev0
         n = self.h.shape[0]
+        self.res = 2 * self.half / max(n - 1, 1)
         ax = np.linspace(-self.half, self.half, n)
         xx, yy = np.meshgrid(ax, ax)
         r = np.hypot(xx, yy)
@@ -72,8 +76,8 @@ class Terrain:
         x = np.asarray(x, float)
         y = np.asarray(y, float)
         scalar = x.ndim == 0
-        c = np.atleast_1d(x + self.half) / DEM_RES
-        r = np.atleast_1d(y + self.half) / DEM_RES
+        c = np.atleast_1d(x + self.half) / self.res
+        r = np.atleast_1d(y + self.half) / self.res
         out = ndi.map_coordinates(self.h, [r, c], order=1, mode="nearest")
         return float(out[0]) if scalar else out
 
@@ -162,6 +166,37 @@ class Osm:
                     if p.contains(h.representative_point()):
                         p = p.difference(h)
                 self.rel_polys.append({"id": r["id"], "poly": p, "tags": tags})
+
+
+def apply_3dbag_heights(osm: Osm, raw: Path) -> int:
+    path = raw / "3dbag.json"
+    if not path.exists():
+        return 0
+    data = json.loads(path.read_text())
+    heights = {}
+    for feature in data.get("features", []):
+        for object_id, obj in feature.get("CityObjects", {}).items():
+            attrs = obj.get("attributes", {})
+            roof, ground = attrs.get("b3_h_nok"), attrs.get("b3_h_maaiveld")
+            if roof is None or ground is None:
+                continue
+            height = max(1.0, float(roof) - float(ground))
+            ident = str(attrs.get("identificatie") or object_id).split(".")[-1]
+            heights[ident] = height
+            heights["".join(c for c in ident if c.isdigit())] = height
+
+    added = 0
+    for building in [*osm.ways, *osm.rel_polys]:
+        tags = building["tags"]
+        if tags.get("height") or tags.get("building:height"):
+            continue
+        ref = str(tags.get("ref:bag", ""))
+        key = ref.split(".")[-1]
+        height = heights.get(key) or heights.get("".join(c for c in key if c.isdigit()))
+        if height:
+            tags["height"] = f"{height:.2f}"
+            added += 1
+    return added
 
 
 def parse_len(value: str | None) -> float | None:
@@ -520,17 +555,30 @@ def dashes(line: LineString, on: float, off: float, width: float) -> list[Polygo
 # ------------------------------------------------------------------ Vegetation from NDVI
 
 
+def vegetation_index(rgbn: np.ndarray) -> tuple[np.ndarray, str]:
+    r, g, b = (rgbn[..., i].astype(np.float32) for i in range(3))
+    fourth = rgbn[..., 3]
+    if fourth.size and np.all(fourth == 255):
+        # RGB-only orthophotos use VARI; ExG provides a stable fallback when its denominator is small.
+        vari = (g - r) / np.maximum(g + r - b, 1.0)
+        exg = (2 * g - r - b) / 255.0
+        return np.where(np.abs(g + r - b) > 8, vari, exg), "vari"
+    nir = fourth.astype(np.float32)
+    return (nir - r) / np.maximum(nir + r, 1.0), "ndvi"
+
+
 def find_trees(mosaic_rgbn: np.ndarray, half: float, rng: np.random.Generator, blocked, max_trees: int) -> list[dict]:
-    """Tree crowns: leafy (high NDVI), dark and rough compared with lawns and crops."""
+    """Tree crowns from NDVI or a visible-light vegetation index, plus darkness and texture."""
     px = 2 * half / mosaic_rgbn.shape[0]
-    r, g, b, nir = [mosaic_rgbn[..., i].astype(np.float32) for i in range(4)]
-    ndvi = (nir - r) / np.maximum(nir + r, 1)
-    lum = (r + g + b) / 3
+    index, index_name = vegetation_index(mosaic_rgbn)
+    red, green, blue = [mosaic_rgbn[..., i].astype(np.float32) for i in range(3)]
+    lum = (red + green + blue) / 3
     win = max(3, int(4.0 / px))
-    mean = ndi.uniform_filter(nir, win)
-    var = ndi.uniform_filter(nir * nir, win) - mean * mean
+    texture = mosaic_rgbn[..., 3].astype(np.float32) if index_name == "ndvi" else lum
+    mean = ndi.uniform_filter(texture, win)
+    var = ndi.uniform_filter(texture * texture, win) - mean * mean
     rough = np.sqrt(np.maximum(var, 0))
-    mask = (ndvi > 0.12) & (lum < np.percentile(lum, 70)) & (rough > 9)
+    mask = (index > (0.12 if index_name == "ndvi" else 0.06)) & (lum < np.percentile(lum, 70)) & (rough > 9)
     mask = ndi.binary_opening(mask, iterations=max(1, int(1.0 / px)))
     if blocked is not None:
         mask &= ~blocked
@@ -543,7 +591,7 @@ def find_trees(mosaic_rgbn: np.ndarray, half: float, rng: np.random.Generator, b
     for k in order:
         i, j = rows[k], cols[k]
         x, y = -half + (j + 0.5) * px, -half + (i + 0.5) * px
-        trees.append({"x": float(x), "y": float(y), "r": float(dist[i, j]), "lum": float(lum[i, j]), "ndvi": float(ndvi[i, j])})
+        trees.append({"x": float(x), "y": float(y), "r": float(dist[i, j]), "lum": float(lum[i, j]), index_name: float(index[i, j])})
     # Keep the closest trees first when the budget is short.
     trees.sort(key=lambda t: math.hypot(t["x"], t["y"]) * (0.7 + 0.6 * rng.random()))
     return trees[:max_trees]
@@ -615,6 +663,8 @@ def main() -> None:
     ap.add_argument("site")
     ap.add_argument("--max-trees", type=int, default=2500)
     ap.add_argument("--grid", type=float, default=4.0)
+    ap.add_argument("--output-root", type=Path, default=RESOLVED, help="模型输出目录")
+    ap.add_argument("--scene-root", type=Path, default=Path(os.environ.get("REALWORLD_SCENE_ROOT", SCENE_ROOT / "sites")), help="scene.json 输出目录")
     a = ap.parse_args()
     name = a.site
     site = CFG["sites"][name]
@@ -626,12 +676,13 @@ def main() -> None:
     proj = Transformer.from_crs("EPSG:4326", f"+proj=tmerc +lat_0={site['lat']} +lon_0={site['lon']} +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m", always_xy=True)
     terrain = Terrain(site, raw)
     osm = Osm(raw / "osm.json", proj)
+    bag_heights = apply_3dbag_heights(osm, raw)
     area = box(-half + 1, -half + 1, half - 1, half - 1)
-    out = RESOLVED / name
+    out = a.output_root / name
     shutil.rmtree(out, ignore_errors=True)
     (out / "meshes").mkdir(parents=True)
     (out / "textures").mkdir()
-    print(name, "elev0", terrain.elev0, "ways", len(osm.ways), flush=True)
+    print(name, "elev0", terrain.elev0, "ways", len(osm.ways), "3dbag heights", bag_heights, flush=True)
 
     # ---- Buildings
     buildings = []
@@ -778,17 +829,17 @@ def main() -> None:
 
     # Terrain visual: settle the ground slightly under roads so ribbons never z-fight.
     all_road = [p for k in road_polys for p in road_polys[k]] + [p for k in bridge_features for p, _ in bridge_features[k]]
-    road_mask = rasterize(all_road, half, DEM_RES)
+    road_mask = rasterize(all_road, half, terrain.res)
     n = terrain.h.shape[0]
     rm = np.zeros_like(terrain.h)
     rm[: road_mask.shape[0], : road_mask.shape[1]] = road_mask
     smooth = ndi.gaussian_filter(terrain.h, 3.0)
     wgt = ndi.gaussian_filter(rm, 1.0)
     terrain_road = Terrain.__new__(Terrain)
-    terrain_road.half, terrain_road.h = half, terrain.h * (1 - wgt) + smooth * wgt
+    terrain_road.half, terrain_road.h, terrain_road.res = half, terrain.h * (1 - wgt) + smooth * wgt, terrain.res
     vis = terrain_road.h - 0.18 * np.clip(wgt * 2, 0, 1)
     terrain_vis = Terrain.__new__(Terrain)
-    terrain_vis.half, terrain_vis.h = half, vis
+    terrain_vis.half, terrain_vis.h, terrain_vis.res = half, vis, terrain.res
 
     # ---- Ground tiles and mosaic
     nt = int(round(2 * half / TILE_M))
@@ -1025,8 +1076,23 @@ def main() -> None:
     if blocked is not None:
         blocked = np.flipud(blocked)
     trees = find_trees(np.flipud(mosaic).copy() if False else np.flipud(mosaic), half, rng, np.flipud(blocked) if blocked is not None else None, a.max_trees)
-    print("trees", len(trees), flush=True)
+    # Trees are the primary visual prop; keep detected crowns and budget remaining props afterward.
+    print("trees", len(trees), "(4M prop triangle budget)", flush=True)
     scene = placements(name, kind, osm, buildings, road_lines, trees, terrain, area, rng_py)
+    # Keep the global tree budget across image detections and land-use sampling.
+    # The latter adds useful variety but must not turn a 2500-tree scene into a
+    # much denser prop field on urban sites.
+    scene["trees"] = scene["trees"][:a.max_trees]
+    tree_count = len(scene["trees"])
+    filtered_objects = []
+    for obj in scene["objects"]:
+        category = ASSET_BY_SLUG.get(obj["cat"], {}).get("category")
+        if category in {"broadleaf_tree", "conifer"}:
+            if tree_count >= a.max_trees:
+                continue
+            tree_count += 1
+        filtered_objects.append(obj)
+    scene["objects"] = filtered_objects
     merger = Merger(name, out)
     for t in scene["trees"]:
         merger.add(t["cat"], t["x"], t["y"], t["z"], t["yaw"], t["s"])
@@ -1034,10 +1100,12 @@ def main() -> None:
     keep = sorted([o for o in scene["objects"] if o["role"] in {"parked", "person"} or o["cat"] in {"mailbox", "postbox", "fire_hydrant", "stop_sign"}],
                   key=lambda o: math.hypot(o["x"], o["y"]))[:100]
     keep_ids = {id(o) for o in keep}
-    for o in scene["objects"]:
+    priority = {"rock": 1, "shrub": 2, "grass": 3}
+    merge_objects = sorted(scene["objects"], key=lambda o: (0 if o["role"] == "parked" else priority.get(ASSET_BY_SLUG.get(o["cat"], {}).get("category"), 4)))
+    for o in merge_objects:
         o["merged"] = id(o) not in keep_ids
-        if o["merged"] and (RESOLVED / o["cat"] / "model.sdf").exists() and o["role"] != "person":
-            merger.add(o["cat"], o["x"], o["y"], o["z"], o["yaw"])
+        if o["merged"] and has_local_model(o["cat"]) and o["role"] != "person":
+            merger.add(o["cat"], o["x"], o["y"], o["z"], o["yaw"], o.get("s", 1.0))
     vis_xml += merger.write(write_obj, face_normals_to_vertex)
     if kind == "industrial":
         n_containers = add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml)
@@ -1045,15 +1113,24 @@ def main() -> None:
     print("merged groups", len(merger.groups), flush=True)
     write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch)
     # ---- Model files
+    provenance = json.loads((raw / "provenance.json").read_text()) if (raw / "provenance.json").exists() else {}
+    attributions = [source.get("attribution") for source in provenance.get("sources", {}).values()
+                   if isinstance(source, dict) and source.get("attribution")]
+    description = "; ".join(attributions + ["© OpenStreetMap contributors (ODbL)"])
     (out / "model.config").write_text(
         f'<?xml version="1.0"?><model><name>{name}</name><version>1.0</version><sdf version="1.9">model.sdf</sdf>'
-        f"<description>{site['title']}: USGS 3DEP, USDA NAIP, (c) OpenStreetMap contributors (ODbL).</description></model>\n")
+        f"<description>{site['title']}: {description}</description></model>\n")
     (out / "model.sdf").write_text(
         f'<?xml version="1.0"?><sdf version="1.9"><model name="{name}"><static>true</static><link name="terrain">'
         + "".join(coll_xml) + "".join(vis_xml) + "</link></model></sdf>\n")
 
     texture_decoded = 0
     for tex_path in (out / "textures").iterdir():
+        # The 3 GiB rendering budget covers terrain/building/road textures. Prop
+        # textures have their own decoded byte statistic below and are capped by
+        # the asset-library processing step.
+        if tex_path.name.startswith("inst_"):
+            continue
         try:
             with Image.open(tex_path) as im:
                 channels = len(im.getbands())
@@ -1068,16 +1145,29 @@ def main() -> None:
             pass
     texture_decoded_gib = texture_decoded / 2**30
     print(f"texture_decoded_with_mips={texture_decoded_gib:.3f}/3.000 GiB triangles={triangle_total}", flush=True)
-
+    texture_bytes = sum((lambda im: im.width * im.height * 4)(Image.open(p)) for p in (out / "textures").glob("*") if p.is_file())
+    prop_texture_bytes = sum((lambda im: im.width * im.height * 4)(Image.open(p)) for p in (out / "textures").glob("inst_*") if p.is_file())
+    prop_categories: dict[str, dict[str, int]] = {}
+    for slug, stats in merger.stats.items():
+        category = ASSET_BY_SLUG.get(slug, {}).get("category", slug)
+        row = prop_categories.setdefault(category, {"instances": 0, "triangles": 0})
+        row["instances"] += stats["instances"]
+        row["triangles"] += stats["triangles"]
+    merged_tree_instances = sum(stats["instances"] for slug, stats in merger.stats.items()
+                                if ASSET_BY_SLUG.get(slug, {}).get("category") in {"broadleaf_tree", "conifer"})
     scene.update({"site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
-                  "stats": {"buildings": len(buildings), "trees": len(trees), "road_km": sum(r["line"].length for r in road_lines) / 1000,
+                  "stats": {"buildings": len(buildings), "trees": merged_tree_instances, "tree_candidates": len(scene["trees"]), "road_km": sum(r["line"].length for r in road_lines) / 1000,
                             "water_polygons": len(water_polys), "bridges": sum(len(v) for v in bridge_features.values()),
-                            "texture_decoded_gib": round(texture_decoded_gib, 3), "texture_budget_gib": 3.0, "triangles": triangle_total},
+                            "texture_decoded_gib": round(texture_decoded_gib, 3), "texture_budget_gib": 3.0, "triangles": triangle_total,
+                            "prop_triangles": int(sum(v["triangles"] for v in merger.stats.values())), "prop_instances": int(sum(v["instances"] for v in merger.stats.values())),
+                            "prop_by_category": prop_categories, "prop_by_asset": merger.stats,
+                            "decoded_texture_bytes": int(texture_bytes), "decoded_prop_texture_bytes": int(prop_texture_bytes)},
                   "footprints": [[round(v, 1) for v in b["poly"].bounds] + [round(b["h"], 1)] for b in buildings]})
-    scene_path = SCENE_ROOT / "sites" / name / "scene.json"
-    scene_path.parent.mkdir(parents=True, exist_ok=True)
-    scene_path.write_text(json.dumps(scene, ensure_ascii=False))
+    scene_dir = a.scene_root / name
+    scene_dir.mkdir(parents=True, exist_ok=True)
+    (scene_dir / "scene.json").write_text(json.dumps(scene, ensure_ascii=False, indent=2))
     print({k: (len(v) if isinstance(v, list) else v) for k, v in scene.items() if k != "footprints"}, flush=True)
+    print("prop categories", json.dumps(merger.stats, ensure_ascii=False, sort_keys=True), flush=True)
 
 
 def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml, radius=900.0) -> int:
@@ -1147,28 +1237,35 @@ def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch
     src_res = TILE_M / tiles[(0, 0)].shape[0]
     # Stitch just the part of the tile mosaic the core needs.
     n_src = int(2 * core_half / src_res)
-    rgbn = np.zeros((n_src, n_src, 4), np.uint8)
-    for (i, j), arr in tiles.items():
-        x0, y0 = -half + i * TILE_M, -half + j * TILE_M
-        ix0, ix1 = max(x0, -core_half), min(x0 + TILE_M, core_half)
-        iy0, iy1 = max(y0, -core_half), min(y0 + TILE_M, core_half)
-        if ix1 <= ix0 or iy1 <= iy0:
-            continue
-        c0, c1 = int((ix0 - x0) / src_res), int((ix1 - x0) / src_res)
-        r0, r1 = int((y0 + TILE_M - iy1) / src_res), int((y0 + TILE_M - iy0) / src_res)
-        d0, d1 = int((ix0 + core_half) / src_res), int((ix1 + core_half) / src_res)
-        e0, e1 = int((core_half - iy1) / src_res), int((core_half - iy0) / src_res)
-        h, w = min(r1 - r0, e1 - e0), min(c1 - c0, d1 - d0)
-        rgbn[e0:e0 + h, d0:d0 + w] = arr[r0:r0 + h, c0:c0 + w]
-    # Upsampled aerials look soft, so an unsharp pass restores edges before detail is added.
-    big = np.asarray(Image.fromarray(rgbn[..., :3]).resize((px, px), Image.LANCZOS).filter(ImageFilter.UnsharpMask(radius=14, percent=110, threshold=0)), np.float32)
-    nir_b = np.asarray(Image.fromarray(rgbn[..., 3]).resize((px, px), Image.BILINEAR), np.float32)
-    big = np.dstack([big, nir_b])
+    core_path = raw / "core.png"
+    if core_path.exists():
+        big = np.asarray(Image.open(core_path).convert("RGBA"), np.float32)
+        if big.shape[:2] != (px, px):
+            big = np.asarray(Image.fromarray(big.astype(np.uint8)).resize((px, px), Image.LANCZOS), np.float32)
+        big[..., :3] = np.asarray(Image.fromarray(big[..., :3].astype(np.uint8)).filter(
+            ImageFilter.UnsharpMask(radius=3, percent=45, threshold=1)), np.float32)
+    else:
+        rgbn = np.zeros((n_src, n_src, 4), np.uint8)
+        for (i, j), arr in tiles.items():
+            x0, y0 = -half + i * TILE_M, -half + j * TILE_M
+            ix0, ix1 = max(x0, -core_half), min(x0 + TILE_M, core_half)
+            iy0, iy1 = max(y0, -core_half), min(y0 + TILE_M, core_half)
+            if ix1 <= ix0 or iy1 <= iy0:
+                continue
+            c0, c1 = int((ix0 - x0) / src_res), int((ix1 - x0) / src_res)
+            r0, r1 = int((y0 + TILE_M - iy1) / src_res), int((y0 + TILE_M - iy0) / src_res)
+            d0, d1 = int((ix0 + core_half) / src_res), int((ix1 + core_half) / src_res)
+            e0, e1 = int((core_half - iy1) / src_res), int((core_half - iy0) / src_res)
+            h, w = min(r1 - r0, e1 - e0), min(c1 - c0, d1 - d0)
+            rgbn[e0:e0 + h, d0:d0 + w] = arr[r0:r0 + h, c0:c0 + w]
+        big_rgb = np.asarray(Image.fromarray(rgbn[..., :3]).resize((px, px), Image.LANCZOS).filter(
+            ImageFilter.UnsharpMask(radius=14, percent=110, threshold=0)), np.float32)
+        fourth = np.asarray(Image.fromarray(rgbn[..., 3]).resize((px, px), Image.BILINEAR), np.float32)
+        big = np.dstack([big_rgb, fourth])
     rgb = big[..., :3]
     rgb = np.clip((rgb - stretch[0]) / max(stretch[1] - stretch[0], 1), 0, 1) ** 0.95 * 255
     rgb = np.clip(rgb * np.array([1.02, 1.0, 0.95]), 0, 255)
-    nir = big[..., 3]
-    ndvi = (nir - big[..., 0]) / np.maximum(nir + big[..., 0], 1)
+    vegetation, vegetation_name = vegetation_index(big)
     lum = rgb.mean(axis=2)
 
     def detail(prefix: str, span_m: float) -> np.ndarray:
@@ -1183,7 +1280,8 @@ def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch
         return np.tile(t, (reps, reps))[:px, :px]
 
     grass, soil, conc = detail("Grass001", 5.0), detail("Ground037", 6.0), detail("Concrete03", 6.0)
-    g = ndi.gaussian_filter(np.clip((ndvi - 0.08) / 0.12, 0, 1), 6)
+    threshold, span = (0.08, 0.12) if vegetation_name == "ndvi" else (0.04, 0.16)
+    g = ndi.gaussian_filter(np.clip((vegetation - threshold) / span, 0, 1), 6)
     s = ndi.gaussian_filter(np.clip((rgb[..., 0] - rgb[..., 2]) / 40.0, 0, 1), 6) * (1 - g)
     c = np.clip(1 - g - s, 0, 1)
     d = 1 + g * 0.24 * grass + s * 0.18 * soil + c * 0.07 * conc
@@ -1238,9 +1336,13 @@ def placements(name, kind, osm, buildings, road_lines, trees, terrain, area, rng
         if free(x, y):
             objs.append({"cat": cat, "x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(terrain.z(x, y)), 2), "yaw": round(float(yaw), 3), "role": role})
 
-    tags_map = [("highway", "street_lamp", "lamp_post"), ("highway", "stop", "stop_sign"), ("amenity", "post_box", "postbox"),
-                ("emergency", "fire_hydrant", "fire_hydrant"), ("power", "pole", "telephone_pole"), ("power", "tower", "telephone_pole"),
-                ("amenity", "waste_basket", "dumpster_small"), ("amenity", "bench", "bench"), ("amenity", "fountain", "fountain")]
+    tags_map = [("highway", "street_lamp", "lamp_post"), ("highway", "stop", "stop_sign"), ("highway", "traffic_signals", "stop_sign"),
+                ("amenity", "post_box", "postbox"), ("emergency", "fire_hydrant", "fire_hydrant"),
+                ("power", "pole", "telephone_pole"), ("power", "tower", "telephone_pole"),
+                ("amenity", "waste_basket", "litterbin"), ("amenity", "bench", "airportbench"),
+                ("amenity", "bicycle_parking", "airportbench"), ("amenity", "fountain", "fountain"),
+                ("man_made", "street_lamp", "lamp_post"), ("man_made", "utility_pole", "telephone_pole"),
+                ("man_made", "street_cabinet", "electrical_box"), ("man_made", "wastewater_plant", "electrical_box")]
     for nt in osm.node_tags:
         for k, v, cat in tags_map:
             if nt["tags"].get(k) == v and area.contains(Point(nt["x"], nt["y"])):
@@ -1253,9 +1355,9 @@ def placements(name, kind, osm, buildings, road_lines, trees, terrain, area, rng
     density = {"urban": (45, 12), "suburb": (60, 18), "rural": (0, 90), "mountain": (0, 200), "coast": (55, 25), "industrial": (60, 30)}[kind]
     lamp_gap, car_gap = density
     budget = {"lamp": 260, "car": 110, "ped": 40, "misc": 80}
-    cars = ["hatchback", "hatchback_red", "hatchback_blue", "suv", "pickup", "prius_hybrid"]
+    cars = ["hatchback", "hatchback_red", "hatchback_blue", "suv", "pickup"]
     if kind == "industrial":
-        cars += ["bus", "pickup", "pickup"]
+        cars += ["bus", "pickup", "truckdelivery", "forklift", "school_bus"]
     for r in near:
         line, width = r["line"], r["width"]
         if r["class"] in {"motorway", "motorway_link", "trunk"}:
@@ -1321,14 +1423,81 @@ def placements(name, kind, osm, buildings, road_lines, trees, terrain, area, rng
             routes.append({"class": r["class"], "width": r["width"], "pts": [[round(p.x, 2), round(p.y, 2), round(float(terrain.z(p.x, p.y)), 2)] for p in pts]})
         if len(routes) >= 12:
             break
-    # Keep trees off the discrete objects, with species picked by place and colour.
+    # Add sampled vegetation inside tagged land-use polygons and roadside hedges.
+    tree_species = {
+        "urban": ["oak_tree", "tree_small_02", "island_tree_01", "island_tree_02"],
+        "suburb": ["oak_tree", "tree_small_02", "island_tree_01", "island_tree_02", "island_tree_03", "pine_tree_01"],
+        "rural": ["oak_tree", "tree_small_02", "fir_tree_01", "pine_tree_01", "island_tree_02"],
+        "mountain": ["pine_tree", "pine_tree_01", "fir_tree_01", "oak_tree", "tree_small_02"],
+        "coast": ["pine_tree", "island_tree_01", "island_tree_02", "island_tree_03", "tree_small_02"],
+        "industrial": ["oak_tree", "tree_small_02", "pine_tree_01", "island_tree_02"],
+    }[kind]
+    tree_species = [s for s in tree_species if has_local_model(s)] or ["oak_tree"]
+    shrub_species = [s for s in ("shrub_01", "shrub_02", "shrub_03", "shrub_04", "shrub_sorrel_01", "wild_rooibos_bush") if has_local_model(s)]
+    grass_species = [s for s in ("grass_medium_01", "grass_medium_02", "grass_bermuda_01", "weed_plant_02") if has_local_model(s)]
+    rock_species = [s for s in ("boulder_01", "namaqualand_boulder_02", "namaqualand_boulder_03", "coast_land_rocks_03", "coast_land_rocks_04", "rock_moss_set_01") if has_local_model(s)]
+    for w in osm.ways:
+        tags = w["tags"]
+        if not w["closed"] or len(w["pts"]) < 4:
+            continue
+        land = tags.get("natural") in {"wood", "scrub"} or tags.get("landuse") in {"forest", "orchard", "farmland", "meadow", "grass"}
+        hedge = tags.get("barrier") == "hedge"
+        if not (land or hedge):
+            continue
+        poly = Polygon(w["pts"]).buffer(0).intersection(area)
+        if poly.is_empty:
+            continue
+        if hedge:
+            line = LineString(w["pts"]).intersection(area)
+            if line.geom_type == "LineString":
+                for x, y, yaw in along(line, 5.0, 0.0, rng):
+                    add(rng.choice(shrub_species or ["oak_tree"]), x, y, yaw)
+            continue
+        wood = tags.get("natural") == "wood" or tags.get("landuse") == "forest"
+        orchard = tags.get("landuse") == "orchard"
+        spacing = 8.5 if wood else 9.0 if orchard else 18.0
+        count = 0 if wood else min(1800, int(poly.area / (spacing * spacing)))
+        minx, miny, maxx, maxy = poly.bounds
+        tries = 0
+        while count and tries < count * 8:
+            x, y = rng.uniform(minx, maxx), rng.uniform(miny, maxy)
+            tries += 1
+            if poly.contains(Point(x, y)) and free(x, y, 1.0):
+                add(rng.choice(tree_species), x, y, rng.uniform(-math.pi, math.pi))
+                objs[-1]["s"] = round(rng.uniform(0.68, 1.38), 2)
+                count -= 1
+        if tags.get("natural") in {"scrub"} or tags.get("landuse") in {"farmland", "orchard", "meadow"}:
+            for _ in range(min(320, int(poly.area / (28 if tags.get("natural") == "scrub" else 45)))):
+                p = poly.representative_point() if poly.area < 10 else Point(rng.uniform(minx, maxx), rng.uniform(miny, maxy))
+                if poly.contains(p) and free(p.x, p.y, 0.5):
+                    add(rng.choice(shrub_species or grass_species or tree_species), p.x, p.y, rng.uniform(-math.pi, math.pi))
+        if tags.get("landuse") in {"farmland", "meadow", "grass"} and grass_species:
+            for _ in range(min(800, int(poly.area / 18))):
+                p = Point(rng.uniform(minx, maxx), rng.uniform(miny, maxy))
+                if poly.contains(p) and free(p.x, p.y, 0.25):
+                    add(rng.choice(grass_species), p.x, p.y, rng.uniform(-math.pi, math.pi))
+    # Fences are generated as continuous meshes elsewhere; don't instance fence panels here.
+    # Keep trees off discrete objects; species and size vary by climate and image evidence.
     out_trees = []
     for t in trees:
         if not free(t["x"], t["y"], 0.5):
             continue
-        species = "pine_tree" if kind == "mountain" or (kind == "coast" and rng.random() < 0.3) else ("pine_tree" if t["lum"] < 55 and rng.random() < 0.5 else "oak_tree")
+        conifer_bias = 0.78 if kind == "mountain" else (0.18 if kind in {"coast", "suburb"} else 0.42)
+        want_conifer = rng.random() < conifer_bias
+        candidates = [s for s in tree_species if (ASSET_BY_SLUG.get(s, {}).get("category") == "conifer") == want_conifer]
+        species = rng.choice(candidates or tree_species)
         out_trees.append({"cat": species, "x": round(t["x"], 2), "y": round(t["y"], 2), "z": round(float(terrain.z(t["x"], t["y"])), 2),
-                          "yaw": round(rng.uniform(-3.14, 3.14), 3), "s": round(min(2.6, max(0.8, t["r"] / 2.6 * rng.uniform(0.85, 1.2))), 2)})
+                          "yaw": round(rng.uniform(-3.14, 3.14), 3), "s": round(min(1.45, max(0.62, t["r"] / 4.0 * rng.uniform(0.72, 1.32))), 2)})
+    # Sparse edge ground cover and alpine rocks, sampled off roads/buildings.
+    bounds = area.bounds
+    for _ in range(360 if kind in {"rural", "mountain"} else 140):
+        x, y = rng.uniform(bounds[0], bounds[2]), rng.uniform(bounds[1], bounds[3])
+        if math.hypot(x, y) < PAD_R + 8 or not free(x, y, 0.6):
+            continue
+        if kind == "mountain" and rock_species and rng.random() < 0.42:
+            add(rng.choice(rock_species), x, y, rng.uniform(-math.pi, math.pi))
+        elif grass_species and rng.random() < 0.55:
+            add(rng.choice(grass_species), x, y, rng.uniform(-math.pi, math.pi))
     return {"objects": objs, "trees": out_trees, "routes": routes}
 
 
