@@ -31,6 +31,26 @@
 - GPU0 only；两版顺序使用全局 `scripts/sitl_lock.py`，固定版 slot3（14590/14591），云台版 slot4（14600/14601）。自启动 unit 设置 MemoryMax=64 GiB、MemorySwapMax=0。
 - 初始启动被旧默认 GPU avoid=0 拒绝，未产生实际飞行；保留原始失败输出，显式 avoid=2,3 后在新目录重跑。云台第一次锁排队受旧 FIFO 头阻塞，停止的只有本轮自行启动且仍在等待的 unit；之后显式 slot4 / priority201 立即取空闲专属槽位，没有占用或抢占 slot0–2，没有重复固定版飞行。
 
+## 2026-11-09：最终候选 PX4 镜像双变体复验
+
+为覆盖时钟修复后的实际运行组合，另在冻结源码 `21dcab8b0f22e48a8c13a6c5472fd3b8b5e57047`、不可变镜像 `sha256:b5c576ce15b8a75935313bc3e8dc4cf9940778226b28e835064d7581c3fe72c6` 上重跑固定相机与云台两版。两次均首次实际飞行通过，无 retry；原镜像的历史结果保留独立记录。
+
+| 指标 | 固定相机 `091e36db` | 云台 `8e19af28` |
+|---|---:|---:|
+| status / collector 返回码 | pass / 0 | pass / 0 |
+| 8 项严格字段、RTL、落地 | 全部 true | 全部 true |
+| FW 高度误差 p95 | 1.192 m | 0.962 m |
+| 电机饱和比例 / 回转换电机全停 | 0 / 0 s | 0 / 0 s |
+| 回转换高度损失 | 0 m | 0.065 m |
+| 回 MC 后爬升 | 17.74 m | 7.21 m |
+| 相机自遮挡比例 | 0 | 0 |
+| 云台 yaw / roll / pitch 误差 | 不适用 | 0.419° / 0.296° / 2.756° |
+| LOCAL_POSITION_NED 最大接收间隔 | 0.329 s | 0.364 s |
+
+主任务从原始最终 JSON、episode 元数据与 MAVLink 再次独立核对源码、镜像、严格字段及落地结果，均通过。运行使用 GPU0、64 GiB/Swap0、全局锁的专用 slot3/4 串行执行。仅等待阶段的最初调度因旧 unknown-scope 票据阻塞而退役，未产生飞行；保留空目录和身份守卫审计，再以 priority201 申请同一专用槽位，未抢占 0–2 或修改其它票据。
+
+项目父目录 `runs/delta-candidate-recheck-20261109/output-r2/` 保存 `fixed.log`、`gimbal.log`、两个 episode 和 `acceptance.json`；`independent-acceptance.json` 及两个 `*-independent-review.json` 保存主任务的只读复核。双变体通过不替代 w0000 十次或最终 21×2 基线，也不证明此前机型专属 AI 语义误确认已解决。
+
 ## 合 main 前仍需完成
 
 - 最终集成 head 的 21 任务各 2 次回归必须通过。三角翼的独立视点 `two_views` 规则影响共用身份层，不能只凭旧 env-only 基线放行。
