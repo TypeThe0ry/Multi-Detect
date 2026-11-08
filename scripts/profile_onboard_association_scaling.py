@@ -26,7 +26,7 @@ from multidetect.autonomy.onboard_loop import (  # noqa: E402
     Track,
 )
 
-SIZES = (16, 32, 64, 128)
+SIZES = (16, 32, 64, 128, 256)
 
 
 def _fixture_digest() -> str:

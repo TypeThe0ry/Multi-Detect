@@ -1411,8 +1411,20 @@ class OnboardLoop:
         for key in list(self._co_visibility_pairs):
             if key[0] not in live_ids or key[1] not in live_ids:
                 self._co_visibility_pairs.pop(key, None)
-        while len(self._co_visibility_pairs) > self.co_visibility_max_pairs:
-            oldest = min(self._co_visibility_pairs, key=self._co_visibility_pairs.get)
+        overflow = len(self._co_visibility_pairs) - self.co_visibility_max_pairs
+        if overflow > 0:
+            # ``dict`` iteration is insertion ordered, so stable sorting by the
+            # step preserves the old repeated-min semantics for equal steps
+            # while scanning the relation table only once.
+            oldest_keys = [
+                key
+                for key, _step in sorted(
+                    self._co_visibility_pairs.items(), key=lambda item: item[1]
+                )[:overflow]
+            ]
+        else:
+            oldest_keys = []
+        for oldest in oldest_keys:
             self._co_visibility_pairs.pop(oldest, None)
             left = self._tracks.get(oldest[0])
             right = self._tracks.get(oldest[1])

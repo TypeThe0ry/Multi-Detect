@@ -42,3 +42,25 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 ## 建议的下一步
 
 取得 `tests/fixtures/onboard_replay/` 对应的原始 RGB replay 帧并补充只读 provenance（帧 ID、原始字节 hash、编码/尺寸）；随后用部署一致的 CPU-only 图像 decode/preprocess 和本地可用 detector 输出驱动候选规模扫描，保留 p50/p95/RSS 和逐项输出比较。不得以合成帧替代原始帧，也不得修改任务 expected、安全阈值、timeout/retry 或共享 `artifacts/`。
+
+## 关联淘汰修复后的复测（2026-11-08）
+
+### 根因与修复
+
+profile 显示 128 candidates 的单次 `update_tracks()` 中，累计 1.829 s（2.090 s 总耗时）来自 `_co_visibility_pairs` 超过 4096 上限后的重复 `min(..., key=step)`。每淘汰一条关系都重新扫描约 4096 个字典项；128 档新增约 8,128 对关系，触发约 4,032 次扫描，形成超出上限量乘以固定上限的退化。256 档修复前单次调用超过 30 s。
+
+`onboard_loop.py` 现在一次稳定排序关系表，并按相同的 step、相同的字典插入顺序选出全部超额项，再执行原有的逐项清理。因此淘汰顺序和关联输出保持不变，扫描只发生一次。
+
+### 修复后结果
+
+使用原 profiler 命令、同一合成几何输入、每档 warmup 2 次和 repeats 10 次；新增 256 档：
+
+| Candidates | Tracks | p50 (ms) | p95 (ms) | RSS 档后 (KiB) | 输出项 | 输出 SHA-256 |
+| ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 16 | 16 | 0.761027 | 0.832921 | 49,588 | 16 | `a014d7ef9db943a6eed7c713d0f74f573c0dead835a1f6d5730bab77b93249b4` |
+| 32 | 32 | 2.907361 | 3.332981 | 49,744 | 32 | `bba6e3cb12fe93974aface997b51d9f84c72092841479a08d9cfa19bec133d7c` |
+| 64 | 64 | 12.454160 | 22.581687 | 50,748 | 64 | `e863c214aa6fabda608b9026ec4ed6e686bd89c2a93fa7222f74c9940fcc70be` |
+| 128 | 128 | 65.382407 | 144.845700 | 57,700 | 128 | `575dc08a72624a7ffbdef43d58d415a1319eecec8f8ffcf650ed01101876c12d` |
+| 256 | 256 | 355.881348 | 453.216821 | 74,200 | 256 | `9edd17339b3a1516380119507ed181cb5fcd223a3e64151d8095a3ec469c0c77` |
+
+修复前后 16、32、64、128 档输出 SHA-256 完全一致；现有关联测试也全部通过。修复后 128 到 256 的 p50 约 5.4 倍，符合当前 pairwise co-visibility 记录的平滑二次增长，不再出现 64 到 128 的秒级 cliff。新增回归测试覆盖 128 和 256 candidates，并要求两次调用总耗时低于 10 s（CPU-only CI 上限）。
