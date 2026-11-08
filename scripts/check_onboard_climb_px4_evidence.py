@@ -68,12 +68,33 @@ def _first(root: Path, pattern: str) -> Path | None:
 def _paths(root: Path) -> dict[str, Path | None]:
     if root.is_file():
         root = root.parent
+    episodes = [root] if (root / "mavlink.jsonl").is_file() else []
+    if root.name == "episodes":
+        episodes.extend(sorted(path for path in root.iterdir() if path.is_dir()))
+    elif (root / "episodes").is_dir():
+        episodes.extend(sorted(path for path in (root / "episodes").iterdir() if path.is_dir()))
+    search_roots = []
+    for episode in episodes:
+        search_roots.append(episode)
+        onboard_frames = episode.parent.parent / f"{episode.name}-onboard-frames"
+        if onboard_frames.is_dir():
+            search_roots.append(onboard_frames)
+    if not search_roots:
+        search_roots.append(root)
+
+    def first(pattern: str) -> Path | None:
+        for search_root in search_roots:
+            found = _first(search_root, pattern)
+            if found is not None:
+                return found
+        return None
+
     return {
         "root": root,
-        "mavlink": _first(root, "mavlink.jsonl"),
-        "steps": _first(root, "steps.jsonl"),
-        "mission_log": _first(root, "mission_log/mission.jsonl"),
-        "summary": _first(root, "mission_log/summary.json"),
+        "mavlink": first("mavlink.jsonl"),
+        "steps": first("steps.jsonl"),
+        "mission_log": first("mission_log/mission.jsonl"),
+        "summary": first("mission_log/summary.json"),
     }
 
 

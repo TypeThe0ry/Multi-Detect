@@ -199,9 +199,9 @@ v3 的保护证据仍与此前审计一致：`steps.jsonl` 有一个 hold 成功
 
 已修复的仓库 harness 缺陷是锁等待无任何进度输出：`scripts/sitl_lock.py` 现在在 legacy lock、队列、槽位竞争或前置条件等待时向 stderr 输出节流后的 `sitl_lock_waiting` JSON 事件，包含等待原因、槽位数、队列路径、次数和累计时间。这样外层 job log 能区分 slot wait 与 collector 阶段；`tests/test_sitl_lock.py` 覆盖 legacy lock 等待事件。该修复不改变租约、公平队列、超时、LAND 或安全阈值语义。
 
-### PX4 evidence checker 状态
+### PX4 evidence checker 状态（此前复核记录）
 
-请求中的 `docs/onboard-climb-px4-evidence-checker-20261108.md` 在当前 HEAD 不存在；`wt/cx-climb-px4-evidence-checker` 也与当前 HEAD 同指，未发现已合并的 checker 脚本或文档。因此本次没有调用未合并的 checker；v3 的 PX4 判定继续按 `mavlink.jsonl` 原始字段和前述证据边界审计，v4 判定为“未启动、live protection 未观察”。
+此前复核时请求中的 `docs/onboard-climb-px4-evidence-checker-20261108.md` 尚不存在，因而该段记录未调用当时未合并的 checker；本次重跑已使用当前仓库的 `scripts/check_onboard_climb_px4_evidence.py`。
 
 ## v4 验证
 
@@ -214,3 +214,11 @@ python -m pytest tests/test_sitl_lock.py tests/test_climb_fault_sitl4_job.py \
 ```
 
 未启动新的 SITL、Docker、GPU、模型服务或训练；未写入共享 `artifacts/`；未修改外部只读作业脚本。v4 live protection 仍是未观察状态，下一次运行必须先解决槽位配置/排队问题并保留新的阶段日志。
+
+## v4 重跑复核（2026-11-08）
+
+链路 `/data/projects/Multi-Detect-env/runs/sitl_chain3.out` 记录本次 `08:27:32` 开始、`08:36:55` 退出 1。用户给出的 `climb-fault-sitl4-2548086/` 只有旧 `suite.json`、空 `job.log` 和配置快照；链路实际指向 `climb-fault-sitl4-1169782/.../episode-0000-540aee44/`。在实际 episode 上运行 checker 得 PX4=2、机载日志=0、缺失=8：PX4 时钟推进且 abort 前处于约 1.574 m airborne；`steps.jsonl` 仅有一次低增益 climb timeout，未记录第二次 timeout。机载日志也只有 operator abort 的 `return_now`，没有 climb failure event/alert 或 `land_now`；PX4 没有 LAND ACK/mode、落地和 disarm 证据。因此不能说保护行为与 v3 一致，也没有证据表明保护升级本身失败：v4 在第二次 climb primitive 中止，未证明达到触发保护升级的两次 timeout 条件。
+
+退出 1 的直接原因是 collector 在 step 2 等待 PX4 仿真时钟推进 45 s 后抛出 `TimeoutError: PX4 simulation clock stalled during primitive`；collector 退出 1，campaign 将错误上抛，suite 以 1 结束。失败快照显示 PX4/container 仍存活，并记录高 host load，但现有证据不能确定时钟停滞的根因。修复了一项 checker harness 缺陷：collector 将 `*-onboard-frames/mission_log/` 存于 episode 同级，checker 原先只查 episode 内部；现在会读取对应目录，并以嵌套布局 fixture 测试。没有改超时、安全语义或只读运行产物。
+
+验证：`.venv` 下 `tests/test_onboard_climb_px4_evidence_checker.py`，6 passed；对实际 v4 world 目录及指定的 `2548086/` 目录运行 checker。后者 10 项均缺失，符合其没有 episode 的内容；前者读取实际 episode，分类为 PX4=2、机载日志=0、缺失=8。
