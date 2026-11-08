@@ -114,9 +114,14 @@ def triangulation_quality(samples, point):
     baseline = max(baselines, default=0.0)
     angle = max(angles, default=0.0)
     residual = max(residuals, default=float("inf"))
+    from multidetect.autonomy.step_triangulation import triangulation_residual_gain
+
+    gain = triangulation_residual_gain(direction for _, direction in samples)
+    if gain is None:
+        return None
     sigma = max(
         0.5,
-        residual
+        residual * gain
         + 1.5 * math.dist(point, samples[-1][0]) * 0.002 / max(math.sin(math.radians(angle)), 0.05),
     )
     return baseline, angle, residual, front, sigma

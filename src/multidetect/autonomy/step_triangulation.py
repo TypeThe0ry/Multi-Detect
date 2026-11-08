@@ -76,6 +76,45 @@ def _estimate_valid(value: PositionEstimate | None) -> bool:
     )
 
 
+def triangulation_residual_gain(directions: Iterable[Vector3]) -> float | None:
+    """Weak-axis error gain relative to isotropic 3-D bearing geometry.
+
+    Mean(I - ray ray.T) has trace 2; isotropic geometry has eigenvalues 2/3.
+    Using its mean, not sum, avoids a spurious 1/sqrt(N) confidence gain when
+    successive views share attitude/calibration errors. This is conditioning
+    of a residual error bound, not an independent-sample covariance estimate.
+    """
+    rays = list(directions)
+    if len(rays) < 2 or not all(_unit(ray) for ray in rays):
+        return None
+    matrix = [
+        [sum(float(i == j) - ray[i] * ray[j] for ray in rays) / len(rays)
+         for j in range(3)]
+        for i in range(3)
+    ]
+    # Eigenvalues of a real symmetric 3x3 matrix, without a numeric dependency.
+    centre = sum(matrix[i][i] for i in range(3)) / 3.0
+    spread = math.sqrt(sum(
+        (matrix[i][j] - (centre if i == j else 0.0)) ** 2
+        for i in range(3) for j in range(3)
+    ) / 6.0)
+    if spread <= 1e-12:
+        smallest = centre
+    else:
+        b = [[(matrix[i][j] - (centre if i == j else 0.0)) / spread
+              for j in range(3)] for i in range(3)]
+        determinant = (
+            b[0][0] * (b[1][1] * b[2][2] - b[1][2] * b[2][1])
+            - b[0][1] * (b[1][0] * b[2][2] - b[1][2] * b[2][0])
+            + b[0][2] * (b[1][0] * b[2][1] - b[1][1] * b[2][0])
+        )
+        angle = math.acos(max(-1.0, min(1.0, determinant / 2.0))) / 3.0
+        smallest = centre + 2.0 * spread * math.cos(angle + 2.0 * math.pi / 3.0)
+    if not math.isfinite(smallest) or smallest <= 0:
+        return None
+    return math.sqrt(max(1.0, (2.0 / 3.0) / smallest))
+
+
 def triangulate_views(
     views: Iterable[ViewObservation],
     *,
@@ -89,7 +128,8 @@ def triangulate_views(
 
     Input order is acquisition order. A repeated step replaces its earlier
     sample so a burst or pure camera turn cannot impersonate several steps.
-    Sigma is the offline residual/range/parallax propagation times sigma_scale.
+    Sigma propagates the residual through the weakest bearing geometry, plus
+    the offline range/parallax pixel-noise term, times sigma_scale.
     It is a scalar slant-range uncertainty, used conservatively for position
     fusion; it is not a complete 3-D covariance or a moving-target model.
     """
@@ -167,9 +207,12 @@ def triangulate_views(
             return None
         projected = tuple(view.camera_ned[i] + along * view.direction_ned[i] for i in range(3))
         residual = max(residual, math.dist(projected, point))
+    residual_gain = triangulation_residual_gain(view.direction_ned for view in samples)
+    if residual_gain is None:
+        return None
     sigma = sigma_scale * max(
         0.5,
-        residual
+        residual * residual_gain
         + 1.5
         * math.dist(point, latest.camera_ned)
         * 0.002

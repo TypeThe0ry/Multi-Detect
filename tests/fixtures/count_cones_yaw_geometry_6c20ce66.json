@@ -1,0 +1,288 @@
+{
+  "source_episode": "episode-0000-6c20ce66",
+  "source_snapshot": "ca99 (runs/src-final-20261108-r2)",
+  "steps_sha256": "e91a87b16411a5c966fc9c0704299211b35cbe07181d343fcd695beda39eaed7",
+  "note": "Read-only trace extraction. Historical boxes are rounded in the original track log; final confirmed box is exact. No truth inputs are used to recompute estimates.",
+  "original_fourth_confirmation": {
+    "track_id": "t21",
+    "bbox": [
+      677.81591796875,
+      638.30517578125,
+      695.430908203125,
+      676.80126953125
+    ],
+    "position_estimate_ne": [
+      1.319675487481566,
+      -17.678961683409412
+    ],
+    "rule": "two_views",
+    "position_source": "fused",
+    "position_sigma_m": 2.5806710242446003,
+    "position_view_count": 4,
+    "position_baseline_m": 15.001749533314486,
+    "position_ray_angle_deg": 10.923458804488952,
+    "position_consistent": true,
+    "position_consistency_note": null
+  },
+  "prior_confirmations": [
+    {
+      "track_id": "t1",
+      "bbox": [
+        616.2564697265625,
+        700.4365844726562,
+        648.3162841796875,
+        765.1486206054688
+      ],
+      "position_estimate_ne": [
+        20.01272373290709,
+        24.358746144852624
+      ],
+      "rule": "two_views",
+      "position_source": "fused",
+      "position_sigma_m": 1.231926831161401,
+      "position_view_count": 4,
+      "position_baseline_m": 23.343293970565455,
+      "position_ray_angle_deg": 18.907868387294435,
+      "position_consistent": true,
+      "position_consistency_note": null
+    },
+    {
+      "track_id": "t7",
+      "bbox": [
+        698.61767578125,
+        866.0272216796875,
+        741.14013671875,
+        947.924560546875
+      ],
+      "position_estimate_ne": [
+        9.003570402330348,
+        -14.767324062019288
+      ],
+      "rule": "two_views",
+      "position_source": "fused",
+      "position_sigma_m": 1.5990055263447087,
+      "position_view_count": 5,
+      "position_baseline_m": 26.62956330650879,
+      "position_ray_angle_deg": 30.417779677639395,
+      "position_consistent": true,
+      "position_consistency_note": null
+    },
+    {
+      "track_id": "t10",
+      "bbox": [
+        629.4149169921875,
+        857.2005615234375,
+        669.1898193359375,
+        939.9503173828125
+      ],
+      "position_estimate_ne": [
+        -22.188108354487767,
+        28.88048148417043
+      ],
+      "rule": "two_views",
+      "position_source": "fused",
+      "position_sigma_m": 2.5760010274074436,
+      "position_view_count": 8,
+      "position_baseline_m": 36.70059614439133,
+      "position_ray_angle_deg": 38.27199871263044,
+      "position_consistent": true,
+      "position_consistency_note": null
+    }
+  ],
+  "measurements": [
+    {
+      "step": 54,
+      "bbox": [
+        1190.0,
+        642.9,
+        1209.0,
+        672.3
+      ],
+      "ground_ne": [
+        9.685861131190542,
+        -17.93073191851599
+      ],
+      "observation": {
+        "camera_info": {
+          "width": 1280,
+          "height": 960,
+          "camera_info_stamp_ns": 177940000000,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "pose": {
+          "local_ned_m": [
+            -20.663496017456055,
+            -19.781553268432617,
+            -10.998656272888184
+          ],
+          "lat_deg": 1.3519143,
+          "lon_deg": 103.819622,
+          "alt_m": 10.8295
+        },
+        "attitude": {
+          "roll_deg": -1.0086519209413354,
+          "pitch_deg": -0.010889231855533813,
+          "yaw_deg": -44.902188845211
+        },
+        "frame_sensor_stamp_ns": 177940000000,
+        "pose_alignment": {
+          "method": "interpolated",
+          "source_time_boot_ms": 177940,
+          "residual_skew_ms": 0.0
+        }
+      }
+    },
+    {
+      "step": 55,
+      "bbox": [
+        592.2,
+        548.6,
+        601.4,
+        567.8
+      ],
+      "ground_ne": [
+        10.277978737023922,
+        -17.884383642236507
+      ],
+      "observation": {
+        "camera_info": {
+          "width": 1280,
+          "height": 960,
+          "camera_info_stamp_ns": 179028000000,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "pose": {
+          "local_ned_m": [
+            -20.736234664916992,
+            -19.769031524658203,
+            -10.98105239868164
+          ],
+          "lat_deg": 1.3519136,
+          "lon_deg": 103.8196221,
+          "alt_m": 10.812
+        },
+        "attitude": {
+          "roll_deg": -1.1968057033286152,
+          "pitch_deg": -0.18525835847640582,
+          "yaw_deg": 7.8306998683172315
+        },
+        "frame_sensor_stamp_ns": 179028000000,
+        "pose_alignment": {
+          "method": "nearest_after",
+          "source_time_boot_ms": 179028,
+          "residual_skew_ms": 0.0
+        }
+      }
+    },
+    {
+      "step": 56,
+      "bbox": [
+        666.5,
+        637.8,
+        683.7,
+        676.6
+      ],
+      "ground_ne": [
+        8.927617816444421,
+        -15.678071670854905
+      ],
+      "observation": {
+        "camera_info": {
+          "width": 1280,
+          "height": 960,
+          "camera_info_stamp_ns": 186288000000,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "pose": {
+          "local_ned_m": [
+            -6.29261326789856,
+            -18.37025515238444,
+            -8.223490715026855
+          ],
+          "lat_deg": 1.3520435166666667,
+          "lon_deg": 103.8196347,
+          "alt_m": 8.054166666666667
+        },
+        "attitude": {
+          "roll_deg": -1.4904215338596651,
+          "pitch_deg": 1.4941769426200673,
+          "yaw_deg": 5.2560845639845715
+        },
+        "frame_sensor_stamp_ns": 186288000000,
+        "pose_alignment": {
+          "method": "interpolated",
+          "source_time_boot_ms": 186288,
+          "residual_skew_ms": 0.0
+        }
+      }
+    },
+    {
+      "step": 57,
+      "bbox": [
+        677.81591796875,
+        638.30517578125,
+        695.430908203125,
+        676.80126953125
+      ],
+      "ground_ne": [
+        8.773493014887348,
+        -15.643773031086564
+      ],
+      "observation": {
+        "camera_info": {
+          "width": 1280,
+          "height": 960,
+          "camera_info_stamp_ns": 187708000000,
+          "fx": 539.93636802453,
+          "fy": 539.93636802453,
+          "cx": 640.0,
+          "cy": 480.0
+        },
+        "pose": {
+          "local_ned_m": [
+            -6.045307636260986,
+            -18.395429611206055,
+            -8.256246566772461
+          ],
+          "lat_deg": 1.3520458,
+          "lon_deg": 103.8196345,
+          "alt_m": 8.087
+        },
+        "attitude": {
+          "roll_deg": -0.026394005397364733,
+          "pitch_deg": 0.8713399109571734,
+          "yaw_deg": 5.243625872051646
+        },
+        "frame_sensor_stamp_ns": 187708000000,
+        "pose_alignment": {
+          "method": "nearest_after",
+          "source_time_boot_ms": 187708,
+          "residual_skew_ms": 0.0
+        }
+      }
+    }
+  ],
+  "offline_identity_evidence": {
+    "segmentation_instance_rgb": [
+      1,
+      0,
+      4
+    ],
+    "same_instance_steps": [
+      11,
+      54,
+      55,
+      56,
+      57
+    ]
+  }
+}
