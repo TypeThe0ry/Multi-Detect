@@ -1,0 +1,52 @@
+{
+  "round": "r21id-r11-r2",
+  "status": "prepared_only_wait_for_r11_and_hires_pair",
+  "base_dataset": "artifacts/r21id-r10/pipeline/r15-sft",
+  "uncapped_train": "artifacts/r21id-r10/data/sft-rebuilt/train.jsonl",
+  "heldout": [
+    "artifacts/r21id-r10/pipeline/r15-sft/val.jsonl",
+    "artifacts/r21id-r10/pipeline/r15-sft/test.jsonl",
+    "artifacts/r21id-r3/pipeline/r15-additions/test.jsonl",
+    "artifacts/r21id-r10/data/r15-additions-mix/val.jsonl",
+    "artifacts/datasets/flight-identity-eval-v1/test.jsonl",
+    "artifacts/datasets/flight-identity-eval-v2-v3prop/test.jsonl"
+  ],
+  "protected_tasks": [
+    "configs/onboard/plan-eval-tasks-v5.json",
+    "artifacts/scratch/plannercmp/probe_tasks.json"
+  ],
+  "crop": {
+    "original_focus_short_side_lt_px": 12,
+    "min_context_px": 32,
+    "box_long_side_context_multiplier": 2.0,
+    "output_side_px": 224,
+    "max_per_polarity": 512,
+    "geometry_uses": "observable focus_track_id, never assistant_target track_id"
+  },
+  "four_view_topup": {
+    "views": ["front", "oblique", "edge_truncated", "recovery"],
+    "max_rows_per_polarity": 1024,
+    "same_exact_task_text_per_group": true,
+    "novel_sample_ids_only": true
+  },
+  "training": {
+    "max_side": 448,
+    "crop_policy": "candidate_zoom_v2",
+    "quantization": "bf16",
+    "epochs": 1,
+    "accumulation": 4,
+    "rank": 16,
+    "alpha": 32,
+    "learning_rate": 0.00005,
+    "max_input_tokens": 4096,
+    "hot_start": "r21id-r3",
+    "physical_gpu": 1,
+    "memory_max_bytes": 68719476736
+  },
+  "comparison": {
+    "required_under12_recall_delta": 0.1,
+    "other_metrics_allowed_regression": 0,
+    "same_resolution_and_preprocessing_required": true,
+    "legacy_absolute_four_view_thresholds_are_diagnostic_only": true
+  }
+}
