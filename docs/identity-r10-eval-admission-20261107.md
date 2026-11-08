@@ -1,6 +1,6 @@
 # r21id-r10 模型准入对比（基于 2026-11-07 评测产物）
 
-**结论：不准入 r10 替换生产模型；继续使用 r21id-r3。** r10 在 v1/v3 固定集与冻结四视角集上有若干改善，但四视角绝对门槛仍失败；r9r val 推理结果缺失，泛化准入证据尚未完成。本文只对照现有只读产物，不修改生产模型选择。
+**最终结论：不准入 r10 替换生产模型；继续使用 r21id-r3。** 2026-11-08 已有 r9r val 成对推理产物；r10 通过 8 个 r9r pair×view cell 门，但冻结四视角绝对门槛仍失败（跨视角一致率 0.7667 < 0.90、显式干扰物接受率 0.0583 > 0.026），且 v3 `<12 px` recall 相对 r3 提升 8.11 pp，未达到要求的 10 pp。因此泛化 cell 结果不能覆盖其余硬门失败。本审计只对照现有只读产物，不修改生产模型选择。
 
 ## 评测证据
 
@@ -40,6 +40,29 @@
 
 验收状态按评测器使用的点估计判定，置信区间用于展示不确定性，并不替代报告中的硬门。pipeline 的 v1/v3 总计数分别为 1,900 和 233 行；v3 `<12 px` bucket 为 77 行，显式干扰物为 116 行。
 
+### r9r val pair×view 成对结果
+
+评测产物位于 [`r9r-val`](../artifacts/r21id-r10/evaluation/r9r-val/)。评测输入是 `r15-additions-mix/val.jsonl` 的 4,665 行，仅将 `split` 改为 `test` 后供评测器读取；外部输入说明见 `/data/projects/Multi-Detect-env/runs/src-r10/.tmp/r9r-val-dataset/README.txt`。当前 val 与评测用 `test.jsonl` 按行完全相同（只有 split 值从 `val` 变为 `test`）。index 有 48 个 world（36 train、12 val）；12 个 val world 按 `r9r_direction` 分成每方向 6 个。预测文件均有 4,665 个唯一 sample_id，与 val 的 ID 集完全相同，且无 harness error。
+
+cell 按 index 中的 world 方向及 val 行的 `view` 分组；分母是该 cell 中 `label_type=confusable_negative` 的行数，rejection rate = `decision=reject_track` 行数 / 分母。`approach_track` 和 `confirm_target` 均按误收计数。数据的 `confusable_pair_type` 对部分拒绝行记录次级或反向类别对，因此方向归属以 index 为准。11 条 `view=null` 的拒绝行不属于这 8 个 view cell。下表的独立 world 数按 cell 中唯一 world 计，行数不作为独立样本数。
+
+| pair | view | 独立 world | 拒绝行 | r21id-r3 rejection | r21id-r3 false accepts | r21id-r10 rejection | r21id-r10 false accepts |
+|---|---|---:|---:|---:|---:|---:|---:|
+| car→mailbox | front | 6 | 81 | 81/81 (1.0000) | 0 | 81/81 (1.0000) | 0 |
+| car→mailbox | oblique | 6 | 95 | 95/95 (1.0000) | 0 | 95/95 (1.0000) | 0 |
+| car→mailbox | edge_truncated | 6 | 85 | 85/85 (1.0000) | 0 | 85/85 (1.0000) | 0 |
+| car→mailbox | recovery | 6 | 118 | 118/118 (1.0000) | 0 | 118/118 (1.0000) | 0 |
+| suv→postbox | front | 6 | 181 | 181/181 (1.0000) | 0 | 181/181 (1.0000) | 0 |
+| suv→postbox | oblique | 6 | 169 | 167/169 (0.9882) | 2 | 169/169 (1.0000) | 0 |
+| suv→postbox | edge_truncated | 6 | 154 | 154/154 (1.0000) | 0 | 154/154 (1.0000) | 0 |
+| suv→postbox | recovery | 6 | 58 | 58/58 (1.0000) | 0 | 58/58 (1.0000) | 0 |
+
+`≥3` 未见 world/cell、rejection rate `≥0.90`、false accepts `≤1/cell`：r10 的 8 格全部通过；r3 仅在 `suv→postbox / oblique` 因 2 个误收未通过。该 cell 的 r3 两条误收都来自 `gen_r21id_r9r_w0045`、`target_id=distractor_0045_02`、`view=oblique`、`task_text=Find the jersey barrier and record its position.`：sample `c3e47d4fb4030635d3e7c8c0` 预测 `approach_track`，sample `dd0b0bf7980ac1a56725983e` 预测 `confirm_target`；两条期望均为 `reject_track`。r10 对这两个 sample 均预测 `reject_track`。详见 [r9r val 专项审计](identity-r10-r9r-val-audit-20261107.md)。
+
+评测报告另列的全 val 汇总值为：identity accuracy r3 0.9601、r10 0.9886；总体 distractor rejection rate r3 0.9773、r10 0.9995。`identity-report.json` 的 target_id 口径为：跨视角一致率两者均 0.3333（n=27），真目标拒绝率 r3 0.0510 / r10 0.0186，显式干扰物接受率 r3 0.0027 / r10 0.0009。它们是全 val 诊断值，不替代上表的 pair×view cell 门或冻结四视角硬门。
+
+本次 r9r 输入/输出 SHA256：val JSONL `683f698f675675347c56a6fd2c57bcf5e7e623dad49a1dbb5fddb63d3b821645`；r9r index `933ebe8aab59eea706760177d0f351f2f9f1beb4e0199a6b38587f6bde12e6b8`；评测用重标 split 的 `test.jsonl` `64224209ef99a426a82f5e1ab36b32e9116ede7e49597758bc536f76d3c31f6c`；r3 predictions `033c0dee5f804f84fe9e7098d5b907aef42b29180ec6a7d39589e11e7ca58161`；r10 predictions `1aee8d2f63b9dab88177e997aaf539b344501411efc12be2da76ac3b6d083ea1`；`identity-report.json` `8810146e3938322e725978d405535ec85ba4ea2fe344c1375b744ab7cf2348c0`；`identity-report.md` `818b9cb569253bab7104b801d089fde0dd17c64473b08406c09bef31230b6722`。重标 split 的输入在评测运行目录，只读核对，未复制或修改。
+
 ## 准入项逐模型判定
 
 | 验收项 | 门槛 | r21id-r3 | r21id-r10 |
@@ -55,12 +78,12 @@
 | 四视角真目标拒绝率 | ≤0.08 | **失败**：0.0859 | **通过**：0.0788 |
 | 四视角消防栓小目标拒绝率 | ≤0.12 | **不可评估**：n=0 | **不可评估**：n=0 |
 | 四视角显式干扰物接受率 | ≤0.026 | **失败**：0.0943 | **失败**：0.0583 |
-| r9r val pair×view 泛化门 | ≥3 个未见 world/cell；rejection ≥0.90；false accepts ≤1/cell | **缺证据** | **缺证据** |
+| r9r val pair×view 泛化门 | ≥3 个未见 world/cell；rejection ≥0.90；false accepts ≤1/cell | **失败 1 格**：suv→postbox/oblique 为 167/169，2 个误收 | **通过**：8 格均 6 个 world、rejection=1.000、0 误收 |
 
-## 缺失证据与建议
+## 证据状态与最终建议
 
-截至 2026-11-08，`artifacts/r21id-r10/evaluation/r9r-val/` 尚不存在，因此 12 个 r9r val world 上的 r3/r10 成对预测、8 个 pair×view cell 的 rejection rate、false accepts 与 world 覆盖均未能核验。已准备独立运行脚本 [r10-r9r-val-eval.sh](../.tmp/jobs/r10-r9r-val-eval.sh)，它只运行这一步，使用现有 r10 GGUF 与 r3 GGUF，不训练、不重跑 v1/v3 或四视角评估。该脚本尚未执行；共享 `artifacts/` 在本工作树中按只读要求处理。
+截至 2026-11-08，r9r val 已在指定只读产物目录完成成对评测；本次审计只读取已有结果，没有重跑评测，也未启动 v1/v3 或四视角评估。8 格的逐项结果、误收清单及 SHA256 见上文和 [r9r val 专项审计](identity-r10-r9r-val-audit-20261107.md)。
 
 复核输入 SHA256：`r15-report.md` `27ab3f8005ff9354b6246bebfdaaf25b783d9a6c62092bac11f9be640fba0f8b`；四视角 `identity-report.md` `3d077e520f1d54ef5f18772de873c00d261ba4cb7c830086698720e42d634613`；`eval-v1.json` `d97ca138d509b96d43f9afe9647ff3e66f685dd9ab835fc12319f0cc64d51270`；`eval-v3.json` `e2b30ef6d0bda3f740f151071fe52d0334ca171c18050249310332eea964e89c`；四视角 `identity-report.json` `0dc5f75b56cd1528ca60835ec9e2a3e9163cbf82b007befeae4cb1e2a172fa73`。
 
-建议维持生产模型 **r21id-r3**，暂不切换到 r10。r10 的固定集进展值得保留，但它仍未达到四视角绝对门槛，且 r9r 未见 world 证据缺失。完成 r9r val 评测后，再结合 8 个 cell 的独立 world 数和误收明细复审；生产模型选择不在本次变更中调整。
+维持生产模型 **r21id-r3**，不切换到 r10。r10 的 8 个 r9r val cell 均通过，但冻结四视角的一致率与干扰物接受率硬门仍失败，且 v3 `<12 px` recall 相对提升未达 10 pp。生产模型选择未作修改。
