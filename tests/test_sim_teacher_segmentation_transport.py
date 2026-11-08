@@ -210,6 +210,41 @@ def test_joint_state_omits_incomplete_or_stale_actuator_samples():
     assert _frame_joint_state(sample, 100) is None
 
 
+def test_c11_complete_frame_requires_all_gimbal_and_rotor_joints():
+    joints = {
+        "rotor_0_joint": {"position_rad": 0.1, "velocity_rad_s": 11.0},
+        "rotor_1_joint": {"position_rad": 0.2, "velocity_rad_s": -12.0},
+        "rotor_2_joint": {"position_rad": 0.3, "velocity_rad_s": 13.0},
+        "rotor_3_joint": {"position_rad": 0.4, "velocity_rad_s": -14.0},
+        "c11_yaw_joint": {"position_rad": 0.5, "velocity_rad_s": 0.6},
+        "c11_roll_joint": {"position_rad": 0.7, "velocity_rad_s": -0.8},
+        "c11_pitch_joint": {"position_rad": 0.9, "velocity_rad_s": 1.0},
+    }
+    sample = {"stamp_ns": 95, "joints": joints}
+    state = _frame_joint_state(sample, 100, require_complete=True)
+    assert state is not None
+    assert state["gimbal_joint_state"]["position_rad"] == {
+        "yaw": 0.5,
+        "roll": 0.7,
+        "pitch": 0.9,
+    }
+    assert state["propeller_joint_state"]["angles_rad"] == [0.1, 0.2, 0.3, 0.4]
+
+    missing_rotor = {**joints}
+    del missing_rotor["rotor_3_joint"]
+    assert _frame_joint_state(
+        {"stamp_ns": 95, "joints": missing_rotor}, 100, require_complete=True
+    ) is None
+
+    missing_axis = {**joints}
+    del missing_axis["c11_roll_joint"]
+    assert _frame_joint_state(
+        {"stamp_ns": 95, "joints": missing_axis}, 100, require_complete=True
+    ) is None
+
+    assert _frame_joint_state(sample, 100 + 100_000_001, require_complete=True) is None
+
+
 def test_companion_rejects_stale_missing_corrupt_or_wrong_rgb():
     metadata = {"encoding": "PANOPTIC_RGB8", "width": 1, "height": 1,
                 "sequence": 0, "rgb_sensor_stamp_ns": 100, "source_stamp_ns": 100,

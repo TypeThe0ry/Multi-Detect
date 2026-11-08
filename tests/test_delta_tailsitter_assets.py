@@ -716,7 +716,7 @@ def test_camera_wrappers_and_overlays_publish_odometry_once(model_name: str) -> 
         assert len(plugins) == 1, path
 
 
-def test_gimbal_wrapper_publishes_all_three_joint_angles():
+def test_gimbal_wrapper_publishes_all_three_axes_and_four_rotors():
     root = Path(__file__).resolve().parents[1] / "simulation" / "gazebo"
     for path in (
         root / "models/delta_tailsitter_gimbal_cam/model.sdf",
@@ -727,6 +727,10 @@ def test_gimbal_wrapper_publishes_all_three_joint_angles():
         )
         assert len(plugins) == 1, path
         assert {item.text for item in plugins[0].findall("joint_name")} == {
+            "rotor_0_joint",
+            "rotor_1_joint",
+            "rotor_2_joint",
+            "rotor_3_joint",
             "c11_yaw_joint",
             "c11_roll_joint",
             "c11_pitch_joint",

@@ -1227,7 +1227,7 @@ PX4 的 shell 从 /dev/null 读到 EOF 后不停打印 `pxh>`（单次飞行约 
 是重启或某个外部进程导致；没有足够证据继续归因。代码已把 ARM 临时拒绝重试上限从 6 次扩到
 覆盖既有 30 s 总窗口（间隔仍为 1 s），不跳过预检、不改变判定门限；未用 SITL 重跑验证该修复。
 
-## 2026-11-08：tag57 合并回归的 C11 JointState 映射
+## 2026-11-08：tag57/tag58 合并回归的完整 JointState 发布
 
 tag57 固定版 episode 状态为 `complete`；其 `mavlink.jsonl` 有 14,650 条
 `LOCAL_POSITION_NED`（末条 `time_boot_ms=302028`）和 14,669 条 `ATTITUDE_QUATERNION`
@@ -1235,20 +1235,17 @@ tag57 固定版 episode 状态为 `complete`；其 `mavlink.jsonl` 有 14,650 �
 `Gazebo gimbal joint-state sample is missing one or more axes`。云台版 `mavlink.jsonl` 有
 2,033 条 `LOCAL_POSITION_NED`、2,020 条 `ATTITUDE_QUATERNION`，末条时间分别为
 `45192` 和 `45192`；205 条 `GIMBAL_DEVICE_ATTITUDE_STATUS` 最后到 `45000`。失败分类为
-`px4_alive_other_failure`，
-因为当时 PX4 容器仍存活。这些遥测表明这是采集器对关节样本的解释失败，不能据此归因
-为飞行参数或云台执行器故障。生成的 `delta_tailsitter_gimbal_cam` 发布
-`c11_yaw_joint`、`c11_roll_joint`、`c11_pitch_joint`；采集器原先只识别 x500 的
-`cgo3_camera_joint`、`cgo3_vertical_arm_joint`、`cgo3_horizontal_arm_joint`，故完整的 C11
-三轴样本被当成缺轴，云台严格采帧检查按原设计拒绝了该帧。
+`px4_alive_other_failure`，因为当时 PX4 容器仍存活。最初将原因归为帧服务未识别 C11
+关节名；tag58 后检查实际容器入口 `scripts/sim_teacher_frame_server.py`，确认该入口在合并前
+已经识别完整的 CGo3 与 C11 三轴命名，因此备用模块的 C11 映射变更并未修复此次门禁失败。
 
-`scripts/gazebo_sensor_stream.py` 现在识别两套完整命名，并统一输出 `pitch`、`yaw`、
-`roll`；必须来自同一 JointState sample 的一套完整三轴名称，禁止用两种命名拼出三轴。
-时间水印、样本因果关系、100 ms 最大 skew，以及云台帧必须同时含完整三轴与四个转子状态的
-fail-closed 条件均未改变。`tests/test_gazebo_sensor_stream.py` 新增 C11 映射、轴值和转子值
-检查，以及跨命名混拼拒绝测试；相关 pytest 全部通过。
+帧服务的 `require_complete=True` 合同要求 RGB 时间戳对应的同一份 JointState 同时含完整云台
+三轴和 `rotor_0_joint` 至 `rotor_3_joint` 四个转子状态，并保持因果时间戳及 100 ms 最大
+skew。动力学模型通过 `include merge=true` 带入四个转子关节，但包装模型的
+`JointStatePublisher` 只发布了三个 C11 关节，完整样本因此被正确拒绝。现在
+`scripts/generate_delta_tailsitter_model.py` 在云台包装模型中显式发布七个关节；生成的模型和
+分割 overlay 同步更新，门禁完整性检查与时间门限保持不变。资产测试检查两份 SDF 都列出七个
+关节，帧服务测试覆盖 C11 映射、四转子完整性、缺轴拒绝和过期样本拒绝。
 
-本次执行环境无法访问 Docker socket（`docker ps` 返回权限拒绝），且 GPU 驱动在当前 shell
-不可用（`nvidia-smi` 无法连接驱动）。依合并门禁约束，未另启容器、未切换渲染设备或槽位，
-因此修复后的 SITL 双变体验证尚未完成；不能把 tag57 的固定版成功或此次离线单测描述为本次
-合并后的飞行通过。
+tag58 配对结果为固定版完整通过、云台版缺少完整 JointState 而失败；该轮发生在本次模型发布
+修复之前，不计作修复后连续通过轮次。门禁会在主机 shell 使用指定 SITL 槽位与 GPU 重新执行。

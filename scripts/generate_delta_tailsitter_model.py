@@ -66,7 +66,18 @@ def _gimbal_joint_state_publisher(model: ET.Element) -> None:
         name="gz::sim::systems::JointStatePublisher",
     )
     _element(plugin, "update_rate", 100)
-    for name in ("c11_yaw_joint", "c11_roll_joint", "c11_pitch_joint"):
+    # Strict gimballed frames carry both camera articulation and rotor state.
+    # The base dynamics model is merged into this wrapper, but JointStatePublisher
+    # only emits explicitly listed joints.
+    for name in (
+        "rotor_0_joint",
+        "rotor_1_joint",
+        "rotor_2_joint",
+        "rotor_3_joint",
+        "c11_yaw_joint",
+        "c11_roll_joint",
+        "c11_pitch_joint",
+    ):
         _element(plugin, "joint_name", name)
 
 def _vector(values) -> str:
