@@ -266,6 +266,17 @@ class OnboardPolicy(RuntimeAdmissionMixin):
             **{k: (str(v) if v is not None else None) for k, v in DEFAULTS.items()},
             **(config or {}),
         }
+        # Most historical defaults are stringified above. Keep this image-size
+        # contract typed, and reject values that int() would silently truncate.
+        identity_max_side = (config or {}).get(
+            "identity_max_side", DEFAULTS["identity_max_side"]
+        )
+        if type(identity_max_side) is not int or identity_max_side <= 0:
+            raise ValueError("identity_max_side must be a positive integer")
+        if slow_runner is not None and "identity_max_side" in (config or {}):
+            if type(getattr(slow_runner, "max_side", None)) is not int or slow_runner.max_side != identity_max_side:
+                raise ValueError("identity_max_side must match the supplied slow_runner.max_side")
+        options["identity_max_side"] = identity_max_side
         if type(options.get("planning_decision_contract", False)) is not bool:
             raise ValueError("planning_decision_contract must be a boolean")
         if type(options.get("planning_pregate", False)) is not bool:

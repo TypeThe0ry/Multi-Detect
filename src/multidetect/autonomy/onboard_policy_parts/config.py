@@ -22,6 +22,8 @@ DEFAULTS = {
     / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
     "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
     "llama_server": llama_server_path(),
+    # Full-frame identity input only; candidate crops keep their own fixed size.
+    "identity_max_side": 448,
     # Leave batch sizing to the selected llama.cpp build unless a measured
     # hardware profile explicitly configures these optional limits.
     "llama_batch_size": None,
