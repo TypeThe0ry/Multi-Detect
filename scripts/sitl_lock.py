@@ -249,7 +249,7 @@ class SitlLock:
             if ticket == self._ticket:
                 return True
             scope = _ticket_candidates(ticket)
-            if scope is None or slot in scope:
+            if scope is None or (self.slots == 1 and bool(scope)) or slot in scope:
                 return False
         return False
 

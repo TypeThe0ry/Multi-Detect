@@ -157,3 +157,24 @@ def test_lost_mkdir_race_preserves_winner_and_discards_loser_ticket(tmp_path, mo
     monkeypatch.setattr(lock, '_reclaim_stale', original)
     lock.acquire(wait=False)
     lock.release()
+
+
+def test_single_slot_global_client_respects_earlier_fixed_slot_ticket(tmp_path):
+    root = tmp_path / 'global'
+    earlier = make_lock(root, slots=5, slot=4)
+    global_client = make_lock(root, slots=1)
+    earlier._make_ticket()
+    try:
+        with pytest.raises(RuntimeError, match='SITL slots busy'):
+            global_client.acquire(wait=False)
+        assert earlier._ticket.exists()
+        earlier.acquire(wait=False)
+        assert earlier.slot == 4
+        earlier.release()
+        global_client.acquire(wait=False)
+        assert global_client.path == root
+    finally:
+        global_client.release()
+        earlier.release()
+        if earlier._ticket is not None:
+            earlier._ticket.unlink(missing_ok=True)
