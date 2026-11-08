@@ -78,6 +78,41 @@ def test_checker_does_not_write_artifact(tmp_path):
     assert all(point["class"] == MISSING for point in report["points"])
 
 
+def test_checker_reads_sibling_onboard_frames_for_episode_directory(tmp_path):
+    episode = tmp_path / "campaign" / "episodes" / "episode-0000-test"
+    frames = tmp_path / "campaign" / "episode-0000-test-onboard-frames" / "mission_log"
+    episode.mkdir(parents=True)
+    frames.mkdir(parents=True)
+    (episode / "mavlink.jsonl").write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in [
+                {"message_type": "LOCAL_POSITION_NED", "time_boot_ms": 1, "z": -1.0},
+                {"message_type": "LOCAL_POSITION_NED", "time_boot_ms": 2, "z": -1.1},
+                {"message_type": "EXTENDED_SYS_STATE", "landed_state": 2},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (episode / "steps.jsonl").write_text("{}\n", encoding="utf-8")
+    (frames / "mission.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"kind": "climb_failed_suspected_loss_of_control"}),
+                json.dumps({"kind": "alert", "value": "climb_failed_suspected_loss_of_control"}),
+                json.dumps({"kind": "escalation", "action": "land_now"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (frames / "summary.json").write_text("{}", encoding="utf-8")
+
+    classes = _classes(check_climb_fault_evidence(episode))
+    assert classes["failure_event_alert"] == ONBOARD
+    assert classes["land_now_handoff"] == ONBOARD
+
+
 def test_campaign_attaches_checker_only_when_climb_injection_is_enabled(tmp_path):
     episode = tmp_path / "episode"
     episode.mkdir()
