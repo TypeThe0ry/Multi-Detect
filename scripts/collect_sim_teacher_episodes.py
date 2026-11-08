@@ -754,7 +754,12 @@ class CollectionPlan:
         result["takeoff_altitude_source"] = source
         result["px4_logger_mode"] = _effective_px4_logger_mode(self)
         result["px4_daemon_mode"] = resolve_px4_daemon_mode()
-        result["docker_command"] = docker_command(self)
+        result["docker_command"] = None if self.attach_container else docker_command(self)
+        if self.attach_container:
+            # An attachment cannot know its runtime identity before Docker inspect.
+            result["requested_image"] = self.image
+            result["image"] = None
+            result["image_identity_status"] = "pending_container_inspect"
         cpu_isolation = resolve_cpu_isolation(self.worker_index)
         if cpu_isolation is not None:
             result["cpu_isolation"] = cpu_isolation.to_mapping()
@@ -1087,6 +1092,22 @@ def _docker_executable(plan: CollectionPlan) -> str:
     if not Path(executable).is_file() and not shutil.which(executable):
         return "docker"
     return executable
+
+
+def _record_container_started(recorder, environment: DockerSimEnvironment) -> None:
+    identity = environment.remember_px4_process()
+    recorder.meta["simulator_container"] = identity
+    recorder.meta["simulator_image"] = identity["image"]
+    recorder.meta["requested_simulator_image"] = identity["requested_image"]
+    recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
+    recorder.record_mavlink({
+        "message_type": "collector_container_started",
+        "container": environment.name,
+        "container_id": identity["container_id"],
+        "image": identity["image"],
+        "requested_image": identity["requested_image"],
+        "image_identity_source": identity["image_identity_source"],
+    })
 
 
 LAUNCH_TOTAL_MASS_KG = 1.7
@@ -1434,6 +1455,8 @@ class DockerSimEnvironment:
         self.name = plan.attach_container or f"{plan.container_prefix}-{episode_id}"
         self.attached = bool(plan.attach_container)
         self.started = False
+        self.runtime_image = None if self.attached else plan.image
+        self._attached_container_id: str | None = None
         self.episode_dir = Path(episode_dir) if episode_dir is not None else None
         self._stall_episode_dir = (
             self.episode_dir
@@ -1510,6 +1533,7 @@ class DockerSimEnvironment:
                 details = json.loads(inspected.stdout)
                 state = details.get("State") or {}
                 snapshot["container_id"] = details.get("Id")
+                snapshot["image"] = details.get("Image")
                 snapshot["state"] = {
                     "running": state.get("Running"),
                     "exit_code": state.get("ExitCode"),
@@ -1553,9 +1577,17 @@ class DockerSimEnvironment:
 
     def remember_px4_process(self) -> dict[str, Any]:
         snapshot = self._container_snapshot()
+        if self.attached and (
+            snapshot.get("container_id") != self._attached_container_id
+            or snapshot.get("image") != self.runtime_image
+        ):
+            raise RuntimeError("Attached container identity changed or is unavailable")
         return {
             "container_name": self.name,
             "container_id": snapshot.get("container_id"),
+            "image": self.runtime_image,
+            "requested_image": self.plan.image,
+            "image_identity_source": "container_inspect" if self.attached else "launch_plan",
             "px4_host_pids": snapshot.get("px4_host_pids", []),
         }
 
@@ -1609,7 +1641,20 @@ class DockerSimEnvironment:
     def __enter__(self) -> DockerSimEnvironment:
         if self.attached:
             self.wait(self.plan.max_episode_s)
-            self._progress("container_attached", container=self.name, image=self.plan.image)
+            snapshot = self._container_snapshot()
+            image = snapshot.get("image")
+            container_id = snapshot.get("container_id")
+            if (
+                not isinstance(image, str)
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", image) is None
+                or not isinstance(container_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", container_id) is None
+                or (snapshot.get("state") or {}).get("running") is not True
+            ):
+                raise RuntimeError("Attached container requires inspected immutable image and container identity")
+            self.runtime_image = image
+            self._attached_container_id = container_id
+            self._progress("container_attached", container=self.name, image=image, requested_image=self.plan.image)
             return self
         result = subprocess.run(
             docker_command(self.plan, name=self.name),
@@ -5794,8 +5839,7 @@ def run_episode(
         with environment:
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
             _progress("gz_world_loaded", container=environment.name)
-            recorder.meta["simulator_container"] = environment.remember_px4_process()
-            recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
+            _record_container_started(recorder, environment)
             mover_driver = _start_mover_driver(plan, environment, truth_path)
             if mover_driver is not None:
                 recorder.meta["mover_driver"] = mover_driver
@@ -5809,13 +5853,6 @@ def run_episode(
                 from pymavlink import mavutil
             except ImportError as exc:
                 raise RuntimeError("pymavlink is required for a real SIM episode") from exc
-            recorder.record_mavlink(
-                {
-                    "message_type": "collector_container_started",
-                    "container": environment.name,
-                    "image": plan.image,
-                }
-            )
             telemetry_connection = mavutil.mavlink_connection(
                 sim_udpin_endpoint(plan.telemetry_port, mode=plan.sim_network),
                 source_system=GCS_SOURCE_SYSTEM,

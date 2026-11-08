@@ -21,7 +21,7 @@ from uuid import uuid4
 _V3 = Path(__file__).with_name("onboard_teacher_gazebo_session_v3.py")
 _raw = _V3.read_bytes()
 if len(_raw) != 19604 or hashlib.sha256(_raw).hexdigest() != (
-    "04d57a9bb00eae73a355d53a6263c4054019ca6ccc7490ec2eaa9d3bdea07a22"
+    "dcd88c2aa5391e99c7e3d7eddd3c13d0ce619a5fdc8a5bddc848496dc2413ded"
 ):
     raise RuntimeError("Frozen teacher session V3 source differs")
 

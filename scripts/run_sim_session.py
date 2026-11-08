@@ -331,6 +331,7 @@ def build_session_command(
         control_port=control_port,
         telemetry_port=telemetry_port,
         image=PINNED_IMAGE,
+        gpu_render=False,
         dry_run=False,
         airframe_profile_id=canonical,
     )
@@ -656,6 +657,9 @@ def _run_task(
         "onboard",
         "--attach-container",
         container_name,
+        "--image",
+        VIEWER_IMAGE,
+        "--no-gpu-render",
         "--control-port",
         str(port),
         "--telemetry-port",

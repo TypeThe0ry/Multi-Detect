@@ -624,7 +624,7 @@ def test_import_quiet_no_ml_mavlink_or_frozen_v4_edits():
     assert (
         len(raw) == 12186
         and hashlib.sha256(raw).hexdigest()
-        == "2e982a38ec99f67e58ff1ad8a7d398593f0a03931d4e1ef6222edb79e7a605a5"
+        == "035e10a9d4c7a6b0735671cd37ba86b181decab1e5bb36a25bf85dcf6d339300"
     )
     code = (
         f"import sys;sys.path[:0]=[{str(ROOT)!r},{str(ROOT / 'src')!r}];"

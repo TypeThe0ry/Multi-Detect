@@ -81,12 +81,16 @@ class TeacherSessionPlan:
     height: int = 960
 
     def __post_init__(self):
-        from scripts.run_simulator_docker import PINNED_IMAGE, DockerSimulatorPlan
+        from scripts.run_simulator_docker import DockerSimulatorPlan
+        from multidetect.simulator.px4_image import DEFAULT_GPU_IMAGE, PINNED_IMAGE
 
         if not isinstance(self.docker_plan, DockerSimulatorPlan):
             raise TypeError("Repository DockerSimulatorPlan required")
-        if self.docker_plan.image != PINNED_IMAGE:
-            raise ValueError("Exact repository pinned image required")
+        qualified_image = self.docker_plan.image == PINNED_IMAGE or (
+            self.docker_plan.gpu_render and self.docker_plan.image == DEFAULT_GPU_IMAGE
+        )
+        if not qualified_image:
+            raise ValueError("Exact repository source image or qualified GPU runtime required")
         if self.docker_plan.airframe_profile_id != "px4_multirotor_gazebo_v1":
             raise ValueError("Teacher observation seam is multirotor-only")
         for port in (self.docker_plan.host_control_port, self.docker_plan.host_telemetry_port):

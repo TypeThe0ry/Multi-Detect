@@ -43,7 +43,8 @@ def test_attached_environment_does_not_start_or_remove(monkeypatch):
                 returncode=0,
                 stdout=json.dumps(
                     {
-                        "Id": "fake-container-id",
+                        "Id": "a" * 64,
+                        "Image": "sha256:" + "8" * 64,
                         "State": {
                             "Running": True,
                             "ExitCode": 0,
@@ -78,6 +79,8 @@ def test_attached_environment_does_not_start_or_remove(monkeypatch):
         assert not environment.started
     assert calls == [
         ["docker", "inspect", "--format", "{{.State.Running}}", "session-container"],
+        ["docker", "inspect", "--format", "{{json .}}", "session-container"],
+        ["docker", "top", "session-container", "-eo", "pid,comm"],
         ["docker", "inspect", "--format", "{{json .}}", "session-container"],
         ["docker", "top", "session-container", "-eo", "pid,comm"],
     ]

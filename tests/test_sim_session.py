@@ -368,6 +368,8 @@ def test_onboard_collector_command_carries_airframe_and_takeoff(
         artifacts_root=tmp_path / "art",
     )
     command = captured[0]
+    assert command[command.index("--image") + 1] == VIEWER_IMAGE
+    assert "--no-gpu-render" in command
     assert command[command.index("--airframe") + 1] == canonical
     assert Path(command[command.index("--scenario") + 1]) == session._scenario_for(
         world_path, airframe

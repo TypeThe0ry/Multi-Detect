@@ -107,7 +107,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scenario", type=Path, required=True)
     parser.add_argument("--repository-root", type=Path, default=ROOT)
     parser.add_argument("--job-dir", type=Path, default=None)
-    parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument("--image", default=None)
     parser.add_argument("--container-name", default="md-sim-gpu-check")
     parser.add_argument("--gpu-device", default=None)
     parser.add_argument("--gpu-devices", default=None)

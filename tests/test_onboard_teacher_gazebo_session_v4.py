@@ -507,7 +507,7 @@ def test_import_quiet_and_frozen_v3_identity_not_changed():
     source = ROOT / "scripts/onboard_teacher_gazebo_session_v3.py"
     assert len(source.read_bytes()) == 19604
     assert hashlib.sha256(source.read_bytes()).hexdigest() == (
-        "04d57a9bb00eae73a355d53a6263c4054019ca6ccc7490ec2eaa9d3bdea07a22"
+        "dcd88c2aa5391e99c7e3d7eddd3c13d0ce619a5fdc8a5bddc848496dc2413ded"
     )
     command = (
         "import sys;sys.path[:0]=[" + repr(str(ROOT)) + "," + repr(str(ROOT / "src")) + "];"

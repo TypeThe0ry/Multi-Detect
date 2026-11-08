@@ -17,7 +17,7 @@
 
 `sha256:b5c576ce15b8a75935313bc3e8dc4cf9940778226b28e835064d7581c3fe72c6`
 
-`CollectionPlan` 创建时冻结实际 image，原始 metadata、`collector_container_started` MAVLink 头和 Docker argv 使用同一值；之后改变环境变量不会使命令与记录分叉。Docker/AI acceptance 的默认入口也允许中央选择。`PINNED_IMAGE` 保持 bcf 作为来源契约，避免错误宣称资产来自新镜像。
+`CollectionPlan` 创建时冻结实际 image，原始 metadata、`collector_container_started` MAVLink 头和 Docker argv 使用同一值；之后改变环境变量不会使命令与记录分叉。Docker/AI acceptance、`run_external_onboard_model_acceptance` 与 `check_sim_gpu_render` 的默认入口也允许中央选择。teacher session 的严格运行白名单保留 bcf 来源，并允许精确 b5 且实际启用 GPU 的运行内容；其它未经资格验证的镜像仍拒绝。`PINNED_IMAGE` 保持 bcf 作为来源契约，避免错误宣称资产来自新镜像。
 
 原镜像 A/B 保留，例如 GPU 作业用 `--image multidetect/px4-sitl-gazebo:gpu` 或 `MULTIDETECT_SIM_IMAGE=multidetect/px4-sitl-gazebo:gpu`；需要不可变旧内容时可显式指定 `sha256:445d17a7ae7e34dbddc826b68c08c705d4892a3b3997e3f3a0bb44072a5ef8f2`。显式 API 参数高于环境变量。缺少 b5 本地镜像时不能静默退回旧镜像；必须恢复原候选镜像或审核重建内容。
 
@@ -47,3 +47,15 @@ PX4_BUILD_JOBS=8 scripts/build_px4_lockstep_candidate.sh /data/scratch/px4-clock
 本分支运行无GPU的 pytest：GPU/CPU/显式device实际判定、API/CLI/env优先级、collector冻结metadata和命令一致性、拒绝改动补丁及覆盖已有镜像；并运行现有Docker planner、collector preflight和两层acceptance回归。现有回归及首批新测试共143项通过；补充两个活动标签拒绝用例后，新测试16项再次全过（合计覆盖145项）。仅既有模拟网络 sitl-private 的预期 inspect fallback warning。测试日志位于工作区 `runs/px4-runtime-default-focused-20261109.log`，不把测试结果冒充飞行门禁。
 
 维护者在合入前确认三个实景门禁原始图像身份、源版本、无重试/缺失和严格断言，并确认运行内容与候选b5相同。当前飞行使用的21dc源码与本分支基底fd4316运行逻辑等价，本分支仅改变默认镜像选择和重建约束；显式b5验收路径应保持原内容。合入后用无override的GPU dry-run检查生成plan/collector头选择b5，再按正常推广流程处理main与发布。未全部通过时本分支保持隔离。
+
+## 推广复核后的入口与附着身份修正
+
+独立审查补齐了三个实际反例：外部模型验收/GPU检查工具的显式旧默认绕过中央选择；teacher session 的严格旧白名单拒绝正常GPU默认；软件viewer附着collector继承GPU环境而可能把b5计划值写成运行身份。
+
+viewer 明确继续使用独立旧软件渲染镜像，规划时 `gpu_render=False`，collector 命令明确 `--image VIEWER_IMAGE --no-gpu-render`。这不把 viewer 算作 b5 飞行通过。附着 `CollectionPlan.to_mapping()` 的 `image` 在 inspect 前为 null，并单独记录 `requested_image`，不生成假想 docker run 命令。实际附着要求 Docker inspect 的运行容器 ID 和 `.Image` 完整不可变 ID；缺失、非运行态或记录前换了身份均拒绝。`episode.json` 的 `simulator_image` / `simulator_container.image` 与原始 MAVLink `collector_container_started.image` 共用这份真实身份；`requested_simulator_image` / `requested_image` 仅保留配置期望。它不会因为环境中默认b5而冒充候选内容。附着不启动、停止或删除借用容器。
+
+新增验证直接复现三个入口缺陷：external API/CLI和GPU检查的默认/显式覆盖，teacher 的精确GPU内容白名单，以及ambient b5下实际viewer身份的metadata/MAV一致性、缺失拒绝和容器替换拒绝；相关旧attachment/session/GPU-check/external/teacher小型suite继续回归。没有重跑前一批143项或运行实景/GPU。
+
+teacher 的继承链还固定了整个上游模块的字节/hash。v1 白名单改变后，v3/v4/operator/v2 都必须继续验证精确新源码，而不能禁用旧 guard。这里仅机械更新四个继承生产文件与两个对应测试内的 size/SHA 常量，受保护逻辑与拒绝条件保持原样；逐字节重建比较证明这些文件没有其它变化。完整 old→new SHA/长度及依赖消费者见 [pin 复核记录](evidence/px4-runtime-promotion-pin-review-20261109.json)。该文件是本次源码兼容审查记录，不是飞行 receipt；旧 receipt 不自动证明新源码资格，未更改任何历史 receipt、冻结 planning-v5/probe 或训练数据。
+
+补充验证：14个新反例测试全过；原attachment/session/GPU-check/external/teacher、clock capture/CPU isolation相关测试203项过，外部模型的3个旧默认证据包用例因clean worktree缺模型包跳过；新external dry-run使用独立测试模型，API/CLI均真实经过planner。v3/v4/operator/v2继承链141项过、1项缺旧R1实景artifact跳过。CPU-only完整onboard gate通过（111秒），结果见工作区 `runs/px4-runtime-promotion-cpu-gate-20261109-r2.log`。初次102秒失败仅因新worktree缺已有 replay 输入，原日志 `runs/px4-runtime-promotion-cpu-gate-20261109.log` 保留；补同项目惯用artifacts链接后，失败单测先通过再重跑完整gate。原replay输入及planning-v5/返航probe前后SHA均一致，输入只读、输出限pytest临时目录。mock测试和CPU门禁均不代替新的实景验收。
