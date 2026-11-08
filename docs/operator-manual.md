@@ -4,6 +4,107 @@
 
 完整端到端流程见 [SIM 操作员端到端指南](e2e-operator-sim.md)，协议和生命周期细节见 [GCS 任务包流程](gcs-mission-package-workflow.md)。负责人先看 [机载自主任务安全总览（2026-10-24）](autonomy-safety-overview-20261024.md)。
 
+## 0. 新操作员：离线仿真首飞前流程
+
+这里的“离线”表示使用仓库内固定配置和本机模型，不需要联网模型服务或真实飞机；实际执行仍会启动 Docker 中的 PX4 SITL/Gazebo。仅想确认任务配置和命令时，停在第 0.3 步的 `--dry-run`，不会启动仿真。SIM 结果不能作为真实飞行许可。
+
+### 0.1 确认工作区、解释器、依赖和模型
+
+在仓库根目录打开 Bash。以下检查只读，不启动服务；仓库环境约定使用主环境 `.venv` 跑 gate/pytest，仿真脚本使用 VLM 环境 `.venv-vlm`（包含 `torch`/`ultralytics`）：
+
+```bash
+cd /data/projects/Multi-Detect-env/mdwt/cx-operator-manual
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+test -x /data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python
+test -x /data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python
+/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python --version
+/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python -c 'import torch, ultralytics; print("torch", torch.__version__, "cuda", torch.cuda.is_available(), "ultralytics", ultralytics.__version__)'
+docker info --format '{{.ServerVersion}}'
+```
+
+若准备使用下面的基线任务，检查 suite 引用的两个 GGUF 文件确实可读；`--dry-run` 会解析配置，但不会证明模型文件存在、可加载或可在本机运行：
+
+```bash
+test -r artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf
+test -r artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf
+```
+
+任一前置检查失败就先停止；不要用另一套 Python、假模型或改写 suite 默认值来绕过。SIM 需要有足够磁盘空间，基线每个 episode 会产生较大图像和遥测文件；输出放在本工作区 `.tmp/`，不要写 `artifacts/`（它可能指向共享只读目录）。
+
+### 0.2 选机型、相机和任务/world
+
+新手先选 `x500_mono_cam` 固定相机路径，以及 [端到端操作员套件](../configs/onboard/suite-e2e-operator.json) 中的 `count-cones`：world `gen_cnt2_w0000`，任务文字、home、场地区域、运行范围、预算、预期技能都在该配置中。`count-fire-hydrants`、`monitor-backpacks`、`patrol-fence-backpacks`、`inspect-postbox` 也是可用的 operator-link 样例。不要只改 world 而保留与其不匹配的任务和场景索引。
+
+固定相机的 `x500_mono_cam` 有向下相机，不需要云台关节字段，也不要求 `gimbal_joint_state`。仅当任务要检查云台路径时才选择 `x500_gimbal` 和 [云台套件](../configs/onboard/suite-gimbal-r21idr3-r24plan.json)；该配置将机体相机 mount 设为 gimbal，且每个任务必须在每个 step 记录 `gimbal_joint_state` 与 `propeller_joint_state`。云台角度和 propeller rotation 是 Gazebo 仿真关节状态，用于检查仿真模型/记录链；它们不是普通飞机必备部件、真实相机画面或飞行表现证明。suite validator 对 `x500_gimbal` 强制两个字段，普通机型没有该要求。
+
+固定翼/VTOL 应选与机型匹配的任务，不要把多旋翼任务的 hover/起降假定套过去。受支持机型定义见 `configs/airframes/*.json`；交互会话支持的起飞方式以 `run_sim_session.py --help` 中 `runway|hand|catapult|vtol` 为准。机型、起飞方式与 world 的映射由 `scripts/run_sim_session.py` 验证。
+
+### 0.3 启动前只读检查
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python scripts/run_sim_session.py --help
+/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python scripts/fake_gcs_console.py --help
+/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python scripts/run_e2e_operator_suite.py --help
+/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python scripts/run_e2e_operator_suite.py configs/onboard/suite-e2e-operator.json --dry-run
+```
+
+核实输出中的 world、`x500_mono_cam`、任务 ID 和结果根目录符合预期。该 suite dry-run 只加载配置并打印 session/GCS/evaluate 命令，不取 SITL 锁，也不启动 Docker/SITL。需要单独验证 JSON 任务包时，`mission_package_tool.py validate <包.json>` 使用 `load_mission_package` 和意图检查；它不验证模型推理、传感器或飞行成功。切勿在 dry-run 配置中打开 suite/mission 的自动批准变量；`fake_gcs_console.py --auto-approve` 只适合无人值守回归，不是人工审批演练。
+
+若要进行交互式 SIM 操作员演练，先确认没有其他 SIM 持有锁，再使用仓库内 operator demo 启动器；它要求可找到已构建的 MultiDetectGCS 可执行文件。启动会运行 Docker/PX4/Gazebo，已不属于只读检查：
+
+```bash
+/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python scripts/run_operator_demo.py --help
+/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python scripts/run_operator_demo.py --airframe x500_mono_cam --world gen_cnt2_w0000 --operator-out "$PWD/.tmp/operator-out" --task-package configs/onboard/mission-package-count-cones-example.json --gcs-exe /path/to/MultiDetectGCS
+```
+
+以上第二条是启动命令，不是本次执行结果。传 `--task-package` 时启动器在会话密钥就绪后生成签名副本并预选任务包；预选不等于上传，仍需在 GCS 中核对并人工发送。仓库 CLI 不提供通用 `--dry-run` 任务包校验；`run_operator_demo.py --dry-run` 只渲染启动命令，且启动器可能先创建其 scratch 目录。实际操作时由有权操作员核对 `plan`/摘要后明确批准；不要把启动成功当作 plan 已批准或任务已起飞。
+
+### 0.4 运行状态、控制动作和结束条件
+
+按顺序观察 `mission_started`、`plan`、审批结果、约 1 Hz `status`、`finding`/`alert` 和最终摘要。operator-link status 的 `state` 可为 `awaiting_approval`（等待计划审批）、`running`（执行中）、`returning`（正在返回）或 `done`；独立的 mission progress phase 可为 `ready`、`active`、`waiting_for_link`、`waiting_for_gps`、`blocked` 或 `complete`，不要把它们混成一个状态字段。状态超过 5 秒应视为过期；先恢复新鲜链路/状态，不据旧画面继续发命令。`completed` 是任务生命周期正常结束，`ended_early` 是监督器锁定返航/降落等提前终止路径；二者都不单独证明 PX4 已落地。collector 的 episode `status=complete` 只表示采集目录封存，不等于任务 expected 通过。
+
+| 操作/证据 | 可以得出的结论 | 不能由此推出 |
+| --- | --- | --- |
+| 操作员按“中止”或送出 `abort` | 监督器接受并记录请求时，任务转入中止/恢复路径；查看 `ground_event`、`decision`、`execution`、`final_summary` | abort ACK、`action_ack` 或 `return_home` 标签都不代表返航完成、已落地或 disarm |
+| `return_home` / return-home 请求 | 已请求或正在执行返航步骤；确认 fresh 位置、执行结果及返航到达证据 | 请求或任务摘要的终止动作不是 PX4 mode/降落完成凭证 |
+| PX4 `COMMAND_ACK` 与 heartbeat/custom mode | 分别说明对应命令被 PX4 接收/拒绝，以及采样时 mode | ACK 不保证后续执行完成；mode 也不等于已接地 |
+| fresh `EXTENDED_SYS_STATE.landed_state=1` | PX4 最新遥测报告 landed | 单独不证明已 disarm |
+| fresh disarmed armed-bit/heartbeat | 最新遥测报告未 armed | 与 landed 证据分开记录；两者和时间戳都要核对 |
+
+暂停是有界 hold，受任务的 pause/link-loss timeout、能量与监督器约束；恢复仅在任务仍可恢复时有效。中止后保持观察，不要反复发送操作或关闭会话来“确认返航”。要报告安全终态，应分别找到 operator abort/return-home 请求、PX4 ACK、PX4 mode、带时间戳的 fresh `landed_state=1` 和 fresh disarm 状态；缺哪项就写未确认。详见 [中止墙钟调查](operator-abort-wall-20261107.md) 与 [降落完成证据边界](land-completion-analysis-20261105.md)。
+
+### 0.5 结果目录与成功/失败证据
+
+交互 demo 的 `--operator-out` 是 session 的 onboard 输出根目录；默认路径由启动器定义。E2E suite 的路径为 `<output>/<mission-id>/`，其中有 `package.json`、`gcs-documents.jsonl`、`gcs.out`、`session.out`/`session.jsonl`、`onboard/collector/` 和 `operator-acceptance/`；suite 根目录生成 `suite-results.json`、`suite-results.md`。手动运行时应使用一个新的、工作区内 `.tmp` 路径，避免复用旧任务目录。
+
+Collector 目录结构为 `onboard/collector/episodes/episode-0000-<8位短哈希>/`；campaign 类 mission suite 则为 `<任务输出>/campaign/<world>/episodes/episode-0000-<8位短哈希>/`。可复制查找命令：
+
+```bash
+find .tmp/operator-out .tmp/cx-e2e-multi -type f \\
+  \( -name episode.json -o -name steps.jsonl -o -name mission.jsonl \\
+     -o -name mission_summary.json -o -name report.json \\
+     -o -name operator-acceptance.json -o -name gcs-documents.jsonl \\
+     -o -name suite-results.json \) -print 2>/dev/null
+```
+
+成功与失败都从同一个 episode 目录查：`episode.json` 看采集状态、错误、world、机型、failure_class 和运行元数据；`steps.jsonl` 看逐步 before/after 观测、命令、frame、PX4 时间和动作结果；`mission_log/mission.jsonl` 看 plan、审批、地面事件、decision、finding、alert、终止摘要；`mission_summary.json` 看任务技能结果和 `return_home` arrived；`mavlink.jsonl`（或 `.gz`）看 PX4 消息/状态；frame wait 或 clock stall 时再看 `frame_wait_timeline`、`px4-clock-stall-capture.json`、`host_pressure.jsonl`（文件是否存在须实际检查）。`report.json` 与 `operator-acceptance.json` 的 `criteria`/`verdict` 用于套件断言，不替代 episode 原始证据。缺文件要报告“未采集/未知”，不可按空列表解释为无故障。
+
+### 0.6 常见失败分诊
+
+每次先保留原目录并记录 episode ID、时间、命令、配置摘要和失败原文；不要只凭一个 timeout 文本归因。下表中的“仍不足”是结论边界，不是让操作员自行假设根因。
+
+| 观察到什么 | 下一步看哪里 | 什么证据仍不足以判断 |
+| --- | --- | --- |
+| pre-arm/健康门超时，尚无 step/frame | `episode.json` 的 phase/error/failure diagnostics、MAVLink pre-arm 与传感器状态、进程/容器快照；确认机型/world 与 GPS/EKF 条件 | 单条 Accel/MAG timeout、PX4 仍存活或“未起飞”本身不能确定是传感器、模型、启动顺序或主机资源原因 |
+| 首帧未到，或 step 前/后新帧等待达到 15 秒 | `frame_wait_timeline` 的 phase、pose 水位、最后 sensor stamp、收帧时刻；对齐 `steps.jsonl`、`mavlink.jsonl` 和 PX4 `time_boot_ms` | 旧 episode 没有 timeline 时，不能区分没有新帧、帧 stamp 未过 pose 水位或采集记录缺失；不能直接称为相机硬件故障 |
+| primitive 中 PX4 clock stall（Linux 默认有界等待 45 秒） | `px4_clock_diagnostics`、`px4-clock-stall-capture.json`、PX4/Gazebo clock 与 WorldStatistics probe、进程状态和相邻 frame/telemetry 时间戳 | PX4 进程存活不证明 Gazebo 正常；没有 clock/stats 和线程/transport 证据时不能锁定 Gazebo、lockstep、线程或调度根因 |
+| Gazebo stall/空闲不推进或 transport 无更新 | 检查 Gazebo `/world/<name>/clock`、stats、sensor topic、PX4 仿真时间及对应 capture 的顺序和时间范围 | 单个进程在、没有新图像或超时标签不足以证明 Gazebo 卡死；也不能从 PX4 stall 直接反推 Gazebo 是根因 |
+| 高 load/PSI 与 timeout 同时出现 | 只用同一 episode 墙钟区间的 `host_pressure.jsonl` 或明确覆盖该区间的 host trace；对齐 wall 与仿真时钟，查看同窗失败和对照 episode | 同时相关不等于因果。trace 未覆盖、缺 sidecar、只有一个事件或只有全机 load 数值，都不能认定主机负载是原因 |
+| 任务语义失败，如 count 不符、lower bound、技能序列/coverage 期望失败 | `report.json`、`mission_summary.json`、每步 `steps.jsonl`、findings/evidence frame、`not_done`/跳过原因、套件 `expectations_passed` | 语义 expected 失败不自动等于传感器故障；episode 封存为 complete 不等于任务成功。反过来，任务进程通过也不证明 count 精确或返航已落地 |
+
+当前 [Gazebo idle stall 调查](gz-idle-stall-20261107.md)、[clock stall 跟进](gz-idle-stall-followup-20261107.md)、[28/29-head nightly 对照](nightly-review-29-head-20261107.md)、[云台覆盖记录](gimbal-coverage-followup-20261107.md)、[Accel timeout 与失控调查](accel-timeout-crash-20261107.md) 和 [host trace 对齐](timeout-host-trace-20261107.md) 记录了 15 秒 sensor wait、PX4 clock stall、Accel timeout 与高负载的并存/缺失证据。2026-11-07 的 29-head 记录为主套件 14/14、云台套件 7/7 达到各自 expectation；这是历史套件矩阵结果，不替代当前 episode 证据，也不能反证唯一根因。旧样本的 frame timeline/pressure 覆盖不完整；Accel timeout 与后续失控的因果未证，host trace 只有有限窗口覆盖。按这些记录做相似诊断时只引用实际存在的同 episode 证据。
+
 ## 1. 写任务包
 
 ### 1.1 字段和边界
@@ -196,6 +297,7 @@ pwsh scripts/run_operator_demo.ps1 --gcs-exe build/windows-v0.2.0-release/portab
 - [任务包协议、审批、分页摘要和离屏生命周期](gcs-mission-package-workflow.md)
 - [多用途任务设计、意图/地点/能力检查](onboard-multipurpose-mission-design.md)
 - [SIM 操作员端到端流程](e2e-operator-sim.md)
+- [本次操作员手册更新记录（2026-11-08）](operator-manual-update-20261108.md)
 - [自主架构中的安全出口和长时监视预算](autonomy-architecture.md)
 - [2026-10-20 SIM 任务套件回归](sim-mission-suite-regression-20261020.md)
 - [Jetson/llama 配置](../deploy/jetson/README.md)
