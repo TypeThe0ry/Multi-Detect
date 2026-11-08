@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "generator": "scripts.realworld.prepare_city_regression",
+  "count": 3,
+  "worlds": [
+    {
+      "world_id": "rw_shanghai_lujiazui__clear_noon",
+      "world_file": "rw_shanghai_lujiazui__clear_noon.sdf",
+      "split": "test",
+      "files": {
+        "scenario": "rw_shanghai_lujiazui__clear_noon.scenario.json"
+      },
+      "site": "rw_shanghai_lujiazui",
+      "task_kind": "survey",
+      "task_text_en": "Survey the site with seventy percent photo overlap and return home."
+    },
+    {
+      "world_id": "rw_shanghai_century_park__clear_noon",
+      "world_file": "rw_shanghai_century_park__clear_noon.sdf",
+      "split": "test",
+      "files": {
+        "scenario": "rw_shanghai_century_park__clear_noon.scenario.json"
+      },
+      "site": "rw_shanghai_century_park",
+      "task_kind": "survey",
+      "task_text_en": "Survey the site with seventy percent photo overlap and return home."
+    },
+    {
+      "world_id": "rw_singapore_marina_bay__clear_noon",
+      "world_file": "rw_singapore_marina_bay__clear_noon.sdf",
+      "split": "test",
+      "files": {
+        "scenario": "rw_singapore_marina_bay__clear_noon.scenario.json"
+      },
+      "site": "rw_singapore_marina_bay",
+      "task_kind": "survey",
+      "task_text_en": "Survey the site with seventy percent photo overlap and return home."
+    }
+  ],
+  "note": "Geographic survey regression only; no target identity ground truth is asserted."
+}

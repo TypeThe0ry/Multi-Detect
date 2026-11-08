@@ -1,0 +1,96 @@
+{
+  "defaults": {
+    "gguf": "artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf",
+    "planning_model": "artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf",
+    "planning_decision_contract": false,
+    "confirm_max_range_m": 40,
+    "fast_identity": true,
+    "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
+    "near_depth": false,
+    "planning_pregate": true,
+    "mission": "from_text",
+    "plan_sorted_keys": true,
+    "step_budget": 180,
+    "size_aware_search": true
+  },
+  "missions": [
+    {
+      "id": "shanghai-lujiazui-survey",
+      "task_text": "Survey the site with seventy percent photo overlap and return home.",
+      "index": "configs/scenarios/realworld/city-regression-index.json",
+      "world": "rw_shanghai_lujiazui__clear_noon",
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          35
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "survey",
+          "return_home"
+        ],
+        "min_survey_coverage": 0.7
+      },
+      "steps": 180,
+      "max_episode_s": 2400,
+      "airframe": "x500"
+    },
+    {
+      "id": "shanghai-century-park-survey",
+      "task_text": "Survey the site with seventy percent photo overlap and return home.",
+      "index": "configs/scenarios/realworld/city-regression-index.json",
+      "world": "rw_shanghai_century_park__clear_noon",
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          35
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "survey",
+          "return_home"
+        ],
+        "min_survey_coverage": 0.7
+      },
+      "steps": 180,
+      "max_episode_s": 2400,
+      "airframe": "x500"
+    },
+    {
+      "id": "singapore-marina-bay-survey",
+      "task_text": "Survey the site with seventy percent photo overlap and return home.",
+      "index": "configs/scenarios/realworld/city-regression-index.json",
+      "world": "rw_singapore_marina_bay__clear_noon",
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          35
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "survey",
+          "return_home"
+        ],
+        "min_survey_coverage": 0.7
+      },
+      "steps": 180,
+      "max_episode_s": 2400,
+      "airframe": "x500"
+    }
+  ]
+}

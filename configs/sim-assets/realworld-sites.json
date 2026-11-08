@@ -78,7 +78,7 @@
       "kind": "urban",
       "provider": "nl"
     },
-"rw_city_tokyo": {
+    "rw_city_tokyo": {
       "title": "东京 台东区公园起飞点",
       "lat": 35.7174,
       "lon": 139.7772,
@@ -113,6 +113,33 @@
       "kind": "coast",
       "provider": "global",
       "takeoff_surface": "OSM leisure=park 开阔公园地（约 0.45 ha 多边形）；起飞点附近按 25 m 压平"
+    },
+    "rw_shanghai_lujiazui": {
+      "title": "上海 陆家嘴中心绿地",
+      "lat": 31.239514553907295,
+      "lon": 121.50182645597538,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM陆家嘴绿地中扣除水域和建筑后的干地；选点距边界73.46m，25m起飞盘须再次通过构建检查"
+    },
+    "rw_shanghai_century_park": {
+      "title": "上海 世纪公园",
+      "lat": 31.21626409031214,
+      "lon": 121.54835820183557,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM世纪公园干地区域；扣除已映射水域和建筑后边界净距38.7m，25m起飞盘另经构建检查"
+    },
+    "rw_singapore_marina_bay": {
+      "title": "新加坡 滨海湾中央岬 The Promontory",
+      "lat": 1.281614,
+      "lon": 103.854207,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM landuse=grass The Promontory@Marina Bay；25m起飞盘须通过构建检查"
     }
   }
 }
