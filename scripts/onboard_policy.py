@@ -136,7 +136,6 @@ from multidetect.autonomy.onboard_policy_parts.model_config import (  # noqa: E4
     _planning_model_spec as _planning_model_spec_impl,
 )
 
-
 MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
 
@@ -1238,6 +1237,11 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                 ),
                 profile=self.airframe_profile,
                 mode=self.motion_adapter.mode,
+                gimbal_angles_deg=(
+                    observation.get("gimbal", {}).get("angles_deg")
+                    if isinstance(observation.get("gimbal"), Mapping)
+                    else None
+                ),
             )
             return base[0], direction
 
@@ -1267,6 +1271,14 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                 landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
                 camera_info=camera_info,
+                vote_frame_path=frame_path,
+                view_pitch_deg=(
+                    float(observation.get("gimbal", {}).get("angles_deg", {}).get("pitch"))
+                    if isinstance(observation.get("gimbal"), Mapping)
+                    and isinstance(observation.get("gimbal", {}).get("angles_deg"), Mapping)
+                    and observation.get("gimbal", {}).get("angles_deg", {}).get("pitch") is not None
+                    else None
+                ),
                 **({"camera_ray": camera_ray} if ranging_enabled else {}),
             )
             if self._slow_failed_current:
@@ -1295,6 +1307,14 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                 verdict = self.loop.remembered_verdict(track.track_id)
                 if verdict is None:
                     verdict = self._slow_identity(frame_path, current, track)
+                verdict = {
+                    **verdict,
+                    "frame_id": verdict.get("frame_id", frame_path.name),
+                    "frame_path": verdict.get("frame_path", str(frame_path)),
+                    "camera_pose_ned": verdict.get("camera_pose_ned", list(pose_ned)),
+                    "observation_source": verdict.get("observation_source", "onboard_rgb"),
+                    "observation_pitch_deg": verdict.get("observation_pitch_deg", None),
+                }
                 if verdict.get("error"):
                     self._slow_failed_current = True
                     record_error = getattr(self.supervisor, "record_perception_error", None)
@@ -1308,6 +1328,9 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                     verdict.get("confidence"),
                     remembered=verdict.get("remembered", False),
                 )
+                vote = getattr(track, "identity_votes", ())
+                if vote:
+                    verdict.update(vote[-1])
                 slow.append(verdict)
         new_rejection = len(getattr(self.loop, "_rejections", ())) > rejection_count_before
         self._hybrid_candidate_visible = self._hybrid_candidate_blocks_reentry(current)
@@ -1365,6 +1388,7 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                         "identity_verdict_history": list(
                             getattr(t, "identity_verdict_history", ())
                         ),
+                        "identity_votes": list(getattr(t, "identity_votes", ())),
                     }
                     for t in current
                 ],
@@ -1663,6 +1687,8 @@ class OnboardPolicy(RuntimeAdmissionMixin):
         timestamp_s=None,
         camera_ray=None,
         camera_info=None,
+        view_pitch_deg=None,
+        vote_frame_path=None,
     ):
         executor = self.executor
         step = executor.current_step
@@ -1684,6 +1710,10 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                 if camera_ray is not None
                 else {}
             ),
+            frame_id=frame_path.name,
+            frame_path=str(vote_frame_path or frame_path),
+            observation_source="onboard_rgb",
+            view_pitch_deg=view_pitch_deg,
         )
         current = list(executor.current_tracks)
         slow = []
@@ -1698,6 +1728,14 @@ class OnboardPolicy(RuntimeAdmissionMixin):
             )
             if verdict is None:
                 verdict = self._slow_identity(frame_path, current, track, perception_text)
+            verdict = {
+                **verdict,
+                "frame_id": verdict.get("frame_id", frame_path.name),
+                "frame_path": verdict.get("frame_path", str(frame_path)),
+                "camera_pose_ned": verdict.get("camera_pose_ned", list(pose_ned)),
+                "observation_source": verdict.get("observation_source", "onboard_rgb"),
+                "observation_pitch_deg": verdict.get("observation_pitch_deg", view_pitch_deg),
+            }
             if verdict.get("remembered", False):
                 executor.apply_verdict(track.track_id, verdict["decision"], remembered=True)
             else:
@@ -1710,9 +1748,25 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                         record_error(track.track_id, verdict["error"])
                     slow.append(verdict)
                     break
-                executor.apply_verdict(
-                    track.track_id, verdict.get("decision"), verdict.get("confidence")
-                )
+                try:
+                    executor.apply_verdict(
+                        track.track_id,
+                        verdict.get("decision"),
+                        verdict.get("confidence"),
+                        frame_id=frame_path.name,
+                        frame_path=str(vote_frame_path or frame_path),
+                        observation_source="onboard_rgb",
+                        view_pitch_deg=view_pitch_deg,
+                    )
+                except TypeError as exc:
+                    if "unexpected keyword argument" not in str(exc):
+                        raise
+                    executor.apply_verdict(
+                        track.track_id, verdict.get("decision"), verdict.get("confidence")
+                    )
+                vote = getattr(track, "identity_votes", ())
+                if vote:
+                    verdict.update(vote[-1])
                 record_error = getattr(
                     getattr(self, "supervisor", None), "record_perception_error", None
                 )
@@ -1818,6 +1872,7 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                         "identity_verdict_history": list(
                             getattr(t, "identity_verdict_history", ())
                         ),
+                        "identity_votes": list(getattr(t, "identity_votes", ())),
                     }
                     for t in current
                 ],
@@ -1870,8 +1925,12 @@ def build_onboard_policy(
     airframe: str | None = None,
     runtime_step_limit: int | None = None,
     runtime_mode: str | None = None,
+    camera_mount: dict[str, Any] | None = None,
 ) -> OnboardPolicy:
     config = json.loads(config_path.read_text(encoding="utf-8")) if config_path else None
+    if camera_mount is not None:
+        config = {**(config or {})}
+        config.setdefault("camera_mount", camera_mount)
     if airframe is not None:
         # The collector flies a specific airframe; the policy must plan for it.
         config = {**(config or {}), "airframe": airframe}

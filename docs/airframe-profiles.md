@@ -10,7 +10,10 @@
 | 固定翼 | 不能 | 固定翼巡航、盘旋 | 手抛、弹射或滑跑 | 跑道或 belly | 必须保持空速，盘旋半径受坡度和空速限制 |
 | VTOL | 能（多旋翼段） | hover 与 fixed-wing loiter | VTOL、必要时跑道 | VTOL、跑道或 belly | 转换前后要满足高度、空速和超时约束 |
 
-`tailsitter` 特别要求 MC 和 FW 两套相机姿态；同一物理相机在机体竖直悬停和水平巡航时不能共用一个姿态矩阵。没有测距仪时，档案不会暗示有 AGL 真值，任务仍应使用 PX4 高度和保守安全高度。
+`tailsitter` 特别要求显式提供 MC 和 FW 两套相机安装矩阵。PX4 tailsitter 的姿态始终
+按 MC FRD 机体系报告，因此固定安装的相机可以在两种模式下使用相同的安装矩阵；
+机头从竖直到水平的旋转由遥测姿态承担。不能重复在 FW 安装矩阵中再旋转 90°。
+没有测距仪时，档案不会暗示有 AGL 真值，任务仍应使用 PX4 高度和保守安全高度。
 
 ## 字段说明
 
@@ -41,6 +44,7 @@
 | `advanced_plane.json` | conventional，滑跑 | 4008 脚本的爬升 6、最大下沉 2.7 m/s；旋转空速为估计 |
 | `standard_vtol.json` | 4+1 quadplane | 4004 脚本的 `VT_TYPE=2`、`FW_T_CLMB_MAX=8`、`FW_T_SINK_MAX=2.7`；相机位姿来自 standard_vtol mono_cam SDF |
 | `quadtailsitter.json` | 四旋翼 tailsitter | 4018 脚本的 `FW_AIRSPD_STALL=10`、`MIN=14`、`TRIM=18`、`MAX=22`、`VT_ARSP_TRANS=15`；MC/FW 相机姿态按构型显式记录 |
+| `delta_tailsitter.json` | 四电机无舵面折叠三角翼 tailsitter | 报告方案 E：2.929 kg、4S5000、74 Wh、悬停/巡航 500/160 W；4050 自定义机架空速 10/12/15/19 m/s、过渡 13 m/s；未经实飞验证，详见 [接入说明](delta-tailsitter-sim.md) |
 | `tiltrotor.json` | tiltrotor | 4020 脚本的 `VT_TYPE=1`、`VT_TILT_TRANS=0.6` 及固定翼速率；功率和续航是保守估计 |
 
 ### 当前未核实项

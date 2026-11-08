@@ -292,7 +292,11 @@ def _build_stack_plan_evidence(
     is intentionally not a gate failure.
     """
 
-    plan = stack_plan_from_scenario(manifest, repo_root=ROOT)
+    # Runtime loading already verifies the manifest and its channel hashes.
+    # Planning from that verified value also supports suite-generated manifests
+    # under an external output directory while keeping simulator assets bound
+    # to this repository.
+    plan = stack_plan_from_scenario(runtime, repo_root=ROOT)
     document = plan.to_mapping_with_hash()
     # Pull the nested records once and fail with a useful message if a future
     # schema change removes one of the fields this acceptance contract binds.

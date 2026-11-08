@@ -11,6 +11,7 @@ Docker CLI, opens a socket, or creates a container.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -27,15 +28,16 @@ if __package__ in {None, ""}:
 
 from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.runtime import RuntimeMode
+from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_network_mode
 from multidetect.simulation import load_runtime_scenario
 from multidetect.simulator.cpu import SimulatorCpuIsolation, resolve_cpu_isolation
+from multidetect.simulator.delta_tailsitter import select_visual_mesh
+from multidetect.simulator.px4_image import PINNED_IMAGE
 from multidetect.simulator.stack import (
     SimulatorStackError,
     SimulatorStackPorts,
     build_stack_plan,
 )
-from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_network_mode
-from multidetect.simulator.px4_image import PINNED_IMAGE
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
@@ -345,6 +347,10 @@ class DockerSimulatorPlan:
     gpu_devices: tuple[str, ...] = ()
     worker_index: int = 0
     cpu_isolation: SimulatorCpuIsolation | None = None
+    custom_airframe_path: Path | None = None
+    custom_airframe_sha256: str = ""
+    staged_model_sdf: Path | None = None
+    staged_model_sha256: str = ""
 
     @property
     def command_text(self) -> str:
@@ -494,6 +500,22 @@ class DockerSimulatorPlan:
             ports["container_target"] = "127.0.0.1"
             ports["container_target_is_loopback"] = True
             document["validation"]["container_bridge_target_explicit"] = False
+        if self.custom_airframe_path is not None:
+            document["mounts"]["custom_airframe"] = {
+                "host": str(self.custom_airframe_path),
+                "container": (
+                    f"/opt/px4-gazebo/etc/init.d-posix/airframes/{self.custom_airframe_path.name}"
+                ),
+                "readonly": True,
+                "sha256": self.custom_airframe_sha256,
+            }
+        if self.staged_model_sdf is not None:
+            document["mounts"]["cad_model_sdf"] = {
+                "host": str(self.staged_model_sdf),
+                "container": f"{CONTAINER_MODEL_ROOT}/delta_tailsitter/model.sdf",
+                "readonly": True,
+                "sha256": self.staged_model_sha256,
+            }
         return document
 
     def to_mapping_with_hash(self) -> dict[str, object]:
@@ -549,6 +571,7 @@ def build_docker_simulator_plan(
     sim_network: str | None = None,
     sim_instance: int = 0,
     airframe_profile_id: str | None = None,
+    px4_logger_mode: str | None = None,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
@@ -618,6 +641,43 @@ def build_docker_simulator_plan(
     # PX4/Gazebo model selection.
     stack_environment = stack.environment_mapping
     model_name = stack.model_name
+    custom_airframe = None
+    custom_airframe_sha256 = ""
+    staged_model_sdf = None
+    staged_model_sha256 = ""
+    extra_mounts: tuple[str, ...] = ()
+    if model_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}:
+        # 沿用原来的 rcS -> SYS_AUTOSTART 路径，只挂入一份自定义脚本。
+        custom_airframe = root / "simulation/px4/airframes" / (
+            "4051_gz_delta_tailsitter_gimbal"
+            if model_name == "delta_tailsitter_gimbal_cam"
+            else "4050_gz_delta_tailsitter"
+        )
+        extra_mounts += (
+            "--mount",
+            _mount(custom_airframe,
+                   f"/opt/px4-gazebo/etc/init.d-posix/airframes/{custom_airframe.name}"),
+        )
+        if model_name == "delta_tailsitter_gimbal_cam":
+            # 4051 在 rcS 里 source 4050 的飞行参数，基础脚本也要一并挂入。
+            base_airframe = root / "simulation/px4/airframes/4050_gz_delta_tailsitter"
+            extra_mounts += (
+                "--mount",
+                _mount(base_airframe,
+                       f"/opt/px4-gazebo/etc/init.d-posix/airframes/{base_airframe.name}"),
+            )
+        custom_airframe_sha256 = hashlib.sha256(custom_airframe.read_bytes()).hexdigest()
+        selected = select_visual_mesh(model_root / "delta_tailsitter")
+        if selected is not None:
+            # SDF 没有条件几何：将 CAD 外观版写入本次作业，再只读覆盖基础 SDF。
+            # 它仍从同一 GZ_SIM_RESOURCE_PATH 读取网格，不改仓库和碰撞/动力学。
+            staged_model_sdf = output_job / "delta_tailsitter.model.sdf"
+            staged_model_sdf.write_text(selected[0], encoding="utf-8")
+            staged_model_sha256 = hashlib.sha256(staged_model_sdf.read_bytes()).hexdigest()
+            extra_mounts += (
+                "--mount",
+                _mount(staged_model_sdf, f"{CONTAINER_MODEL_ROOT}/delta_tailsitter/model.sdf"),
+            )
     container_environment = {
         "HEADLESS": "1" if stack.headless else "0",
         "PX4_SYS_AUTOSTART": stack_environment.get(
@@ -654,7 +714,7 @@ def build_docker_simulator_plan(
         "GZ_VERBOSE": "0",
         **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
-    logger_mode = resolve_px4_logger_mode()
+    logger_mode = resolve_px4_logger_mode(px4_logger_mode)
     container_environment[PX4_LOGGER_MODE_ENV] = logger_mode
     daemon_mode = resolve_px4_daemon_mode()
     container_environment[PX4_DAEMON_MODE_ENV] = "1" if daemon_mode else "0"
@@ -724,6 +784,19 @@ def build_docker_simulator_plan(
         f"\\1mavlink start -x -t {mavlink_target} -u $udp_gcs_port_local "
         f'-o {telemetry_port} -r 4000000 -f $mavlink_network_interface_arg|\' "$RC"; '
     )
+    logger_patch = ""
+    if logger_mode == "poll":
+        logger_rc = "/opt/px4-gazebo/etc/init.d/rc.logging"
+        logger_patch = (
+            f"LRC={logger_rc}; "
+            # PX4 logger's -p argument is the numeric poll interval (ms),
+            # while -t selects the timer/semaphore path that has been
+            # observed to segfault in this pinned image.  Do not pass a
+            # uORB topic name here: the logger CLI parses -p as an integer.
+            "sed -i 's|logger start -b ${LOGGER_BUF} -t ${LOGGER_ARGS}|"
+            "logger start -b ${LOGGER_BUF} -p 100 ${LOGGER_ARGS}|' \"$LRC\"; "
+            "grep -Fq -- '-p 100' \"$LRC\" || exit 74; "
+        )
     gpu_gz_wrapper = ""
     if gpu_render:
         # PX4's image starts Gazebo from its rc script.  Keep that startup path,
@@ -773,6 +846,7 @@ def build_docker_simulator_plan(
             "RC=/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; ",
             patch_assignment,
             patch_command,
+            logger_patch,
             (
                 "export PX4_NET_INTERFACE=lo; "
                 if selected_network_mode == "host"
@@ -819,6 +893,7 @@ def build_docker_simulator_plan(
         *network_tokens,
         "--mount",
         _mount(model_root, CONTAINER_MODEL_ROOT),
+        *extra_mounts,
         *(
             ("--mount", _mount(resolved_root, "/opt/multidetect-gz-fuel-resolved"))
             if has_resolved_root
@@ -876,6 +951,10 @@ def build_docker_simulator_plan(
         gpu_devices=resolved_gpu_devices,
         worker_index=worker_index,
         cpu_isolation=cpu_isolation,
+        custom_airframe_path=custom_airframe,
+        custom_airframe_sha256=custom_airframe_sha256,
+        staged_model_sdf=staged_model_sdf,
+        staged_model_sha256=staged_model_sha256,
     )
 
 

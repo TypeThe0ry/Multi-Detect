@@ -15,7 +15,9 @@ import io
 import json
 import math
 import os
+import re
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -24,7 +26,7 @@ import time
 import types
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -35,12 +37,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "src"))
 
-from multidetect.autonomy.airframe_profile import (  # noqa: E402
-    AirframeProfile,
-    airframe_uses_multirotor_executor,
-    resolve_airframe_profile,
-)
-from multidetect.autonomy.mission_executor import RETURN_CLIMB_NEAR_GROUND_M  # noqa: E402
+from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.gimbal_controller import Px4GimbalController  # noqa: E402
@@ -62,6 +59,17 @@ from multidetect.sim_teacher import (  # noqa: E402
     primitive_to_ned,
 )
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
+from multidetect.sim_teacher.executor import (  # noqa: E402
+    GCS_SOURCE_COMPONENT,
+    GCS_SOURCE_SYSTEM,
+    GIMBAL_MANAGER_DEVICE_ID,
+    GIMBAL_MANAGER_FLAGS_PITCH_LOCK,
+    GIMBAL_MANAGER_FLAGS_ROLL_LOCK,
+    GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME,
+    GIMBAL_MANAGER_STATUS_WALL_TIMEOUT_S,
+    MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+    MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+)
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
 from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
@@ -75,14 +83,19 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     MavlinkState,
     SensorStreamReader,
     build_observation,
+    gimbal_angles_from_status,
     validate_gimbal_recording_observation,
 )
 from multidetect.sim_teacher.vehicle_loss import VehicleLossDetector  # noqa: E402
 from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
+from multidetect.simulator.fixed_wing_reposition import (  # noqa: E402
+    DEFAULT_NAV_LOITER_RAD_M,
+    reposition_ring_metrics,
+)
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
-from scripts.px4_clock_stall_capture import capture_stall as capture_px4_clock_stall  # noqa: E402
 from scripts.analyze_sensor_timeouts import build_failure_snapshot  # noqa: E402
+from scripts.px4_clock_stall_capture import capture_stall as capture_px4_clock_stall  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_IMAGE_MODEL_ROOT,
     CONTAINER_MODEL_ROOT,
@@ -94,11 +107,26 @@ from scripts.run_simulator_docker import (  # noqa: E402
 )
 from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context  # noqa: E402
 
+
+class _TerminationRequested(RuntimeError):
+    """Raised by the top-level signal bridge so lock/container finally blocks run."""
+
+
+def _raise_on_termination(signum: int, _frame: Any) -> None:
+    raise _TerminationRequested(f"terminated by signal {signum}")
+
 PINNED_IMAGE = (
     "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
 )
 DEFAULT_TIMEOUT_S = 300.0
+SIM_PRE_ABORT_DESCENT_TIMEOUT_S = 45.0
+SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S = 900.0
 SENSOR_FRAME_WAIT_S = 15.0
+# Delivered frames match PX4 pose time exactly, but under heavy host load the frame
+# server's callbacks have been seen 7-14 sim seconds behind.  At the delta smoke's
+# 0.15-0.2x real time that backlog takes over a minute of wall time to clear.  The
+# frame must still reach the watermark.
+DELTA_SMOKE_SENSOR_FRAME_WAIT_S = 120.0
 DEFAULT_RGB_SIZE = (640, 480)
 DEFAULT_DEPTH_SIZE = (320, 240)
 DEFAULT_DEPTH_ENCODING = "UINT16_MM"
@@ -256,16 +284,229 @@ class HostPressureSampler:
             self.stop_event.wait(self.interval_s)
 
 
+def _host_load_average() -> list[float] | None:
+    try:
+        return [round(float(value), 2) for value in os.getloadavg()]
+    except (AttributeError, OSError):
+        return None
+
+
+def _host_gpu_memory_mib() -> list[dict[str, int]] | None:
+    executable = shutil.which("nvidia-smi")
+    if not executable:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                executable,
+                "--query-gpu=index,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    rows: list[dict[str, int]] = []
+    try:
+        for row in csv.reader(result.stdout.splitlines(), skipinitialspace=True):
+            if len(row) == 3:
+                index, used, total = (int(value.strip()) for value in row)
+                rows.append({"index": index, "used_mib": used, "total_mib": total})
+    except ValueError:
+        return None
+    return rows or None
+
+
+def _frame_wait_diagnostics(
+    *,
+    phase: str,
+    sensor_reader: SensorStreamReader,
+    mav_reader: MavlinkReader,
+    pose_state: MavlinkState,
+    min_sensor_stamp_ns: int | None,
+    started_monotonic_ns: int,
+    primitive_end_monotonic_ns: int | None = None,
+    freshness_watermark_ns: int | None = None,
+    ended_monotonic_ns: int | None = None,
+    started_wall_time: float | None = None,
+    ended_wall_time: float | None = None,
+    host_pressure_path: Path | None = None,
+    error: BaseException | None = None,
+) -> dict[str, Any]:
+    """Capture clocks and watermarks surrounding a causal frame wait."""
+    now_ns = ended_monotonic_ns if ended_monotonic_ns is not None else time.monotonic_ns()
+    state = _snapshot_mavlink_state(mav_reader.state)
+    latest = sensor_reader.latest
+    local = state.get("LOCAL_POSITION_NED")
+    pose_ms = _field(local, "time_boot_ms", None)
+    status_text = state.get("STATUSTEXT")
+    requested_pose_ms = _field(pose_state.get("LOCAL_POSITION_NED"), "time_boot_ms", None)
+    local_received = state.received_monotonic_ns.get("LOCAL_POSITION_NED")
+    statustext = _field(status_text, "text", None)
+    watermark = freshness_watermark_ns or started_monotonic_ns
+    pressure = None
+    if host_pressure_path is not None:
+        try:
+            lines = host_pressure_path.read_text(encoding="utf-8").splitlines()
+            if lines:
+                value = json.loads(lines[-1])
+                pressure = value if isinstance(value, dict) else None
+        except (OSError, ValueError):
+            pass
+    px4_stalled = (
+        local_received is not None
+        and local_received <= watermark
+        and isinstance(requested_pose_ms, (int, float))
+        and isinstance(pose_ms, (int, float))
+        and pose_ms <= requested_pose_ms
+    )
+    if ended_monotonic_ns is None:
+        classification = "frame_wait_started"
+    elif error is None:
+        classification = "frame_wait_satisfied"
+    elif (
+        latest is not None
+        and latest.received_monotonic_ns > watermark
+        and min_sensor_stamp_ns is not None
+        and latest.sensor_stamp_ns < min_sensor_stamp_ns
+    ):
+        classification = "frame_timestamp_below_pose_watermark"
+    elif latest is None or latest.received_monotonic_ns <= watermark:
+        classification = (
+            "px4_clock_and_telemetry_stalled" if px4_stalled else "no_new_frame_observed"
+        )
+    else:
+        classification = (
+            "px4_clock_and_telemetry_stalled"
+            if px4_stalled
+            else "frame_wait_timeout_unclassified"
+        )
+    return {
+        "phase": phase,
+        "started_monotonic_ns": started_monotonic_ns,
+        "primitive_end_monotonic_ns": primitive_end_monotonic_ns,
+        "started_wall_time": started_wall_time,
+        "ended_monotonic_ns": ended_monotonic_ns,
+        "ended_wall_time": ended_wall_time if ended_wall_time is not None else time.time(),
+        "duration_s": max(0, now_ns - started_monotonic_ns) / 1e9,
+        "pose_time_boot_ms": pose_ms,
+        "requested_pose_time_boot_ms": requested_pose_ms,
+        "pose_received_monotonic_ns": state.received_monotonic_ns.get("LOCAL_POSITION_NED"),
+        "pose_received_wall_time": state.received_wall_time.get("LOCAL_POSITION_NED"),
+        "required_sensor_stamp_ns": min_sensor_stamp_ns,
+        "last_frame_sensor_stamp_ns": latest.sensor_stamp_ns if latest is not None else None,
+        "last_frame_received_monotonic_ns": (
+            latest.received_monotonic_ns if latest is not None else None
+        ),
+        "last_frame_received_wall_time": (
+            latest.received_wall_time if latest is not None else None
+        ),
+        "frames_received": sensor_reader.frames_received,
+        "last_statustext": statustext,
+        "statustext_received_monotonic_ns": state.received_monotonic_ns.get("STATUSTEXT"),
+        "statustext_received_wall_time": state.received_wall_time.get("STATUSTEXT"),
+        "px4_vehicle_time_boot_ms": state.vehicle_time_boot_ms,
+        "host_pressure_sample": pressure,
+        "failure_class": classification,
+        "error": f"{type(error).__name__}: {error}" if error is not None else None,
+    }
+
+
 class LowDiskSpace(RuntimeError):
     """Normal campaign stop caused by the configured free-space floor."""
 
 
 class VehicleLostControl(RuntimeError):
-    """The recorded telemetry shows an uncommanded fall or sustained tumble."""
+    """Recorded telemetry proves an uncommanded fall or sustained tumble."""
 
-    def __init__(self, event: dict[str, Any]):
+    def __init__(self, event: dict[str, Any]) -> None:
         self.event = event
         super().__init__(f"vehicle lost control: {event.get('reason', 'telemetry rule')}")
+
+
+def sim_pre_abort_descent_altitude(config: Mapping[str, Any], *, teacher: str) -> float | None:
+    value = config.get("sim_pre_abort_descent_altitude_m")
+    if value is None:
+        return None
+    if teacher != "onboard" or config.get("sim_climb_timeout_injection") is not True:
+        raise ValueError("sim_pre_abort_descent_altitude_m requires SIM onboard climb injection")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not 0.5 <= value < 2.5
+    ):
+        raise ValueError("sim_pre_abort_descent_altitude_m must be finite and in [0.5, 2.5) metres")
+    return float(value)
+
+
+class SimClimbTimeoutInjector:
+    """Inject two return-home climb timeouts while holding the current NED target."""
+
+    def __init__(self, *, enabled: bool, runtime_mode: str, teacher: str) -> None:
+        if type(enabled) is not bool:
+            raise ValueError("sim_climb_timeout_injection must be a boolean")
+        if enabled and (runtime_mode != "sim" or teacher != "onboard"):
+            raise ValueError(
+                "sim_climb_timeout_injection is only available to the SIM onboard collector"
+            )
+        self.enabled = enabled
+        self.injected = 0
+
+    def matches(
+        self,
+        action: ActionPrimitive,
+        *,
+        active_skill: str | None,
+        before: Mapping[str, Any] | None,
+    ) -> bool:
+        pose = before.get("pose", {}) if isinstance(before, Mapping) else {}
+        position = pose.get("local_ned_m") if isinstance(pose, Mapping) else None
+        flight = before.get("flight_state", {}) if isinstance(before, Mapping) else {}
+        landed_state = flight.get("landed_state") if isinstance(flight, Mapping) else None
+        try:
+            altitude = (
+                max(0.0, -float(position[2]))
+                if isinstance(position, (list, tuple)) and len(position) >= 3
+                else None
+            )
+        except (TypeError, ValueError):
+            altitude = None
+        airborne = (
+            isinstance(before, Mapping)
+            and before.get("landed") is not True
+            and (landed_state == 2 or (landed_state is None and before.get("landed") is False))
+        )
+        return bool(
+            self.enabled
+            and self.injected < 2
+            and active_skill == "return_home"
+            and action.kind == "translate"
+            and action.up_m > 0
+            and action.forward_m == 0
+            and action.right_m == 0
+            and action.yaw_delta_deg == 0
+            and altitude is not None
+            and math.isfinite(altitude)
+            and altitude <= 2.5
+            and airborne
+        )
+
+    def execute(self, executor: Any, action: ActionPrimitive) -> Any:
+        timeout_s = float(getattr(getattr(executor, "criterion", None), "timeout_s", 20.0))
+        held = executor.execute(ActionPrimitive.hold(timeout_s))
+        ack = {
+            **held.ack,
+            "sim_fault_injection": "return_home_climb_timeout",
+            "requested_action": action.to_dict(),
+        }
+        self.injected += 1
+        return dataclasses.replace(held, status="timeout", ack=ack)
 
 
 def free_space_bytes(path: str | Path) -> int:
@@ -310,9 +551,6 @@ DEFAULT_TELEMETRY_PORT = 14541
 # 180 s (run_simulator_docker.GAZEBO_WORLD_ATTEMPTS); wait past that.
 DEFAULT_HEARTBEAT_TIMEOUT_S = 240.0
 DEFAULT_PREARM_HEALTH_TIMEOUT_S = 45.0
-# Linux SITL can advance PX4's clock much more slowly than host time under load.
-# Wait for the nominal budget in PX4 time, but never wait indefinitely on a
-# frozen simulator. Windows retains the established wall-clock behavior.
 PREARM_HEALTH_HARD_WALL_CEILING_S = 900.0
 DEFAULT_OFFBOARD_ENTER_TIMEOUT_S = 30.0
 LAND_BASE_TIMEOUT_S = 60.0
@@ -340,16 +578,27 @@ FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
 MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
-SIM_PRE_ABORT_DESCENT_TIMEOUT_S = 45.0
-SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S = 900.0
 MOTION_ARRIVAL_TOLERANCE_M = 8.0
+DELTA_TAILSITTER_SMOKE_PROFILES = frozenset(
+    {"delta_tailsitter", "delta_tailsitter_gimbal"}
+)
+DELTA_SMOKE_FW_MIN_DURATION_S = 120.0
+DELTA_SMOKE_FW_MAX_DURATION_S = 240.0
+DELTA_SMOKE_FW_MIN_ORBIT_DEG = 360.0
+DELTA_SMOKE_REPOSITION_TIMEOUT_S = 120.0
+DELTA_OVERSPEED_TARGET_MPS = 21.0
+DELTA_OVERSPEED_INJECT_MIN_THR = 0.45
+DELTA_OVERSPEED_INJECT_TIMEOUT_S = 60.0
+DELTA_OVERSPEED_RECOVERY_MAX_S = 40.0
+DELTA_OVERSPEED_RECOVERY_HOLD_S = 15.0
+DELTA_OVERSPEED_HEIGHT_ERROR_MAX_M = 10.0
 MOTION_ALONG_TRACK_DONE_M = 5.0
 # A fixed-wing reposition may complete by flying past its waypoint, but a
 # projection crossing alone is insufficient: the aircraft can cross the target
 # bearing tens of metres away while circling.  Bound the cross-track error by
 # the same tolerance used for a direct arrival.
 MOTION_CROSS_TRACK_DONE_M = MOTION_ARRIVAL_TOLERANCE_M
-FIXED_WING_LOITER_CAPTURE_M = 80.0
+FIXED_WING_LOITER_CAPTURE_M = DEFAULT_NAV_LOITER_RAD_M
 MOTION_REPOSITION_TIMEOUT_S = 120.0
 MOTION_LOITER_MAX_WAIT_S = 60.0
 # Hover-mode (MC) VTOL legs settle on their target and heading before the next frame.
@@ -366,8 +615,20 @@ MAV_CMD_DO_LAND_START = 189
 ARM_MAX_ATTEMPTS = 6
 ARM_RETRY_INTERVAL_S = 1.0
 EPISODE_PROGRESS_STALL_TIMEOUT_S = 180.0
-GCS_SOURCE_SYSTEM = 255
-GCS_SOURCE_COMPONENT = 190
+# The delta tailsitter Gazebo model currently runs at about 0.17x real time.
+# Keep its normal vehicle-clock episode budget, with a generous host fallback;
+# other airframes retain the established 900 s ceiling for a 300 s episode.
+DELTA_TAILSITTER_WALL_CEILING_FACTOR = 8.0
+DELTA_TAILSITTER_MIN_WALL_CEILING_S = 3600.0
+MAVLINK_SILENCE_SIM_TIMEOUT_S = 5.0
+MAVLINK_SILENCE_STALLED_SIM_WALL_S = 15.0
+MAVLINK_SILENCE_MIN_REALTIME_FACTOR = 0.1
+MAVLINK_SILENCE_WALL_CAP_S = 60.0
+MAVLINK_SILENCE_MIN_WALL_S = max(
+    5.0, MAVLINK_SILENCE_SIM_TIMEOUT_S / MAVLINK_SILENCE_MIN_REALTIME_FACTOR
+)
+GIMBAL_HOVER_STABLE_S = 3.0
+GIMBAL_HOVER_MAX_WALL_S = 300.0
 # The only collector-specific SITL setting is the GCS/RC input mode used by
 # the proven Gazebo recipe.  Do not weaken PX4 arming checks or use a force arm.
 SIM_PREARM_PARAMETERS = (("COM_RC_IN_MODE", "4"),)
@@ -451,6 +712,7 @@ class CollectionPlan:
     video_hz: float = 0.0
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
     airframe: str = "x500_mono_cam"
+    vtol_hover_mission: bool | None = None
     # "true": fly to the true target; "confuser": fly to a look-alike (hard negatives).
     teacher_target: str = "true"
     smoke_flight: bool = False
@@ -471,12 +733,11 @@ class CollectionPlan:
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
-        result["linux_primitive_clock_stall_timeout_s"] = _linux_primitive_clock_stall_timeout_s()
-        result["px4_logger_mode"] = resolve_px4_logger_mode()
-        result["px4_daemon_mode"] = resolve_px4_daemon_mode()
         altitude, source = _takeoff_altitude_for_plan(self)
         result["takeoff_altitude_m"] = altitude
         result["takeoff_altitude_source"] = source
+        result["px4_logger_mode"] = _effective_px4_logger_mode(self)
+        result["px4_daemon_mode"] = resolve_px4_daemon_mode()
         result["docker_command"] = docker_command(self)
         cpu_isolation = resolve_cpu_isolation(self.worker_index)
         if cpu_isolation is not None:
@@ -504,7 +765,9 @@ def _scenario_channels(scenario_path: Path) -> tuple[Path, Path]:
 
 def _teacher_intent_path(scenario_path: Path) -> Path:
     """Resolve the collector-only teacher intent sidecar, when present."""
-    path = scenario_path.with_name(scenario_path.name.removesuffix(".scenario.json") + ".teacher_intent.json")
+    path = scenario_path.with_name(
+        scenario_path.name.removesuffix(".scenario.json") + ".teacher_intent.json"
+    )
     if not path.is_file():
         return path
     return path
@@ -522,7 +785,7 @@ def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> di
     model_text = str(model or "").lower()
     model_category = (
         "fixed_wing" if "fixed_wing" in model_text else
-        "vtol" if "vtol" in model_text or "tiltrotor" in model_text else
+        "vtol" if any(token in model_text for token in ("vtol", "tiltrotor", "tailsitter")) else
         "multirotor" if "multirotor" in model_text or "x500" in model_text else
         "unknown"
     )
@@ -531,7 +794,11 @@ def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> di
             raise ValueError("x500_mono_cam requires a multirotor/x500 runtime model")
     elif not model:
         raise ValueError(f"airframe {airframe!r} requires runtime.vehicle.model")
-    if category in {"fixed_wing", "multirotor", "vtol"} and model_category in {"fixed_wing", "multirotor", "vtol"} and category != model_category:
+    if (
+        category in {"fixed_wing", "multirotor", "vtol"}
+        and model_category in {"fixed_wing", "multirotor", "vtol"}
+        and category != model_category
+    ):
         raise ValueError(
             f"airframe {airframe!r} category={category} does not match runtime.vehicle.model={model!r}"
         )
@@ -542,7 +809,71 @@ def _validate_runtime(runtime_path: Path, airframe: str = "x500_mono_cam") -> di
 
 
 def _airframe_profile(airframe: str, takeoff_method: str | None = None) -> AirframeProfile | None:
-    return resolve_airframe_profile(airframe, takeoff_method, base_dir=ROOT)
+    normalized = str(airframe).strip().lower().replace("-", "_")
+    if normalized in {"x500", "x500_mono_cam", "multirotor"}:
+        return None
+    if normalized in {"fixed_wing", "fw", "vtol"}:
+        return None
+    selected = normalized
+    if normalized == "rc_cessna_mono_cam" and takeoff_method in {"hand", "catapult"}:
+        selected = f"rc_cessna_{takeoff_method}"
+    candidates = [ROOT / "configs" / "airframes" / f"{selected}.json"]
+    aliases = {
+        "rc_cessna_mono_cam": "rc_cessna_runway",
+        "advanced_plane_mono_cam": "advanced_plane",
+        "quadtailsitter_mono_cam": "quadtailsitter",
+        "delta_tailsitter_mono_cam": "delta_tailsitter",
+        "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal",
+        "tiltrotor_mono_cam": "tiltrotor",
+        "standard_vtol_mono_cam": "standard_vtol",
+    }
+    if normalized in aliases and selected == normalized:
+        candidates.insert(0, ROOT / "configs" / "airframes" / f"{aliases[normalized]}.json")
+    for path in candidates:
+        if path.is_file():
+            return AirframeProfile.from_json(path)
+    raise ValueError(f"unknown airframe profile: {airframe}")
+
+
+def _simulation_gimbal_yaw_correction_deg(plan: CollectionPlan) -> float | None:
+    """Return the opt-in Gazebo camera-IMU yaw correction for this episode."""
+    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    gimbal = getattr(getattr(profile, "camera", None), "gimbal", {})
+    if (
+        not isinstance(gimbal, Mapping)
+        or gimbal.get("simulation_yaw_correction") != "spawn_yaw_deg"
+    ):
+        return None
+    try:
+        runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
+        yaw_rad = runtime["vehicle"]["spawn_pose"]["yaw_rad"]
+        return -math.degrees(float(yaw_rad))
+    except (OSError, TypeError, ValueError, KeyError):
+        return None
+
+def _default_px4_logger_mode(airframe: str) -> str:
+    """Disable PX4 ULog for delta tailsitters; preserve other airframe defaults."""
+    profile = _airframe_profile(airframe)
+    return (
+        "off"
+        if profile is not None and profile.id in DELTA_TAILSITTER_SMOKE_PROFILES
+        else "default"
+    )
+
+
+def _effective_px4_logger_mode(plan: CollectionPlan) -> str:
+    configured = os.environ.get("MULTIDETECT_PX4_LOGGER_MODE")
+    return resolve_px4_logger_mode(
+        configured if configured is not None else _default_px4_logger_mode(plan.airframe)
+    )
+
+
+def _delta_fw_ring_metrics_from_files(
+    mavlink_path: Path, steps_path: Path
+) -> dict[str, Any]:
+    from scripts.smoke_airframe_flight import _delta_fw_ring_metrics, _jsonl
+
+    return _delta_fw_ring_metrics(_jsonl(mavlink_path), _jsonl(steps_path))
 
 
 def _new_video_sample(sample: Any, last_written_ns: int) -> bool:
@@ -562,13 +893,12 @@ def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
     ``px4_fixed_wing_standard``); the simulator stack maps it to the Gazebo model it
     spawns, so use that same mapping instead of guessing from the runtime name.
     """
-    vehicle = runtime.get("vehicle", {}) if isinstance(runtime, Mapping) else {}
-    vehicle = vehicle if isinstance(vehicle, Mapping) else {}
-    profile = str(vehicle.get("airframe_profile_id", ""))
-    if plan.airframe == "x500_gimbal" or profile == "x500_gimbal":
-        return "x500_gimbal_0"
     if plan.airframe == "x500_mono_cam":
         return "x500_mono_cam_0"
+    if plan.airframe == "x500_gimbal":
+        return "x500_gimbal_0"
+    vehicle = runtime.get("vehicle", {}) if isinstance(runtime, Mapping) else {}
+    vehicle = vehicle if isinstance(vehicle, Mapping) else {}
     model = str(vehicle.get("model", plan.airframe))
     try:
         _, name = _stack_vehicle_spec(model, str(vehicle.get("airframe_profile_id", "")))
@@ -577,49 +907,27 @@ def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
     return name if name.endswith("_0") else name + "_0"
 
 
-_DEFAULT_CAMERA_SENSOR_LINKS = {"rgb": "camera_link", "depth": "depth_camera_link"}
-_CAMERA_SENSOR_LINKS = {
-    "x500_gimbal": {"rgb": "camera_link", "depth": "depth_camera_link"},
-}
-
-
 def _has_registered_depth_camera(airframe: str) -> bool:
-    """Whether the collector may bind the model's repository depth topic by default."""
-    normalized = str(airframe).strip().lower().replace("-", "_")
-    if normalized == "x500_mono_cam":
-        return False
-    profile = _airframe_profile(airframe)
-    if profile is not None and profile.id == "x500_gimbal":
+    _airframe_profile(airframe)
+    if airframe == "x500_gimbal":
         overlay = ROOT / "simulation/gazebo/model-overlays/x500_gimbal_seg/model.sdf"
         try:
             model = ET.parse(overlay).getroot().find("model")
         except (OSError, ET.ParseError):
             return False
         return model is not None and model.find(".//sensor[@name='depth_camera']") is not None
-    # Preserve the collector's established default for every non-x500 id.
-    return True
+    return airframe != "x500_mono_cam"
 
 
 def _camera_sensor_topics(*, world: str, model: str, airframe: str) -> dict[str, str]:
-    """Derive the scoped topics from the merged model sensor structure.
-
-    The gimbal overlay merges ``model://gimbal`` into the x500 composite, so
-    its camera links remain direct children of the spawned model.  Keeping the
-    link and sensor names in one mapping prevents the collector and frame
-    server contract from drifting apart when a model composition changes.
-    """
-    normalized = str(airframe).strip().lower().replace("-", "_")
-    links = _CAMERA_SENSOR_LINKS.get(normalized, _DEFAULT_CAMERA_SENSOR_LINKS)
-    camera_link = links["rgb"]
-    depth_link = links["depth"]
-    model_prefix = f"/world/{world}/model/{model}"
-    rgb_prefix = f"{model_prefix}/link/{camera_link}/sensor/camera"
-    depth_prefix = f"{model_prefix}/link/{depth_link}/sensor/depth_camera"
+    prefix = f"/world/{world}/model/{model}"
+    rgb = f"{prefix}/link/camera_link/sensor/camera"
+    depth = f"{prefix}/link/depth_camera_link/sensor/depth_camera"
     return {
-        "image": f"{rgb_prefix}/image",
-        "camera_info": f"{rgb_prefix}/camera_info",
-        "depth_image": f"{depth_prefix}/depth_image",
-        "depth_camera_info": f"{depth_prefix}/camera_info",
+        "image": f"{rgb}/image",
+        "camera_info": f"{rgb}/camera_info",
+        "depth_image": f"{depth}/depth_image",
+        "depth_camera_info": f"{depth}/camera_info",
         "segmentation": "/multidetect/teacher/segmentation/labels_map",
     }
 
@@ -658,6 +966,7 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             gpu_devices=plan.gpu_devices,
             worker_index=plan.worker_index,
             airframe_profile_id=plan.airframe,
+            px4_logger_mode=_effective_px4_logger_mode(plan),
         )
     except Exception as exc:
         raise ValueError(f"unable to build simulator stack plan: {exc}") from exc
@@ -683,18 +992,16 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             f"type=bind,source={overlay.resolve()},"
             f"target={overlay_target_root}/{target_model_name},readonly",
         ]
-        if plan.airframe == "x500_gimbal":
-            # The RGB sensor is nested in model://gimbal; mount only its SDF
-            # file so the image-provided meshes remain available beside it.
+        if plan.airframe == "x500_gimbal" and overlay.name == "x500_gimbal_seg":
             gimbal_model_overlay = overlay / "gimbal" / "model.sdf"
             if not gimbal_model_overlay.is_file():
                 raise FileNotFoundError(gimbal_model_overlay)
             overlay_mounts.extend(
-                (
+                [
                     "--mount",
                     f"type=bind,source={gimbal_model_overlay.resolve()},"
                     f"target={CONTAINER_IMAGE_MODEL_ROOT}/gimbal/model.sdf,readonly",
-                )
+                ]
             )
         parent_mount = next(
             (
@@ -923,11 +1230,16 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         depth = {}
     world = "default"
     model = _gazebo_model_name(plan, json.loads(Path(plan.runtime).read_text(encoding="utf-8")))
-    image_topic, camera_topic = _rgb_camera_topics(
-        world=world, model=model, airframe=plan.airframe
-    )
+    topics = _camera_sensor_topics(world=world, model=model, airframe=plan.airframe)
+    image_topic = topics["image"]
+    camera_topic = topics["camera_info"]
     navsat_topic = f"/world/{world}/model/{model}/link/base_link/sensor/navsat_sensor/navsat"
     odometry_topic = f"/model/{model}/odometry_with_covariance"
+    request_wait_s = min(60.0, max(5.0, SENSOR_FRAME_WAIT_S + 2.0))
+    if plan.smoke_flight:
+        smoke_profile = _airframe_profile(plan.airframe)
+        if smoke_profile is not None and smoke_profile.id in DELTA_TAILSITTER_SMOKE_PROFILES:
+            request_wait_s = DELTA_SMOKE_SENSOR_FRAME_WAIT_S + 2.0
     command = [
         _docker_executable(plan),
         "exec",
@@ -937,7 +1249,7 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         "python3",
         "/workspace/scripts/sim_teacher_frame_server.py",
         "--request-timeout-s",
-        f"{min(60.0, max(5.0, SENSOR_FRAME_WAIT_S + 2.0)):.3f}",
+        f"{request_wait_s:.3f}",
         *(("--first-frame-timeout-s", str(_first_frame_wait_s())) if _first_frame_wait_s() else ()),
         "--world",
         world,
@@ -958,11 +1270,14 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         "--depth-encoding",
         plan.depth_encoding,
     ]
-    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
     category = (
         "multirotor"
-        if airframe_uses_multirotor_executor(plan.airframe, plan.takeoff_method, base_dir=ROOT)
-        else profile.category if profile is not None else "fixed_wing"
+        if plan.airframe == "x500_mono_cam"
+        else (
+            _airframe_profile(plan.airframe).category
+            if _airframe_profile(plan.airframe)
+            else "fixed_wing"
+        )
     )
     calibration_name = (
         "gazebo-multirotor-front-camera-v1.json"
@@ -990,11 +1305,16 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
             ),
         ]
     )
-    sensor_topics = _camera_sensor_topics(world=world, model=model, airframe=plan.airframe)
     if plan.segmentation:
-        command.extend(["--segmentation", "--segmentation-topic", sensor_topics["segmentation"]])
+        command.extend(
+            [
+                "--segmentation",
+                "--segmentation-topic",
+                "/multidetect/teacher/segmentation/labels_map",
+            ]
+        )
     if depth is not None:
-        depth_topic = sensor_topics["depth_image"]
+        depth_topic = topics["depth_image"]
         depth_document = {
             "sensor_id": depth.get("sensor_id", "downward-depth"),
             "source_topic": depth_topic,
@@ -1066,45 +1386,6 @@ def _px4_host_pids(output: str) -> list[int]:
     return pids
 
 
-def _host_load_average() -> list[float] | None:
-    try:
-        return [round(float(value), 2) for value in os.getloadavg()]
-    except (AttributeError, OSError):
-        return None
-
-
-def _host_gpu_memory_mib() -> list[dict[str, int]] | None:
-    executable = shutil.which("nvidia-smi")
-    if not executable:
-        return None
-    try:
-        result = subprocess.run(
-            [
-                executable,
-                "--query-gpu=index,memory.used,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    rows = []
-    try:
-        for row in csv.reader(result.stdout.splitlines(), skipinitialspace=True):
-            if len(row) != 3:
-                continue
-            index, used, total = (int(value.strip()) for value in row)
-            rows.append({"index": index, "used_mib": used, "total_mib": total})
-    except ValueError:
-        return None
-    return rows or None
-
-
 def _failure_class(reason: str, snapshot: dict[str, Any]) -> str:
     state = snapshot.get("state") or {}
     running = state.get("running")
@@ -1130,32 +1411,45 @@ def _is_sensor_stream_timeout(reason: str) -> bool:
 
 
 class DockerSimEnvironment:
-    """Own one simulator container and always remove it on exit."""
+    """Own one simulator container and retain best-effort episode evidence."""
 
-    def __init__(
-        self,
-        plan: CollectionPlan,
-        episode_id: str,
-        *,
-        episode_dir: str | Path | None = None,
-    ):
+    def __init__(self, plan: CollectionPlan, episode_id: str, episode_dir: Path | None = None):
         self.plan = plan
         self.name = plan.attach_container or f"{plan.container_prefix}-{episode_id}"
         self.attached = bool(plan.attach_container)
         self.started = False
-        self._log = None
+        self.episode_dir = Path(episode_dir) if episode_dir is not None else None
+        self._stall_episode_dir = (
+            self.episode_dir
+            if self.episode_dir is not None
+            else Path(plan.out) / "episodes" / episode_id
+        )
+        self.evidence_dir = (
+            self.episode_dir / "container-evidence" if self.episode_dir is not None else None
+        )
+        self.evidence_index: dict[str, Any] | None = None
+        self.px4_threads_evidence: dict[str, Any] | None = None
+        self.sim_clock_stamp_ns: int | None = None
+        self.sim_clock_progress_wall = time.monotonic()
+        self._sim_clock_lock = threading.Lock()
         self._last_px4_host_pids: list[int] = []
         self.failure_diagnostics: dict[str, Any] | None = None
         self.cleanup_diagnostics: dict[str, Any] | None = None
-        self.episode_dir = (
-            Path(episode_dir)
-            if episode_dir is not None
-            else Path(plan.out) / "episodes" / episode_id
-        )
         self.stall_capture: dict[str, Any] | None = None
+        self._log = None
 
     def set_logger(self, logger):
         self._log = logger
+
+    def note_sim_clock(self, stamp_ns: int) -> None:
+        with self._sim_clock_lock:
+            if self.sim_clock_stamp_ns is None or stamp_ns > self.sim_clock_stamp_ns:
+                self.sim_clock_stamp_ns = int(stamp_ns)
+                self.sim_clock_progress_wall = time.monotonic()
+
+    def sim_clock_snapshot(self) -> tuple[int | None, float]:
+        with self._sim_clock_lock:
+            return self.sim_clock_stamp_ns, self.sim_clock_progress_wall
 
     def _progress(self, phase: str, **fields: object) -> None:
         payload = {
@@ -1192,7 +1486,9 @@ class DockerSimEnvironment:
             )
             if inspected.returncode != 0:
                 snapshot["container_inspect_error"] = (
-                    inspected.stderr or inspected.stdout or f"docker inspect exited {inspected.returncode}"
+                    inspected.stderr
+                    or inspected.stdout
+                    or f"docker inspect exited {inspected.returncode}"
                 ).strip()
             else:
                 details = json.loads(inspected.stdout)
@@ -1209,7 +1505,13 @@ class DockerSimEnvironment:
                     snapshot["px4_host_pids_current"] = []
                 elif state.get("Running") is True:
                     top = subprocess.run(
-                        [_docker_executable(self.plan), "top", self.name, "-eo", "pid,comm"],
+                        [
+                            _docker_executable(self.plan),
+                            "top",
+                            self.name,
+                            "-eo",
+                            "pid,comm",
+                        ],
                         capture_output=True,
                         text=True,
                         timeout=5,
@@ -1278,7 +1580,7 @@ class DockerSimEnvironment:
             try:
                 self.stall_capture = capture_px4_clock_stall(
                     self.name,
-                    self.episode_dir,
+                    self._stall_episode_dir,
                     docker=_docker_executable(self.plan),
                     host_pids=self._last_px4_host_pids,
                     px4_clock_diagnostics=px4_clock_diagnostics,
@@ -1309,9 +1611,10 @@ class DockerSimEnvironment:
 
     def wait(self, timeout_s: float) -> None:
         deadline = time.monotonic() + timeout_s
+        executable = _docker_executable(self.plan)
         while time.monotonic() < deadline:
             result = subprocess.run(
-                ["docker", "inspect", "--format", "{{.State.Running}}", self.name],
+                [executable, "inspect", "--format", "{{.State.Running}}", self.name],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -1324,126 +1627,355 @@ class DockerSimEnvironment:
             time.sleep(0.25)
         raise TimeoutError(f"SIM container did not become running within {timeout_s:.1f}s")
 
-    def copy_px4_ulogs(self) -> list[str]:
-        """Copy every PX4 ``.ulg`` in the container into ``<out>/jobs/<name>/px4-ulog``."""
-        executable = _docker_executable(self.plan)
-        listing = subprocess.run(
-            [executable, "exec", self.name, "find", "/", "-xdev", "-name", "*.ulg", "-type", "f"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if listing.returncode != 0:
-            self._progress(
-                "px4_ulog_unavailable",
-                container=self.name,
-                status="not_found_or_unavailable",
-                error=listing.stderr.strip() or None,
-            )
-            return []
-        destination = Path(self.plan.out) / "jobs" / self.name / "px4-ulog"
-        copied: list[str] = []
-        for remote in sorted(line.strip() for line in listing.stdout.splitlines() if line.strip()):
-            destination.mkdir(parents=True, exist_ok=True)
-            local = destination / remote.strip("/").replace("/", "__")
+    def inspect_state(self) -> dict[str, Any] | None:
+        try:
             result = subprocess.run(
-                [executable, "cp", f"{self.name}:{remote}", str(local)],
+                [
+                    _docker_executable(self.plan),
+                    "inspect",
+                    "--format",
+                    "{{json .State}}",
+                    self.name,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+            if result.returncode != 0:
+                return {"inspect_error": (result.stderr or result.stdout).strip()}
+            value = json.loads(result.stdout)
+            return value if isinstance(value, dict) else {"inspect_error": "invalid state"}
+        except Exception as error:
+            return {"inspect_error": f"{type(error).__name__}: {error}"}
+
+    def _capture_px4_threads(self, host_pid: int) -> dict[str, Any]:
+        """Save best-effort host-side stacks and task metadata before cleanup."""
+        if self.evidence_dir is None:
+            return {"error": "episode evidence directory unavailable"}
+        self.evidence_dir.mkdir(parents=True, exist_ok=True)
+        destination = self.evidence_dir / "px4-threads.txt"
+        rows = [f"host_pid={host_pid}\n"]
+        try:
+            result = subprocess.run(
+                ["/usr/bin/gdb", "-p", str(host_pid), "-batch", "-ex", "thread apply all bt"],
                 capture_output=True,
                 text=True,
                 timeout=60,
                 check=False,
             )
-            if result.returncode == 0:
-                copied.append(str(local))
-        self._progress(
-            "px4_ulog_copied" if copied else "px4_ulog_unavailable",
-            container=self.name,
-            files=copied,
-            status="copied" if copied else "not_found",
-        )
-        return copied
+            rows.extend(["[gdb]\n", result.stdout or "", result.stderr or ""])
+            rows.append(f"gdb_returncode={result.returncode}\n")
+        except Exception as error:
+            rows.append(f"[gdb_error] {type(error).__name__}: {error}\n")
+        task_root = Path(f"/proc/{host_pid}/task")
+        try:
+            for task in sorted(task_root.iterdir(), key=lambda path: path.name):
+                rows.append(f"\n[task {task.name}]\n")
+                for name in ("comm", "stat"):
+                    try:
+                        rows.append(f"[{name}] { (task / name).read_text().strip()}\n")
+                    except OSError as error:
+                        rows.append(f"[{name}_error] {error}\n")
+        except OSError as error:
+            rows.append(f"[proc_error] {error}\n")
+        destination.write_text("".join(rows), encoding="utf-8")
+        return {"file": destination.name, "host_pid": host_pid}
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
-        if exc_type is not None:
-            reason = f"{exc_type.__name__}: {exc}"
-            clock_diagnostics = getattr(exc, "px4_clock_diagnostics", None)
-            self.capture_failure_diagnostics(
-                reason,
-                px4_clock_diagnostics=clock_diagnostics,
-            )
-            if "clock stalled" in reason.lower() or _is_sensor_stream_timeout(reason):
-                evidence = self.capture_stall_evidence(
-                    reason, px4_clock_diagnostics=clock_diagnostics
-                )
-                if self.failure_diagnostics is not None:
-                    self.failure_diagnostics["stall_capture"] = {
-                        "path": evidence.get("path"),
-                        "samples": len(evidence.get("samples", [])),
-                    }
-        if self.started and self.plan.keep_px4_ulog:
-            if resolve_px4_logger_mode() == "off":
-                self._progress("px4_ulog_disabled", container=self.name, status="disabled")
-            else:
-                try:
-                    self.copy_px4_ulogs()
-                except (OSError, subprocess.SubprocessError) as error:
-                    self._progress(
-                        "px4_ulog_unavailable",
-                        container=self.name,
-                        status="copy_failed",
-                        error=str(error),
-                    )
-        if self.started and exc_type is not None:
-            # Keep the container's own last words: a PX4 that never sends a
-            # heartbeat leaves nothing else behind once the container is removed.
-            try:
-                logs = subprocess.run(
-                    [_docker_executable(self.plan), "logs", "--tail", "120", self.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=20,
-                    check=False,
-                )
-                self._progress(
-                    "container_logs_on_failure",
-                    container=self.name,
-                    error=exc_type.__name__,
-                    tail=(logs.stdout + logs.stderr)[-12000:],
-                )
-            except (OSError, subprocess.SubprocessError) as error:
-                self._progress("container_logs_failed", container=self.name, error=str(error))
-        if self.started and not (
-            exc_type is not None
-            and self.plan.keep_container_on_failure
-            and exc_type is not LowDiskSpace
-        ):
-            cleanup_snapshot = self.capture_cleanup_diagnostics()
-            subprocess.run(
-                ["docker", "rm", "--force", self.name],
+    def _capture_kernel_segfault(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        if self.evidence_dir is None or state.get("ExitCode") != 139:
+            return None
+        pid = state.get("Pid")
+        started_at = state.get("StartedAt")
+        if not started_at:
+            return {"error": "container StartedAt unavailable", "host_pid": pid}
+        try:
+            result = subprocess.run(
+                ["journalctl", "-k", "--since", str(started_at), "--output=short-iso"],
                 capture_output=True,
                 text=True,
                 timeout=15,
                 check=False,
             )
-            self.started = False
-            self._progress(
-                "cleanup", container=self.name, removed=True, container_snapshot=cleanup_snapshot
+            output = result.stdout or ""
+            pid_pattern = re.compile(
+                rf"\bpx4(?:-gazebo)?\[{re.escape(str(pid))}\](?:\s|:)", re.I
             )
-        elif self.started:
-            cleanup_snapshot = self.capture_cleanup_diagnostics()
-            self._progress(
-                "cleanup",
-                container=self.name,
-                removed=False,
-                kept=True,
-                container_snapshot=cleanup_snapshot,
+            matching = [line for line in output.splitlines() if pid_pattern.search(line)]
+            content = "\n".join(matching) + ("\n" if matching else "")
+            path = self.evidence_dir / "kernel-segfault.log"
+            path.write_text(content or (result.stderr or "No matching PX4 PID kernel lines.\n"), encoding="utf-8")
+            logger_signature = any(
+                re.search(r"0x2885a[89]|\blogger(?:\[\d+\])?\b", line, re.I)
+                for line in matching
             )
-        elif self.attached:
-            cleanup_snapshot = self.capture_cleanup_diagnostics()
-            self._progress(
-                "cleanup", container=self.name, attached=True, container_snapshot=cleanup_snapshot
+            info = {
+                "file": path.name,
+                "host_pid": pid,
+                "started_at": started_at,
+                "returncode": result.returncode,
+                "matching_lines": len(matching),
+                "failure_class": "px4_logger_segfault" if logger_signature else "px4_other_segfault",
+            }
+            return info
+        except Exception as error:
+            return {"error": f"{type(error).__name__}: {error}", "host_pid": pid}
+
+    @staticmethod
+    def _console_tail(text: str, *, limit: int = 1200) -> tuple[str, int]:
+        ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+        cleaned = ansi.sub("", text).replace("\r", "\n")
+        rows = []
+        prompts_removed = 0
+        for line in cleaned.splitlines():
+            row = re.sub(r"^\s*pxh>\s?", "", line, flags=re.IGNORECASE)
+            if row != line:
+                prompts_removed += 1
+            if row.strip():
+                rows.append(row.rstrip())
+        return "\n".join(rows[-limit:]) + ("\n" if rows else ""), prompts_removed
+
+    def _capture_container_path(
+        self, remote: str, destination: Path, errors: dict[str, str]
+    ) -> bool:
+        try:
+            destination.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run(
+                [
+                    _docker_executable(self.plan),
+                    "cp",
+                    f"{self.name}:{remote}/.",
+                    str(destination),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=90,
+                check=False,
             )
+            if result.returncode == 0:
+                return True
+            errors[remote] = (result.stderr or result.stdout or "docker cp failed").strip()[-1000:]
+        except Exception as error:
+            errors[remote] = f"{type(error).__name__}: {error}"
+        return False
+
+    def _capture_evidence(self) -> dict[str, Any]:
+        assert self.evidence_dir is not None
+        result: dict[str, Any] = {
+            "container": self.name,
+            "captured_wall_time": time.time(),
+            "running_before_cleanup": None,
+            "state_before_cleanup": None,
+            "sim_clock_stamp_ns_before_cleanup": None,
+            "sim_clock_advancing_before_cleanup": None,
+            "exit_code": None,
+            "oom_killed": None,
+            "errors": {},
+        }
+        errors: dict[str, str] = result["errors"]
+        self.evidence_dir.mkdir(parents=True, exist_ok=True)
+        initial_state = self.inspect_state()
+        result["state_before_cleanup"] = initial_state
+        if initial_state is not None:
+            result["running_before_cleanup"] = initial_state.get("Running")
+            if initial_state.get("Running") is False and initial_state.get("ExitCode") == 139:
+                result["kernel_segfault"] = self._capture_kernel_segfault(initial_state)
+        sim_stamp_ns, sim_progress_wall = self.sim_clock_snapshot()
+        result["sim_clock_stamp_ns_before_cleanup"] = sim_stamp_ns
+        result["sim_clock_advancing_before_cleanup"] = (
+            time.monotonic() - sim_progress_wall <= 2.5 if sim_stamp_ns is not None else None
+        )
+        keep_running = bool(
+            self.started
+            and self.plan.keep_container_on_failure
+            and self._exit_error is not None
+            and self._exit_error is not LowDiskSpace
+        )
+        if self.started and not keep_running:
+            try:
+                stopped = subprocess.run(
+                    [_docker_executable(self.plan), "stop", "--timeout", "10", self.name],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+                result["stop_returncode"] = stopped.returncode
+                if stopped.returncode != 0:
+                    errors["docker_stop"] = (stopped.stderr or stopped.stdout).strip()[-1000:]
+            except Exception as error:
+                errors["docker_stop"] = f"{type(error).__name__}: {error}"
+        state = self.inspect_state()
+        result["state_after_cleanup_stop"] = state
+        if isinstance(state, dict):
+            result["exit_code"] = state.get("ExitCode")
+            result["oom_killed"] = state.get("OOMKilled")
+        if initial_state is not None and initial_state.get("Running") is False:
+            result["exit_code_source"] = "container_exit_before_cleanup"
+        elif state is not None and state.get("Running") is False and result.get("stop_returncode") == 0:
+            result["exit_code_source"] = "collector_stop"
+        elif state is not None and state.get("Running") is True:
+            result["exit_code_source"] = "container_still_running"
+        else:
+            result["exit_code_source"] = "state_after_cleanup_stop"
+        try:
+            logs = subprocess.run(
+                [_docker_executable(self.plan), "logs", "--tail", "5000", self.name],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            raw_logs = (logs.stdout or "") + (logs.stderr or "")
+            (self.evidence_dir / "container.log").write_text(raw_logs, encoding="utf-8")
+            console_tail, removed = self._console_tail(raw_logs)
+            (self.evidence_dir / "px4-console-tail.log").write_text(
+                console_tail, encoding="utf-8"
+            )
+            result["container_logs"] = {
+                "returncode": logs.returncode,
+                "console_tail_lines": len(console_tail.splitlines()),
+                "pxh_prompt_lines_removed": removed,
+            }
+            if logs.returncode != 0:
+                errors["docker_logs"] = (logs.stderr or "docker logs failed").strip()[-1000:]
+        except Exception as error:
+            errors["docker_logs"] = f"{type(error).__name__}: {error}"
+
+        paths = {
+            "/opt/px4-gazebo/log": self.evidence_dir / "px4-ulog",
+            "/root/.gz/sim/log": self.evidence_dir / "gz-sim-log",
+        }
+        copied = {
+            remote: self._capture_container_path(remote, local, errors)
+            for remote, local in paths.items()
+        }
+        ulogs = sorted((self.evidence_dir / "px4-ulog").rglob("*.ulg"))
+        analyzed: list[str] = []
+        for path in ulogs:
+            try:
+                from scripts.analyze_px4_ulog import parse_ulog, render_markdown
+
+                report = render_markdown(parse_ulog(path))
+                report_path = path.with_suffix(path.suffix + ".analysis.md")
+                report_path.write_text(report, encoding="utf-8")
+                analyzed.append(str(report_path.relative_to(self.episode_dir)))
+            except Exception as error:
+                errors[f"ulog_analysis:{path.name}"] = f"{type(error).__name__}: {error}"
+        server_logs = sorted(
+            path.relative_to(self.evidence_dir).as_posix()
+            for path in (self.evidence_dir / "gz-sim-log").rglob("server_console.log")
+        ) if (self.evidence_dir / "gz-sim-log").is_dir() else []
+        result.update(
+            {
+                "copied_paths": copied,
+                "ulog_files": [str(path.relative_to(self.episode_dir)) for path in ulogs],
+                "ulog_analysis": analyzed,
+                "server_console_logs": server_logs,
+                "sim_clock_stamp_ns": self.sim_clock_snapshot()[0],
+                "evidence_directory": str(self.evidence_dir.relative_to(self.episode_dir)),
+                "px4_threads": self.px4_threads_evidence,
+            }
+        )
+        if self.plan.keep_px4_ulog and ulogs:
+            legacy = Path(self.plan.out) / "jobs" / self.name / "px4-ulog"
+            for path in ulogs:
+                try:
+                    legacy.mkdir(parents=True, exist_ok=True)
+                    relative = path.relative_to(self.evidence_dir / "px4-ulog")
+                    shutil.copy2(path, legacy / relative.as_posix().replace("/", "__"))
+                except Exception as error:
+                    errors[f"legacy_ulog_copy:{path.name}"] = f"{type(error).__name__}: {error}"
+        (self.evidence_dir / "index.json").write_text(
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return result
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self._exit_error = exc_type
+        if exc_type is not None:
+            reason = f"{exc_type.__name__}: {exc}"
+            clock_diagnostics = getattr(exc, "px4_clock_diagnostics", None)
+            diagnostics = self.capture_failure_diagnostics(
+                reason,
+                px4_clock_diagnostics=clock_diagnostics,
+            )
+            if "clock stalled" in reason.lower() or _is_sensor_stream_timeout(reason):
+                evidence = self.capture_stall_evidence(
+                    reason,
+                    px4_clock_diagnostics=clock_diagnostics,
+                )
+                diagnostics["stall_capture"] = {
+                    "path": evidence.get("path"),
+                    "samples": len(evidence.get("samples", [])),
+                }
+        try:
+            evidence_captured = False
+            if self.evidence_dir is not None and self.started:
+                try:
+                    self.evidence_index = self._capture_evidence()
+                    evidence_captured = True
+                    self._progress(
+                        "container_evidence_captured",
+                        container=self.name,
+                        ulog_files=len(self.evidence_index.get("ulog_files", [])),
+                        errors=self.evidence_index.get("errors", {}),
+                    )
+                except Exception as error:
+                    self.evidence_index = {
+                        "container": self.name,
+                        "evidence_directory": str(self.evidence_dir.relative_to(self.episode_dir)),
+                        "capture_error": f"{type(error).__name__}: {error}",
+                    }
+                    try:
+                        self.evidence_dir.mkdir(parents=True, exist_ok=True)
+                        (self.evidence_dir / "capture-error.json").write_text(
+                            json.dumps(self.evidence_index, indent=2, ensure_ascii=False),
+                            encoding="utf-8",
+                        )
+                    except Exception:
+                        pass
+                    self._progress(
+                        "container_evidence_failed", container=self.name,
+                        error=f"{type(error).__name__}: {error}",
+                    )
+            if self.started or self.attached or self.failure_diagnostics is not None:
+                try:
+                    if evidence_captured:
+                        self.cleanup_diagnostics = self.evidence_index.get(
+                            "state_after_cleanup_stop"
+                        )
+                        if self.failure_diagnostics is not None:
+                            self.failure_diagnostics["cleanup_state"] = self.cleanup_diagnostics
+                    else:
+                        self.capture_cleanup_diagnostics()
+                except Exception as error:
+                    self._progress(
+                        "container_cleanup_snapshot_failed",
+                        container=self.name,
+                        error=f"{type(error).__name__}: {error}",
+                    )
+        finally:
+            keep_running = bool(
+                exc_type is not None
+                and self.plan.keep_container_on_failure
+                and exc_type is not LowDiskSpace
+            )
+            if self.started and not keep_running:
+                try:
+                    subprocess.run(
+                        [_docker_executable(self.plan), "rm", "--force", self.name],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                        check=False,
+                    )
+                except Exception as error:
+                    self._progress("container_remove_failed", container=self.name, error=str(error))
+                self.started = False
+                self._progress("cleanup", container=self.name, removed=True)
+            elif self.started:
+                self._progress("cleanup", container=self.name, removed=False, kept=True)
         return False
 
 
@@ -1692,25 +2224,6 @@ def resolve_takeoff_altitude(
     return auto_takeoff_altitude_m(scenario_world_path(runtime_path))
 
 
-def sim_pre_abort_descent_altitude(config: Mapping[str, Any], *, teacher: str) -> float | None:
-    """Validate the SIM-only low-altitude setup paired with climb injection."""
-    value = config.get("sim_pre_abort_descent_altitude_m")
-    if value is None:
-        return None
-    if teacher != "onboard" or config.get("sim_climb_timeout_injection") is not True:
-        raise ValueError("sim_pre_abort_descent_altitude_m requires SIM onboard climb injection")
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or not 0.5 <= value < RETURN_CLIMB_NEAR_GROUND_M
-    ):
-        raise ValueError(
-            "sim_pre_abort_descent_altitude_m must be finite and in [0.5, 2.5) metres"
-        )
-    return float(value)
-
-
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
     altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
     # Generated teacher intent is the authoritative camera geometry.  Resolve it
@@ -1722,13 +2235,7 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
             if not data:
                 runtime_data = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
                 data = runtime_data.get("task_intent", {}) if isinstance(runtime_data, dict) else {}
-            observation = (
-                data.get("confuser_observation", data.get("observation", {}))
-                if isinstance(data, dict) and plan.teacher_target == "confuser"
-                else data.get("observation", {})
-                if isinstance(data, dict)
-                else {}
-            )
+            observation = data.get("observation", {}) if isinstance(data, dict) else {}
             if isinstance(observation, dict):
                 requested = teacher_intent_clearance_altitude(observation)
             else:
@@ -1737,13 +2244,7 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
                 altitude, source = requested, "teacher_intent_camera_altitude"
         except (OSError, json.JSONDecodeError):
             pass
-    profile = (
-        _airframe_profile(plan.airframe, plan.takeoff_method)
-        if not airframe_uses_multirotor_executor(
-            plan.airframe, plan.takeoff_method, base_dir=ROOT
-        )
-        else None
-    )
+    profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
     if profile is None or profile.category == "multirotor":
         return altitude, source
     # The multirotor default (5 m) is far below what a fixed-wing needs to loiter
@@ -1773,14 +2274,7 @@ def _validate_spawn_clearance(plan: CollectionPlan) -> dict[str, Any] | None:
     try:
         intent_path = _teacher_intent_path(Path(plan.scenario))
         intent = json.loads(intent_path.read_text(encoding="utf-8")) if intent_path.is_file() else {}
-        if isinstance(intent, dict):
-            observation = (
-                intent.get("confuser_observation", intent.get("observation", {}))
-                if plan.teacher_target == "confuser"
-                else intent.get("observation", {})
-            )
-        else:
-            observation = {}
+        observation = intent.get("observation", {}) if isinstance(intent, dict) else {}
         route_points = teacher_intent_clearance_route_points(observation)
     except (OSError, ValueError, TypeError):
         route_points = []
@@ -1872,6 +2366,7 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
     from scripts.onboard_policy import build_onboard_policy
 
     altitude_m, _ = _takeoff_altitude_for_plan(plan)
+    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
     policy = build_onboard_policy(
         task_text=task_text,
         world_path=scenario_world_path(plan.runtime),
@@ -1885,6 +2380,11 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
         airframe=_onboard_airframe_id(plan),
         runtime_step_limit=plan.steps_per_episode,
         runtime_mode="sim",
+        camera_mount=(
+            profile.camera_mount.to_mapping()
+            if profile is not None and profile.camera_mount is not None
+            else None
+        ),
     )
     _start_sim_operator_link(plan, policy)
     return policy
@@ -2036,7 +2536,7 @@ def _onboard_airframe_id(plan: CollectionPlan) -> str | None:
     """Profile id the onboard policy plans for; None keeps the x500 default untouched."""
     if plan.airframe == "x500_mono_cam":
         return None
-    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    profile = _airframe_profile(plan.airframe)
     return profile.id if profile is not None else None
 
 
@@ -2179,6 +2679,86 @@ def _wait_motion_command(
     return {"waited": "none", "elapsed_s": 0.0}
 
 
+def _wait_smoke_reposition(
+    target_ned: tuple[float, float, float],
+    reader: MavlinkReader,
+    *,
+    category: str,
+    timeout_s: float = DELTA_SMOKE_REPOSITION_TIMEOUT_S,
+) -> dict[str, Any]:
+    """Require sustained capture of the active PX4 fixed-wing loiter ring."""
+    started_wall = time.monotonic()
+    started_sim_ns = _pose_sim_stamp_ns(reader.state)
+    if started_sim_ns is None:
+        return {
+            "waited": "timeout",
+            "distance_m": None,
+            "tolerance_m": 8.0,
+            "sim_elapsed_s": None,
+            "sim_clock_available": False,
+            "elapsed_s": 0.0,
+            "target_ned_m": list(target_ned),
+            **reposition_ring_metrics([], target_ned=target_ned, radius_m=FIXED_WING_LOITER_CAPTURE_M),
+        }
+    wall_ceiling = max(180.0, float(timeout_s) * 10.0)
+    distance = float("inf")
+    sim_elapsed_s = 0.0
+    observations: list[dict[str, Any]] = []
+    while time.monotonic() - started_wall < wall_ceiling:
+        reader.raise_if_failed()
+        current_sim_ns = _pose_sim_stamp_ns(reader.state)
+        if current_sim_ns is not None:
+            sim_elapsed_s = max(0.0, (current_sim_ns - started_sim_ns) / 1e9)
+        position = _state_position(reader.state)
+        distance = math.sqrt(
+            sum((float(target) - float(actual)) ** 2 for target, actual in zip(target_ned, position, strict=False))
+        )
+        state = _flight_state_snapshot(reader.state)["vtol_state"]
+        fw_active = category == "fixed_wing" or state == 4
+        observations.append({
+            "sim_time_s": sim_elapsed_s,
+            "x": position[0],
+            "y": position[1],
+            "fw_active": fw_active,
+        })
+        ring = reposition_ring_metrics(
+            observations,
+            target_ned=target_ned,
+            radius_m=FIXED_WING_LOITER_CAPTURE_M,
+        )
+        if ring["fw_reposition_success"]:
+            return {
+                "waited": "arrived",
+                "distance_m": distance,
+                "tolerance_m": 8.0,
+                "sim_elapsed_s": sim_elapsed_s if current_sim_ns is not None else None,
+                "sim_clock_available": current_sim_ns is not None,
+                "elapsed_s": time.monotonic() - started_wall,
+                "target_ned_m": list(target_ned),
+                **ring,
+            }
+        if (
+            current_sim_ns is not None
+            and sim_elapsed_s >= timeout_s
+        ):
+            break
+        time.sleep(0.1)
+    return {
+        "waited": "timeout",
+        "distance_m": distance,
+        "tolerance_m": 8.0,
+        "sim_elapsed_s": sim_elapsed_s,
+        "sim_clock_available": True,
+        "elapsed_s": time.monotonic() - started_wall,
+        "target_ned_m": list(target_ned),
+        **reposition_ring_metrics(
+            observations,
+            target_ned=target_ned,
+            radius_m=FIXED_WING_LOITER_CAPTURE_M,
+        ),
+    }
+
+
 def _fixed_wing_reposition_complete(
     *,
     dn: float,
@@ -2250,80 +2830,7 @@ def _apply_motion_wait_result(executed: Any, motion_wait: Mapping[str, Any]) -> 
     )
 
 
-class SimClimbTimeoutInjector:
-    """Inject two return-home climb timeouts while holding the current NED target."""
-
-    def __init__(self, *, enabled: bool, runtime_mode: str, teacher: str) -> None:
-        if type(enabled) is not bool:
-            raise ValueError("sim_climb_timeout_injection must be a boolean")
-        if enabled and (runtime_mode != "sim" or teacher != "onboard"):
-            raise ValueError("sim_climb_timeout_injection is only available to the SIM onboard collector")
-        self.enabled = enabled
-        self.injected = 0
-
-    def matches(
-        self,
-        action: ActionPrimitive,
-        *,
-        active_skill: str | None,
-        before: Mapping[str, Any] | None,
-    ) -> bool:
-        pose = before.get("pose", {}) if isinstance(before, Mapping) else {}
-        position = pose.get("local_ned_m") if isinstance(pose, Mapping) else None
-        flight = before.get("flight_state", {}) if isinstance(before, Mapping) else {}
-        landed_state = flight.get("landed_state") if isinstance(flight, Mapping) else None
-        altitude = None
-        if isinstance(position, (list, tuple)) and len(position) >= 3:
-            try:
-                if isinstance(position[2], bool):
-                    raise ValueError("boolean NED altitude")
-                altitude = max(0.0, -float(position[2]))
-            except (TypeError, ValueError):
-                pass
-        airborne = (
-            before.get("landed") is not True
-            and (
-                landed_state == 2
-                or (landed_state is None and before.get("landed") is False)
-            )
-        ) if isinstance(before, Mapping) else False
-        return bool(
-            self.enabled
-            and self.injected < 2
-            and active_skill == "return_home"
-            and action.kind == "translate"
-            and action.up_m > 0
-            and action.forward_m == 0
-            and action.right_m == 0
-            and action.yaw_delta_deg == 0
-            and altitude is not None
-            and math.isfinite(altitude)
-            and altitude <= RETURN_CLIMB_NEAR_GROUND_M
-            and airborne
-        )
-
-    def execute(self, executor: Any, action: ActionPrimitive) -> Any:
-        """Hold in place for the executor timeout, then report the requested climb timeout."""
-        criterion = getattr(executor, "criterion", None)
-        timeout_s = float(getattr(criterion, "timeout_s", 20.0))
-        held = executor.execute(ActionPrimitive.hold(timeout_s))
-        ack = {
-            **held.ack,
-            "sim_fault_injection": "return_home_climb_timeout",
-            "requested_action": action.to_dict(),
-        }
-        result = dataclasses.replace(held, status="timeout", ack=ack)
-        self.injected += 1
-        return result
-
-
-def _policy_for(
-    plan: CollectionPlan,
-    truth_path: Path,
-    seed: int,
-    *,
-    airframe_profile: AirframeProfile | None = None,
-):
+def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
     if plan.teacher == "explore":
         return ExplorePolicy(seed=seed, bounds=ExploreBounds())
     target, label = _truth_target(
@@ -2341,14 +2848,7 @@ def _policy_for(
             if intent_path.is_file()
             else json.loads(Path(plan.runtime).read_text(encoding="utf-8")).get("task_intent", {})
         )
-        if isinstance(task_intent, dict):
-            observation = (
-                task_intent.get("confuser_observation", task_intent.get("observation", {}))
-                if plan.teacher_target == "confuser"
-                else task_intent.get("observation", {})
-            )
-        else:
-            observation = {}
+        observation = task_intent.get("observation", {}) if isinstance(task_intent, dict) else {}
         if isinstance(observation, dict):
             intent = observation
     except (OSError, ValueError):
@@ -2397,7 +2897,18 @@ def _policy_for(
             observation_view_names.append(str(row.get("view", len(observation_view_names))))
     elif home_ned is not None:
         observation_waypoints.append((home_ned[0], home_ned[1], -altitude_m))
-    profile = airframe_profile or _airframe_profile(plan.airframe, plan.takeoff_method)
+    profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    default_hover_mission = bool(
+        profile is not None
+        and profile.category == "vtol"
+        and profile.subtype == "tailsitter"
+        and profile.id.startswith("delta_tailsitter")
+    )
+    vtol_hover_mission = (
+        default_hover_mission
+        if plan.vtol_hover_mission is None
+        else bool(plan.vtol_hover_mission)
+    )
     camera_mount = (
         profile.camera_mount.to_camera_mount()
         if profile is not None and profile.camera_mount is not None
@@ -2407,7 +2918,6 @@ def _policy_for(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
         altitude_m=altitude_m,
-        standoff_m=float(intent.get("standoff_m", min(15.0, max_detection_range * 0.5))),
         camera_pitch_rad=camera_pitch,
         camera_mount=camera_mount,
         max_detection_range_m=max_detection_range,
@@ -2416,6 +2926,14 @@ def _policy_for(
         observation_frames=frames if observation_waypoints else 0,
         observation_waypoints=tuple(observation_waypoints),
         observation_view_names=tuple(observation_view_names),
+        fixed_wing_mode=(
+            profile is not None
+            and profile.category == "fixed_wing"
+            or profile is not None
+            and profile.category == "vtol"
+            and not vtol_hover_mission
+        ),
+        vtol_hover_mission=vtol_hover_mission,
         fixed_wing_orbit_radius_m=(
             profile.orbit_radius(80.0)
             if profile is not None and profile.category == "fixed_wing"
@@ -2441,9 +2959,15 @@ def _hover_policy(plan: CollectionPlan, truth_path: Path):
 class _SmokeFlightPolicy:
     """Deterministic fixed-wing route used by the real-airframe smoke script."""
 
-    def __init__(self) -> None:
-        self._actions = iter(
+    def __init__(self, *, strict_delta_smoke: bool = False) -> None:
+        actions = (
             (
+                ActionPrimitive.translate(35.0, 0.0),
+                ActionPrimitive.hold(DELTA_SMOKE_FW_MIN_DURATION_S),
+                ActionPrimitive.stop(),
+            )
+            if strict_delta_smoke
+            else (
                 ActionPrimitive.translate(35.0, 0.0),
                 ActionPrimitive.hold(8.0),
                 ActionPrimitive.translate(0.0, 35.0),
@@ -2453,6 +2977,7 @@ class _SmokeFlightPolicy:
                 ActionPrimitive.stop(),
             )
         )
+        self._actions = iter(actions)
 
     def next_action(self):
         try:
@@ -2500,10 +3025,33 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
         airspeed = float(airspeed) if airspeed is not None else None
     except (TypeError, ValueError):
         airspeed = None
+    gimbal = state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_manager = state.get("GIMBAL_MANAGER_STATUS")
+    # Keep raw status fields in episode telemetry.  PX4 versions expose either
+    # quaternion/device flags or manager angles; preserving both lets offline
+    # consumers reconstruct the actual joint state without assuming one dialect.
+    gimbal_status = None
+    if gimbal is not None or gimbal_manager is not None:
+        gimbal_status = {
+            "device": MavlinkReader._mapping(gimbal) if gimbal is not None else None,
+            "angles_deg": gimbal_angles_from_status(gimbal) if gimbal is not None else None,
+        "manager": (
+            MavlinkReader._mapping(gimbal_manager) if gimbal_manager is not None else None
+        ),
+        }
+    attitude = state.get("ATTITUDE")
+    attitude_deg = None
+    if attitude is not None:
+        attitude_deg = {
+            axis: math.degrees(float(_field(attitude, source, 0.0)))
+            for axis, source in (("roll", "roll"), ("pitch", "pitch"), ("yaw", "yaw"))
+        }
     return {
         "vtol_state": _field(extended, "vtol_state", None),
         "landed_state": _field(extended, "landed_state", None),
         "airspeed_mps": airspeed,
+        "attitude_deg": attitude_deg,
+        "gimbal_status": gimbal_status,
     }
 
 
@@ -2548,7 +3096,8 @@ def _raise_if_px4_clock_stalled(
     sim_clock: Any = None,
 ) -> None:
     platform_name = os.name if platform_name is None else platform_name
-    if platform_name != "nt" and result.ack.get("wall_timeout"):
+    ack = getattr(result, "ack", {})
+    if platform_name != "nt" and isinstance(ack, Mapping) and ack.get("wall_timeout"):
         timeout_s = _linux_primitive_clock_stall_timeout_s()
         error = TimeoutError(
             "PX4 simulation clock stalled during primitive; "
@@ -2638,6 +3187,171 @@ def _pose_sim_stamp_ns(state: Any) -> int | None:
     if not math.isfinite(value) or value < 0:
         return None
     return int(value * 1_000_000)
+
+
+class MavlinkTelemetrySilenceWatchdog:
+    """Fail waits when wire silence outlasts both vehicle time and host time."""
+
+    def __init__(
+        self,
+        reader: MavlinkReader,
+        environment: DockerSimEnvironment,
+        recorder: EpisodeRecorder,
+        *,
+        clock: Any = time.monotonic,
+    ) -> None:
+        self.reader = reader
+        self.environment = environment
+        self.recorder = recorder
+        self.clock = clock
+        self.last_count = int(reader.state.count)
+        received = getattr(reader.state, "received_monotonic_ns", {})
+        latest_message_ns = max(received.values(), default=None)
+        self.last_message_wall = (
+            latest_message_ns / 1e9 if latest_message_ns is not None else self.clock()
+        )
+        self.last_vehicle_ms = reader.state.vehicle_time_boot_ms
+        sim_stamp, sim_progress_wall = environment.sim_clock_snapshot()
+        self.last_telemetry_sim_ns = sim_stamp
+        self.last_observed_sim_stamp_ns = sim_stamp
+        self.last_sim_progress_wall = sim_progress_wall
+        self.fired = False
+
+    def check(self) -> None:
+        if self.fired:
+            return
+        now = self.clock()
+        state = self.reader.state
+        if int(state.count) != self.last_count:
+            self.last_count = int(state.count)
+            self.last_message_wall = now
+            self.last_vehicle_ms = getattr(state, "vehicle_time_boot_ms", None)
+            sim_stamp, self.last_sim_progress_wall = self.environment.sim_clock_snapshot()
+            self.last_telemetry_sim_ns = sim_stamp
+            self.last_observed_sim_stamp_ns = sim_stamp
+            return
+
+        sim_stamp_ns, sim_progress_wall = self.environment.sim_clock_snapshot()
+        if sim_stamp_ns is not None and (
+            self.last_observed_sim_stamp_ns is None
+            or sim_stamp_ns > self.last_observed_sim_stamp_ns
+        ):
+            self.last_observed_sim_stamp_ns = sim_stamp_ns
+            self.last_sim_progress_wall = sim_progress_wall
+        wall_silent_s = max(0.0, now - self.last_message_wall)
+        sim_base_ns = self.last_telemetry_sim_ns
+        if sim_base_ns is None and self.last_vehicle_ms is not None:
+            sim_base_ns = int(self.last_vehicle_ms) * 1_000_000
+        sim_elapsed_s = (
+            max(0.0, (sim_stamp_ns - sim_base_ns) / 1e9)
+            if sim_stamp_ns is not None and sim_base_ns is not None
+            else None
+        )
+        sim_stalled_s = max(0.0, now - self.last_sim_progress_wall)
+        failed = wall_silent_s >= MAVLINK_SILENCE_WALL_CAP_S
+        failed = failed or (
+            wall_silent_s >= MAVLINK_SILENCE_MIN_WALL_S
+            and sim_elapsed_s is not None
+            and sim_elapsed_s >= MAVLINK_SILENCE_SIM_TIMEOUT_S
+        )
+        failed = failed or (
+            sim_stalled_s >= MAVLINK_SILENCE_STALLED_SIM_WALL_S
+        )
+        if not failed:
+            return
+
+        self.fired = True
+        state_snapshot = self.environment.inspect_state()
+        container_running = state_snapshot.get("Running") if state_snapshot else None
+        reader_stats = self.reader.stats
+        if container_running is False:
+            failure_class = (
+                "px4_other_segfault"
+                if state_snapshot and state_snapshot.get("ExitCode") == 139
+                else "flight"
+            )
+        elif reader_stats.get("thread_alive") is False:
+            failure_class = "telemetry_receiver"
+            failure_detail = "receiver_thread_exit"
+        elif reader_stats.get("last_exception"):
+            failure_class = "telemetry_receiver"
+            failure_detail = "receiver_exception"
+        else:
+            failure_class = "px4_hang"
+            failure_detail = None
+        if container_running is False:
+            failure_detail = "container_exit"
+        kernel_capture = getattr(self.environment, "_capture_kernel_segfault", None)
+        kernel_segfault = (
+            kernel_capture(state_snapshot)
+            if callable(kernel_capture)
+            and container_running is False
+            and state_snapshot
+            and state_snapshot.get("ExitCode") == 139
+            else None
+        )
+        if kernel_segfault and kernel_segfault.get("failure_class"):
+            failure_class = kernel_segfault["failure_class"]
+        sim_clock_advancing = sim_stamp_ns is not None and now - sim_progress_wall <= 2.5
+        thread_evidence = None
+        if container_running is True:
+            host_pid = state_snapshot.get("Pid") if state_snapshot else None
+            if isinstance(host_pid, int) and host_pid > 0:
+                try:
+                    thread_evidence = self.environment._capture_px4_threads(host_pid)
+                except Exception as error:
+                    thread_evidence = {"error": f"{type(error).__name__}: {error}", "host_pid": host_pid}
+                self.environment.px4_threads_evidence = thread_evidence
+        diagnostic = {
+            "error": "MAVLink telemetry silent",
+            "failure_class": failure_class,
+            "failure_detail": failure_detail,
+            "wall_silent_s": wall_silent_s,
+            "sim_elapsed_since_last_mavlink_s": sim_elapsed_s,
+            "sim_time_stalled_wall_s": sim_stalled_s,
+            "sim_clock_stamp_ns": sim_stamp_ns,
+            "sim_clock_advancing": (
+                sim_clock_advancing
+            ),
+            "px4_threads": thread_evidence,
+            "container": {
+                "name": self.environment.name,
+                "running": container_running,
+                "state": state_snapshot,
+            },
+            "mavlink_reader": reader_stats,
+            "receiver_thread_alive": reader_stats.get("thread_alive"),
+            "receiver_last_exception": reader_stats.get("last_exception"),
+            "receiver_message_counts": reader_stats.get("message_counts"),
+            "receiver_socket": reader_stats.get("socket"),
+            "receiver_recent_messages": reader_stats.get("recent_messages"),
+            "last_message_type": getattr(self.reader, "last_message_type", None),
+            "last_message_monotonic_ns": getattr(self.reader, "last_message_monotonic_ns", None),
+            "last_message_vehicle_ms": getattr(self.reader, "last_message_vehicle_ms", None),
+            "thresholds": {
+                "sim_s": MAVLINK_SILENCE_SIM_TIMEOUT_S,
+                "stalled_sim_wall_s": MAVLINK_SILENCE_STALLED_SIM_WALL_S,
+                "minimum_realtime_factor": MAVLINK_SILENCE_MIN_REALTIME_FACTOR,
+                "wall_cap_s": MAVLINK_SILENCE_WALL_CAP_S,
+                "minimum_wall_s": MAVLINK_SILENCE_MIN_WALL_S,
+            },
+        }
+        self.recorder.meta["telemetry_silence"] = diagnostic
+        self.recorder.episode_path.write_text(
+            json.dumps(self.recorder.meta, indent=2), encoding="utf-8"
+        )
+        self.recorder.record_mavlink(
+            {"message_type": "collector_telemetry_silence", **diagnostic}
+        )
+        (self.recorder.episode_dir / "telemetry-silence.json").write_text(
+            json.dumps(diagnostic, indent=2), encoding="utf-8"
+        )
+        raise TimeoutError(
+            "MAVLink telemetry silent: "
+            f"wall_s={wall_silent_s:.1f}, sim_elapsed_s={sim_elapsed_s}, "
+            f"sim_time_advancing={diagnostic['sim_clock_advancing']}, "
+            f"container_running={diagnostic['container']['running']}"
+        )
 
 
 def _snapshot_mavlink_state(state: MavlinkState) -> MavlinkState:
@@ -2834,6 +3548,60 @@ def _set_sim_params(
     return applied
 
 
+def _delta_fw_thr_min_baseline(plan: CollectionPlan) -> str:
+    airframe = ROOT / "simulation" / "px4" / "airframes" / "4050_gz_delta_tailsitter"
+    match = re.search(
+        r"^param set-default FW_THR_MIN (\S+)$",
+        airframe.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if match is None:
+        raise RuntimeError("4050 airframe does not define FW_THR_MIN")
+    value = match.group(1)
+    for name, override in plan.extra_sim_params:
+        if name == "FW_THR_MIN":
+            value = override
+    return value
+
+
+def _set_runtime_sim_param(
+    plan: CollectionPlan,
+    environment: DockerSimEnvironment,
+    parameter: str,
+    value: str,
+) -> dict[str, Any]:
+    command = [
+        _docker_executable(plan),
+        "exec",
+        environment.name,
+        "/opt/px4-gazebo/bin/px4-param",
+        "set",
+        parameter,
+        value,
+    ]
+    attempts = []
+    for attempt in range(1, 4):
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        attempts.append(
+            {
+                "attempt": attempt,
+                "returncode": result.returncode,
+                "stdout": (result.stdout or "")[-500:],
+                "stderr": (result.stderr or "")[-500:],
+            }
+        )
+        if result.returncode == 0:
+            return {"parameter": parameter, "value": value, "attempts": attempts}
+        time.sleep(0.25)
+    raise RuntimeError(f"could not set PX4 parameter {parameter}={value}: {attempts[-1]}")
+
+
 # pymavlink's PX4 mode table uses bare names ("MISSION", "LOITER"); dotted PX4 UI names
 # are reported as "Unknown mode" and silently not sent.
 _PYMAVLINK_PX4_MODE_ALIASES = {
@@ -2937,9 +3705,7 @@ def _wait_prearm_health(
     """
     wall_started = time.monotonic()
     budget_clock = (
-        time.monotonic
-        if os.name == "nt"
-        else _SimClock(reader, wall=time.monotonic)
+        time.monotonic if os.name == "nt" else _SimClock(reader, wall=time.monotonic)
     )
     started = budget_clock()
     deadline = started + float(timeout_s)
@@ -2952,9 +3718,7 @@ def _wait_prearm_health(
         reader.raise_if_failed()
         wall_now = time.monotonic()
         budget_now = budget_clock()
-        if wall_now >= wall_deadline:
-            break
-        if budget_now >= deadline:
+        if wall_now >= wall_deadline or budget_now >= deadline:
             break
         snapshot = _prearm_health_snapshot(reader.state)
         if snapshot != last_snapshot:
@@ -3063,7 +3827,7 @@ def _wait_for_sim_pre_abort_descent(
             )
         if sim_now >= deadline:
             raise TimeoutError(f"timed out waiting for {phase} after {timeout_s:.1f}s of PX4 time")
-        time.sleep(min(interval_s, max(0.0, wall_deadline - wall_now)))
+        time.sleep(interval_s)
 
 
 def _wait_for_offboard(
@@ -3187,10 +3951,15 @@ def _dispatch_teacher_gimbal_command(
     default_mode: str = "lock-horizon",
 ) -> bool:
     """Actuate a teacher gimbal command and mark it only after dispatch."""
-    command = labels.get("gimbal_command")
-    if not isinstance(command, Mapping):
+    command_owner: Mapping[str, Any] = labels
+    command = command_owner.get("gimbal_command")
+    onboard_labels = labels.get("onboard")
+    if not isinstance(command, Mapping) and isinstance(onboard_labels, Mapping):
+        command_owner = onboard_labels
+        command = command_owner.get("gimbal_command")
+    if not isinstance(command, Mapping) or controller is None:
         return False
-    if controller is None:
+    if command_owner.get("gimbal_dispatched") is True:
         return False
     if "pitch_down_rad" not in command or "yaw_world_rad" not in command:
         return False
@@ -3200,7 +3969,324 @@ def _dispatch_teacher_gimbal_command(
         mode=str(command.get("mode", default_mode)),
         vehicle_yaw_rad=math.radians(float(vehicle_yaw_deg)),
     )
+    if isinstance(command_owner, dict):
+        command_owner["gimbal_dispatched"] = True
     return True
+
+
+def _gimbal_attitude_angles_deg(
+    status: Any,
+    *,
+    vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, float] | None:
+    """Decode the device quaternion, converting earth-frame yaw to body yaw."""
+    q = _field(status, "q", None)
+    if not isinstance(q, (list, tuple)) or len(q) < 4:
+        return None
+    w, x, y, z = (float(value) for value in q[:4])
+    norm = math.sqrt(w * w + x * x + y * y + z * z)
+    if not math.isfinite(norm) or norm <= 1e-9:
+        return None
+    w, x, y, z = (value / norm for value in (w, x, y, z))
+    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
+    pitch = math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))
+    yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+    yaw_deg = math.degrees(yaw)
+    # MAVLink GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME is bit 6.  PX4 uses this
+    # flag for the tailsitter bridge while roll/pitch remain device axes.
+    flags = int(_field(status, "flags", 0) or 0)
+    if vehicle_yaw_deg is not None and flags & 64:
+        yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
+    yaw_deg = (yaw_deg + float(yaw_correction_deg) + 180.0) % 360.0 - 180.0
+    return {
+        "yaw": yaw_deg,
+        "roll": math.degrees(roll),
+        "pitch": math.degrees(pitch),
+    }
+
+
+def _gimbal_attitude_error_deg(
+    status: Any,
+    target: Mapping[str, float],
+    *,
+    vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, float] | None:
+    actual = _gimbal_attitude_angles_deg(
+        status,
+        vehicle_yaw_deg=vehicle_yaw_deg,
+        yaw_correction_deg=yaw_correction_deg,
+    )
+    if actual is None:
+        return None
+    return {
+        axis: abs((actual[axis] - float(target[axis]) + 180.0) % 360.0 - 180.0)
+        for axis in ("yaw", "roll", "pitch")
+    }
+
+
+def _command_and_wait_gimbal(
+    connection: Any,
+    reader: Any,
+    target: Mapping[str, float],
+    *,
+    timeout_s: float = 15.0,
+    tolerance_deg: float = 4.0,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, Any]:
+    """Acquire gimbal-manager control, command pitch/yaw, and verify fresh telemetry."""
+    sender = getattr(getattr(connection, "mav", None), "command_long_send", None)
+    if sender is None:
+        raise RuntimeError("MAVLink connection cannot send gimbal command")
+    target_system = int(getattr(connection, "target_system", 1) or 1)
+    target_component = int(getattr(connection, "target_component", 1) or 1)
+    command_started_ns = time.monotonic_ns()
+    sender(
+        target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, 0,
+        float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT),
+        -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID),
+    )
+    configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
+        MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(timeout_s, 5.0)
+    )
+    if configure_ack is None or int(configure_ack.get("result", -1)) != 0:
+        return {
+            "status": "manager_configure_rejected" if configure_ack is not None else "manager_configure_ack_timeout",
+            "target_deg": dict(target), "configure_ack": configure_ack, "tolerance_deg": tolerance_deg,
+        }
+    ack_state = getattr(reader.state, "command_acks", {})
+    configure_ack_entry = ack_state.get(MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE) if isinstance(ack_state, Mapping) else None
+    configure_ack_ns = int(configure_ack_entry[1]) if configure_ack_entry is not None else command_started_ns
+    manager_deadline = time.monotonic() + GIMBAL_MANAGER_STATUS_WALL_TIMEOUT_S
+    primary = 0
+    primary_component = 0
+    manager_confirmed = False
+    while time.monotonic() < manager_deadline:
+        manager = reader.state.get("GIMBAL_MANAGER_STATUS")
+        received = getattr(reader.state, "received_monotonic_ns", {})
+        if isinstance(reader.state, Mapping):
+            received = reader.state.get("received_monotonic_ns", received)
+        manager_ns = received.get("GIMBAL_MANAGER_STATUS", -1) if isinstance(received, Mapping) else -1
+        primary = int(_field(manager, "primary_control_sysid", 0) or 0)
+        primary_component = int(_field(manager, "primary_control_compid", 0) or 0)
+        if (manager is not None and int(manager_ns) >= configure_ack_ns
+                and primary == GCS_SOURCE_SYSTEM and primary_component == GCS_SOURCE_COMPONENT):
+            manager_confirmed = True
+            break
+        time.sleep(0.02)
+    if not manager_confirmed:
+        return {
+            "status": "manager_control_not_owned", "target_deg": dict(target),
+            "configure_ack": configure_ack, "primary_control_sysid": primary,
+            "primary_control_compid": primary_component,
+            "tolerance_deg": tolerance_deg,
+        }
+    command_started_ns = time.monotonic_ns()
+    sender(
+        target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, 0,
+        float(target["pitch"]), float(target["yaw"]), math.nan, math.nan,
+        float(
+            GIMBAL_MANAGER_FLAGS_ROLL_LOCK
+            | GIMBAL_MANAGER_FLAGS_PITCH_LOCK
+            | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME
+        ),
+        0.0, float(GIMBAL_MANAGER_DEVICE_ID),
+    )
+    ack = _ReaderAckLink(connection, reader).wait_command_ack(
+        MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, min(timeout_s, 5.0)
+    )
+    if ack is None or int(ack.get("result", -1)) != 0:
+        return {
+            "status": "command_rejected" if ack is not None else "command_ack_timeout",
+            "target_deg": dict(target), "configure_ack": configure_ack,
+            "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+            "command_ack": ack,
+            "tolerance_deg": tolerance_deg,
+        }
+    started = time.monotonic()
+    last_error = None
+    while time.monotonic() - started < timeout_s:
+        reader.raise_if_failed()
+        status = reader.state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+        received = (
+            reader.state.get("received_monotonic_ns", {})
+            if isinstance(reader.state, dict)
+            else getattr(reader.state, "received_monotonic_ns", {})
+        )
+        attitude = reader.state.get("ATTITUDE")
+        vehicle_yaw_deg = (
+            math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
+        )
+        error = (
+            _gimbal_attitude_error_deg(
+                status,
+                target,
+                vehicle_yaw_deg=vehicle_yaw_deg,
+                yaw_correction_deg=yaw_correction_deg,
+            )
+            if received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns
+            else None
+        )
+        if error is not None:
+            last_error = error
+            if max(error.values()) <= tolerance_deg:
+                return {
+                    "status": "reached",
+                    "target_deg": dict(target),
+                    "actual_deg": _gimbal_attitude_angles_deg(
+                        status,
+                        vehicle_yaw_deg=vehicle_yaw_deg,
+                        yaw_correction_deg=yaw_correction_deg,
+                    ),
+                    "error_deg": error,
+                    "tolerance_deg": tolerance_deg,
+                }
+        time.sleep(0.05)
+    return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error,
+            "configure_ack": configure_ack, "command_ack": ack,
+            "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, "tolerance_deg": tolerance_deg}
+
+
+def _return_onboard_gimbal_to_search_angle(
+    plan: CollectionPlan,
+    profile: AirframeProfile,
+    connection: Any,
+    reader: Any,
+    *,
+    strict_delta_smoke: bool,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, Any] | None:
+    """Restore onboard search framing after the diagnostic -45-degree check."""
+    if plan.teacher != "onboard" or strict_delta_smoke:
+        return None
+    gimbal = profile.camera.gimbal
+    defaults = gimbal.get("default_angles_deg", {}) if isinstance(gimbal, Mapping) else {}
+    target = defaults.get("mc") if isinstance(defaults, Mapping) else None
+    if not isinstance(target, Mapping):
+        raise RuntimeError("gimbal MC search angle is missing from the airframe profile")
+    result = _command_and_wait_gimbal(
+        connection,
+        reader,
+        {axis: float(target[axis]) for axis in ("yaw", "roll", "pitch")},
+        tolerance_deg=4.0,
+        yaw_correction_deg=yaw_correction_deg,
+    )
+    if result.get("status") != "reached":
+        raise RuntimeError(f"gimbal did not return to onboard search angle: {result}")
+    return result
+
+
+def _wait_for_stable_mc_hover(
+    reader: MavlinkReader,
+    *,
+    stable_s: float = GIMBAL_HOVER_STABLE_S,
+    timeout_s: float = 60.0,
+    wall_timeout_s: float = GIMBAL_HOVER_MAX_WALL_S,
+    clock: Any = time.monotonic,
+) -> dict[str, Any]:
+    wall_started = clock()
+    started_boot_ms = reader.state.vehicle_time_boot_ms
+    stable_since_ms: int | None = None
+    sample_count = 0
+    maximum_abs_roll = 0.0
+    maximum_abs_pitch = 0.0
+    last_state: dict[str, Any] = {}
+    while clock() - wall_started < wall_timeout_s:
+        reader.raise_if_failed()
+        attitude = reader.state.get("ATTITUDE")
+        vtol_state = _field(reader.state.get("EXTENDED_SYS_STATE"), "vtol_state", None)
+        boot_ms = _field(attitude, "time_boot_ms", reader.state.vehicle_time_boot_ms)
+        if isinstance(boot_ms, (int, float)) and not isinstance(boot_ms, bool):
+            boot_ms = int(boot_ms)
+        else:
+            boot_ms = None
+        if attitude is not None and boot_ms is not None:
+            roll = math.degrees(float(_field(attitude, "roll", 0.0)))
+            pitch = math.degrees(float(_field(attitude, "pitch", 0.0)))
+            maximum_abs_roll = max(maximum_abs_roll, abs(roll))
+            maximum_abs_pitch = max(maximum_abs_pitch, abs(pitch))
+            last_state = {
+                "vtol_state": vtol_state,
+                "roll_deg": roll,
+                "pitch_deg": pitch,
+                "time_boot_ms": boot_ms,
+            }
+            if vtol_state == 3 and abs(roll) < 5.0 and abs(pitch) < 5.0:
+                stable_since_ms = boot_ms if stable_since_ms is None else stable_since_ms
+                sample_count += 1
+                if boot_ms - stable_since_ms >= int(stable_s * 1000.0):
+                    return {
+                        "status": "stable",
+                        "vtol_state": vtol_state,
+                        "stable_duration_s": (boot_ms - stable_since_ms) / 1000.0,
+                        "sample_count": sample_count,
+                        "maximum_abs_roll_deg": maximum_abs_roll,
+                        "maximum_abs_pitch_deg": maximum_abs_pitch,
+                        "flight_state": _flight_state_snapshot(reader.state),
+                        "elapsed_wall_s": clock() - wall_started,
+                    }
+            else:
+                stable_since_ms = None
+            if (
+                started_boot_ms is not None
+                and boot_ms - int(started_boot_ms) >= int(timeout_s * 1000.0)
+            ):
+                break
+        time.sleep(0.05)
+    raise TimeoutError(
+        "timed out waiting for stable MC hover: "
+        f"stable_s={stable_s:.1f}, timeout_sim_s={timeout_s:.1f}, "
+        f"last_state={last_state}"
+    )
+
+
+def _request_fresh_sensor_sample(
+    sensor_reader: Any,
+    mav_reader: MavlinkReader,
+    *,
+    timeout_s: float = 15.0,
+) -> Any:
+    previous_count = int(sensor_reader.frames_received)
+    minimum_stamp_ns = _pose_sim_stamp_ns(mav_reader.state) or 0
+    sensor_reader.request(minimum_stamp_ns)
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        mav_reader.raise_if_failed()
+        sensor_reader.raise_if_failed()
+        if int(sensor_reader.frames_received) > previous_count:
+            sample = sensor_reader.latest
+            if sample is not None and int(sample.sensor_stamp_ns) >= minimum_stamp_ns:
+                return sample
+        time.sleep(0.02)
+    raise TimeoutError(
+        "timed out waiting for a fresh Gazebo camera/joint-state sample "
+        f"at or after sim_ns={minimum_stamp_ns}"
+    )
+
+
+def _gimbal_measurement_snapshot(reader: MavlinkReader, sensor_sample: Any) -> dict[str, Any]:
+    state = reader.state
+    aligned_state = reader.aligned_state(sensor_sample.sensor_stamp_ns)
+    device = state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    attitude = aligned_state.get("ATTITUDE")
+    received = getattr(state, "received_monotonic_ns", {})
+    sidecar = getattr(sensor_sample, "joint_state", None)
+    gimbal_joints = sidecar.get("gimbal_joint_state") if isinstance(sidecar, dict) else None
+    return {
+        "body_attitude_deg": _flight_state_snapshot(aligned_state)["attitude_deg"],
+        "body_attitude_time_boot_ms": _field(attitude, "time_boot_ms", None),
+        "body_pose_alignment": getattr(aligned_state, "pose_alignment", None),
+        "vtol_state": _flight_state_snapshot(state)["vtol_state"],
+        "gimbal_device_attitude_status": (
+            MavlinkReader._mapping(device) if device is not None else None
+        ),
+        "gimbal_device_receive_monotonic_ns": received.get(
+            "GIMBAL_DEVICE_ATTITUDE_STATUS"
+        ),
+        "gimbal_joint_state": gimbal_joints,
+        "sensor_stamp_ns": int(sensor_sample.sensor_stamp_ns),
+    }
 
 
 class _ReaderAckLink:
@@ -3890,6 +4976,22 @@ def _wait_px4_mode(
     }
 
 
+def _delta_native_rtl_requested() -> bool:
+    """Diagnostic switch: let PX4's RTL do its own back-transition and landing."""
+    return os.environ.get("MULTIDETECT_DELTA_NATIVE_RTL") == "1"
+
+
+def _wait_native_rtl_landing(reader: MavlinkReader, *, timeout_s: float = 3600.0) -> dict[str, Any]:
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_s:
+        reader.raise_if_failed()
+        state = _flight_state_snapshot(reader.state)
+        if state.get("landed_state") == 1:
+            return {"status": "landed", "method": "native_rtl", "elapsed_s": time.monotonic() - started}
+        time.sleep(0.2)
+    raise TimeoutError(f"native RTL did not land within {timeout_s:.0f} s")
+
+
 def _wait_near_home(reader: MavlinkReader, *, radius_m: float, timeout_s: float) -> dict[str, Any]:
     """Wait until the local position is within ``radius_m`` of home (horizontal)."""
     started = time.monotonic()
@@ -4070,6 +5172,20 @@ def _episode_budget(started: float, maximum_s: float, cap_s: float) -> float:
     return min(float(cap_s), remaining)
 
 
+def _episode_wall_ceiling_s(airframe: str, maximum_s: float) -> float:
+    normalized = str(airframe).strip().lower().replace("-", "_")
+    if normalized in {
+        "delta_tailsitter",
+        "delta_tailsitter_mono_cam",
+        "delta_tailsitter_gimbal_cam",
+    }:
+        return max(
+            DELTA_TAILSITTER_MIN_WALL_CEILING_S,
+            float(maximum_s) * DELTA_TAILSITTER_WALL_CEILING_FACTOR,
+        )
+    return float(maximum_s) + max(float(maximum_s), 600.0)
+
+
 class _EpisodeProgressWatchdog:
     """Bound an episode by vehicle-clock progress after the nominal wall budget."""
 
@@ -4080,14 +5196,21 @@ class _EpisodeProgressWatchdog:
         reader: Any,
         *,
         stall_timeout_s: float = EPISODE_PROGRESS_STALL_TIMEOUT_S,
+        wall_ceiling_s: float | None = None,
         clock: callable = time.monotonic,
     ) -> None:
         self.started = float(started)
         self.maximum_s = float(maximum_s)
         self.reader = reader
         self.stall_timeout_s = max(1.0, float(stall_timeout_s))
+        self.wall_ceiling_s = (
+            float(wall_ceiling_s)
+            if wall_ceiling_s is not None
+            else self.maximum_s + max(self.maximum_s, 600.0)
+        )
         self.clock = clock
         self.last_vehicle_ms: int | None = None
+        self.sim_started_ms: int | None = None
         self.last_message_count = int(getattr(reader.state, "count", 0))
         self.last_progress_wall = self.clock()
 
@@ -4103,20 +5226,33 @@ class _EpisodeProgressWatchdog:
         if vehicle_ms is not None and (
             self.last_vehicle_ms is None or vehicle_ms > self.last_vehicle_ms
         ):
+            if self.sim_started_ms is None:
+                self.sim_started_ms = vehicle_ms
             self.last_vehicle_ms = vehicle_ms
             self.last_progress_wall = now
         elif vehicle_ms is None and message_progress:
             self.last_progress_wall = now
         self.last_message_count = message_count
+        if (
+            self.sim_started_ms is not None
+            and vehicle_ms is not None
+            and vehicle_ms - self.sim_started_ms >= self.maximum_s * 1000.0
+        ):
+            raise TimeoutError(
+                "episode exceeded its simulation-time budget "
+                f"({self.maximum_s:.0f}s; vehicle_time_boot_ms={vehicle_ms})"
+            )
         if now - self.started <= self.maximum_s:
             return
         if now - self.last_progress_wall <= self.stall_timeout_s:
             # Progress only extends the budget up to a hard ceiling: a vehicle that
             # keeps streaming telemetry while stuck in one phase must still end.
-            ceiling = self.maximum_s + max(self.maximum_s, 600.0)
-            if now - self.started <= ceiling:
+            if now - self.started <= self.wall_ceiling_s:
                 return
-            raise TimeoutError(f"episode exceeded its hard wall-clock ceiling ({ceiling:.0f}s)")
+            raise TimeoutError(
+                "episode exceeded its hard wall-clock ceiling "
+                f"({self.wall_ceiling_s:.0f}s)"
+            )
         raise TimeoutError(
             "episode telemetry stalled after wall-clock budget "
             f"(vehicle_time_boot_ms={vehicle_ms}, message_count={message_count}, "
@@ -4138,6 +5274,8 @@ def _fresh_sensor_snapshot(
     *,
     min_sensor_stamp_ns: int | None = None,
     poll_interval_s: float = 0.02,
+    reconnect: Callable[[], SensorStreamReader | None] | None = None,
+    max_reconnects: int = 0,
 ):
     """Wait for a fresh frame at or beyond a requested simulation timestamp.
 
@@ -4145,113 +5283,94 @@ def _fresh_sensor_snapshot(
     recorded in the observation instead of refusing the step.  ``previous_ns``
     is a host monotonic receive watermark; ``min_sensor_stamp_ns`` is the
     optional Gazebo/PX4 lockstep watermark and prevents consuming a backlog
-    frame captured before the pose used for this observation.
+    frame captured before the pose used for this observation. The requested
+    simulation watermark is fixed for this wait, even while PX4 advances.
     """
-    reader.request(0 if min_sensor_stamp_ns is None else min_sensor_stamp_ns)
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        reader.raise_if_failed()
+    reconnects = 0
+    reconnect_error: str | None = None
+    while True:
+        reader.request(0 if min_sensor_stamp_ns is None else min_sensor_stamp_ns)
+        deadline = time.monotonic() + timeout_s
+        restarted = False
+        while time.monotonic() < deadline:
+            try:
+                reader.raise_if_failed()
+            except Exception:
+                if reconnect is None or reconnects >= max(0, int(max_reconnects)):
+                    raise
+                reconnects += 1
+                try:
+                    replacement = reconnect()
+                    if replacement is None:
+                        raise RuntimeError("sensor reconnect callback returned no reader")
+                    reader = replacement
+                    reconnect_error = None
+                    restarted = True
+                except Exception as exc:
+                    reconnect_error = f"{type(exc).__name__}: {exc}"
+                break
+            sample = reader.latest
+            if (
+                sample is not None
+                and sample.received_monotonic_ns > previous_ns
+                and (
+                    min_sensor_stamp_ns is None
+                    or int(sample.sensor_stamp_ns) >= int(min_sensor_stamp_ns)
+                )
+            ):
+                return sample
+            time.sleep(max(0.001, float(poll_interval_s)))
+        if restarted:
+            continue
         sample = reader.latest
-        if (
-            sample is not None
-            and sample.received_monotonic_ns > previous_ns
-            and (
-                min_sensor_stamp_ns is None
-                or int(sample.sensor_stamp_ns) >= int(min_sensor_stamp_ns)
-            )
-        ):
-            return sample
-        time.sleep(max(0.001, float(poll_interval_s)))
-    raise TimeoutError(f"sensor stream produced no frame within {timeout_s:.1f}s")
-
-
-def _frame_wait_diagnostics(
-    *,
-    phase: str,
-    sensor_reader: SensorStreamReader,
-    mav_reader: MavlinkReader,
-    pose_state: MavlinkState,
-    min_sensor_stamp_ns: int | None,
-    started_monotonic_ns: int,
-    primitive_end_monotonic_ns: int | None = None,
-    freshness_watermark_ns: int | None = None,
-    ended_monotonic_ns: int | None = None,
-    started_wall_time: float | None = None,
-    ended_wall_time: float | None = None,
-    host_pressure_path: Path | None = None,
-    error: BaseException | None = None,
-) -> dict[str, Any]:
-    """Capture the clocks and watermarks surrounding one causal frame wait."""
-    now_ns = ended_monotonic_ns if ended_monotonic_ns is not None else time.monotonic_ns()
-    state = _snapshot_mavlink_state(mav_reader.state)
-    latest = sensor_reader.latest
-    local = state.get("LOCAL_POSITION_NED")
-    pose_ms = _field(local, "time_boot_ms", None)
-    status_text = state.get("STATUSTEXT")
-    last_status = _field(status_text, "text", None)
-    pressure_row = None
-    if host_pressure_path is not None:
-        try:
-            lines = host_pressure_path.read_text(encoding="utf-8").splitlines()
-            if lines:
-                value = json.loads(lines[-1])
-                pressure_row = value if isinstance(value, dict) else None
-        except (OSError, ValueError):
-            pass
-    requested_pose_ms = _field(pose_state.get("LOCAL_POSITION_NED"), "time_boot_ms", None)
-    local_received = state.received_monotonic_ns.get("LOCAL_POSITION_NED")
-    freshness_ns = freshness_watermark_ns or started_monotonic_ns
-    px4_stalled = (
-        local_received is not None
-        and local_received <= freshness_ns
-        and isinstance(requested_pose_ms, (int, float))
-        and isinstance(pose_ms, (int, float))
-        and pose_ms <= requested_pose_ms
-    )
-    if ended_monotonic_ns is None:
-        classification = "frame_wait_started"
-    elif error is None:
-        classification = "frame_wait_satisfied"
-    elif (
-        latest is not None
-        and latest.received_monotonic_ns > freshness_ns
-        and min_sensor_stamp_ns is not None
-        and latest.sensor_stamp_ns < min_sensor_stamp_ns
-    ):
-        classification = "frame_timestamp_below_pose_watermark"
-    elif latest is None or latest.received_monotonic_ns <= freshness_ns:
-        classification = (
-            "px4_clock_and_telemetry_stalled" if px4_stalled else "no_new_frame_observed"
+        latest_stamp_ns = getattr(sample, "sensor_stamp_ns", None)
+        latest_received_ns = getattr(sample, "received_monotonic_ns", None)
+        latest_age_s = (
+            round(max(0.0, (time.monotonic_ns() - int(latest_received_ns)) / 1e9), 3)
+            if latest_received_ns is not None
+            else None
         )
-    else:
-        classification = (
-            "px4_clock_and_telemetry_stalled" if px4_stalled else "frame_wait_timeout_unclassified"
+        reader_thread = getattr(reader, "_thread", None)
+        reader_done = getattr(reader, "done", None)
+        reader_error = getattr(reader, "error", None)
+        diagnostics = {
+            "min_sensor_stamp_ns": min_sensor_stamp_ns,
+            "sensor_watermark_lag_s": (
+                round(max(0, int(min_sensor_stamp_ns) - int(latest_stamp_ns)) / 1e9, 3)
+                if min_sensor_stamp_ns is not None and latest_stamp_ns is not None
+                else None
+            ),
+            "previous_received_monotonic_ns": previous_ns,
+            "frames_received": getattr(reader, "frames_received", None),
+            "frames_dropped": getattr(reader, "frames_dropped", None),
+            "latest_sensor_stamp_ns": latest_stamp_ns,
+            "latest_received_monotonic_ns": latest_received_ns,
+            "latest_age_s": latest_age_s,
+            "reader_thread_alive": bool(reader_thread and reader_thread.is_alive()),
+            "reader_done": bool(reader_done and reader_done.is_set()),
+            "reader_error": f"{type(reader_error).__name__}: {reader_error}"
+            if reader_error is not None
+            else None,
+            "reconnect_attempts": reconnects,
+            "reconnect_error": reconnect_error,
+        }
+        if reconnect is not None and reconnects < max(0, int(max_reconnects)):
+            reconnects += 1
+            try:
+                replacement = reconnect()
+                if replacement is None:
+                    raise RuntimeError("sensor reconnect callback returned no reader")
+                reader = replacement
+                reconnect_error = None
+                continue
+            except Exception as exc:
+                reconnect_error = f"{type(exc).__name__}: {exc}"
+                diagnostics["reconnect_attempts"] = reconnects
+                diagnostics["reconnect_error"] = reconnect_error
+        raise TimeoutError(
+            f"sensor stream produced no frame within {timeout_s:.1f}s; "
+            f"diagnostics={json.dumps(diagnostics, sort_keys=True, default=str)}"
         )
-    return {
-        "phase": phase,
-        "started_monotonic_ns": started_monotonic_ns,
-        "primitive_end_monotonic_ns": primitive_end_monotonic_ns,
-        "started_wall_time": started_wall_time,
-        "ended_monotonic_ns": ended_monotonic_ns,
-        "ended_wall_time": ended_wall_time if ended_wall_time is not None else time.time(),
-        "duration_s": max(0, now_ns - started_monotonic_ns) / 1e9,
-        "pose_time_boot_ms": pose_ms,
-        "requested_pose_time_boot_ms": requested_pose_ms,
-        "pose_received_monotonic_ns": state.received_monotonic_ns.get("LOCAL_POSITION_NED"),
-        "pose_received_wall_time": state.received_wall_time.get("LOCAL_POSITION_NED"),
-        "required_sensor_stamp_ns": min_sensor_stamp_ns,
-        "last_frame_sensor_stamp_ns": latest.sensor_stamp_ns if latest is not None else None,
-        "last_frame_received_monotonic_ns": latest.received_monotonic_ns if latest is not None else None,
-        "last_frame_received_wall_time": latest.received_wall_time if latest is not None else None,
-        "frames_received": sensor_reader.frames_received,
-        "last_statustext": last_status,
-        "statustext_received_monotonic_ns": state.received_monotonic_ns.get("STATUSTEXT"),
-        "statustext_received_wall_time": state.received_wall_time.get("STATUSTEXT"),
-        "px4_vehicle_time_boot_ms": state.vehicle_time_boot_ms,
-        "host_pressure_sample": pressure_row,
-        "failure_class": classification,
-        "error": f"{type(error).__name__}: {error}" if error is not None else None,
-    }
 
 
 def _arm(
@@ -4399,6 +5518,11 @@ def _make_sensor_process(
                     event = {"message": line[:500]}
                 if isinstance(event, dict) and event.get("event") == "gazebo_sensor_stream_started":
                     _progress("sensor_stream_started", details=event)
+                elif isinstance(event, dict) and event.get("event") == "sim_teacher_sim_clock":
+                    try:
+                        environment.note_sim_clock(int(event["stamp_ns"]))
+                    except (KeyError, TypeError, ValueError):
+                        _progress("sensor_sim_clock_invalid", details=event)
                 else:
                     # Surface every other diagnostic so a dying frame server is debuggable.
                     _progress("sensor_stream_stderr", details=event)
@@ -4461,15 +5585,6 @@ def run_episode(
     free_space_fn: Any = free_space_bytes,
 ) -> Path:
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
-    # Resolve the airframe mount once per episode; observation packing reuses it.
-    airframe_profile = _airframe_profile(
-        getattr(plan, "airframe", "x500_mono_cam"), getattr(plan, "takeoff_method", None)
-    )
-    camera_mount = (
-        airframe_profile.camera_mount.to_camera_mount()
-        if airframe_profile is not None and airframe_profile.camera_mount is not None
-        else None
-    )
     initial_reason = disk_space_abort_reason(
         plan.out, plan.min_free_gb, free_space_fn=free_space_fn
     )
@@ -4480,18 +5595,35 @@ def run_episode(
         recorder.mark_finished(status="aborted_low_disk", failure=initial_reason)
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=initial_reason)
         return recorder.episode_dir
+    airframe_profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    camera_mount = (
+        airframe_profile.camera_mount.to_camera_mount()
+        if airframe_profile is not None and airframe_profile.camera_mount is not None
+        else None
+    )
+    strict_delta_smoke = False
+    sensor_frame_wait_s = SENSOR_FRAME_WAIT_S
     if plan.smoke_flight:
-        policy = _SmokeFlightPolicy()
-        task_text = "固定翼/VTOL 冒烟飞行：起飞、转换、盘旋、三次重定位、返航、降落"
+        smoke_profile = _airframe_profile(plan.airframe)
+        strict_delta_smoke = bool(
+            smoke_profile is not None
+            and smoke_profile.id in DELTA_TAILSITTER_SMOKE_PROFILES
+        )
+        if strict_delta_smoke:
+            sensor_frame_wait_s = DELTA_SMOKE_SENSOR_FRAME_WAIT_S
+        policy = _SmokeFlightPolicy(strict_delta_smoke=strict_delta_smoke)
+        task_text = (
+            "delta tailsitter 冒烟飞行：起飞、转换、120 秒盘旋、到点重定位、返航、降落"
+            if strict_delta_smoke
+            else "固定翼/VTOL 冒烟飞行：起飞、转换、盘旋、重定位、返航、降落"
+        )
     elif plan.teacher == "onboard":
         # Only the curated task text is read from the generated index; truth is
         # used after the episode by the scorer, never by the policy.
         task_text = plan.task_text or _index_task_text(truth_path) or "找到目标并记录位置"
         policy = _onboard_policy(plan, task_text, Path(plan.out) / f"{episode_id}-onboard-frames")
     elif plan.teacher == "expert_search":
-        policy, target_label = _policy_for(
-            plan, truth_path, plan.seed + episode_index, airframe_profile=airframe_profile
-        )
+        policy, target_label = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = _index_task_text(truth_path) or (
             "\u627e\u5230" + str(target_label) + "\u5e76\u8bb0\u5f55\u4f4d\u7f6e"
         )
@@ -4499,9 +5631,7 @@ def run_episode(
         policy = _hover_policy(plan, truth_path)
         task_text = "Hover above the moving target path and record observations."
     else:
-        policy, _ = _policy_for(
-            plan, truth_path, plan.seed + episode_index, airframe_profile=airframe_profile
-        )
+        policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
     recorder = EpisodeRecorder(
         plan.out,
@@ -4532,6 +5662,9 @@ def run_episode(
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
+    recorder.meta["delta_tailsitter_smoke_gates"] = strict_delta_smoke
+    px4_logger_mode = _effective_px4_logger_mode(plan)
+    recorder.meta["px4_logger_mode"] = px4_logger_mode
     recorder.meta["frame_age_limit_s"] = _frame_age_limit_s(plan.airframe)
     world_path = scenario_world_path(plan.runtime)
     recorder.meta["world_sdf"] = str(world_path) if world_path else None
@@ -4545,10 +5678,10 @@ def run_episode(
         model_cache=Path(plan.out) / f"{episode_id}-onboard-frames" / ".model-hash-cache.json",
     )
     recorder.meta["provenance"]["config_snapshot"] = config_snapshot
-    recorder.meta["provenance"]["px4_logger_mode"] = resolve_px4_logger_mode()
+    recorder.meta["provenance"]["px4_logger_mode"] = px4_logger_mode
     recorder.meta["provenance"]["px4_ulog_status"] = (
         "disabled"
-        if resolve_px4_logger_mode() == "off"
+        if px4_logger_mode == "off"
         else "requested" if plan.keep_px4_ulog else "not_requested"
     )
     recorder.meta["provenance"]["px4_daemon_mode"] = resolve_px4_daemon_mode()
@@ -4568,13 +5701,13 @@ def run_episode(
     telemetry_connection = None
     sensor_process = None
     sensor_reader = mav_reader = None
+    telemetry_watchdog = None
+    environment = None
     launch_status_texts: list[str] = []
     setpoint_streamer = None
-    gimbal_controller = None
     mover_driver = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
-
-    environment = DockerSimEnvironment(plan, episode_id, episode_dir=recorder.episode_dir)
+    gimbal_controller = None
     try:
         sampler_cpus = (
             _parse_cpu_set(cpu_isolation.cpuset_cpus)
@@ -4585,17 +5718,21 @@ def run_episode(
         sampler_cpus = tuple(range(os.cpu_count() or 0))
     host_pressure_sampler = HostPressureSampler(recorder.episode_dir, sampler_cpus)
 
+    environment = DockerSimEnvironment(plan, episode_id, recorder.episode_dir)
+
     def record_container_failure(exc: Exception) -> None:
-        recorder.meta["failure"] = f"{type(exc).__name__}: {exc}"
+        failure_text = f"{type(exc).__name__}: {exc}"
+        recorder.meta["failure"] = failure_text
         clock_diagnostics = getattr(exc, "px4_clock_diagnostics", None)
         diagnostics = environment.capture_failure_diagnostics(
-            f"{type(exc).__name__}: {exc}",
+            failure_text,
             px4_clock_diagnostics=clock_diagnostics,
         )
-        sensor_stream_timeout = _is_sensor_stream_timeout(str(exc))
+        sensor_stream_timeout = _is_sensor_stream_timeout(failure_text)
         if sensor_stream_timeout:
             evidence = environment.capture_stall_evidence(
-                f"{type(exc).__name__}: {exc}", px4_clock_diagnostics=clock_diagnostics
+                failure_text,
+                px4_clock_diagnostics=clock_diagnostics,
             )
             diagnostics["stall_capture"] = {
                 "path": evidence.get("path"),
@@ -4603,11 +5740,21 @@ def run_episode(
             }
         if diagnostics.get("cleanup_state") is None:
             environment.capture_cleanup_diagnostics()
-        recorder.meta["failure_class"] = diagnostics["failure_class"]
+        failure_class = diagnostics["failure_class"]
+        if isinstance(exc, VehicleLostControl):
+            failure_class = "vehicle_lost_control"
+            recorder.meta["vehicle_lost_control"] = exc.event
+        recorder.meta["failure_class"] = failure_class
         recorder.meta["container_failure_diagnostics"] = diagnostics
-        if clock_diagnostics is not None or "clock stalled" in str(exc).lower() or sensor_stream_timeout:
+        if (
+            clock_diagnostics is not None
+            or "clock stalled" in failure_text.lower()
+            or sensor_stream_timeout
+        ):
             recorder.meta["failure_record"] = {
-                "kind": "sensor_stream_stalled" if sensor_stream_timeout else "px4_sim_clock_stall",
+                "kind": "sensor_stream_stalled"
+                if sensor_stream_timeout
+                else "px4_sim_clock_stall",
                 **(clock_diagnostics or {}),
                 "stall_capture_path": (diagnostics.get("stall_capture") or {}).get("path"),
             }
@@ -4616,7 +5763,7 @@ def run_episode(
             timeline=recorder.meta.get("frame_wait_timeline"),
             pressure_path=host_pressure_sampler.path,
             capture=environment.stall_capture,
-            final_failure_class=diagnostics.get("failure_class"),
+            final_failure_class=failure_class,
         )
 
     try:
@@ -4628,6 +5775,8 @@ def run_episode(
         with environment:
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
             _progress("gz_world_loaded", container=environment.name)
+            recorder.meta["simulator_container"] = environment.remember_px4_process()
+            recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
             mover_driver = _start_mover_driver(plan, environment, truth_path)
             if mover_driver is not None:
                 recorder.meta["mover_driver"] = mover_driver
@@ -4655,8 +5804,11 @@ def run_episode(
                 autoreconnect=False,
             )
             if camera_mount is not None and camera_mount.kind == "gimbal":
+
                 def _send_gimbal_command(command: int, params: tuple[float, ...]) -> None:
-                    sender = getattr(getattr(telemetry_connection, "mav", None), "command_long_send", None)
+                    sender = getattr(
+                        getattr(telemetry_connection, "mav", None), "command_long_send", None
+                    )
                     if not callable(sender):
                         raise RuntimeError("MAVLink connection cannot send gimbal command")
                     sender(
@@ -4668,6 +5820,12 @@ def run_episode(
                     )
 
                 gimbal_controller = Px4GimbalController(camera_mount, _send_gimbal_command)
+                for candidate in (
+                    getattr(policy, "executor", None),
+                    getattr(getattr(policy, "supervisor", None), "executor", None),
+                ):
+                    if candidate is not None and hasattr(candidate, "gimbal_controller"):
+                        candidate.gimbal_controller = gimbal_controller
             recorder.begin_mavlink_stream()
 
             def _record_mavlink(row: dict[str, Any]) -> None:
@@ -4679,7 +5837,12 @@ def run_episode(
             host_pressure_sampler.sim_clock_provider = (
                 lambda: mav_reader.state.vehicle_time_boot_ms
             )
-            episode_watchdog = _EpisodeProgressWatchdog(started, plan.max_episode_s, mav_reader)
+            episode_watchdog = _EpisodeProgressWatchdog(
+                started,
+                plan.max_episode_s,
+                mav_reader,
+                wall_ceiling_s=_episode_wall_ceiling_s(plan.airframe, plan.max_episode_s),
+            )
             _progress("mavlink_reader_started", telemetry_port=plan.telemetry_port)
             _wait_for(
                 lambda: (
@@ -4709,7 +5872,6 @@ def run_episode(
             # failure during the docker-exec retries.
             sim_parameters = _set_sim_params(plan, environment)
             recorder.meta["sim_only_parameters"] = sim_parameters
-            recorder.meta["simulator_container"] = environment.remember_px4_process()
             recorder.meta["gcs_identity"] = {
                 "source_system": GCS_SOURCE_SYSTEM,
                 "source_component": GCS_SOURCE_COMPONENT,
@@ -4734,13 +5896,14 @@ def run_episode(
             sensor_process = _make_sensor_process(plan, environment)
             depth_binding = None
             runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
+            simulation_gimbal_yaw_correction_deg = _simulation_gimbal_yaw_correction_deg(plan)
             # Must match _sensor_command: non-x500 airframes always stream the
             # registered depth camera even when the scenario omits it.
             declares_depth = any(
                 isinstance(s, dict) and s.get("kind") == "depth_camera"
                 for s in runtime.get("sensors", [])
             )
-            if declares_depth or _has_registered_depth_camera(plan.airframe):
+            if declares_depth or plan.airframe != "x500_mono_cam":
                 # The helper's contract is deterministic and is embedded in
                 # the command; SensorStreamReader validates it on every frame.
                 model = _gazebo_model_name(plan, runtime)
@@ -4800,42 +5963,70 @@ def run_episode(
                 }
             if sensor_process.stdout is None:
                 raise RuntimeError("sensor stream stdout is unavailable")
-            sensor_reader = SensorStreamReader(
-                sensor_process.stdout,
-                request_stream=sensor_process.stdin,
-                depth_binding=depth_binding,
-                camera_info={
-                    **DEFAULT_CAMERA_INFO,
-                    "width": plan.rgb_size[0],
-                    "height": plan.rgb_size[1],
-                    "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
-                    "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
-                    "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
-                    "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
-                },
-                max_frames=max(64, int(plan.max_episode_s * 30.0)),
-                require_depth=depth_binding is not None,
-                segmentation_topic="/multidetect/teacher/segmentation/labels_map"
-                if plan.segmentation
-                else None,
-            ).start()
+            def _start_sensor_reader(process: subprocess.Popen[bytes]) -> SensorStreamReader:
+                if process.stdout is None:
+                    raise RuntimeError("sensor stream stdout is unavailable")
+                return SensorStreamReader(
+                    process.stdout,
+                    request_stream=process.stdin,
+                    depth_binding=depth_binding,
+                    camera_info={
+                        **DEFAULT_CAMERA_INFO,
+                        "width": plan.rgb_size[0],
+                        "height": plan.rgb_size[1],
+                        "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                        "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                        "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                        "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                    },
+                    max_frames=max(64, int(plan.max_episode_s * 30.0)),
+                    require_depth=depth_binding is not None,
+                    segmentation_topic="/multidetect/teacher/segmentation/labels_map"
+                    if plan.segmentation
+                    else None,
+                ).start()
+
+            sensor_reader = _start_sensor_reader(sensor_process)
+            # The collector-owned frame server is request/response based, so
+            # explicitly prime it before waiting for the first decoded frame.
+            sensor_reader.request(0)
+            sensor_reader.wait_first_frame(_episode_budget(started, plan.max_episode_s, 45.0))
+            _progress("sensor_stream_first_frame", frames=sensor_reader.frames_received)
+
+            def _reconnect_sensor_stream() -> SensorStreamReader:
+                nonlocal sensor_process, sensor_reader
+                if sensor_reader is not None:
+                    sensor_reader.stop(timeout_s=1.0)
+                if sensor_process is not None:
+                    try:
+                        sensor_process.terminate()
+                        sensor_process.wait(timeout=2.0)
+                    except Exception:
+                        try:
+                            sensor_process.kill()
+                        except Exception:
+                            pass
+                sensor_process = _make_sensor_process(plan, environment)
+                sensor_reader = _start_sensor_reader(sensor_process)
+                sensor_reader.request(0)
+                _progress("sensor_stream_reconnected", frames=sensor_reader.frames_received)
+                return sensor_reader
 
             def wait_for_observation_frame(
                 phase: str,
                 pose_state: MavlinkState,
                 min_sensor_stamp_ns: int | None,
-                started_ns: int | None = None,
-            ):
-                # ``started_ns`` is the freshness watermark from the primitive
-                # boundary.  Keep the actual wait start separate so the
-                # snapshot can audit both clocks without changing the 15 s
-                # budget or the frame acceptance rule.
-                freshness_watermark_ns = started_ns
+                primitive_end_ns: int | None = None,
+            ) -> Any:
+                reader = sensor_reader
+                if reader is None:
+                    raise RuntimeError("sensor reader is unavailable")
+                freshness_watermark_ns = primitive_end_ns
                 wait_started_ns = time.monotonic_ns()
                 wait_started_wall = time.time()
                 start_row = _frame_wait_diagnostics(
                     phase=phase,
-                    sensor_reader=sensor_reader,
+                    sensor_reader=reader,
                     mav_reader=mav_reader,
                     pose_state=pose_state,
                     min_sensor_stamp_ns=min_sensor_stamp_ns,
@@ -4848,16 +6039,19 @@ def run_episode(
                 recorder.meta.setdefault("frame_wait_timeline", []).append(start_row)
                 try:
                     sample = _fresh_sensor_snapshot(
-                        sensor_reader,
+                        reader,
                         freshness_watermark_ns or wait_started_ns,
-                        SENSOR_FRAME_WAIT_S,
+                        sensor_frame_wait_s,
                         min_sensor_stamp_ns=min_sensor_stamp_ns,
                         poll_interval_s=plan.sensor_poll_interval_s,
+                        reconnect=_reconnect_sensor_stream,
+                        max_reconnects=1,
                     )
                 except BaseException as error:
+                    current_reader = sensor_reader or reader
                     end_row = _frame_wait_diagnostics(
                         phase=phase,
-                        sensor_reader=sensor_reader,
+                        sensor_reader=current_reader,
                         mav_reader=mav_reader,
                         pose_state=pose_state,
                         min_sensor_stamp_ns=min_sensor_stamp_ns,
@@ -4883,9 +6077,10 @@ def run_episode(
                             f"{type(diagnostic_error).__name__}: {diagnostic_error}"
                         )
                     raise
+                current_reader = sensor_reader or reader
                 end_row = _frame_wait_diagnostics(
                     phase=phase,
-                    sensor_reader=sensor_reader,
+                    sensor_reader=current_reader,
                     mav_reader=mav_reader,
                     pose_state=pose_state,
                     min_sensor_stamp_ns=min_sensor_stamp_ns,
@@ -4909,6 +6104,10 @@ def run_episode(
                     pass
                 return sample
 
+            telemetry_watchdog = MavlinkTelemetrySilenceWatchdog(
+                mav_reader, environment, recorder
+            )
+            mav_reader.set_health_check(telemetry_watchdog.check)
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
             sensor_reader.request(0)
@@ -4941,9 +6140,9 @@ def run_episode(
             except TimeoutError as exc:
                 raise TimeoutError(f"{exc}; still missing: {_ekf_missing()}") from exc
             vehicle = telemetry_connection
-            start_pos = _state_position(mav_reader.state)
             primitive_sim_clock = _SimClock(mav_reader)
-            if airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
+            start_pos = _state_position(mav_reader.state)
+            if plan.airframe == "x500_mono_cam":
                 setpoint_streamer = SetpointStreamer(vehicle, rate_hz=20.0)
                 setpoint_streamer.set_target(
                     start_pos[0], start_pos[1], -altitude_m, _state_yaw(mav_reader.state)
@@ -4976,16 +6175,8 @@ def run_episode(
                 mavutil_module=mavutil,
             )
             recorder.meta["prearm_health"] = prearm_health
-            multirotor_profile = _airframe_profile(plan.airframe, plan.takeoff_method)
-            if (
-                airframe_uses_multirotor_executor(
-                    plan.airframe, plan.takeoff_method, base_dir=ROOT
-                )
-                and multirotor_profile is not None
-            ):
-                recorder.meta["airframe_profile"] = multirotor_profile.to_mapping()
             recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
-            if airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
+            if plan.airframe == "x500_mono_cam":
                 # This is the original x500 sequence. Keep it byte-for-byte
                 # equivalent: setpoints -> arm -> OFFBOARD -> climb.
                 arm_ack = _arm(
@@ -5049,7 +6240,8 @@ def run_episode(
                 # and stays in MC (a forward transition would be undone at step 0,
                 # and the SITL tailsitter climbed 30 m and drifted 80 m doing so).
                 hover_mission = bool(
-                    getattr(getattr(policy, "motion_adapter", None), "hover_ops", False)
+                    getattr(policy, "vtol_hover_mission", False)
+                    or getattr(getattr(policy, "motion_adapter", None), "hover_ops", False)
                 )
                 executor = FixedWingVtolExecutor(
                     _ReaderAckLink(vehicle, mav_reader),
@@ -5075,7 +6267,16 @@ def run_episode(
                         if profile.category == "fixed_wing"
                         else None
                     ),
-                    transition_after_takeoff=not hover_mission,
+                    transition_after_takeoff=(
+                        not hover_mission and profile.camera.mount != "gimbal"
+                    ),
+                    airframe_profile=profile,
+                    telemetry_reader=mav_reader,
+                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                    # Fixed-wing/VTOL command durations follow PX4's lockstep
+                    # clock; a separate wall ceiling is enforced by callbacks
+                    # below so a stalled simulator still terminates.
+                    clock=primitive_sim_clock,
                 )
                 recorder.meta["airframe_profile"] = profile.to_mapping()
                 recorder.meta["vtol_hover_mission"] = hover_mission
@@ -5089,6 +6290,244 @@ def run_episode(
                         ),
                     }
                 launch_applied: dict[str, Any] | None = None
+
+                def _record_delta_smoke_event(event: str, **fields: Any) -> None:
+                    stamp_ns = _pose_sim_stamp_ns(_snapshot_mavlink_state(mav_reader.state))
+                    recorder.record_mavlink(
+                        {
+                            "message_type": f"delta_smoke_{event}",
+                            "sim_time_s": stamp_ns / 1e9 if stamp_ns is not None else None,
+                            "vehicle_time_boot_ms": stamp_ns // 1_000_000
+                            if stamp_ns is not None
+                            else None,
+                            "receive_monotonic_ns": time.monotonic_ns(),
+                            "flight_state": _flight_state_snapshot(mav_reader.state),
+                            **fields,
+                        }
+                    )
+
+                def _run_delta_fw_overspeed_recovery() -> dict[str, Any]:
+                    from scripts.smoke_airframe_flight import _percentile
+
+                    baseline = _delta_fw_thr_min_baseline(plan)
+                    commanded_altitude = -float(executor._commanded[2])
+                    peak_mps: float | None = None
+                    injection_status = "command_failed"
+                    injection_failure: str | None = None
+                    injection_elapsed = 0.0
+                    restored = False
+                    continuous_fw = True
+                    recovery_status = "not_run"
+                    recovery_elapsed: float | None = None
+                    stable_s = 0.0
+                    recovery_height_errors: list[float] = []
+
+                    _record_delta_smoke_event(
+                        "fw_overspeed_start",
+                        target_airspeed_mps=DELTA_OVERSPEED_TARGET_MPS,
+                        injection_timeout_s=DELTA_OVERSPEED_INJECT_TIMEOUT_S,
+                        recovery_timeout_s=DELTA_OVERSPEED_RECOVERY_MAX_S,
+                        recovery_hold_s=DELTA_OVERSPEED_RECOVERY_HOLD_S,
+                        fw_thr_min_baseline=baseline,
+                        fw_thr_min_injected=DELTA_OVERSPEED_INJECT_MIN_THR,
+                    )
+                    try:
+                        _set_runtime_sim_param(
+                            plan,
+                            environment,
+                            "FW_THR_MIN",
+                            str(DELTA_OVERSPEED_INJECT_MIN_THR),
+                        )
+                        injection_start_ns = _pose_sim_stamp_ns(
+                            _snapshot_mavlink_state(mav_reader.state)
+                        )
+                        if injection_start_ns is None:
+                            injection_status = "telemetry_missing"
+                            injection_failure = "missing_sim_clock_at_injection_start"
+                        else:
+                            wall_deadline = time.monotonic() + max(
+                                300.0, DELTA_OVERSPEED_INJECT_TIMEOUT_S * 10.0
+                            )
+                            last_sample_ns = injection_start_ns - 1
+                            while time.monotonic() < wall_deadline:
+                                mav_reader.raise_if_failed()
+                                snapshot = _snapshot_mavlink_state(mav_reader.state)
+                                stamp_ns = _pose_sim_stamp_ns(snapshot)
+                                if stamp_ns is None or stamp_ns <= last_sample_ns:
+                                    time.sleep(0.1)
+                                    continue
+                                elapsed_s = (stamp_ns - injection_start_ns) / 1e9
+                                injection_elapsed = max(injection_elapsed, elapsed_s)
+                                last_sample_ns = stamp_ns
+                                state = _flight_state_snapshot(mav_reader.state)
+                                if state.get("vtol_state") != 4:
+                                    continuous_fw = False
+                                    injection_status = "fw_exit"
+                                    injection_failure = "left_fw_during_injection"
+                                    break
+                                speed = state.get("airspeed_mps")
+                                try:
+                                    speed = float(speed)
+                                except (TypeError, ValueError):
+                                    speed = math.nan
+                                if math.isfinite(speed):
+                                    peak_mps = speed if peak_mps is None else max(peak_mps, speed)
+                                    if speed >= DELTA_OVERSPEED_TARGET_MPS:
+                                        injection_status = "reached"
+                                        break
+                                if elapsed_s >= DELTA_OVERSPEED_INJECT_TIMEOUT_S:
+                                    injection_status = "timeout"
+                                    injection_failure = "injection_failed_to_reach_21_mps"
+                                    break
+                                time.sleep(0.1)
+                            if injection_status == "command_failed":
+                                injection_status = "wall_timeout"
+                                injection_failure = "injection_wall_timeout"
+                    except Exception as exc:
+                        injection_status = "command_failed"
+                        injection_failure = f"injection_error:{type(exc).__name__}:{exc}"
+                    _record_delta_smoke_event(
+                        "fw_overspeed_injection_end",
+                        status=injection_status,
+                        elapsed_s=injection_elapsed,
+                        peak_airspeed_mps=peak_mps,
+                        failure_reason=injection_failure,
+                    )
+
+                    try:
+                        _set_runtime_sim_param(plan, environment, "FW_THR_MIN", baseline)
+                        restored = True
+                        _record_delta_smoke_event(
+                            "fw_overspeed_parameter_restored",
+                            status="restored",
+                            fw_thr_min=baseline,
+                        )
+                    except Exception as exc:
+                        _record_delta_smoke_event(
+                            "fw_overspeed_parameter_restored",
+                            status="restore_failed",
+                            fw_thr_min=baseline,
+                            failure_reason=f"restore_error:{type(exc).__name__}:{exc}",
+                        )
+                        _record_delta_smoke_event(
+                            "fw_overspeed_end",
+                            status="restore_failed",
+                            recovery_s=None,
+                            stable_s=0.0,
+                            continuous_fw=continuous_fw,
+                            height_error_p95_m=None,
+                            failure_reason="fw_thr_min_restore_failed",
+                        )
+                        raise RuntimeError("could not restore FW_THR_MIN after overspeed injection") from exc
+
+                    if injection_status == "reached" and restored and continuous_fw:
+                        recovery_start_ns = _pose_sim_stamp_ns(
+                            _snapshot_mavlink_state(mav_reader.state)
+                        )
+                        if recovery_start_ns is None:
+                            recovery_status = "telemetry_missing"
+                        else:
+                            _record_delta_smoke_event(
+                                "fw_overspeed_recovery_start",
+                                recovery_timeout_s=DELTA_OVERSPEED_RECOVERY_MAX_S,
+                                recovered_airspeed_mps=19.0,
+                                required_hold_s=DELTA_OVERSPEED_RECOVERY_HOLD_S,
+                            )
+                            recovery_status = "timeout"
+                            stable_start_ns: int | None = None
+                            last_sample_ns = recovery_start_ns - 1
+                            wall_deadline = time.monotonic() + max(
+                                300.0, DELTA_OVERSPEED_RECOVERY_MAX_S * 10.0
+                            )
+                            while time.monotonic() < wall_deadline:
+                                mav_reader.raise_if_failed()
+                                snapshot = _snapshot_mavlink_state(mav_reader.state)
+                                stamp_ns = _pose_sim_stamp_ns(snapshot)
+                                if stamp_ns is None or stamp_ns <= last_sample_ns:
+                                    time.sleep(0.1)
+                                    continue
+                                recovery_elapsed = max(
+                                    0.0, (stamp_ns - recovery_start_ns) / 1e9
+                                )
+                                last_sample_ns = stamp_ns
+                                state = _flight_state_snapshot(mav_reader.state)
+                                if state.get("vtol_state") != 4:
+                                    continuous_fw = False
+                                    recovery_status = "fw_exit"
+                                    break
+                                try:
+                                    altitude = -float(_state_position(mav_reader.state)[2])
+                                    recovery_height_errors.append(
+                                        abs(altitude - commanded_altitude)
+                                    )
+                                except (TypeError, ValueError):
+                                    pass
+                                speed = state.get("airspeed_mps")
+                                try:
+                                    speed = float(speed)
+                                except (TypeError, ValueError):
+                                    speed = math.nan
+                                if math.isfinite(speed) and speed <= 19.0:
+                                    if stable_start_ns is None:
+                                        stable_start_ns = stamp_ns
+                                    stable_s = max(0.0, (stamp_ns - stable_start_ns) / 1e9)
+                                else:
+                                    stable_start_ns = None
+                                    stable_s = 0.0
+                                height_error_p95 = _percentile(recovery_height_errors, 95)
+                                if (
+                                    stable_s >= DELTA_OVERSPEED_RECOVERY_HOLD_S
+                                    and recovery_elapsed <= DELTA_OVERSPEED_RECOVERY_MAX_S
+                                ):
+                                    if (
+                                        len(recovery_height_errors) >= 30
+                                        and height_error_p95 is not None
+                                        and height_error_p95 <= DELTA_OVERSPEED_HEIGHT_ERROR_MAX_M
+                                    ):
+                                        recovery_status = "complete"
+                                    else:
+                                        recovery_status = "height_error"
+                                    break
+                                if recovery_elapsed >= DELTA_OVERSPEED_RECOVERY_MAX_S:
+                                    break
+                                time.sleep(0.1)
+                    elif injection_status != "reached":
+                        recovery_status = "not_run_injection_failed"
+                    elif not continuous_fw:
+                        recovery_status = "fw_exit"
+
+                    height_error_p95 = _percentile(recovery_height_errors, 95)
+                    _record_delta_smoke_event(
+                        "fw_overspeed_end",
+                        status=recovery_status,
+                        recovery_s=recovery_elapsed,
+                        stable_s=stable_s,
+                        continuous_fw=continuous_fw,
+                        height_error_p95_m=height_error_p95,
+                        height_error_sample_count=len(recovery_height_errors),
+                        failure_reason=(
+                            injection_failure
+                            or (
+                                "airspeed_not_recovered_within_40_sim_s_and_15_s_hold"
+                                if recovery_status == "timeout"
+                                else "height_error_exceeded_10_m"
+                                if recovery_status == "height_error"
+                                else "left_fw_during_overspeed_step"
+                                if recovery_status == "fw_exit"
+                                else None
+                            )
+                        ),
+                    )
+                    return {
+                        "injection_status": injection_status,
+                        "peak_airspeed_mps": peak_mps,
+                        "recovery_status": recovery_status,
+                        "recovery_s": recovery_elapsed,
+                        "stable_s": stable_s,
+                        "height_error_p95_m": height_error_p95,
+                        "continuous_fw": continuous_fw,
+                        "parameter_restored": restored,
+                    }
 
                 def _wait_fw_state(phase: str, timeout_s: float) -> bool:
                     nonlocal launch_applied
@@ -5121,11 +6560,137 @@ def run_episode(
                             force_n=launch_applied["force_n"],
                             duration_s=launch_applied["duration_s"],
                         )
-                    deadline = time.monotonic() + timeout_s
-                    while time.monotonic() < deadline:
+                    state_clock = executor._clock
+                    started_wall = time.monotonic()
+                    started_sim = state_clock()
+                    if phase == "orbit" and strict_delta_smoke:
+                        timeout_s = DELTA_SMOKE_FW_MAX_DURATION_S
+                        started_wall = time.monotonic()
+                        started_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                        commanded_altitude_m = -float(executor._commanded[2])
+                        orbit_center = tuple(float(value) for value in executor._commanded[:2])
+                        _record_delta_smoke_event(
+                            "fw_sustain_start",
+                            commanded_altitude_m=commanded_altitude_m,
+                            orbit_center_ned_m=list(orbit_center),
+                            minimum_duration_s=DELTA_SMOKE_FW_MIN_DURATION_S,
+                            minimum_orbit_degrees=DELTA_SMOKE_FW_MIN_ORBIT_DEG,
+                        )
+                        if started_sim_ns is None:
+                            _record_delta_smoke_event(
+                                "fw_sustain_end",
+                                status="missing_sim_clock",
+                                fw_duration_s=0.0,
+                                elapsed_s=0.0,
+                                orbit_signed_degrees=0.0,
+                                commanded_altitude_m=commanded_altitude_m,
+                                continuous_fw=False,
+                            )
+                            return False
+                        wall_ceiling = max(300.0, timeout_s * 10.0)
+                        fw_duration_s = 0.0
+                        orbit_degrees = 0.0
+                        previous_sim_ns = started_sim_ns
+                        previous_fw = False
+                        fw_seen = False
+                        continuous_fw = True
+                        previous_bearing: float | None = None
+                        latest_state: dict[str, Any] = {}
+                        distance_from_center_m = 0.0
+                        while time.monotonic() - started_wall < wall_ceiling:
+                            mav_reader.raise_if_failed()
+                            now_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                            if now_sim_ns is None:
+                                time.sleep(0.1)
+                                continue
+                            elapsed_s = max(0.0, (now_sim_ns - started_sim_ns) / 1e9)
+                            latest_state = _flight_state_snapshot(mav_reader.state)
+                            in_fw = (
+                                latest_state["vtol_state"] == 4
+                                if profile.category == "vtol"
+                                else True
+                            )
+                            if in_fw:
+                                fw_seen = True
+                            elif fw_seen:
+                                continuous_fw = False
+                                break
+                            delta_sim_s = max(0.0, (now_sim_ns - previous_sim_ns) / 1e9)
+                            if in_fw and previous_fw:
+                                if delta_sim_s <= 1.0:
+                                    fw_duration_s += delta_sim_s
+                                else:
+                                    continuous_fw = False
+                                    break
+                            previous_fw = in_fw
+                            position_now = _state_position(mav_reader.state)
+                            dn = position_now[0] - orbit_center[0]
+                            de = position_now[1] - orbit_center[1]
+                            distance_from_center_m = math.hypot(dn, de)
+                            if in_fw and distance_from_center_m >= 10.0:
+                                bearing = math.atan2(de, dn)
+                                if previous_bearing is not None:
+                                    delta = (bearing - previous_bearing + math.pi) % (2.0 * math.pi) - math.pi
+                                    orbit_degrees += math.degrees(delta)
+                                previous_bearing = bearing
+                            else:
+                                previous_bearing = None
+                            if (
+                                continuous_fw
+                                and fw_seen
+                                and in_fw
+                                and fw_duration_s >= DELTA_SMOKE_FW_MIN_DURATION_S
+                                and abs(orbit_degrees) >= DELTA_SMOKE_FW_MIN_ORBIT_DEG
+                            ):
+                                _record_delta_smoke_event(
+                                    "fw_sustain_end",
+                                    status="complete",
+                                    fw_duration_s=fw_duration_s,
+                                    elapsed_s=elapsed_s,
+                                    orbit_signed_degrees=orbit_degrees,
+                                    orbit_distance_from_center_m=distance_from_center_m,
+                                    commanded_altitude_m=commanded_altitude_m,
+                                    continuous_fw=continuous_fw,
+                                )
+                                return True
+                            if elapsed_s >= timeout_s:
+                                break
+                            previous_sim_ns = now_sim_ns
+                            time.sleep(0.1)
+                        final_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                        _record_delta_smoke_event(
+                            "fw_sustain_end",
+                            status="timeout" if continuous_fw else "interrupted",
+                            fw_duration_s=fw_duration_s,
+                            elapsed_s=(final_sim_ns - started_sim_ns) / 1e9
+                            if final_sim_ns is not None
+                            else None,
+                            orbit_signed_degrees=orbit_degrees,
+                            orbit_distance_from_center_m=distance_from_center_m,
+                            commanded_altitude_m=commanded_altitude_m,
+                            continuous_fw=continuous_fw,
+                        )
+                        return False
+                    transition_altitude_m = None
+                    transition_max_altitude_m = None
+                    if phase == "transition_mc" and strict_delta_smoke:
+                        transition_altitude_m = -float(_state_position(mav_reader.state)[2])
+                        transition_max_altitude_m = transition_altitude_m
+                        _record_delta_smoke_event(
+                            "post_transition_start",
+                            commanded_altitude_m=transition_altitude_m,
+                        )
+                    # Allow very slow lockstep (the delta tailsitter measured
+                    # about 0.12x realtime) while retaining a finite fallback.
+                    wall_ceiling = max(180.0, float(timeout_s) * 10.0)
+                    while state_clock() - started_sim < timeout_s and time.monotonic() - started_wall < wall_ceiling:
                         mav_reader.raise_if_failed()
                         state = _flight_state_snapshot(mav_reader.state)
                         z = _state_position(mav_reader.state)[2]
+                        if transition_altitude_m is not None:
+                            transition_max_altitude_m = max(
+                                float(transition_max_altitude_m), -float(z)
+                            )
                         if phase == "takeoff":
                             detected = _launch_detected(launch_status_texts)
                             climbed = z <= -(altitude_m - 1.0)
@@ -5150,6 +6715,22 @@ def run_episode(
                         if phase == "transition_fw" and state["vtol_state"] in {4, 5}:
                             return True
                         if phase == "transition_mc" and state["vtol_state"] in {3, 6}:
+                            if transition_altitude_m is not None:
+                                climb_m = max(
+                                    0.0,
+                                    float(transition_max_altitude_m) - transition_altitude_m,
+                                )
+                                recorder.meta["delta_tailsitter_post_transition_climb_m"] = climb_m
+                                recorder.episode_path.write_text(
+                                    json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                                )
+                                _record_delta_smoke_event(
+                                    "post_transition_end",
+                                    status="complete",
+                                    commanded_altitude_m=transition_altitude_m,
+                                    maximum_altitude_m=transition_max_altitude_m,
+                                    climb_m=climb_m,
+                                )
                             return True
                         if phase == "orbit":
                             speed = state["airspeed_mps"]
@@ -5159,21 +6740,140 @@ def run_episode(
                             ):
                                 return True
                         time.sleep(0.1)
+                    if transition_altitude_m is not None:
+                        climb_m = max(
+                            0.0,
+                            float(transition_max_altitude_m) - transition_altitude_m,
+                        )
+                        recorder.meta["delta_tailsitter_post_transition_climb_m"] = climb_m
+                        recorder.episode_path.write_text(
+                            json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                        )
+                        _record_delta_smoke_event(
+                            "post_transition_end",
+                            status="timeout",
+                            commanded_altitude_m=transition_altitude_m,
+                            maximum_altitude_m=transition_max_altitude_m,
+                            climb_m=climb_m,
+                        )
                     return False
 
                 executor._wait_for_state = _wait_fw_state
+                # Confirm the ARM command on the same telemetry socket before
+                # sending NAV_VTOL_TAKEOFF.  A raw pymavlink ``arducopter_arm``
+                # only transmits and returns immediately; on the gimbal model
+                # PX4 can transiently answer TEMPORARILY_REJECTED just after
+                # SYS_STATUS becomes healthy.  The bounded helper retries and
+                # waits for the armed heartbeat, avoiding a false takeoff
+                # timeout while preserving PX4's pre-arm checks.
+                if isinstance(executor, FixedWingVtolExecutor):
+                    confirmed_arm = _arm(
+                        telemetry_connection,
+                        mav_reader,
+                        mavutil,
+                        _episode_budget(started, plan.max_episode_s, 30.0),
+                        heartbeat_connection=telemetry_connection,
+                    )
+                    executor._armed = bool(confirmed_arm.get("armed"))
+                    _progress("fixed_wing_arm_confirmed", ack=confirmed_arm)
                 arm_ack = executor.arm_and_takeoff(altitude_m)
                 if arm_ack.status != "success":
                     raise RuntimeError(f"fixed-wing takeoff failed: {arm_ack.ack}")
+                takeoff_stamp_ns = _pose_sim_stamp_ns(mav_reader.state)
                 recorder.record_mavlink(
                     {
                         "message_type": "fixed_wing_takeoff_complete",
+                        "sim_time_s": takeoff_stamp_ns / 1e9 if takeoff_stamp_ns is not None else None,
+                        "receive_monotonic_ns": time.monotonic_ns(),
                         "method": takeoff_method,
                         "ack": _plain_record(arm_ack.ack),
                         "flight_state": _flight_state_snapshot(mav_reader.state),
                     }
                 )
                 _progress("takeoff_reached", method=takeoff_method)
+                if profile.camera.mount == "gimbal":
+                    hover_stability = _wait_for_stable_mc_hover(mav_reader)
+                    before_sample = _request_fresh_sensor_sample(
+                    sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s
+                )
+                    before_measurement = _gimbal_measurement_snapshot(
+                        mav_reader, before_sample
+                    )
+                    if before_measurement["gimbal_joint_state"] is None:
+                        raise RuntimeError(
+                            "Gazebo gimbal joint-state sample is missing one or more axes"
+                        )
+                    recorder.record_mavlink(
+                        {
+                            "message_type": "gimbal_smoke_measurement",
+                            "phase": "before_command",
+                            "stable_hover": hover_stability,
+                            **before_measurement,
+                        }
+                    )
+                    gimbal_result = _command_and_wait_gimbal(
+                        vehicle,
+                        mav_reader,
+                        {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
+                        tolerance_deg=4.0,
+                        yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                    )
+                    after_sample = _request_fresh_sensor_sample(
+                    sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s
+                )
+                    after_measurement = _gimbal_measurement_snapshot(
+                        mav_reader, after_sample
+                    )
+                    if after_measurement["gimbal_joint_state"] is None:
+                        raise RuntimeError(
+                            "Gazebo gimbal joint-state sample is missing one or more axes"
+                        )
+                    gimbal_result["stable_hover"] = hover_stability
+                    gimbal_result["measurement_before_command"] = before_measurement
+                    gimbal_result["measurement_after_command"] = after_measurement
+                    recorder.meta["gimbal_smoke"] = gimbal_result
+                    recorder.record_mavlink({"message_type": "gimbal_smoke_result", **gimbal_result})
+                    recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
+                    if gimbal_result["status"] != "reached":
+                        raise RuntimeError(f"gimbal target not reached: {gimbal_result}")
+                    search_angle_result = _return_onboard_gimbal_to_search_angle(
+                        plan,
+                        profile,
+                        vehicle,
+                        mav_reader,
+                        strict_delta_smoke=strict_delta_smoke,
+                        yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                    )
+                    if search_angle_result is not None:
+                        recorder.meta["gimbal_search_angle"] = search_angle_result
+                        recorder.record_mavlink(
+                            {"message_type": "gimbal_search_angle_result", **search_angle_result}
+                        )
+                        recorder.episode_path.write_text(
+                            json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                        )
+                    if not hover_mission:
+                        transition = executor._invoke(
+                            "vtol_transition", "FW", timeout_s=executor._timeout()
+                        )
+                        if not executor._ok(transition):
+                            raise RuntimeError(
+                                f"failed to transition to FW after gimbal measurement: "
+                                f"{_plain_record(transition)}"
+                            )
+                        if not _wait_fw_state(
+                            "transition_fw", FixedWingVtolExecutor.STATE_TIMEOUT_S["transition_fw"]
+                        ):
+                            raise TimeoutError(
+                                "timed out transitioning to FW after gimbal measurement"
+                            )
+                        executor.mode = "FW"
+                        recorder.record_mavlink(
+                            {
+                                "message_type": "gimbal_measurement_fw_transition_complete",
+                                "flight_state": _flight_state_snapshot(mav_reader.state),
+                            }
+                        )
             vehicle_loss_detector = VehicleLossDetector()
             if plan.sim_pre_abort_descent_altitude_m is not None:
                 if setpoint_streamer is None:
@@ -5201,7 +6901,9 @@ def run_episode(
                     ),
                 )
                 recorder.meta["sim_pre_abort_descent_altitude_m"] = descent_altitude_m
-                recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
+                recorder.episode_path.write_text(
+                    json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                )
             climb_fault = SimClimbTimeoutInjector(
                 enabled=plan.sim_climb_timeout_injection,
                 runtime_mode="sim",
@@ -5224,7 +6926,9 @@ def run_episode(
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 t = time.perf_counter_ns()
                 before_sample = wait_for_observation_frame(
-                    "obs_before", before_state, pose_sim_stamp_ns
+                    "obs_before",
+                    before_state,
+                    pose_sim_stamp_ns,
                 )
                 timing["pre_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 before_state = mav_reader.aligned_state(before_sample.sensor_stamp_ns)
@@ -5232,11 +6936,13 @@ def run_episode(
                 before = build_observation(
                     before_sample,
                     before_state,
+                    camera_mount=camera_mount,
                     ground_agl_max_age_s=(
                         policy.ground_projection.agl_max_age_s
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
                         else None
                     ),
+                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],
@@ -5246,32 +6952,20 @@ def run_episode(
                         "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
                         "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
                     },
-                    camera_mount=camera_mount,
                 )
+                before = _png_observation(before)
                 if camera_mount is not None and camera_mount.kind == "gimbal":
                     validate_gimbal_recording_observation(before)
-                before = _png_observation(before)
                 timing["observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 pose = tuple(before["pose"]["local_ned_m"])
                 yaw = float(before["attitude"]["yaw_deg"])
                 if plan.teacher == "expert_search":
                     action = policy.next_action(
-                        pose_ned=pose,
-                        yaw_deg=yaw,
-                        camera_pose=before.get("camera_pose"),
+                        pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose")
                     )
                     labels = policy.labels(
-                        pose_ned=pose,
-                        yaw_deg=yaw,
-                        camera_pose=before.get("camera_pose"),
+                        pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose")
                     )
-                    if _dispatch_teacher_gimbal_command(
-                        gimbal_controller,
-                        labels,
-                        vehicle_yaw_deg=yaw,
-                        default_mode=camera_mount.stabilization if camera_mount is not None else "lock-horizon",
-                    ):
-                        labels["gimbal_dispatched"] = True
                 elif plan.teacher == "onboard":
                     t = time.perf_counter_ns()
                     action, labels = policy.act(before, pose_ned=pose, yaw_deg=yaw)
@@ -5302,6 +6996,13 @@ def run_episode(
                     action = policy.next_action()
                     labels = {}
                     timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
+                if camera_mount is not None and camera_mount.kind == "gimbal":
+                    _dispatch_teacher_gimbal_command(
+                        gimbal_controller,
+                        labels,
+                        vehicle_yaw_deg=yaw,
+                        default_mode=camera_mount.stabilization,
+                    )
                 # Non-multirotor onboard policies emit a MotionCommand (loiter,
                 # reposition, transition, ...).  The step record keeps the source
                 # primitive (stop detection, dataset format); the command itself is
@@ -5351,11 +7052,42 @@ def run_episode(
 
                 def _execute() -> None:
                     try:
+                        if (
+                            strict_delta_smoke
+                            and getattr(action, "kind", None) == "translate"
+                            and isinstance(executor, FixedWingVtolExecutor)
+                        ):
+                            # A gimballed tailsitter climbs in MC before the
+                            # smoke path transitions to FW. Rebase immediately
+                            # before its first guided leg so translation starts
+                            # from the post-transition measured pose, not the
+                            # preflight/takeoff position cached by the executor.
+                            executor.sync_commanded_state()
                         executed = (
                             climb_fault.execute(executor, step_action)  # noqa: B023
                             if inject_climb_timeout  # noqa: B023
                             else executor.execute(action)  # noqa: B023
                         )
+                        if (
+                            strict_delta_smoke
+                            and getattr(action, "kind", None) == "translate"
+                            and executed.status == "success"
+                        ):
+                            smoke_wait = _wait_smoke_reposition(
+                                tuple(float(value) for value in executor._commanded),
+                                mav_reader,
+                                category=profile.category,
+                            )
+                            executed.ack["smoke_reposition_wait"] = smoke_wait
+                            if smoke_wait["waited"] != "arrived":
+                                executed = dataclasses.replace(
+                                    executed,
+                                    status="timeout",
+                                    elapsed_s=float(executed.elapsed_s)
+                                    + float(smoke_wait.get("elapsed_s", 0.0)),
+                                )
+                            else:
+                                executor.note_loiter_captured()
                         if motion is not None and executed.status == "success":  # noqa: B023
                             motion_wait = _wait_motion_command(
                                 motion,  # noqa: B023
@@ -5393,6 +7125,8 @@ def run_episode(
                                     build_observation(
                                         sample,
                                         aligned,
+                                        camera_mount=camera_mount,
+                                        gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                                         camera_info={
                                             **DEFAULT_CAMERA_INFO,
                                             "width": plan.rgb_size[0],
@@ -5410,7 +7144,6 @@ def run_episode(
                                             * plan.rgb_size[1]
                                             / 960.0,
                                         },
-                                        camera_mount=camera_mount,
                                     )
                                 )
                                 video_obs["flight_stage"] = "action"
@@ -5427,8 +7160,9 @@ def run_episode(
                 if execute_error:
                     raise execute_error[0]
                 result = result_box[0]
-                _raise_if_px4_clock_stalled(result, index, sim_clock=primitive_sim_clock)
-                timing["px4_clock_diagnostics"] = primitive_sim_clock.diagnostic_snapshot()
+                _raise_if_px4_clock_stalled(
+                    result, index, sim_clock=primitive_sim_clock
+                )
                 timing["command_and_primitive_wait_ms"] = round(
                     (time.perf_counter_ns() - primitive_started_ns) / 1e6, 3
                 )
@@ -5455,6 +7189,8 @@ def run_episode(
                                 build_observation(
                                     sample,
                                     aligned,
+                                    camera_mount=camera_mount,
+                                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                                     camera_info={
                                         **DEFAULT_CAMERA_INFO,
                                         "width": plan.rgb_size[0],
@@ -5464,7 +7200,6 @@ def run_episode(
                                         "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
                                         "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
                                     },
-                                        camera_mount=camera_mount,
                                 )
                             )
                             final_obs["flight_stage"] = "action_end"
@@ -5484,7 +7219,10 @@ def run_episode(
                 after_pose_sim_stamp_ns = _pose_sim_stamp_ns(after_state)
                 t = time.perf_counter_ns()
                 after_sample = wait_for_observation_frame(
-                    "obs_after", after_state, after_pose_sim_stamp_ns, primitive_end_ns
+                    "obs_after",
+                    after_state,
+                    after_pose_sim_stamp_ns,
+                    primitive_end_ns,
                 )
                 timing["post_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 after_state = mav_reader.aligned_state(after_sample.sensor_stamp_ns)
@@ -5492,11 +7230,13 @@ def run_episode(
                 after = build_observation(
                     after_sample,
                     after_state,
+                    camera_mount=camera_mount,
                     ground_agl_max_age_s=(
                         policy.ground_projection.agl_max_age_s
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
                         else None
                     ),
+                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                     camera_info={
                         **DEFAULT_CAMERA_INFO,
                         "width": plan.rgb_size[0],
@@ -5506,10 +7246,7 @@ def run_episode(
                         "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
                         "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
                     },
-                    camera_mount=camera_mount,
                 )
-                if camera_mount is not None and camera_mount.kind == "gimbal":
-                    validate_gimbal_recording_observation(after)
                 after = _png_observation(after)
                 timing["after_observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 ack = {
@@ -5536,13 +7273,21 @@ def run_episode(
                         labels = {
                             **labels,
                             "onboard": {
-                                **(labels.get("onboard", {}) if isinstance(labels, dict) else {}),
+                                **(
+                                    labels.get("onboard", {})
+                                    if isinstance(labels, dict)
+                                    else {}
+                                ),
                                 "recovery_outcome": "climb_failed_suspected_loss_of_control",
                             },
                         }
-                achieved_delta = _achieved_delta_ned(
-                    before["pose"]["local_ned_m"], after["pose"]["local_ned_m"]
-                )
+                achieved_delta = list(result.achieved_delta_ned)
+                if motion is not None:
+                    # Guided commands report no displacement; measure it from telemetry.
+                    achieved_delta = [
+                        float(a) - float(b)
+                        for a, b in zip(after["pose"]["local_ned_m"], pose, strict=False)
+                    ]
                 continue_loop = _record_policy_step(
                     recorder,
                     before,
@@ -5594,7 +7339,32 @@ def run_episode(
                     recorder.record_mavlink(
                         {"message_type": "collector_vehicle_lost_control", **loss_event}
                     )
+                    recorder.meta["failure_class"] = "vehicle_lost_control"
+                    recorder.meta["vehicle_lost_control"] = loss_event
                     raise VehicleLostControl(loss_event)
+                if (
+                    strict_delta_smoke
+                    and getattr(action, "kind", None) == "hold"
+                    and result.status == "success"
+                ):
+                    with recorder._mavlink_lock:
+                        if recorder._mavlink_file is not None:
+                            recorder._mavlink_file.flush()
+                    ring_judgement = _delta_fw_ring_metrics_from_files(
+                        recorder.mavlink_path, recorder.steps_path
+                    )
+                    _record_delta_smoke_event(
+                        "fw_ring_judgement",
+                        judgement_complete=True,
+                        **ring_judgement,
+                    )
+                    _progress("fw_ring_judgement", **ring_judgement)
+                    overspeed_result = _run_delta_fw_overspeed_recovery()
+                    recorder.meta["delta_tailsitter_fw_overspeed"] = overspeed_result
+                    recorder.episode_path.write_text(
+                        json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                    )
+                    _progress("fw_overspeed_recovery_end", **overspeed_result)
                 # STOP is a terminal policy action.  Keep this step in the
                 # episode (including its observation pair), then immediately
                 # leave the primitive loop so we do not execute redundant
@@ -5607,7 +7377,7 @@ def run_episode(
             # make a fixed wall-clock wait expire before PX4 reaches the ground.
             mav_reader.raise_if_failed()
             _progress("land")
-            if not airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
+            if plan.airframe != "x500_mono_cam":
                 rtl_started_ns = time.monotonic_ns()
                 executor.rtl()
                 # Confirm PX4 is really in AUTO.RTL before anything else is sent:
@@ -5627,7 +7397,11 @@ def run_episode(
                 recorder.meta["rtl_mode"] = rtl_mode
                 _progress("rtl", **rtl_mode)
                 profile = _airframe_profile(plan.airframe)
-                if profile is not None and profile.category in {"fixed_wing", "vtol"}:
+                if (
+                    profile is not None
+                    and profile.category in {"fixed_wing", "vtol"}
+                    and not (strict_delta_smoke and _delta_native_rtl_requested())
+                ):
                     # Let RTL bring the aircraft back over home before the landing
                     # (mission or VTOL back-transition) replaces it.
                     _progress(
@@ -5640,7 +7414,9 @@ def run_episode(
                     )
             # Fixed-wing/VTOL use their physical landing lifecycle. x500 uses
             # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
-            if airframe_uses_multirotor_executor(plan.airframe, base_dir=ROOT):
+            if strict_delta_smoke and _delta_native_rtl_requested():
+                land_result = _wait_native_rtl_landing(mav_reader)
+            elif plan.airframe == "x500_mono_cam":
                 land_result = _land_and_wait(
                     executor,
                     mav_reader,
@@ -5679,9 +7455,11 @@ def run_episode(
             for connection in (telemetry_connection,):
                 if connection is not None:
                     connection.close()
+        if environment is not None and environment.evidence_index is not None:
+            recorder.meta["container_evidence"] = environment.evidence_index
+            recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
     except LowDiskSpace as exc:
         host_pressure_sampler.close()
-        record_container_failure(exc)
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
         except Exception:
@@ -5718,24 +7496,13 @@ def run_episode(
                     pass
         if video_writer is not None:
             recorder.meta["video"] = video_writer.close()
+        if environment is not None and environment.evidence_index is not None:
+            recorder.meta["container_evidence"] = environment.evidence_index
         recorder.mark_finished(status="aborted_low_disk", failure=str(exc))
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
     except Exception as exc:
         host_pressure_sampler.close()
-        if isinstance(exc, VehicleLostControl):
-            recorder.meta["failure"] = f"{type(exc).__name__}: {exc}"
-            recorder.meta["failure_class"] = "vehicle_lost_control"
-            recorder.meta["vehicle_lost_control"] = exc.event
-            recorder.meta["failure_snapshot"] = build_failure_snapshot(
-                recorder.meta,
-                timeline=recorder.meta.get("frame_wait_timeline"),
-                pressure_path=host_pressure_sampler.path,
-                capture=environment.stall_capture,
-                final_failure_class="vehicle_lost_control",
-            )
-        else:
-            record_container_failure(exc)
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
         except Exception:
@@ -5774,7 +7541,36 @@ def run_episode(
             recorder.close_mavlink_stream()
         if video_writer is not None:
             recorder.meta["video"] = video_writer.close()
-        recorder.mark_finished(status="failed", failure=f"{type(exc).__name__}: {exc}")
+        if environment is not None and environment.evidence_index is not None:
+            recorder.meta["container_evidence"] = environment.evidence_index
+        failure_text = f"{type(exc).__name__}: {exc}"
+        record_container_failure(exc)
+        if "sensor stream produced no frame within" in failure_text:
+            diagnostics: dict[str, Any] = {}
+            marker = "diagnostics="
+            if marker in failure_text:
+                raw = failure_text.split(marker, 1)[1]
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict):
+                        diagnostics = parsed
+                except json.JSONDecodeError:
+                    diagnostics = {"raw": raw[:2000]}
+            recorder.meta["sensor_stream_stall"] = {
+                "failure_class": "sensor_stream_stall",
+                "diagnosis": (
+                    "Gazebo camera/depth/odometry topics and rendering initialized; "
+                    "container and PX4 telemetry remained alive. The retained evidence "
+                    "cannot distinguish a frame-server/bridge stall from a renderer stall."
+                ),
+                "last_frame_sensor_stamp_ns": diagnostics.get("latest_sensor_stamp_ns"),
+                "last_frame_received_monotonic_ns": diagnostics.get(
+                    "latest_received_monotonic_ns"
+                ),
+                "last_frame_age_s": diagnostics.get("latest_age_s"),
+                **diagnostics,
+            }
+        recorder.mark_finished(status="failed", failure=failure_text)
         raise
     return recorder.episode_dir
 
@@ -5786,6 +7582,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--airframe",
         default="x500_mono_cam",
         help="airframe profile/model id; x500_mono_cam keeps the legacy multirotor path",
+    )
+    parser.add_argument(
+        "--vtol-hover-mission",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="keep a tailsitter in MC for expert_search; --no-vtol-hover-mission selects FW",
     )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument(
@@ -5822,7 +7624,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--async-metadata-writes",
         action="store_true",
-        help="write episode.json snapshots on a background thread; steps and images remain synchronous",
+        help=(
+            "write episode.json snapshots on a background thread; steps and images "
+            "remain synchronous"
+        ),
     )
     parser.add_argument(
         "--sensor-poll-interval-s",
@@ -5904,7 +7709,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--keep-px4-ulog",
         action="store_true",
-        help="copy PX4 .ulg flight logs to <out>/jobs/<container>/px4-ulog before cleanup",
+        help=(
+            "also copy episode-retained PX4 .ulg files to the legacy "
+            "<out>/jobs/<container>/px4-ulog path"
+        ),
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--rgb-size", type=_parse_size, default=DEFAULT_RGB_SIZE)
@@ -5945,11 +7753,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
-    # Keeping a ULog is an explicit request for the logger.  Preserve the
-    # global default-off policy for ordinary runs, while making this opt-in
-    # flag useful when the caller has not selected a mode itself.
-    if args.keep_px4_ulog and "MULTIDETECT_PX4_LOGGER_MODE" not in os.environ:
-        os.environ["MULTIDETECT_PX4_LOGGER_MODE"] = "default"
     if args.episodes < 1 or args.steps_per_episode < 1:
         raise SystemExit("--episodes and --steps-per-episode must be positive")
     if args.video_hz < 0.0 or args.video_max_gb <= 0.0:
@@ -6043,6 +7846,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         video_hz=args.video_hz,
         video_max_bytes=int(args.video_max_gb * 1024**3),
         airframe=args.airframe,
+        vtol_hover_mission=args.vtol_hover_mission,
         teacher_target=args.teacher_target,
         smoke_flight=args.smoke_flight,
         takeoff_method=args.takeoff_method,
@@ -6105,4 +7909,9 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Convert TERM/INT into an Exception.  The collector's existing exception
+    # cleanup then stops readers, removes its owned container, and the enclosing
+    # sitl_lock_context finally releases the global lease.
+    signal.signal(signal.SIGTERM, _raise_on_termination)
+    signal.signal(signal.SIGINT, _raise_on_termination)
     raise SystemExit(main())

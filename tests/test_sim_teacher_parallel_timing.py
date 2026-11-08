@@ -284,12 +284,39 @@ def test_progress_watchdog_has_a_hard_ceiling():
     now = [0.0]
     state = SimpleNamespace(count=0, vehicle_time_boot_ms=0)
     watchdog = _EpisodeProgressWatchdog(0.0, 100.0, SimpleNamespace(state=state), clock=lambda: now[0])
-    for t in range(1, 700, 5):  # telemetry keeps advancing past the nominal budget
+    for t in range(1, 100, 5):
         now[0] = float(t)
         state.vehicle_time_boot_ms += 5000
         state.count += 10
         watchdog.check()
-    now[0] = 701.0
+    now[0] = 105.0
     state.vehicle_time_boot_ms += 5000
-    with pytest.raises(TimeoutError, match="hard wall-clock ceiling"):
+    with pytest.raises(TimeoutError, match="simulation-time budget"):
+        watchdog.check()
+
+
+def test_delta_tailsitter_watchdog_uses_a_slow_sim_wall_fallback():
+    assert collector._episode_wall_ceiling_s("delta_tailsitter_mono_cam", 300.0) == 3600.0
+    assert collector._episode_wall_ceiling_s("x500_mono_cam", 300.0) == 900.0
+
+
+def test_watchdog_can_reach_a_slow_simulation_budget_before_wall_fallback():
+    clock = FakeClock()
+    reader = SimpleNamespace(state=SimpleNamespace(vehicle_time_boot_ms=0, count=1))
+    watchdog = collector._EpisodeProgressWatchdog(
+        100.0,
+        10.0,
+        reader,
+        wall_ceiling_s=3600.0,
+        clock=clock.monotonic,
+    )
+    for _ in range(10):
+        clock.sleep(50.0)
+        reader.state.vehicle_time_boot_ms += 1000
+        reader.state.count += 1
+        watchdog.check()
+    clock.sleep(50.0)
+    reader.state.vehicle_time_boot_ms += 1000
+    reader.state.count += 1
+    with pytest.raises(TimeoutError, match="simulation-time budget"):
         watchdog.check()

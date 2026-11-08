@@ -214,11 +214,25 @@ def build_runtime_loop_factory(
         "near_depth": near_depth_enabled,
         **position_defaults,
     }
+    # A two-view confirmation must not fall back to the legacy single-view
+    # closest approach rule: that path can confirm a distractor after repeated
+    # same-side matches without ever satisfying viewpoint independence.  Keep
+    # an explicit option available for missions that intentionally choose a
+    # single-view policy.
+    if "closest_view_identity_matches" not in options:
+        loop_defaults["closest_view_identity_matches"] = None
     # The task semantics table is onboard-available and already drives the
     # size-aware search.  Reuse it for the large-object ground-anchor
     # correction; an unknown task leaves the correction disabled.
     typical_size = typical_object_size(self.task_text, default=0.0)
     loop_defaults["ground_extent_size_m"] = typical_size or None
+    for key, convert in (
+        ("confirm_min_view_bearing_deg", float),
+        ("confirm_min_view_pitch_deg", float),
+        ("confirm_min_view_altitude_m", float),
+    ):
+        if key in options:
+            loop_defaults[key] = convert(options[key])
     # Keep the original types: LoopConfig strictly rejects strings, bools
     # masquerading as integers, fractional view counts and non-finite sigma.
     for key in (

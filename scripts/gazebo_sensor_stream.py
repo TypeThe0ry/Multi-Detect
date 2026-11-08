@@ -112,6 +112,14 @@ GIMBAL_JOINT_NAMES = {
     "yaw": "cgo3_vertical_arm_joint",
     "roll": "cgo3_horizontal_arm_joint",
 }
+GIMBAL_JOINT_NAME_SETS = (
+    GIMBAL_JOINT_NAMES,
+    {
+        "pitch": "c11_pitch_joint",
+        "yaw": "c11_yaw_joint",
+        "roll": "c11_roll_joint",
+    },
+)
 DEPTH_CAMERA_INFO_TOPIC_SUFFIX = "/link/depth_camera_link/sensor/depth_camera/camera_info"
 DEPTH_IMAGE_TOPIC_SUFFIX = "/link/depth_camera_link/sensor/depth_camera/depth_image"
 # Gazebo derives the matrix from an SDF floating-point horizontal FOV.  The
@@ -343,9 +351,8 @@ def _frame_gimbal_state(
     skew_ns = frame_stamp_ns - source_stamp_ns
     joints = sample["joints"]
     assert isinstance(joints, dict)
-    if skew_ns < 0 or skew_ns > MAX_JOINT_STATE_SKEW_NS or not all(
-        name in joints for name in GIMBAL_JOINT_NAMES.values()
-    ):
+    joint_names = _complete_gimbal_joint_names(joints)
+    if skew_ns < 0 or skew_ns > MAX_JOINT_STATE_SKEW_NS or joint_names is None:
         return None
     return {
         "timestamp_ns": frame_stamp_ns,
@@ -353,15 +360,25 @@ def _frame_gimbal_state(
         "source_skew_ns": skew_ns,
         "position_rad": {
             axis: float(joints[name]["position_rad"])
-            for axis, name in GIMBAL_JOINT_NAMES.items()
+            for axis, name in joint_names.items()
         },
         "velocity_rad_s": {
             axis: float(joints[name]["velocity_rad_s"])
-            for axis, name in GIMBAL_JOINT_NAMES.items()
+            for axis, name in joint_names.items()
         },
         "source": "gazebo_joint_state",
         "fresh": True,
     }
+
+
+def _complete_gimbal_joint_names(
+    joints: dict[str, object],
+) -> dict[str, str] | None:
+    """Return one complete gimbal naming scheme present in a joint sample."""
+    for names in GIMBAL_JOINT_NAME_SETS:
+        if all(name in joints for name in names.values()):
+            return names
+    return None
 
 
 def _frame_joint_state(
@@ -370,7 +387,7 @@ def _frame_joint_state(
     *,
     require_complete: bool = False,
 ) -> dict[str, object] | None:
-    """Bind causal x500 rotor/gimbal state to one RGB simulation timestamp.
+    """Bind causal rotor/gimbal state to one RGB simulation timestamp.
 
     Rotor state is optional for fixed/legacy callers.  Gimbal callers pass
     ``require_complete`` so RGB is accepted only with all three gimbal axes
@@ -401,16 +418,17 @@ def _frame_joint_state(
             "velocity_slowdown": ROTOR_VELOCITY_SLOWDOWN,
             "source": "gazebo_joint_state",
         }
-    if all(name in joints for name in GIMBAL_JOINT_NAMES.values()):
+    gimbal_joint_names = _complete_gimbal_joint_names(joints)
+    if gimbal_joint_names is not None:
         result["gimbal_joint_state"] = {
             "timestamp_ns": int(frame_stamp_ns),
             "position_rad": {
                 axis: float(joints[name]["position_rad"])
-                for axis, name in GIMBAL_JOINT_NAMES.items()
+                for axis, name in gimbal_joint_names.items()
             },
             "velocity_rad_s": {
                 axis: float(joints[name]["velocity_rad_s"])
-                for axis, name in GIMBAL_JOINT_NAMES.items()
+                for axis, name in gimbal_joint_names.items()
             },
             "source": "gazebo_joint_state",
             "fresh": True,
@@ -2367,7 +2385,7 @@ def main() -> int:
         joint_state_topic=joint_state_topic if rotor_joint_state_enabled else None,
         maximum_joint_state_skew_ns=MAX_JOINT_STATE_SKEW_NS if rotor_joint_state_enabled else None,
         rotor_joint_names=ROTOR_JOINT_NAMES if rotor_joint_state_enabled else None,
-        gimbal_joint_names=GIMBAL_JOINT_NAMES if gimballed_airframe else None,
+        gimbal_joint_name_sets=GIMBAL_JOINT_NAME_SETS if gimballed_airframe else None,
         depth_enabled=depth_contract is not None,
         depth_topic=depth_topic,
         depth_camera_info_topic=depth_camera_info_topic,

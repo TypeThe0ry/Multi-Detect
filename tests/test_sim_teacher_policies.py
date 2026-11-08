@@ -115,6 +115,31 @@ def test_expert_search_state_machine() -> None:
     assert {"phase", "target_in_fov", "target_bearing_deg", "target_range_m"} <= set(labels)
 
 
+def test_fixed_wing_expert_search_skips_in_place_scan_and_enters_route() -> None:
+    policy = ExpertSearchPolicy(
+        target_ned=(1.0e7, 1.0e7, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0, "cx": 640.0, "cy": 480.0},
+        fixed_wing_mode=True,
+    )
+
+    first = policy.next_action(pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+    assert policy._initial_scan_remaining == 0
+    assert first.kind == "translate"
+    assert math.hypot(first.forward_m, first.right_m) > 0.0
+
+
+def test_hover_expert_search_keeps_initial_turn_scan() -> None:
+    policy = ExpertSearchPolicy(
+        target_ned=(1.0e7, 1.0e7, 0.0),
+        intrinsics={"fx": 540.0, "fy": 540.0, "cx": 640.0, "cy": 480.0},
+    )
+
+    action = policy.next_action(pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
+
+    assert action.kind == "turn"
+    assert policy._initial_scan_remaining == 3
+
+
 def test_intent_observation_climbs_routes_then_captures_each_view() -> None:
     policy = ExpertSearchPolicy(
         target_ned=(20.0, 40.0, 0.0),

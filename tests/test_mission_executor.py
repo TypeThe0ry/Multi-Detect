@@ -165,11 +165,16 @@ def test_count_keeps_searching_and_dedupes_by_ground_position():
         _count_plan(2), loop_factory=without_reid, refs={"zone:lot": (0.0, 0.0, 100.0)}
     )
     sim = Sim()
-    # Three confirmations: object A, object A again (new track id, 2 m away), object B.
+    # Three confirmations: object A, a distinct 2 m observation, then object B.
+    # Each identity gets a second view from a laterally shifted pose to satisfy
+    # independent-view gating.
     script = [(10.0, 0.0), (10.0, 2.0), (40.0, -20.0)]
     counted = []
     for position in script:
-        for _ in range(4):  # two confirm views are needed per object
+        sim.pose = [position[0] - 10.0, position[1], -20.0]
+        for view_index in range(4):
+            if view_index == 1:
+                sim.pose[1] += 6.0
             box = [Detection(_box(640, 700, 40), 0.5)]
             _action, info = _cycle(
                 executor,
@@ -186,8 +191,8 @@ def test_count_keeps_searching_and_dedupes_by_ground_position():
             _cycle(executor, sim)
             if executor._run is None or executor._run.step.skill != "count":
                 break
-    # The 2 m re-observation is outside the small cone footprint radius; it is
-    # a distinct object under footprint-based count dedupe.
+    # The nearby object is outside the small cone footprint gate; the far object
+    # also counts, and reaching max_count ends the step before a third count.
     assert counted == ["counted", "counted"]
     assert executor.counts == {"count": 2}
     assert executor.history[0]["reason"] == "max_count"
@@ -200,7 +205,9 @@ def test_count_does_not_reassociate_exhausted_identity_after_it_leaves_view():
     )
     sim = Sim()
     box = [Detection(_box(640, 700, 40), 0.5)]
-    for _ in range(4):
+    for view_index in range(4):
+        if view_index == 1:
+            sim.pose[1] += 6.0
         _, info = _cycle(
             executor, sim, box, ground=lambda u, v: (10.0, 0.0),
             verdicts=lambda t: "confirm_target",

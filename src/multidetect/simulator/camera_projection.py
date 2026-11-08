@@ -257,12 +257,41 @@ def _body_to_world_ned(
     return cy * x2 - sy * y1, sy * x2 + cy * y1, z2
 
 
+def _legacy_camera_pose(
+    pose: Mapping[str, Any], camera_extrinsics: Mapping[str, Any] | None
+) -> tuple[tuple[float, float, float], tuple[float, ...]] | None:
+    values = _pose_values(pose)
+    if values is None or not isinstance(camera_extrinsics, Mapping):
+        return None
+    position = camera_extrinsics.get(
+        "position_body_ned", (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M)
+    )
+    rotation = camera_extrinsics.get("rotation_body_from_camera")
+    if not isinstance(position, Sequence) or len(position) != 3:
+        return None
+    if not isinstance(rotation, Sequence) or len(rotation) != 9:
+        return None
+    body = _body_to_world_ned(
+        tuple(float(value) for value in position),
+        roll_rad=math.radians(values[3]),
+        pitch_rad=math.radians(values[4]),
+        yaw_rad=math.radians(values[5]),
+    )
+    center = (values[0] + body[0], values[1] + body[1], values[2] + body[2])
+    world_rotation = tuple(float(value) for value in rotation)
+    return center, world_rotation
+
+
 def camera_center_ned_up(
-    pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None
+    pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[float, float, float] | None:
     """Return camera centre as ``(north_m, east_m, up_m)`` for a recorded pose."""
     if _gimbal_pose_is_stale(pose):
         return None
+    legacy = _legacy_camera_pose(pose, camera_extrinsics)
+    if legacy is not None:
+        return legacy[0][0], legacy[0][1], -legacy[0][2]
     recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
     if recorded is not None:
         return recorded[0][0], recorded[0][1], -recorded[0][2]
@@ -298,19 +327,29 @@ def _pixel_camera_ray_raw(
     image_size: tuple[int, int],
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     camera_mount: CameraMount | None = None,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Shared inverse projection; retain the legacy unnormalized ground ray."""
     if _gimbal_pose_is_stale(pose):
         return None
-    recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
+    recorded = _legacy_camera_pose(pose, camera_extrinsics) or _recorded_camera_pose(
+        pose, camera_mount=camera_mount
+    )
     if recorded is not None:
         fx, fy, cx, cy = _intrinsics(camera_info, image_size)
         x, y, z = 1.0, (u - cx) / fx, (v - cy) / fy
         center, rotation = recorded
-        ray = tuple(rotation[row * 3] * x + rotation[row * 3 + 1] * y + rotation[row * 3 + 2] * z for row in range(3))
+        ray = tuple(
+            rotation[row * 3] * x
+            + rotation[row * 3 + 1] * y
+            + rotation[row * 3 + 2] * z
+            for row in range(3)
+        )
         return (center[0], center[1], -center[2]), ray
     values = _pose_values(pose)
-    centre = camera_center_ned_up(pose, camera_mount=camera_mount)
+    centre = camera_center_ned_up(
+        pose, camera_mount=camera_mount, camera_extrinsics=camera_extrinsics
+    )
     if values is None or centre is None:
         return None
     _, _, _, roll_deg, pitch_deg, yaw_deg = values
@@ -350,6 +389,7 @@ def pixel_camera_ray(
     image_size: tuple[int, int],
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     camera_mount: CameraMount | None = None,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Return the camera centre and unit pixel ray, both in true N/E/down.
 
@@ -359,6 +399,7 @@ def pixel_camera_ray(
     result = _pixel_camera_ray_raw(
         u, v, pose=pose, camera_info=camera_info, image_size=image_size,
         camera_pitch_rad=camera_pitch_rad, camera_mount=camera_mount,
+        camera_extrinsics=camera_extrinsics,
     )
     if result is None:
         return None

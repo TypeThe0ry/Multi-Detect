@@ -378,6 +378,20 @@ def plan_prompt_parts(
             "The mission package may remove capabilities but cannot grant new ones; never emit a "
             "skill whose required capability is unavailable."
         )
+    if airframe is not None:
+        behavior = getattr(airframe, "thinking_behavior", None)
+        details = behavior() if callable(behavior) else None
+        gimbal = details.get("gimbal") if isinstance(details, Mapping) else None
+        if isinstance(gimbal, Mapping) and "gimbal_control" in capabilities:
+            lines.append(
+                "Gimbal capability: axes={axes}; angle_range_deg={ranges}; command={command}; feedback={feedback}."
+                .format(
+                    axes=", ".join(str(axis) for axis in gimbal.get("axes", ())),
+                    ranges=json.dumps(gimbal.get("angle_range_deg", {}), sort_keys=True),
+                    command=gimbal.get("command", "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW"),
+                    feedback=gimbal.get("feedback", "GIMBAL_DEVICE_ATTITUDE_STATUS"),
+                )
+            )
     lines += [
         "References: home; zone:<name> for areas (zone:all = the whole area); poi:<name> for "
         "places; route:<name>; finding:N = the N-th object found earlier.",

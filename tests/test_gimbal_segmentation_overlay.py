@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO
-from scripts.gazebo_sensor_stream import CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX
 from scripts.collect_sim_teacher_episodes import _airframe_profile
+from scripts.gazebo_sensor_stream import CAMERA_INTRINSICS_ABSOLUTE_TOLERANCE_PX
 
 ROOT = Path(__file__).resolve().parents[1]
 AIRFRAME_ROOT = ROOT / "configs" / "airframes"
@@ -20,6 +20,8 @@ OVERLAY_ROOT = ROOT / "simulation" / "gazebo" / "model-overlays"
 _OVERLAY_MODEL_BY_PROFILE = {
     "advanced_plane": "advanced_plane_mono_cam",
     "quadtailsitter": "quadtailsitter_mono_cam",
+    "delta_tailsitter": "delta_tailsitter_mono_cam",
+    "delta_tailsitter_gimbal": "delta_tailsitter_gimbal_cam",
     "rc_cessna_catapult": "rc_cessna_mono_cam",
     "rc_cessna_hand": "rc_cessna_mono_cam",
     "rc_cessna_runway": "rc_cessna_mono_cam",

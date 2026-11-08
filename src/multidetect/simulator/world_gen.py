@@ -1706,6 +1706,8 @@ def derive_fixed_wing_scenario(
 VTOL_VEHICLES = {
     "standard_vtol": ("standard_vtol_mono_cam", "px4_standard_vtol_gazebo_v1", 0.2),
     "quadtailsitter": ("quadtailsitter_mono_cam", "px4_quadtailsitter_gazebo_v1", 0.35),
+    "delta_tailsitter": ("delta_tailsitter_mono_cam", "px4_delta_tailsitter_gazebo_v1", 0.411),
+    "delta_tailsitter_gimbal": ("delta_tailsitter_gimbal_cam", "px4_delta_tailsitter_gimbal_gazebo_v1", 0.411),
 }
 
 

@@ -32,6 +32,7 @@ def test_parser_accepts_attach_container_and_task_text():
 
 def test_attached_environment_does_not_start_or_remove(monkeypatch):
     calls: list[list[str]] = []
+    monkeypatch.setattr(collector, "_docker_executable", lambda _plan: "docker")
 
     def run(command, **kwargs):
         calls.append(list(command))

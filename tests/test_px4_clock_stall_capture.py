@@ -512,7 +512,7 @@ def test_run_episode_stall_reaches_exit_before_cleanup_and_capture_survives(
     monkeypatch.setattr(collector, "build_provenance", lambda **_kwargs: {})
     monkeypatch.setattr(collector, "model_paths_from_config", lambda _path: [])
     monkeypatch.setattr(collector, "resolve_cpu_isolation", lambda _index: None)
-    monkeypatch.setattr(collector, "resolve_px4_logger_mode", lambda: "disabled")
+    monkeypatch.setattr(collector, "resolve_px4_logger_mode", lambda _mode=None: "off")
     monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(collector, "_drain_sim_operator_link", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(collector, "free_space_bytes", lambda _path: 10**15)

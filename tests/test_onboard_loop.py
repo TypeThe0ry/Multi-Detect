@@ -155,6 +155,123 @@ def test_approach_verdict_steers_but_only_two_confirm_views_confirm() -> None:
     assert info["confirmed"]["position_estimate_ne"] is not None
 
 
+def test_same_bearing_positive_views_do_not_confirm() -> None:
+    loop = _loop(stop_on_confirm=True)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 30), 0.9)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+        frame_id="frame-a",
+        frame_path="/tmp/frame-a.png",
+        observation_source="test",
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    loop.update_tracks(
+        [Detection(_box(640, 500, 34), 0.9)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+        frame_id="frame-b",
+        frame_path="/tmp/frame-b.png",
+        observation_source="test",
+    )
+    current = loop.update_tracks(
+        [Detection(_box(640, 500, 34), 0.9)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    _, info = loop.next_action(current, pose_ned=pose, yaw_deg=0.0)
+    assert info["confirm_views"] == 2
+    assert info["confirm_views_independent"] is False
+    assert loop.confirmed is None
+
+
+def test_different_bearing_positive_views_confirm() -> None:
+    loop = _loop()
+    pose_a = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 30), 0.9)],
+        pose_ned=pose_a,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+        frame_id="frame-a",
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    pose_b = (40.0, 0.0, -20.0)
+    current = loop.update_tracks(
+        [Detection(_box(640, 500, 34), 0.9)],
+        pose_ned=pose_b,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+        frame_id="frame-b",
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    _, info = loop.next_action(current, pose_ned=pose_b, yaw_deg=0.0)
+    assert info["confirm_views_independent"] is True
+    assert loop.confirmed is not None
+
+
+def test_earlier_independent_positive_view_survives_stationary_final_pair() -> None:
+    loop = _loop()
+    target = (0.0, 40.0)
+    poses = [(0.0, 0.0, -20.0), (20.0, 0.0, -10.0), (20.0, 0.0, -10.0)]
+    track = None
+    for index, pose in enumerate(poses):
+        current = loop.update_tracks(
+            [Detection(_box(640, 500, 30 + index), 0.9)],
+            pose_ned=pose,
+            ground_point=lambda _u, _v: target,
+            frame_id=f"frame-{index}",
+        )
+        track = current[0]
+        loop.apply_verdict(track.track_id, "confirm_target")
+        if index < len(poses) - 1:
+            loop.step_index += 1
+    _, info = loop.next_action(current, pose_ned=poses[-1], yaw_deg=0.0)
+    assert info["confirm_views"] == 3
+    assert info["confirm_views_independent"] is True
+    assert loop.confirmed is not None
+
+
+def test_altitude_change_alone_below_ray_angle_gate_is_not_independent() -> None:
+    loop = _loop()
+    target = (0.0, 40.0)
+    poses = [(0.0, 0.0, -20.0), (0.0, 0.0, -16.0)]
+    current = []
+    for index, pose in enumerate(poses):
+        current = loop.update_tracks(
+            [Detection(_box(640, 500, 30 + index), 0.9)],
+            pose_ned=pose,
+            ground_point=lambda _u, _v: target,
+            frame_id=f"frame-{index}",
+        )
+        loop.apply_verdict(current[0].track_id, "confirm_target")
+        if index == 0:
+            loop.step_index += 1
+    _, info = loop.next_action(current, pose_ned=poses[-1], yaw_deg=0.0)
+    assert info["confirm_views"] == 2
+    assert info["confirm_views_independent"] is False
+    assert loop.confirmed is None
+
+
+def test_identity_vote_audit_fields_are_complete() -> None:
+    loop = _loop()
+    pose = (1.0, 2.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.9)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (3.0, 4.0),
+        frame_id="frame-a",
+        frame_path="/tmp/frame-a.png",
+        observation_source="test-source",
+        view_pitch_deg=-20.0,
+    )
+    loop.apply_verdict(track.track_id, "confirm_target", confidence=0.8)
+    vote = track.identity_votes[-1]
+    assert {"frame_id", "frame_path", "camera_pose_ned", "observation_bearing_deg", "source"} <= vote.keys()
+
+
 def test_reject_resets_votes_and_unconfirmed_focus_is_dropped() -> None:
     loop = _loop(max_approach_steps=3)
     pose = (0.0, 0.0, -20.0)

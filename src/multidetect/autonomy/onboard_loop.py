@@ -374,6 +374,9 @@ class Track:
     identity_positive_matches: int = 0
     identity_reject_matches: int = 0
     identity_verdict_history: list[str] = field(default_factory=list)
+    # Auditable identity observations.  Each real positive/negative vote keeps
+    # the source frame and the camera geometry that produced it.
+    identity_votes: list[dict[str, Any]] = field(default_factory=list)
     approach_steps: int = 0
     exhausted: bool = False
     # Ground (north, east) of the box bottom centre from the latest view, if known.
@@ -496,6 +499,12 @@ class LoopConfig:
     home_tolerance_m: float = 3.0
     max_steps: int = 120
     confirm_matches: int = 2
+    # Two positive identity votes must come from meaningfully different views.
+    # 25 degrees is an initial calibration value, not a validated flight limit.
+    confirm_min_view_bearing_deg: float = 25.0
+    # A sufficiently different vertical view can also establish independence.
+    confirm_min_view_pitch_deg: float = 10.0
+    confirm_min_view_altitude_m: float = 3.0
     border_margin_px: float = 2.0
     max_approach_steps: int = 8
     min_verdict_side_px: float = 10.0
@@ -845,6 +854,14 @@ class LoopConfig:
             raise ValueError("memory_max_range_ratio must be in (0, 1]")
         if self.max_blocked_legs < 1:
             raise ValueError("max_blocked_legs must be positive")
+        for name in (
+            "confirm_min_view_bearing_deg",
+            "confirm_min_view_pitch_deg",
+            "confirm_min_view_altitude_m",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and non-negative")
         if (
             isinstance(self.closest_view_max_holds, bool)
             or not isinstance(self.closest_view_max_holds, int)
@@ -1065,6 +1082,10 @@ class OnboardLoop:
     # Closest-view holds/back-offs spent on the current focus.
     _closest_holds: int = 0
     _last_pose: tuple[float, float, float] | None = None
+    _last_frame_id: str | None = None
+    _last_frame_path: str | None = None
+    _last_observation_source: str | None = None
+    _last_view_pitch_deg: float | None = None
     # step_index of the latest update_tracks frame (hosts that call next_action
     # advance it after the update, patrol/monitor hosts before).
     _frame_step: int = -1
@@ -1136,6 +1157,10 @@ class OnboardLoop:
         ]
         | None = None,
         timestamp_s: float | None = None,
+        frame_id: str | None = None,
+        frame_path: str | None = None,
+        observation_source: str | None = None,
+        view_pitch_deg: float | None = None,
     ) -> list[Track]:
         """Associate detections with tracks by ground position and predicted pixels.
 
@@ -1179,6 +1204,10 @@ class OnboardLoop:
             self._last_yaw_deg = yaw_deg
         if pose_ned is not None:
             self._last_pose = tuple(pose_ned)
+        self._last_frame_id = frame_id
+        self._last_frame_path = frame_path
+        self._last_observation_source = observation_source
+        self._last_view_pitch_deg = view_pitch_deg
         self._frame_step = self.step_index
         predicted = {}
         for tid, t in free.items():
@@ -1724,6 +1753,10 @@ class OnboardLoop:
         confidence: float | None = None,
         *,
         remembered: bool = False,
+        frame_id: str | None = None,
+        frame_path: str | None = None,
+        observation_source: str | None = None,
+        view_pitch_deg: float | None = None,
     ) -> None:
         """Apply a real or remembered identity decision.
 
@@ -1735,6 +1768,14 @@ class OnboardLoop:
         track = self._tracks.get(track_id)
         if track is None:
             return
+        if frame_id is not None:
+            self._last_frame_id = frame_id
+        if frame_path is not None:
+            self._last_frame_path = frame_path
+        if observation_source is not None:
+            self._last_observation_source = observation_source
+        if view_pitch_deg is not None:
+            self._last_view_pitch_deg = view_pitch_deg
         if track.needs_fresh_verdict and remembered:
             return
         if remembered and decision not in {"reject_track", "approach_track"}:
@@ -1849,6 +1890,8 @@ class OnboardLoop:
         elif verdict == "no_match":
             track.identity_reject_matches += 1
             track.identity_verdict_history.append(verdict)
+        if not remembered and verdict in {"confirm", "approach", "no_match"}:
+            self._record_identity_vote(track, verdict, confidence)
         if (
             not remembered
             and verdict in {"confirm", "approach"}
@@ -1968,6 +2011,53 @@ class OnboardLoop:
         return math.degrees(
             math.atan2(track.ground[1] - self._last_pose[1], track.ground[0] - self._last_pose[0])
         )
+
+    def _record_identity_vote(self, track: Track, verdict: str, confidence: float | None) -> None:
+        altitude = max(0.0, -self._last_pose[2]) if self._last_pose is not None else None
+        track.identity_votes.append(
+            {
+                "step": self.step_index,
+                "frame_id": self._last_frame_id,
+                "frame_path": self._last_frame_path,
+                "source": self._last_observation_source,
+                "camera_pose_ned": list(self._last_pose) if self._last_pose is not None else None,
+                "observation_bearing_deg": self._view_bearing(track),
+                "observation_pitch_deg": self._last_view_pitch_deg,
+                "camera_altitude_m": altitude,
+                "decision": verdict,
+                "confidence": None if confidence is None else float(confidence),
+            }
+        )
+        del track.identity_votes[:-max(self.config.place_votes_max, 32)]
+
+    def _has_independent_positive_views(self, track: Track) -> bool:
+        positives = [v for v in track.identity_votes if v.get("decision") in {"confirm", "approach"}]
+        if len(positives) < self.config.confirm_matches:
+            return False
+        # A target is often approached through several frames before the final
+        # confirmation.  Requiring the last two votes to differ made a valid
+        # target fail when the final pair was stationary, even though an earlier
+        # positive vote came from a clearly different viewpoint.  Search the
+        # retained positive history for any qualifying pair instead.
+        for first_index, first in enumerate(positives[:-1]):
+            for second in positives[first_index + 1 :]:
+                if first.get("observation_bearing_deg") is None or first.get("camera_pose_ned") is None:
+                    return True
+                if second.get("observation_bearing_deg") is None or second.get("camera_pose_ned") is None:
+                    return True
+                bearing_delta = abs(
+                    _wrap(
+                        float(second["observation_bearing_deg"])
+                        - float(first["observation_bearing_deg"])
+                    )
+                )
+                # Vertical descent changes the 3-D ray angle without exposing a
+                # new horizontal face.  Treat only horizontal bearing change as
+                # independent evidence; near-range confirmation is handled by
+                # the caller once the vehicle can no longer improve the view.
+                if bearing_delta >= self.config.confirm_min_view_bearing_deg:
+                    return True
+        return False
 
     def _contradiction_place_key(self, track: Track) -> tuple[float, float] | None:
         if track.ground is None:
@@ -3949,6 +4039,8 @@ class OnboardLoop:
             )
             near = near or pass_near
             info["confirm_views"] = votes
+            independent = self.config.confirm_matches <= 1 or self._has_independent_positive_views(best)
+            info["confirm_views_independent"] = independent
             # At the closest view the host cannot improve the picture: identity is all
             # that is left to judge, so "approach" answers count as matching views too.
             matches = len(best.match_steps)
@@ -3971,10 +4063,16 @@ class OnboardLoop:
                 and not best.needs_fresh_verdict
                 and not best.verdict_remembered
                 and (
-                    votes >= self.config.confirm_matches
-                    or (votes >= 1 and (stalled or near))
+                    (votes >= self.config.confirm_matches and (independent or near))
                     or (
-                        near
+                        self.config.confirm_matches > 1
+                        and votes < self.config.confirm_matches
+                        and votes >= 1
+                        and (stalled or near)
+                    )
+                    or (
+                        votes < self.config.confirm_matches
+                        and near
                         and self.config.closest_view_identity_matches is not None
                         and matches >= self.config.closest_view_identity_matches
                     )
@@ -4010,6 +4108,8 @@ class OnboardLoop:
                     info["return"] = "autopilot"
                     return ActionPrimitive.stop(), info
                 return ActionPrimitive.hold(2.0), info
+            if votes >= self.config.confirm_matches and not independent:
+                info["confirmation_blocked"] = "insufficient_observation_independence"
             if self.config.fixed_wing_pass:
                 if ground is None and self._fw_pass is None:
                     # No ground anchor to pass over (e.g. above the horizon): keep the

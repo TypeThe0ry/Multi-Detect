@@ -15,11 +15,25 @@ class ActionPrimitive:
     up_m: float = 0.0
     yaw_delta_deg: float = 0.0
     seconds: float = 0.0
+    gimbal_pitch_deg: float = 0.0
+    gimbal_yaw_deg: float = 0.0
+    gimbal_roll_deg: float = 0.0
 
     def __post_init__(self) -> None:
-        if self.kind not in {"translate", "turn", "hold", "continue", "land", "stop"}:
+        if self.kind not in {
+            "translate", "turn", "hold", "continue", "land", "stop", "gimbal"
+        }:
             raise ValueError(f"unsupported primitive kind: {self.kind}")
-        vals = (self.forward_m, self.right_m, self.up_m, self.yaw_delta_deg, self.seconds)
+        vals = (
+            self.forward_m,
+            self.right_m,
+            self.up_m,
+            self.yaw_delta_deg,
+            self.seconds,
+            self.gimbal_pitch_deg,
+            self.gimbal_yaw_deg,
+            self.gimbal_roll_deg,
+        )
         if any(
             isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v))
             for v in vals
@@ -29,6 +43,13 @@ class ActionPrimitive:
             raise ValueError("yaw_delta_deg outside supported range")
         if self.kind == "hold" and self.seconds < 0:
             raise ValueError("hold seconds must be non-negative")
+        if self.kind == "gimbal":
+            if abs(self.gimbal_pitch_deg) > 180 or abs(self.gimbal_roll_deg) > 180:
+                raise ValueError("gimbal pitch/roll outside supported range")
+            if abs(self.gimbal_yaw_deg) > 360:
+                raise ValueError("gimbal yaw outside supported range")
+        elif any((self.gimbal_pitch_deg, self.gimbal_yaw_deg, self.gimbal_roll_deg)):
+            raise ValueError("gimbal angles are only valid for a gimbal primitive")
 
     @classmethod
     def translate(cls, forward_m: float, right_m: float, up_m: float = 0.0) -> ActionPrimitive:
@@ -56,6 +77,17 @@ class ActionPrimitive:
     def stop(cls) -> ActionPrimitive:
         return cls("stop")
 
+    @classmethod
+    def gimbal(
+        cls, *, pitch_deg: float, yaw_deg: float = 0.0, roll_deg: float = 0.0
+    ) -> ActionPrimitive:
+        return cls(
+            "gimbal",
+            gimbal_pitch_deg=pitch_deg,
+            gimbal_yaw_deg=yaw_deg,
+            gimbal_roll_deg=roll_deg,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "kind": self.kind,
@@ -64,6 +96,9 @@ class ActionPrimitive:
             "up_m": self.up_m,
             "yaw_delta_deg": self.yaw_delta_deg,
             "seconds": self.seconds,
+            "gimbal_pitch_deg": self.gimbal_pitch_deg,
+            "gimbal_yaw_deg": self.gimbal_yaw_deg,
+            "gimbal_roll_deg": self.gimbal_roll_deg,
         }
 
     @classmethod
@@ -77,6 +112,9 @@ class ActionPrimitive:
             up_m=float(value.get("up_m", 0)),
             yaw_delta_deg=float(value.get("yaw_delta_deg", 0)),
             seconds=float(value.get("seconds", 0)),
+            gimbal_pitch_deg=float(value.get("gimbal_pitch_deg", 0)),
+            gimbal_yaw_deg=float(value.get("gimbal_yaw_deg", 0)),
+            gimbal_roll_deg=float(value.get("gimbal_roll_deg", 0)),
         )
 
 

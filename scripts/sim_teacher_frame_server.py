@@ -50,6 +50,11 @@ GIMBAL_JOINT_NAMES = {
     "yaw": "cgo3_vertical_arm_joint",
     "roll": "cgo3_horizontal_arm_joint",
 }
+DELTA_GIMBAL_JOINT_NAMES = {
+    "yaw": "c11_yaw_joint",
+    "roll": "c11_roll_joint",
+    "pitch": "c11_pitch_joint",
+}
 
 
 class OdometrySamplePolicy:
@@ -368,16 +373,21 @@ def _frame_joint_state(
             "velocity_slowdown": ROTOR_VELOCITY_SLOWDOWN,
             "source": "gazebo_joint_state",
         }
-    if all(name in joints for name in GIMBAL_JOINT_NAMES.values()):
+    gimbal_joint_names = next(
+        (names for names in (GIMBAL_JOINT_NAMES, DELTA_GIMBAL_JOINT_NAMES)
+         if all(name in joints for name in names.values())),
+        None,
+    )
+    if gimbal_joint_names is not None:
         result["gimbal_joint_state"] = {
             "timestamp_ns": int(frame_stamp_ns),
             "position_rad": {
                 axis: float(joints[name]["position_rad"])
-                for axis, name in GIMBAL_JOINT_NAMES.items()
+                for axis, name in gimbal_joint_names.items()
             },
             "velocity_rad_s": {
                 axis: float(joints[name]["velocity_rad_s"])
-                for axis, name in GIMBAL_JOINT_NAMES.items()
+                for axis, name in gimbal_joint_names.items()
             },
             "source": "gazebo_joint_state",
             "fresh": True,
@@ -394,6 +404,23 @@ def _frame_joint_state(
 
 def _diagnostic(event: str, **fields: Any) -> None:
     print(json.dumps({"event": event, **fields}, sort_keys=True), file=sys.stderr, flush=True)
+
+
+def _joint_sample_from_message(message: Any) -> dict[str, Any]:
+    stamp_ns = _stamp_ns(message)
+    joints: dict[str, dict[str, float]] = {}
+    for joint in getattr(message, "joint", ()):
+        name = str(getattr(joint, "name", ""))
+        axis = getattr(joint, "axis1", None)
+        if not name or axis is None:
+            continue
+        position = float(getattr(axis, "position", math.nan))
+        velocity = float(getattr(axis, "velocity", math.nan))
+        if math.isfinite(position) and math.isfinite(velocity):
+            joints[name] = {"position_rad": position, "velocity_rad_s": velocity}
+    if not joints:
+        raise ValueError("joint state message contains no finite axis-1 samples")
+    return {"stamp_ns": stamp_ns, "joints": joints}
 
 
 def main() -> int:
@@ -469,6 +496,9 @@ def main() -> int:
     image_lock = threading.Lock()
     latest = LatestCandidate()
     pairer = ExactSegmentationPairer(latest) if args.segmentation else None
+    joint_states = CausalSourceBuffer("JointStatePublisher", maximum_samples=128)
+    clock_diagnostic_lock = threading.Lock()
+    last_clock_diagnostic_wall = [0.0]
     stats = {
         "images": 0,
         "incomplete": 0,
@@ -605,12 +635,17 @@ def main() -> int:
                 joint_states.append(sample)
         except Exception as exc:
             with state_lock:
-                stats["joint_state_invalid"] += 1
+                stats["joint_state_invalid"] = stats.get("joint_state_invalid", 0) + 1
             _diagnostic("sim_teacher_joint_state_dropped", reason=str(exc))
 
     def on_image(message: Image) -> None:
         def update() -> None:
             stamp = _stamp_ns(message)
+            now = time.monotonic()
+            with clock_diagnostic_lock:
+                if now - last_clock_diagnostic_wall[0] >= 1.0:
+                    last_clock_diagnostic_wall[0] = now
+                    _diagnostic("sim_teacher_sim_clock", stamp_ns=stamp)
             with image_lock:
                 with state_lock:
                     stats["images"] += 1

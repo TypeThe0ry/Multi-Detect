@@ -45,6 +45,61 @@ def _mat_vec(matrix: Sequence[float], vector: Sequence[float]) -> tuple[float, f
     )
 
 
+def _mat_mul(left: Sequence[float], right: Sequence[float]) -> tuple[float, ...]:
+    return tuple(
+        sum(float(left[row * 3 + k]) * float(right[k * 3 + column]) for k in range(3))
+        for row in range(3)
+        for column in range(3)
+    )
+
+
+def _axis_rotation(axis: str, angle_deg: float) -> tuple[float, ...]:
+    angle = math.radians(float(angle_deg))
+    c, s = math.cos(angle), math.sin(angle)
+    if axis == "yaw":
+        return (c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0)
+    if axis == "roll":
+        return (1.0, 0.0, 0.0, 0.0, c, -s, 0.0, s, c)
+    if axis == "pitch":
+        return (c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c)
+    raise MotionIntentError(f"unsupported gimbal axis: {axis}")
+
+
+def profile_camera_mount_rotation(
+    profile: AirframeProfile,
+    *,
+    mode: str | None = None,
+    gimbal_angles_deg: Mapping[str, float] | None = None,
+) -> tuple[float, ...]:
+    """Return camera-optical-to-body rotation, optionally including live gimbal joints."""
+    selected = (mode or "mc").lower()
+    gimbal = getattr(profile.camera, "gimbal", {})
+    base = profile.camera.attitude_rotations.get(selected, profile.camera.body_to_camera_rotation)
+    if not gimbal.get("enabled"):
+        return tuple(float(value) for value in base)
+    # Gazebo owns the configured initial joint angle.  A live telemetry sample
+    # must be supplied before applying gimbal joints to a reconstructed ray.
+    if gimbal_angles_deg is None:
+        return tuple(float(value) for value in base)
+    defaults = gimbal.get("default_angles_deg", {})
+    if isinstance(defaults, Mapping) and isinstance(defaults.get(selected), Mapping):
+        selected_defaults = defaults[selected]
+    else:
+        selected_defaults = defaults if isinstance(defaults, Mapping) else {}
+    angles = dict(selected_defaults)
+    if gimbal_angles_deg:
+        angles.update({str(key): float(value) for key, value in gimbal_angles_deg.items()})
+    result = tuple(float(value) for value in base)
+    for axis in gimbal.get("joint_order", ("yaw", "roll", "pitch")):
+        angle = float(angles.get(axis, 0.0))
+        # The Gazebo pitch joint's FLU +Y axis maps to body FRD -Y. Keep the
+        # profile angle in the SDF/MAVLink command convention.
+        if str(axis) == "pitch":
+            angle = -angle
+        result = _mat_mul(result, _axis_rotation(str(axis), angle))
+    return result
+
+
 def profile_mount_pitch_down_rad(
     profile: AirframeProfile, default: float, *, mode: str | None = None
 ) -> float:
@@ -60,6 +115,15 @@ def profile_mount_pitch_down_rad(
     if rotations and (mode is None or mode.lower() not in rotations):
         return float(default)
     matrix = rotations[mode.lower()] if rotations else profile.camera.body_to_camera_rotation
+    gimbal = getattr(profile.camera, "gimbal", {})
+    if gimbal.get("enabled") and mode is not None:
+        defaults = gimbal.get("default_angles_deg", {})
+        if isinstance(defaults, Mapping) and isinstance(defaults.get(mode.lower()), Mapping):
+            matrix = profile_camera_mount_rotation(
+                profile,
+                mode=mode,
+                gimbal_angles_deg=defaults[mode.lower()],
+            )
     r = [float(value) for value in matrix]
     if abs(r[4] - 1.0) > 1e-6 or any(abs(r[i]) > 1e-6 for i in (1, 3, 5, 7)):
         return float(default)
@@ -77,6 +141,7 @@ def camera_ray_from_profile(
     attitude_deg: Sequence[float],
     profile: AirframeProfile,
     mode: str | None = None,
+    gimbal_angles_deg: Mapping[str, float] | None = None,
 ) -> tuple[float, float, float]:
     """Return a world-NED optical ray using the profile's full mount attitude.
 
@@ -87,8 +152,9 @@ def camera_ray_from_profile(
     separate MC/FW matrices; the selected matrix is applied before vehicle
     roll/pitch/yaw, so a 180-degree FW attitude cannot silently reuse MC rays.
     """
-    selected = (mode or "mc").lower()
-    mount = profile.camera.attitude_rotations.get(selected, profile.camera.body_to_camera_rotation)
+    mount = profile_camera_mount_rotation(
+        profile, mode=mode, gimbal_angles_deg=gimbal_angles_deg
+    )
     camera = (1.0, (float(u) - cx) / fx, (float(v) - cy) / fy)
     body = _mat_vec(mount, camera)
     roll, pitch, yaw = (math.radians(float(value)) for value in attitude_deg)
@@ -117,6 +183,9 @@ class MotionIntent:
     requested_radius_m: float | None = None
     mode: str | None = None
     reason: str = ""
+    gimbal_pitch_deg: float | None = None
+    gimbal_yaw_deg: float | None = None
+    gimbal_roll_deg: float | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -132,6 +201,22 @@ class MotionIntent:
             value = getattr(self, name)
             if value is not None and (not math.isfinite(float(value)) or float(value) <= 0):
                 raise MotionIntentError(f"{name} must be positive and finite")
+        gimbal_values = (self.gimbal_pitch_deg, self.gimbal_yaw_deg, self.gimbal_roll_deg)
+        if any(value is not None for value in gimbal_values):
+            if self.kind != "gimbal":
+                raise MotionIntentError("gimbal angles require a gimbal intent")
+            if any(
+                value is None
+                or isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in gimbal_values
+            ):
+                raise MotionIntentError("gimbal angles must be finite numbers")
+            if abs(float(self.gimbal_pitch_deg)) > 180 or abs(float(self.gimbal_roll_deg)) > 180:
+                raise MotionIntentError("gimbal pitch/roll outside supported range")
+            if abs(float(self.gimbal_yaw_deg)) > 360:
+                raise MotionIntentError("gimbal yaw outside supported range")
 
     @classmethod
     def goto(cls, target_ned: Sequence[float], *, mode: str | None = None) -> MotionIntent:
@@ -165,6 +250,17 @@ class MotionIntent:
     def deliver(cls, target_ned: Sequence[float], *, radius_m: float | None = None) -> MotionIntent:
         return cls("deliver", tuple(float(v) for v in target_ned), radius_m=radius_m)
 
+    @classmethod
+    def gimbal(
+        cls, *, pitch_deg: float, yaw_deg: float = 0.0, roll_deg: float = 0.0
+    ) -> MotionIntent:
+        return cls(
+            "gimbal",
+            gimbal_pitch_deg=pitch_deg,
+            gimbal_yaw_deg=yaw_deg,
+            gimbal_roll_deg=roll_deg,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class MotionCommand:
@@ -178,6 +274,9 @@ class MotionCommand:
     speed_mps: float | None = None
     mode: str | None = None
     reason: str | None = None
+    gimbal_pitch_deg: float | None = None
+    gimbal_yaw_deg: float | None = None
+    gimbal_roll_deg: float | None = None
     action: ActionPrimitive | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -196,6 +295,12 @@ class MotionCommand:
         result.update(
             duration_s=self.duration_s, speed_mps=self.speed_mps, metadata=dict(self.metadata)
         )
+        if self.gimbal_pitch_deg is not None:
+            result["gimbal_pitch_deg"] = self.gimbal_pitch_deg
+        if self.gimbal_yaw_deg is not None:
+            result["gimbal_yaw_deg"] = self.gimbal_yaw_deg
+        if self.gimbal_roll_deg is not None:
+            result["gimbal_roll_deg"] = self.gimbal_roll_deg
         if self.action is not None:
             result["action"] = self.action.to_dict()
         return result
@@ -553,6 +658,18 @@ class AirframeMotionAdapter:
         meta = metadata or {}
         onboard = meta.get("onboard", {}) if isinstance(meta, Mapping) else {}
         skill = onboard.get("state") if isinstance(onboard, Mapping) else None
+        if action.kind == "gimbal":
+            if self.is_multirotor:
+                return action
+            return MotionCommand(
+                "gimbal",
+                mode=self.mode,
+                action=action,
+                gimbal_pitch_deg=action.gimbal_pitch_deg,
+                gimbal_yaw_deg=action.gimbal_yaw_deg,
+                gimbal_roll_deg=action.gimbal_roll_deg,
+                metadata=meta,
+            )
         if skill == "deliver":
             return MotionCommand(
                 "reject",
@@ -692,6 +809,31 @@ class AirframeMotionAdapter:
     ) -> MotionCommand | ActionPrimitive:
         pose = tuple(float(v) for v in pose_ned)
         active = (mode or intent.mode or self.mode).upper()
+        if intent.kind == "gimbal":
+            try:
+                action = ActionPrimitive.gimbal(
+                    pitch_deg=float(intent.gimbal_pitch_deg),
+                    yaw_deg=float(intent.gimbal_yaw_deg or 0.0),
+                    roll_deg=float(intent.gimbal_roll_deg or 0.0),
+                )
+            except (TypeError, ValueError) as exc:
+                raise MotionIntentError("gimbal intent requires pitch/yaw/roll angles") from exc
+            if self.is_multirotor:
+                return action
+            return MotionCommand(
+                "gimbal",
+                mode=active,
+                action=action,
+                gimbal_pitch_deg=action.gimbal_pitch_deg,
+                gimbal_yaw_deg=action.gimbal_yaw_deg,
+                gimbal_roll_deg=action.gimbal_roll_deg,
+                metadata={
+                    "gimbal_protocol": "mavlink_gimbal_v2",
+                    "manager_command": 1000,
+                    "configure_command": 1001,
+                    **dict(intent.metadata),
+                },
+            )
         if self.is_multirotor:
             if intent.kind in {"wait", "observe"} and intent.target_ned is None:
                 return ActionPrimitive.hold(intent.duration_s or 1.0)
@@ -854,5 +996,6 @@ __all__ = [
     "energy_params_from_profile",
     "dynamics_from_profile",
     "camera_ray_from_profile",
+    "profile_camera_mount_rotation",
     "profile_mount_pitch_down_rad",
 ]
