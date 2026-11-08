@@ -122,6 +122,33 @@ def _parse_owner(text: str) -> tuple[int, float | None] | None:
     return pid, start
 
 
+def _ticket_candidates(ticket: Path) -> range | tuple[int, ...] | None:
+    """Unknown/old tickets conservatively compete for every candidate slot."""
+    try:
+        lines = ticket.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return ()  # The earlier waiter has acquired or withdrawn its ticket.
+    except (OSError, UnicodeError):
+        return None
+    try:
+        scope = json.loads(lines[1])
+    except (IndexError, ValueError):
+        return None
+    if not isinstance(scope, dict) or "sitl_slot" not in scope:
+        return None
+    count, slot = scope.get("sitl_slots"), scope["sitl_slot"]
+    if type(count) is not int or count < 1:
+        return None
+    # One-slot clients use the unsuffixed legacy/global lock directory.
+    if count == 1:
+        return None
+    if slot is None:
+        return range(count)
+    if type(slot) is not int or not 0 <= slot < count:
+        return None
+    return (slot,)
+
+
 class SitlLock:
     def __init__(
         self,
@@ -165,6 +192,8 @@ class SitlLock:
         return self.root_path.with_name(f"{self.root_path.name}.queue")
 
     def _make_ticket(self) -> Path:
+        if self.slot is not None and not 0 <= self.slot < self.slots:
+            raise ValueError(f"SITL slot outside configured range: {self.slot}")
         self._queue_path.mkdir(parents=True, exist_ok=True)
         # The timestamp gives FIFO ordering; the UUID makes creation atomic
         # across processes without a central counter.
@@ -174,7 +203,8 @@ class SitlLock:
             f"p{rank:012d}-{time.time_ns():020d}-{os.getpid()}-{uuid.uuid4().hex}"
         )
         ticket.write_text(
-            f"{self.label} {os.getpid()} {datetime.now(timezone.utc).isoformat()}\n",
+            f"{self.label} {os.getpid()} {datetime.now(timezone.utc).isoformat()}\n"
+            + json.dumps({"sitl_slots": self.slots, "sitl_slot": self.slot}) + "\n",
             encoding="utf-8",
         )
         self._ticket = ticket
@@ -202,18 +232,26 @@ class SitlLock:
             if not same_process:
                 ticket.unlink(missing_ok=True)
 
-    def _ticket_is_eligible(self, free_count: int) -> bool:
+    def _ticket_is_eligible(self, slot: int) -> bool:
+        """Honor priority/FIFO among waiters that can acquire this slot.
+
+        Checking the actual candidate prevents a later general request from
+        stealing an earlier fixed request's slot merely because other slots
+        are free. Disjoint pools do not block one another.
+        """
         if self._ticket is None:
             return True
         try:
             tickets = sorted(self._queue_path.iterdir(), key=lambda p: p.name)
         except OSError:
             return False
-        try:
-            index = tickets.index(self._ticket)
-        except ValueError:
-            return False
-        return index < max(1, free_count)
+        for ticket in tickets:
+            if ticket == self._ticket:
+                return True
+            scope = _ticket_candidates(ticket)
+            if scope is None or slot in scope:
+                return False
+        return False
 
     def _start_heartbeat(self) -> None:
         self._heartbeat_stop = threading.Event()
@@ -328,22 +366,21 @@ class SitlLock:
             if self.slots > 1 and self.root_path.exists():
                 if not wait:
                     self._ticket.unlink(missing_ok=True)
+                    self._ticket = None
                     raise RuntimeError(f"legacy SITL lock busy: {self.root_path}")
                 self._wait_for_retry("legacy_lock_busy")
                 continue
             candidates = (self.slot,) if self.slot is not None else range(self.slots)
-            free_count = sum(
-                1 for candidate in candidates
-                if not self.root_path.with_name(self.root_path.name if self.slots == 1 else f"{self.root_path.name}.slot-{candidate}").exists()
-            )
-            if not self._ticket_is_eligible(free_count):
+            eligible = tuple(slot for slot in candidates if self._ticket_is_eligible(slot))
+            if not eligible:
                 if not wait:
                     self._ticket.unlink(missing_ok=True)
+                    self._ticket = None
                     raise RuntimeError(f"SITL slots busy: {self.root_path}")
                 self._wait_for_retry("queue_wait")
                 continue
             acquired_path = None
-            for slot in candidates:
+            for slot in eligible:
                 if slot is None or slot < 0 or slot >= self.slots:
                     raise ValueError(f"SITL slot outside configured range: {slot}")
                 self.path = self.root_path if self.slots == 1 else self.root_path.with_name(
@@ -361,6 +398,8 @@ class SitlLock:
                     continue
             if acquired_path is None:
                 if not wait:
+                    self._ticket.unlink(missing_ok=True)
+                    self._ticket = None
                     raise RuntimeError(f"SITL slots busy: {self.root_path}")
                 self._wait_for_retry("slot_race")
                 continue
