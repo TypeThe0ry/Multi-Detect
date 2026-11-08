@@ -6,11 +6,10 @@ set -euo pipefail
 # torch/transformers.
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 PYTHON_BIN=/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python
-OUT_ROOT=${CLOCK_SENSOR_LOAD_OUT:-${ROOT}/.tmp/clock-sensor-load-20261108}
+OUT_ROOT=${CLOCK_SENSOR_LOAD_OUT:-${ROOT}/artifacts/benchmarks/clock-sensor-load-20261108b}
 SCENARIO=${ROOT}/configs/scenarios/generated-count-site/gen_cnt2_w0000.scenario.json
 ONBOARD_CONFIG=/data/projects/Multi-Detect-env/Multi-Detect/artifacts/benchmarks/nightly-linux-r21idr3-r24plan-28-head/main/count-cones/onboard.json
 SLOT_POOL=66-95
-SITL_CPUS=66-75
 LOAD_CPUS=0-11
 LOAD_SECONDS=${LOAD_SECONDS:-600}
 DRY_RUN=0
@@ -35,25 +34,47 @@ if [[ -e ${OUT_ROOT} && -n "$(find "${OUT_ROOT}" -mindepth 1 -print -quit)" ]]; 
     printf 'refusing non-empty output directory: %s\n' "${OUT_ROOT}" >&2
     exit 2
 fi
-mkdir -p "${OUT_ROOT}"
 
 export PYTHONPATH=${ROOT}/src:${ROOT}
 export PYTHONUTF8=1
 export TMPDIR=${ROOT}/.tmp
 export MULTIDETECT_SITL_SLOTS=3
-export MULTIDETECT_SITL_SLOT=0
-export MULTIDETECT_SIM_CPUSET=auto
-export MULTIDETECT_SIM_CPU_POOL=${SLOT_POOL}
-export MULTIDETECT_SIM_CPUS_PER_SLOT=10
 export MULTIDETECT_SIM_GPU_DEVICES=0,1
 export MULTIDETECT_SIM_GPU_AVOID=2,3
 export MULTIDETECT_PX4_LOGGER_MODE=off
+
+# Dry-run previews slot 0. Actual runs reacquire the script under a shared
+# lease so the slot stays owned across both comparison conditions.
+if ((DRY_RUN == 0)) && [[ ${MULTIDETECT_SITL_LOCK_HELD:-} != 1 ]]; then
+    "${PYTHON_BIN}" "${ROOT}/scripts/clock_sensor_load_lease.py" "$0" "$@"
+    exit $?
+fi
+
+SLOT=${MULTIDETECT_SITL_SLOT:-0}
+if [[ ! ${SLOT} =~ ^[0-2]$ ]]; then
+    printf 'invalid SITL slot for this suite: %s (expected 0, 1, or 2)\n' "${SLOT}" >&2
+    exit 2
+fi
+if ((DRY_RUN == 0)) && [[ ${MULTIDETECT_SITL_LOCK_HELD:-} != 1 ]]; then
+    printf 'refusing to start load suite without a held SITL slot lease\n' >&2
+    exit 2
+fi
+SITL_CPU_START=$((66 + SLOT * 10))
+SITL_CPUS=${SITL_CPU_START}-$((SITL_CPU_START + 9))
+CONTROL_PORT=$((14560 + SLOT * 10))
+TELEMETRY_PORT=$((14561 + SLOT * 10))
+OPERATOR_PORT=$((15480 + SLOT * 100))
+CONTAINER_PREFIX=md-clock-sensor-load-slot-${SLOT}
+export MULTIDETECT_SIM_CPUSET=auto
+export MULTIDETECT_SIM_CPU_POOL=${SLOT_POOL}
+export MULTIDETECT_SIM_CPUS_PER_SLOT=10
+mkdir -p "${OUT_ROOT}"
 
 write_record() {
     local path=$1 condition=$2 status=$3 exit_code=$4 start_utc=$5 end_utc=$6 stop_reason=$7 collector_pid=$8 load_pid=$9 monitor_pid=${10}
     CONDITION=${condition} STATUS=${status} EXIT_CODE=${exit_code} START_UTC=${start_utc} END_UTC=${end_utc} \
     STOP_REASON=${stop_reason} COLLECTOR_PID=${collector_pid} LOAD_PID=${load_pid} MONITOR_PID=${monitor_pid} \
-    SLOT=0 SITL_SLOTS=3 SITL_CPUSET=${SITL_CPUS} LOAD_CPUSET=${LOAD_CPUS} SCENARIO=${SCENARIO} ONBOARD_CONFIG=${ONBOARD_CONFIG} \
+    SLOT=${SLOT} SITL_SLOTS=3 SITL_CPUSET=${SITL_CPUS} LOAD_CPUSET=${LOAD_CPUS} SCENARIO=${SCENARIO} ONBOARD_CONFIG=${ONBOARD_CONFIG} \
     "${PYTHON_BIN}" - "${path}" <<'PY'
 import json, os, sys
 
@@ -91,7 +112,7 @@ PY
 
 write_input_manifest() {
     local path=$1 condition=$2
-    CONDITION=${condition} SITL_CPUS=${SITL_CPUS} LOAD_CPUS=${LOAD_CPUS} \
+    CONDITION=${condition} SLOT=${SLOT} SITL_CPUS=${SITL_CPUS} LOAD_CPUS=${LOAD_CPUS} \
     "${PYTHON_BIN}" - "${path}" "${SCENARIO}" "${ONBOARD_CONFIG}" <<'PY'
 import hashlib, json, os, sys
 
@@ -106,7 +127,7 @@ row = {
     "condition": os.environ["CONDITION"],
     "scenario": digest(sys.argv[2]),
     "onboard_config": digest(sys.argv[3]),
-    "slot": 0,
+    "slot": int(os.environ["SLOT"]),
     "sitl_slots": 3,
     "sitl_cpuset": os.environ["SITL_CPUS"],
     "load_cpuset": os.environ["LOAD_CPUS"],
@@ -120,6 +141,10 @@ PY
 
 run_condition() {
     local condition=$1 load=$2
+    if ((load)) && [[ ${MULTIDETECT_SITL_LOCK_HELD:-} != 1 ]]; then
+        printf 'refusing to start loaded condition without a held SITL slot lease\n' >&2
+        return 2
+    fi
     local condition_dir=${OUT_ROOT}/${condition}
     mkdir -p "${condition_dir}"
     local start_utc end_utc collector_pid=0 load_pid=0 monitor_pid=0 exit_code=0 status stop_reason
@@ -172,11 +197,11 @@ PY
         --max-episode-s 300 \
         --timeout-s 300 \
         --heartbeat-timeout-s 240 \
-        --control-port 14560 \
-        --telemetry-port 14561 \
-        --container-prefix "md-clock-sensor-load-${condition}" \
-        --worker-index 0 \
-        --operator-port 15480 \
+        --control-port "${CONTROL_PORT}" \
+        --telemetry-port "${TELEMETRY_PORT}" \
+        --container-prefix "${CONTAINER_PREFIX}-${condition}" \
+        --worker-index "${SLOT}" \
+        --operator-port "${OPERATOR_PORT}" \
         --segmentation \
         --onboard-config "${ONBOARD_CONFIG}" \
         >"${condition_dir}/collector.stdout.jsonl" \
@@ -203,9 +228,9 @@ if ((DRY_RUN)); then
             --scenario "${SCENARIO}" --teacher onboard --episodes 1 --seed 0 \
             --steps-per-episode 6 --out "${condition_dir}/episodes" --rgb-size 1280x960 \
             --max-episode-s 300 --timeout-s 300 --heartbeat-timeout-s 240 \
-            --control-port 14560 --telemetry-port 14561 \
-            --container-prefix "md-clock-sensor-load-${condition}" --worker-index 0 \
-            --operator-port 15480 --segmentation --onboard-config "${ONBOARD_CONFIG}" \
+            --control-port "${CONTROL_PORT}" --telemetry-port "${TELEMETRY_PORT}" \
+            --container-prefix "${CONTAINER_PREFIX}-${condition}" --worker-index "${SLOT}" \
+            --operator-port "${OPERATOR_PORT}" --segmentation --onboard-config "${ONBOARD_CONFIG}" \
             --dry-run >"${condition_dir}/dry-run.json"
     done
 else

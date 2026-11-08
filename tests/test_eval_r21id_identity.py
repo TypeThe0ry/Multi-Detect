@@ -1,8 +1,9 @@
 import json
+import sys
 
 import pytest
 
-from scripts.eval_r21id_identity import _merge, calculate_metrics, evaluate, markdown_report
+from scripts.eval_r21id_identity import _merge, calculate_metrics, evaluate, main, markdown_report
 
 
 def _rows(target="t1", category="fire_hydrant"):
@@ -38,6 +39,37 @@ def test_evaluate_failure_names_r18_retention(tmp_path):
     assert result["candidate_pass"] is False
     assert result["decision"] == "保留 r18"
     assert "保留 r18" in markdown_report(result)
+
+
+def test_cli_records_failed_acceptance_and_exits_success(tmp_path, monkeypatch):
+    rows = _rows()
+    dataset = tmp_path / "test.jsonl"
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    reject_all = [{"sample_id": row["sample_id"], "decision": "reject_track"} for row in rows]
+    baseline = tmp_path / "baseline.json"
+    candidate = tmp_path / "candidate.json"
+    baseline.write_text(json.dumps({"rows": reject_all}), encoding="utf-8")
+    candidate.write_text(json.dumps({"rows": reject_all}), encoding="utf-8")
+    output_json = tmp_path / "identity-report.json"
+    output_md = tmp_path / "identity-report.md"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "eval_r21id_identity.py",
+            "--dataset", str(dataset),
+            "--baseline", str(baseline),
+            "--candidate", str(candidate),
+            "--output-json", str(output_json),
+            "--output-md", str(output_md),
+        ],
+    )
+
+    assert main() == 0
+    report = json.loads(output_json.read_text(encoding="utf-8"))
+    assert report["candidate_pass"] is False
+    assert report["decision"] == "保留 r18"
+    assert "不通过原因" in output_md.read_text(encoding="utf-8")
 
 
 def test_rows_without_target_id_are_skipped_not_scored():
