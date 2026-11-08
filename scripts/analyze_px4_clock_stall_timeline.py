@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import statistics
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,16 @@ def _percentile(values: list[float], fraction: float) -> float | None:
     return ordered[lower] * (upper - index) + ordered[upper] * (index - lower)
 
 
+def _distribution(values: list[float]) -> dict[str, float | int | None]:
+    return {
+        "min": min(values) if values else None,
+        "median": statistics.median(values) if values else None,
+        "p95": _percentile(values, 0.95),
+        "max": max(values) if values else None,
+        "observed_count": len(values),
+    }
+
+
 def analyze_episode(episode_dir: str | Path) -> dict[str, Any]:
     root = Path(episode_dir)
     meta = _read_json(root / "episode.json")
@@ -98,6 +109,33 @@ def analyze_episode(episode_dir: str | Path) -> dict[str, Any]:
                 }
             )
     local_rows.sort(key=lambda row: (row["monotonic_s"] is None, row["monotonic_s"] or 0))
+    timed_local_rows = [row for row in local_rows if row["monotonic_s"] is not None]
+    receive_gaps = [
+        current["monotonic_s"] - previous["monotonic_s"]
+        for previous, current in zip(timed_local_rows, timed_local_rows[1:])
+        if current["monotonic_s"] >= previous["monotonic_s"]
+    ]
+    if len(timed_local_rows) >= 2:
+        px4_elapsed = timed_local_rows[-1]["px4_s"] - timed_local_rows[0]["px4_s"]
+        monotonic_elapsed = (
+            timed_local_rows[-1]["monotonic_s"] - timed_local_rows[0]["monotonic_s"]
+        )
+    else:
+        px4_elapsed = monotonic_elapsed = None
+    local_progress = {
+        "px4_elapsed_s": px4_elapsed,
+        "monotonic_elapsed_s": monotonic_elapsed,
+        "rtf": px4_elapsed / monotonic_elapsed
+        if px4_elapsed is not None and monotonic_elapsed and monotonic_elapsed > 0
+        else None,
+        "receive_gap_s": _distribution(receive_gaps),
+        "last_receive_monotonic_s": timed_local_rows[-1]["monotonic_s"]
+        if timed_local_rows
+        else None,
+        "last_receive_wall_time": timed_local_rows[-1]["wall_time"]
+        if timed_local_rows
+        else None,
+    }
 
     climb_rows = []
     for row in steps:
@@ -182,8 +220,18 @@ def analyze_episode(episode_dir: str | Path) -> dict[str, Any]:
         if last_progress_mono is not None and stall_window is not None
         else None
     )
+    local_progress["capture_watchdog_no_progress_s"] = (
+        watchdog_deadline - last_progress_mono
+        if watchdog_deadline is not None and last_progress_mono is not None
+        else None
+    )
 
     for point in capture_timeline:
+        last_position_mono = local_progress["last_receive_monotonic_s"]
+        if point["monotonic_s"] is not None and last_position_mono is not None:
+            point["seconds_since_last_mavlink_local_position"] = (
+                point["monotonic_s"] - last_position_mono
+            )
         if point["label"] == "deadline":
             point["px4_s"] = last_progress_px4
             point["watchdog_deadline_monotonic_s"] = watchdog_deadline
@@ -192,6 +240,8 @@ def analyze_episode(episode_dir: str | Path) -> dict[str, Any]:
 
     pressure_metrics: dict[str, Any] = {"sample_count": len(pressure)}
     load1, busy, cpu_some, memory_some = [], [], [], []
+    io_some = []
+    pressure_timeline = []
     for row in pressure:
         raw_load = row.get("loadavg")
         if isinstance(raw_load, str):
@@ -204,25 +254,80 @@ def analyze_episode(episode_dir: str | Path) -> dict[str, Any]:
             value = _number(row.get(field))
             if value is not None:
                 values.append(value)
-        for group, values in (("cpu_pressure", cpu_some), ("memory_pressure", memory_some)):
+        for group, values in (
+            ("cpu_pressure", cpu_some),
+            ("memory_pressure", memory_some),
+            ("io_pressure", io_some),
+        ):
             pressure_group = row.get(group)
             some = pressure_group.get("some") if isinstance(pressure_group, dict) else None
             value = _number(some.get("avg10")) if isinstance(some, dict) else None
             if value is not None:
                 values.append(value)
+        mono_ns = _number(row.get("monotonic_ns"))
+        cpu_some_row = row.get("cpu_pressure")
+        cpu_some_group = (
+            cpu_some_row.get("some") if isinstance(cpu_some_row, dict) else None
+        )
+        memory_some_row = row.get("memory_pressure")
+        memory_some_group = (
+            memory_some_row.get("some") if isinstance(memory_some_row, dict) else None
+        )
+        io_some_row = row.get("io_pressure")
+        io_some_group = io_some_row.get("some") if isinstance(io_some_row, dict) else None
+        pressure_timeline.append(
+            {
+                "wall_time": _number(row.get("wall_time")),
+                "wall_utc": _iso_utc(_number(row.get("wall_time"))),
+                "monotonic_s": mono_ns / 1e9 if mono_ns is not None else None,
+                "load1": load1_value,
+                "cpu_psi_some_avg10": _number(cpu_some_group.get("avg10"))
+                if isinstance(cpu_some_group, dict)
+                else None,
+                "memory_psi_some_avg10": _number(memory_some_group.get("avg10"))
+                if isinstance(memory_some_group, dict)
+                else None,
+                "io_psi_some_avg10": _number(io_some_group.get("avg10"))
+                if isinstance(io_some_group, dict)
+                else None,
+                "core_busy_percent_mean": _number(row.get("core_busy_percent_mean")),
+                "cpuset_cpus": row.get("cpuset_cpus"),
+                "px4_sim_time_boot_ms": _number(row.get("px4_sim_time_boot_ms")),
+            }
+        )
     for key, values in (
         ("load1", load1),
         ("core_busy_percent_mean", busy),
         ("cpu_psi_some_avg10", cpu_some),
         ("memory_psi_some_avg10", memory_some),
+        ("io_psi_some_avg10", io_some),
     ):
-        pressure_metrics[key] = {
-            "min": min(values) if values else None,
-            "median": statistics.median(values) if values else None,
-            "p95": _percentile(values, 0.95),
-            "max": max(values) if values else None,
-            "observed_count": len(values),
-        }
+        pressure_metrics[key] = _distribution(values)
+
+    raw_frame_wait_timeline = meta.get("frame_wait_timeline")
+    frame_wait_fields = (
+        "phase",
+        "started_monotonic_ns",
+        "primitive_end_monotonic_ns",
+        "started_wall_time",
+        "ended_monotonic_ns",
+        "ended_wall_time",
+        "duration_s",
+        "pose_time_boot_ms",
+        "requested_pose_time_boot_ms",
+        "required_sensor_stamp_ns",
+        "last_frame_sensor_stamp_ns",
+        "last_frame_received_monotonic_ns",
+        "last_frame_received_wall_time",
+        "frames_received",
+        "failure_class",
+        "error",
+    )
+    frame_wait_timeline = [
+        {key: row[key] for key in frame_wait_fields if key in row}
+        for row in raw_frame_wait_timeline
+        if isinstance(row, dict)
+    ] if isinstance(raw_frame_wait_timeline, list) else []
 
     events = []
     for step in climb_rows:
@@ -312,14 +417,23 @@ def analyze_episode(episode_dir: str | Path) -> dict[str, Any]:
             "gazebo_clock_source": "px4-clock-stall-capture samples gz_clock.latest_sim_time_s",
             "capture_clock_conversion_is_derived": True,
         },
+        "step_outcomes": dict(
+            Counter(
+                str((row.get("outcome") or {}).get("status", "unknown"))
+                for row in steps
+                if isinstance(row.get("outcome"), dict)
+            )
+        ),
         "climb_primitives": climb_rows,
         "mavlink_local_position": {
             "count": len(local_rows),
             "first": local_rows[0] if local_rows else None,
             "last": local_rows[-1] if local_rows else None,
+            "progress": local_progress,
             "last_progress_px4_s_from_capture_diagnostics": last_progress_px4,
             "last_progress_monotonic_s": last_progress_mono,
         },
+        "frame_wait_timeline": frame_wait_timeline,
         "capture_samples": capture_timeline,
         "capture_analysis": {
             "gz_clock_advanced": analysis.get("gz_clock_advanced", "unknown"),
@@ -337,6 +451,7 @@ def analyze_episode(episode_dir: str | Path) -> dict[str, Any]:
             ),
         },
         "host_pressure": pressure_metrics,
+        "host_pressure_timeline": pressure_timeline,
         "events": events,
         "missing_files": missing,
         "missing_or_limited_evidence": missing_evidence,
