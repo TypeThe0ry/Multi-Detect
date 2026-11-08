@@ -75,6 +75,7 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     MavlinkState,
     SensorStreamReader,
     build_observation,
+    validate_gimbal_recording_observation,
 )
 from multidetect.sim_teacher.vehicle_loss import VehicleLossDetector  # noqa: E402
 from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
@@ -5215,6 +5216,8 @@ def run_episode(
                     },
                     camera_mount=camera_mount,
                 )
+                if camera_mount is not None and camera_mount.kind == "gimbal":
+                    validate_gimbal_recording_observation(before)
                 before = _png_observation(before)
                 timing["observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 pose = tuple(before["pose"]["local_ned_m"])
@@ -5473,6 +5476,8 @@ def run_episode(
                     },
                     camera_mount=camera_mount,
                 )
+                if camera_mount is not None and camera_mount.kind == "gimbal":
+                    validate_gimbal_recording_observation(after)
                 after = _png_observation(after)
                 timing["after_observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 ack = {

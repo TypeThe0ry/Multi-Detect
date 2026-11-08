@@ -782,6 +782,46 @@ def _propeller_joint_state(mavlink: MavlinkState, timestamp_ns: int) -> dict[str
     }
 
 
+def validate_gimbal_recording_observation(observation: Mapping[str, Any]) -> None:
+    """Reject gimbal observations that are not measured, complete RGB sidecars."""
+    rgb_stamp = observation.get("frame_sensor_stamp_ns")
+    if isinstance(rgb_stamp, bool) or not isinstance(rgb_stamp, int) or rgb_stamp <= 0:
+        raise ValueError("gimbal recording requires a positive RGB sensor timestamp")
+
+    gimbal = observation.get("gimbal_joint_state")
+    if not isinstance(gimbal, Mapping) or gimbal.get("source") != "gazebo_joint_state":
+        raise ValueError("gimbal recording requires Gazebo joint-state feedback")
+    if gimbal.get("timestamp_ns") != rgb_stamp:
+        raise ValueError("gimbal joint timestamp does not match RGB sensor timestamp")
+    positions = gimbal.get("position_rad")
+    velocities = gimbal.get("velocity_rad_s")
+    axes = ("pitch", "yaw", "roll")
+    if not isinstance(positions, Mapping) or not isinstance(velocities, Mapping):
+        raise ValueError("gimbal recording requires position and velocity for all three axes")
+    if not all(_finite_number(positions.get(axis)) and _finite_number(velocities.get(axis)) for axis in axes):
+        raise ValueError("gimbal recording requires finite position and velocity for all three axes")
+
+    propellers = observation.get("propeller_joint_state")
+    if not isinstance(propellers, Mapping) or propellers.get("source") != "gazebo_joint_state":
+        raise ValueError("gimbal recording requires Gazebo propeller joint-state feedback")
+    if propellers.get("timestamp_ns") != rgb_stamp:
+        raise ValueError("propeller joint timestamp does not match RGB sensor timestamp")
+    angles = propellers.get("angles_rad")
+    spin = propellers.get("spin_rad_s")
+    if not isinstance(angles, (list, tuple)) or not isinstance(spin, (list, tuple)):
+        raise ValueError("gimbal recording requires four propeller angles and spin rates")
+    if len(angles) != 4 or len(spin) != 4:
+        raise ValueError("gimbal recording requires exactly four propeller angles and spin rates")
+    if not all(_finite_number(value) for value in (*angles, *spin)):
+        raise ValueError("gimbal recording requires finite propeller angles and spin rates")
+    if not any(float(value) != 0.0 for value in spin):
+        raise ValueError("gimbal recording requires at least one nonzero rotor spin rate")
+
+
+def _finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def _ground_agl(
     sensor: SensorSample, mavlink: MavlinkState, *, max_age_s: float
 ) -> dict[str, Any] | None:
@@ -1146,4 +1186,5 @@ __all__ = [
     "MavlinkReader",
     "simulation_stamp_skew_ms",
     "build_observation",
+    "validate_gimbal_recording_observation",
 ]
