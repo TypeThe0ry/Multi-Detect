@@ -32,7 +32,7 @@ from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_net
 from multidetect.simulation import load_runtime_scenario
 from multidetect.simulator.cpu import SimulatorCpuIsolation, resolve_cpu_isolation
 from multidetect.simulator.delta_tailsitter import select_visual_mesh
-from multidetect.simulator.px4_image import PINNED_IMAGE
+from multidetect.simulator.px4_image import PINNED_IMAGE, resolve_runtime_image
 from multidetect.simulator.stack import (
     SimulatorStackError,
     SimulatorStackPorts,
@@ -564,7 +564,7 @@ def build_docker_simulator_plan(
     container_name: str = "multidetect-sim",
     control_port: int = 14540,
     telemetry_port: int = 14541,
-    image: str = PINNED_IMAGE,
+    image: str | None = None,
     dry_run: bool = True,
     gpu_render: bool | None = None,
     gpu_device: str | int | None = None,
@@ -587,6 +587,7 @@ def build_docker_simulator_plan(
         gpu_devices=gpu_devices,
         worker_index=worker_index,
     )
+    image = resolve_runtime_image(image, gpu_render=gpu_render)
     if not _is_pinned_image(image) and not (gpu_render and _is_local_gpu_image(image)):
         raise DockerSimulatorPlanError(
             "image must be pinned by a 64-hex sha256 digest, or a local GPU variant "
@@ -974,7 +975,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--container-name", default="multidetect-sim")
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
-    parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument("--image", default=None, help="explicit image; otherwise environment, then GPU/CPU default")
     parser.add_argument(
         "--gpu-render",
         action=argparse.BooleanOptionalAction,

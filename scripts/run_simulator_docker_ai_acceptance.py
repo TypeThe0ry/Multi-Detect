@@ -2768,7 +2768,7 @@ def run_acceptance(
     container_name: str = DEFAULT_AI_CONTAINER_NAME,
     control_port: int = DEFAULT_AI_CONTROL_PORT,
     telemetry_port: int = DEFAULT_AI_TELEMETRY_PORT,
-    image: str = PINNED_IMAGE,
+    image: str | None = None,
     px4_component_ids: Iterable[int] | None = DEFAULT_PX4_COMPONENT_IDS,
     minimum_gps_fix_type: int = 3,
     exercise_arm: bool = False,
@@ -3067,7 +3067,7 @@ def _parser() -> argparse.ArgumentParser:
             "expected PX4 MAVLink source component (repeatable; defaults to autopilot component 1)"
         ),
     )
-    parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument("--image", default=None)
     parser.add_argument(
         "--release-parity",
         type=Path,

@@ -1,3 +1,6 @@
+# Legacy GPU graphics base only: does not apply the PX4 scheduler fix.
+# Use scripts/build_px4_lockstep_candidate.sh for the patched runtime; the
+# source-level GPU default pins that runtime by immutable image ID.
 # Optional GPU-rendering variant for the pinned PX4/Gazebo Harmonic image.
 # NVIDIA Container Toolkit supplies the host driver libraries at runtime;
 # this layer only provides the EGL userspace entry points and diagnostics.

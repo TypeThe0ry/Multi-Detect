@@ -95,6 +95,7 @@ from multidetect.simulator.fixed_wing_reposition import (  # noqa: E402
     DEFAULT_NAV_LOITER_RAD_M,
     reposition_ring_metrics,
 )
+from multidetect.simulator.px4_image import PINNED_IMAGE, resolve_runtime_image  # noqa: E402
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.analyze_sensor_timeouts import build_failure_snapshot  # noqa: E402
@@ -104,6 +105,7 @@ from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_MODEL_ROOT,
     CONTAINER_SCRIPT_ROOT,
     _split_gpu_list,
+    _resolve_gpu_selection,
     build_docker_simulator_plan,
     resolve_px4_daemon_mode,
     resolve_px4_logger_mode,
@@ -118,9 +120,7 @@ class _TerminationRequested(RuntimeError):
 def _raise_on_termination(signum: int, _frame: Any) -> None:
     raise _TerminationRequested(f"terminated by signal {signum}")
 
-PINNED_IMAGE = (
-    "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
-)
+
 DEFAULT_TIMEOUT_S = 300.0
 SIM_PRE_ABORT_DESCENT_TIMEOUT_S = 45.0
 SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S = 900.0
@@ -672,7 +672,7 @@ class CollectionPlan:
     steps_per_episode: int
     seed: int
     out: str
-    image: str = PINNED_IMAGE
+    image: str | None = None
     container_prefix: str = "md-sim-teacher"
     timeout_s: float = DEFAULT_TIMEOUT_S
     max_episode_s: float = DEFAULT_TIMEOUT_S
@@ -733,6 +733,19 @@ class CollectionPlan:
     gpu_devices: tuple[str, ...] | None = None
     worker_index: int = 0
     operator_port: int = 14580
+
+    def __post_init__(self) -> None:
+        # Bind the selected image before metadata, progress headers or Docker argv
+        # are emitted. Later environment changes cannot silently change a plan.
+        enabled, _, _ = _resolve_gpu_selection(
+            gpu_render=self.gpu_render,
+            gpu_device=self.gpu_device,
+            gpu_devices=self.gpu_devices,
+            worker_index=self.worker_index,
+        )
+        object.__setattr__(
+            self, "image", resolve_runtime_image(self.image, gpu_render=enabled)
+        )
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
@@ -7676,8 +7689,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--container-prefix", default="md-sim-teacher")
     parser.add_argument(
         "--image",
-        default=os.environ.get("MULTIDETECT_SIM_IMAGE", PINNED_IMAGE),
-        help="pinned image, or an explicit local multidetect/px4-sitl-gazebo:<tag> GPU variant",
+        default=None,
+        help="explicit image; otherwise MULTIDETECT_SIM_IMAGE, then the resolved GPU/CPU default",
     )
     parser.add_argument(
         "--gpu-render",

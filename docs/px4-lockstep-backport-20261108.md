@@ -44,6 +44,6 @@ PX4_BUILD_JOBS=8 scripts/build_px4_lockstep_candidate.sh /data/scratch/px4-clock
 
 脚本拒绝非 `/data` 源码目录、非预期镜像/源码版本、与调度器无关的已跟踪源码修改，以及超过 12 的编译并行度。它固定源码及必要子模块，建立独立编译镜像，在 64 GiB、默认最多 8 CPU 的无 GPU 容器中先跑三方测试再编译。原镜像只读作构建基底。
 
-输出是源码树 `clock-candidate-artifacts/`，含测试日志、编译器/包版本、二进制 SHA、镜像 ID 和 `ldd` 依赖核验。运行镜像不继承编译镜像的私有库；最终 `ldd` 必须无 `not found`。仓库外 `runs/px4-lockstep-candidate-ready-20261108.json` 仅在完整编译、依赖检查和测试完成后写入，未出现 marker 不视为可运行。
+后续重建输出是源码树 `clock-candidate-rebuilds/<stamp>/`（最初候选的 `clock-candidate-artifacts/` 保留），含测试日志、编译器/包版本、二进制 SHA、镜像 ID 和 `ldd` 依赖核验。运行镜像不继承编译镜像的私有库；最终 `ldd` 必须无 `not found`。仓库外 `runs/px4-lockstep-candidate-ready-20261108.json` 仅在完整编译、依赖检查和测试完成后写入，未出现 marker 不视为可运行。
 
-本分支不修改 SITL 启动默认值。实景验收仍走全局 `scripts/sitl_lock.py`，仅 GPU0/1。三角翼槽位 3/4 与时钟验收槽位 0–2 分开。
+最初组件构建阶段未修改 SITL 启动默认值。后续门禁完成后的默认推广准备、固定基底重建和 CPU 未覆盖边界见 [GPU 默认运行镜像推广](px4-lockstep-runtime-promotion-20261109.md)；不得在实景门禁未全过时提前合入推广。实景验收仍走全局 `scripts/sitl_lock.py`，仅 GPU0/1。三角翼槽位 3/4 与时钟验收槽位 0–2 分开。

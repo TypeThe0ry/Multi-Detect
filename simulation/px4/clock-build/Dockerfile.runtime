@@ -1,4 +1,4 @@
 # Preserve the current simulation runtime, world assets, parameters, libraries and entrypoint.
-ARG BASE_IMAGE=multidetect/px4-sitl-gazebo:gpu
+ARG BASE_IMAGE=multidetect/px4-sitl-gazebo@sha256:445d17a7ae7e34dbddc826b68c08c705d4892a3b3997e3f3a0bb44072a5ef8f2
 FROM ${BASE_IMAGE}
 COPY px4 /opt/px4-gazebo/bin/px4
