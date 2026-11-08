@@ -310,6 +310,20 @@ def test_docker_plan_rejects_unpinned_image_and_unsafe_container_name(tmp_path: 
         build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "name", container_name="../escape")
 
 
+def test_docker_plan_supports_complete_local_image_id(tmp_path: Path) -> None:
+    image = "sha256:" + "a" * 64
+    plan = build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "immutable", image=image)
+    assert plan.image == image
+    assert image in plan.command
+
+
+@pytest.mark.parametrize("image", ["sha256:abc", "sha256:" + "g" * 64,
+                                   "sha256:" + "a" * 65, "sha256:" + "a" * 64 + ";echo x"])
+def test_docker_plan_rejects_incomplete_or_malformed_local_image_id(tmp_path: Path, image) -> None:
+    with pytest.raises(DockerSimulatorPlanError, match="pinned"):
+        build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "bad-image", image=image)
+
+
 def test_docker_plan_supports_fixed_wing_assets(tmp_path: Path) -> None:
     scenario = ROOT / "configs" / "scenarios" / "coastal_patrol_fixed_wing_001.scenario.json"
     plan = build_docker_simulator_plan(scenario, repository_root=ROOT, job_dir=tmp_path / "fixed")

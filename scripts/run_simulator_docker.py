@@ -541,7 +541,9 @@ class DockerSimulatorPlan:
 
 
 def _is_pinned_image(image: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}", image))
+    # Docker also accepts a complete immutable local image ID. It is distinct
+    # from a registry manifest digest, which still requires the repository.
+    return bool(re.fullmatch(r"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@)?sha256:[0-9a-f]{64}", image))
 
 
 def _is_local_gpu_image(image: str) -> bool:
