@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_coast_santacruz__rain",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_coast_santacruz__rain.runtime.json",
+   "sha256": "78faae6e2415bf5140662429e4dbede0fe9660bb414e3e54ad2432a4fbf15299"
+  },
+  "truth": {
+   "path": "rw_coast_santacruz__rain.truth.json",
+   "sha256": "6cc6e10ecd5d2327d16fc2bbf13d199e99fd1b96236e73e3924ba3c37c119595"
+  },
+  "expectations": {
+   "path": "rw_coast_santacruz__rain.expectations.json",
+   "sha256": "c02c9ef9489f8e986c0bd026b37dd029460bd9033298c7784dec5ef2a10ad960"
+  }
+ }
+}

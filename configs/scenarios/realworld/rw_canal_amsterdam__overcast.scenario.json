@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_canal_amsterdam__overcast",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_canal_amsterdam__overcast.runtime.json",
+   "sha256": "a64e186cbf0411fbf429c2bb7f1ddef1e4363ebb4f4ff01e0123f0e5f75bf2e2"
+  },
+  "truth": {
+   "path": "rw_canal_amsterdam__overcast.truth.json",
+   "sha256": "59582b2bd585ac582e1ba892803cc936e0b9698d5487c0ed86c654c8297d430f"
+  },
+  "expectations": {
+   "path": "rw_canal_amsterdam__overcast.expectations.json",
+   "sha256": "3ff13793c24507e02026050c514d80141582843aff8f82af1fb69effeb05fcc9"
+  }
+ }
+}

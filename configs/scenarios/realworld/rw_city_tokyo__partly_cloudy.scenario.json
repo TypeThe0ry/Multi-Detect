@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_tokyo__partly_cloudy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_tokyo__partly_cloudy.runtime.json",
+   "sha256": "e51172c48274e0e20020d8ec93502a332a3015e1bf8212e2d7ab92eeb790cc92"
+  },
+  "truth": {
+   "path": "rw_city_tokyo__partly_cloudy.truth.json",
+   "sha256": "371cf7044856f92256663507c593220806fb5e01a47f58e440eacc9dad414a2a"
+  },
+  "expectations": {
+   "path": "rw_city_tokyo__partly_cloudy.expectations.json",
+   "sha256": "615b248daa5df9d2b0943c04016e6679a18435922074922e07b6a62f401c37c7"
+  }
+ }
+}

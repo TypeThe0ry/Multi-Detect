@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_oakland__dusk",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_oakland__dusk.runtime.json",
+   "sha256": "5fde42db19a7f0d86516077351c3fcf7536c89b68b22b9863f4ea456f5129b7f"
+  },
+  "truth": {
+   "path": "rw_port_oakland__dusk.truth.json",
+   "sha256": "4c2460995c94530a14df0e8739da8ba51492cd35a7ffecce2bd7354f67b05ecf"
+  },
+  "expectations": {
+   "path": "rw_port_oakland__dusk.expectations.json",
+   "sha256": "ca2629aedd41a418c18e0c7df8fc6c2ebf6715f40ab9856bcad068cb6d3a7104"
+  }
+ }
+}

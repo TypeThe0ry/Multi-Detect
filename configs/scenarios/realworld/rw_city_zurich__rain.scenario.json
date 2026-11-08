@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_zurich__rain",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_zurich__rain.runtime.json",
+   "sha256": "e48359f09f2880a94812bf51bc247e36b2d1b4edad3776e83a00993e45458ff9"
+  },
+  "truth": {
+   "path": "rw_city_zurich__rain.truth.json",
+   "sha256": "2555afe549e7b7ee62c0f440e420cf6f65f348bdbc65a2601a7b87a0a58fbe6a"
+  },
+  "expectations": {
+   "path": "rw_city_zurich__rain.expectations.json",
+   "sha256": "776d950ea472f9d7622eb3ddf2ae26bf4aedc7ce6dfbd293a6b1a997cfdc03c3"
+  }
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_singapore_marina_bay__clear_noon",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_singapore_marina_bay__clear_noon.runtime.json",
+   "sha256": "c4c72d81716143bff36d1ac17d5f0ff845da0031fbce4847643d45998b730b9c"
+  },
+  "truth": {
+   "path": "rw_singapore_marina_bay__clear_noon.truth.json",
+   "sha256": "ae74c536e10abe675b8acf98977e49d1ad81846469955e0114a2feb4382c6c92"
+  },
+  "expectations": {
+   "path": "rw_singapore_marina_bay__clear_noon.expectations.json",
+   "sha256": "7fda00826f1cb06e231130dd84413001930ad4886cd483367a9ecc496759ef70"
+  }
+ }
+}

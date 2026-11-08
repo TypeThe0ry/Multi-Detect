@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_singapore__dusk",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_singapore__dusk.runtime.json",
+   "sha256": "9817b050148f6836361e20f9611f893205d025e3abf25a73a9135cb897739717"
+  },
+  "truth": {
+   "path": "rw_city_singapore__dusk.truth.json",
+   "sha256": "abbe9fee05908f1bca01405deaca888efa11d00a26763ca2ed4d99c7e70860d1"
+  },
+  "expectations": {
+   "path": "rw_city_singapore__dusk.expectations.json",
+   "sha256": "c770ff17e938581779faa46df4f1bdc75057a38fab58c1b63b176d45736c5fe8"
+  }
+ }
+}

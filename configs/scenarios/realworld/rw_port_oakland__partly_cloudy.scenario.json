@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_oakland__partly_cloudy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_oakland__partly_cloudy.runtime.json",
+   "sha256": "2781ce88c4651e9d237fe6a026d50aaea5daa206402f432fc4435d10c0f8183f"
+  },
+  "truth": {
+   "path": "rw_port_oakland__partly_cloudy.truth.json",
+   "sha256": "7e98852dc02622649facc10a3c2316b786107894d9bb9d8511767a348a9e407d"
+  },
+  "expectations": {
+   "path": "rw_port_oakland__partly_cloudy.expectations.json",
+   "sha256": "0f021f92396ee9196b80db4b9bce3add479fe94018a3f9cb33737e8da384c924"
+  }
+ }
+}

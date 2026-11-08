@@ -412,6 +412,8 @@ def main() -> int:
     parser.add_argument("--depth-size", type=_size, default=(320, 240))
     parser.add_argument("--depth-encoding", choices=("UINT16_MM", "FLOAT32_M"), default="UINT16_MM")
     parser.add_argument("--request-timeout-s", type=float, default=15.0)
+    # Large worlds load meshes and textures for a minute before the first render.
+    parser.add_argument("--first-frame-timeout-s", type=float, default=None)
     args = parser.parse_args()
     expected = _parse_expected_camera_calibration(args.expected_camera_calibration_json)
     source_contract = _parse_depth_contract(
@@ -724,7 +726,10 @@ def main() -> int:
                 raise ValueError("expected GET <non-negative simulation nanoseconds>")
             requested_stamp = int(parts[1])
             candidate = latest.wait_after(
-                max(last_emitted_stamp, requested_stamp - 1), args.request_timeout_s
+                max(last_emitted_stamp, requested_stamp - 1),
+                args.first_frame_timeout_s
+                if args.first_frame_timeout_s and last_emitted_stamp < 0
+                else args.request_timeout_s,
             )
             packet = encode_candidate(
                 candidate, sequence, contract, args.rgb_size, args.depth_size, args.depth_encoding

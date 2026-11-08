@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_suburb_davis__dusk",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_suburb_davis__dusk.runtime.json",
+   "sha256": "c517bf81bc5fc12f381f7a5cf456e4499f9b8ea3f7621e901c3d2e5f95e93fc2"
+  },
+  "truth": {
+   "path": "rw_suburb_davis__dusk.truth.json",
+   "sha256": "1cfd3b3f4c6fb23758ff2228b4d889e2bf6b9ff3fdcb5c716acd2db61cabe3f5"
+  },
+  "expectations": {
+   "path": "rw_suburb_davis__dusk.expectations.json",
+   "sha256": "48e3d7a35c86b5aad901745c70a86cd193029401a9e2d9621a97e8645a0b3edc"
+  }
+ }
+}

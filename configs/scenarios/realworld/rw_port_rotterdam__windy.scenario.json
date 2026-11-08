@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_rotterdam__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_rotterdam__windy.runtime.json",
+   "sha256": "3e197fc58e1ef1ca8f233c92f7f50e35a065df5a6ebb9209781f7d64b5cf466a"
+  },
+  "truth": {
+   "path": "rw_port_rotterdam__windy.truth.json",
+   "sha256": "76ff367af7a826f696f569aef38baf2d7723257d36934a66cd1a3c20e18dc024"
+  },
+  "expectations": {
+   "path": "rw_port_rotterdam__windy.expectations.json",
+   "sha256": "ae3edf0a2feb58a6e3807e7c49f8d6e2be5c3cd13b258f556bfe62c74131a920"
+  }
+ }
+}

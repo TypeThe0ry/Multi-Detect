@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_rotterdam__clear_noon",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_rotterdam__clear_noon.runtime.json",
+   "sha256": "502099042c568f1a5d7e385dc7b86f0e7a991f2b8b689f1e3738c218d1518b4b"
+  },
+  "truth": {
+   "path": "rw_port_rotterdam__clear_noon.truth.json",
+   "sha256": "56d054a9a11ff4f13c1245f90ac38bd939ea11d3ce123db03ea532088bf3da96"
+  },
+  "expectations": {
+   "path": "rw_port_rotterdam__clear_noon.expectations.json",
+   "sha256": "b3106ccc90364d4ae9a8102fbc449042ef8dc2389dc3dba01422744736bda9c7"
+  }
+ }
+}

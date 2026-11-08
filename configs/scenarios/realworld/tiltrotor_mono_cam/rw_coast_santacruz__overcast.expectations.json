@@ -1,0 +1,13 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_coast_santacruz__overcast",
+ "scenario_version": 1,
+ "allowed_terminal_states": [
+  "completed",
+  "safe_rtl",
+  "safe_land"
+ ],
+ "maximum_geofence_violations": 0,
+ "maximum_false_geolocations": 0,
+ "maximum_unauthorized_commands": 0
+}

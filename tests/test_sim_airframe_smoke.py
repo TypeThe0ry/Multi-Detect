@@ -324,3 +324,28 @@ def test_confuser_teacher_falls_back_to_forced_look_alikes() -> None:
     truth = Path("configs/scenarios/generated-r15/gen_r15_w0014.truth.json")
     _, label = collector._truth_target(truth, select="confuser", seed=0)
     assert "pickup" in label
+
+
+def test_gimbal_smoke_mounts_calibrated_camera_overlay(monkeypatch, tmp_path, capsys) -> None:
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=1, stdout="", stderr="test stops before flight")
+
+    monkeypatch.setattr(smoke.subprocess, "run", run)
+    scenario = ROOT / "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
+    smoke.main(["--airframe", "x500_gimbal", "--scenario", str(scenario), "--out", str(tmp_path)])
+    capsys.readouterr()
+    assert len(commands) == 1
+    assert "--segmentation" in commands[0]
+    assert commands[0][commands[0].index("--airframe") + 1] == "x500_gimbal"
+
+
+def test_requested_takeoff_height_is_not_measured_climb_evidence(tmp_path) -> None:
+    (tmp_path / "episode.json").write_text(json.dumps({"takeoff_altitude_m": 40}))
+    (tmp_path / "mavlink.jsonl").write_text(json.dumps({
+        "message_type": "LOCAL_POSITION_NED", "x": 0, "y": 0, "z": -0.05,
+    }) + "\n")
+    result = smoke.evaluate_episode(tmp_path, smoke.profile_for("x500_mono_cam"))
+    assert result["takeoff_success"] is False

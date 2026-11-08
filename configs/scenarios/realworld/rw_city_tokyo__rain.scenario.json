@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_tokyo__rain",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_tokyo__rain.runtime.json",
+   "sha256": "f39221286824d374160da5124efa730027506f93c7403c1e8aff6e689cf0c4f2"
+  },
+  "truth": {
+   "path": "rw_city_tokyo__rain.truth.json",
+   "sha256": "7c97595b8aada543521153139518df5bd5aa9dc509a198919309f3e3cb3a37c4"
+  },
+  "expectations": {
+   "path": "rw_city_tokyo__rain.expectations.json",
+   "sha256": "62cf49d49a501bfaf8523acc95d165a336a041771b9861db3b5743908fa83d69"
+  }
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_suburb_davis__partly_cloudy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_suburb_davis__partly_cloudy.runtime.json",
+   "sha256": "6ef27c0fe44301a6dc8db01f68c7c9c94de18a7fbae55981d64059d830868802"
+  },
+  "truth": {
+   "path": "rw_suburb_davis__partly_cloudy.truth.json",
+   "sha256": "ddd265973f77f3332467b350467f44ae81cec34257a36f596ef261555ad1cce4"
+  },
+  "expectations": {
+   "path": "rw_suburb_davis__partly_cloudy.expectations.json",
+   "sha256": "d493c27c3bcb2c31a387fbaf8c7b4a7711924f5208bc1fd65857e83e71c849b5"
+  }
+ }
+}

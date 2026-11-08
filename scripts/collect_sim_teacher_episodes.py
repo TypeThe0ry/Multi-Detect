@@ -897,6 +897,12 @@ def _launch_detected(status_texts: Iterable[str]) -> bool:
     )
 
 
+def _first_frame_wait_s() -> float | None:
+    """Longer first-frame wait for worlds that load slowly; unset keeps the normal timeouts."""
+    value = os.environ.get("MULTIDETECT_SIM_FIRST_FRAME_WAIT_S", "").strip()
+    return float(value) if value else None
+
+
 def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironment) -> list[str]:
     """Build the exact MDGZSIM3 + MDGZDEP1 helper invocation.
 
@@ -932,6 +938,7 @@ def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironme
         "/workspace/scripts/sim_teacher_frame_server.py",
         "--request-timeout-s",
         f"{min(60.0, max(5.0, SENSOR_FRAME_WAIT_S + 2.0)):.3f}",
+        *(("--first-frame-timeout-s", str(_first_frame_wait_s())) if _first_frame_wait_s() else ()),
         "--world",
         world,
         "--model-instance",
@@ -1653,6 +1660,7 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
             "gen_cfs_w",
             "gen_cfs2_w",
             "gen_mov_w",
+            "rw_",
         )
     ):
         return DEFAULT_TAKEOFF_ALTITUDE_M, "default_non_generated_world"
@@ -3988,6 +3996,24 @@ def _fixed_wing_or_vtol_land_and_wait(
     )
     started = clock()
     started_ns = int(started * 1e9)
+    # RTL can complete the physical landing before the collector reaches its
+    # teardown call.  Do not upload a second landing mission in that case.
+    flight = _flight_state_snapshot(reader.state)
+    received = getattr(reader.state, "received_monotonic_ns", {})
+    landed_stamp = received.get("EXTENDED_SYS_STATE", -1)
+    landed_fresh = 0 <= time.monotonic_ns() - landed_stamp <= int(
+        LANDING_TELEMETRY_STALE_S * 1e9
+    )
+    if flight["landed_state"] == 1 and landed_fresh:
+        return {
+            "status": "landed",
+            "timeout_s": wait_timeout_s,
+            "elapsed_s": 0.0,
+            "elapsed_budget_s": 0.0,
+            "flight_state": flight,
+            "command": None,
+            "already_landed": True,
+        }
     result = executor.land()
     if result.status != "success":
         raise RuntimeError(f"fixed-wing/VTOL landing command failed: {_plain_record(result.ack)}")
@@ -4886,7 +4912,9 @@ def run_episode(
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
             sensor_reader.request(0)
-            sensor_reader.wait_first_frame(_episode_budget(started, plan.max_episode_s, 45.0))
+            sensor_reader.wait_first_frame(
+                _episode_budget(started, plan.max_episode_s, _first_frame_wait_s() or 45.0)
+            )
             _progress("sensor_stream_first_frame", frames=sensor_reader.frames_received)
             ekf_required = (
                 "LOCAL_POSITION_NED",

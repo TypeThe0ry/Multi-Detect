@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_downtown_sf__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_downtown_sf__windy.runtime.json",
+   "sha256": "90e1b48c5c2e7be4b1486588e4c715bf9599af80279a88dc42a3b40565306aa3"
+  },
+  "truth": {
+   "path": "rw_downtown_sf__windy.truth.json",
+   "sha256": "05c076bd297fdbe74542ca5e7256a13b58798cec1e8aaf0e688cbda8fdb15928"
+  },
+  "expectations": {
+   "path": "rw_downtown_sf__windy.expectations.json",
+   "sha256": "79d2ff0060974fbd04d480e7c145bc90a84f45ed0ae4c9bc6b33b1784e707d48"
+  }
+ }
+}
