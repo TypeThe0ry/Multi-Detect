@@ -32,6 +32,8 @@ from multidetect.autonomy.mission_plan import (
 )
 from multidetect.autonomy.motion_intent import AirframeMotionAdapter, MotionCommand
 from multidetect.autonomy.obstacle_source import ObstacleSource
+from multidetect.camera_mount import CameraMount
+from multidetect.gimbal_controller import GimbalController
 from multidetect.autonomy.onboard_loop import (
     Detection,
     OnboardLoop,
@@ -48,6 +50,13 @@ Pose = tuple[float, float, float]
 _TRACKING_SKILLS = frozenset({"patrol", "monitor", "follow"})
 PERCEPTION_SKILLS = frozenset({"area_search", "count", "inspect"}) | _TRACKING_SKILLS
 _DETOUR_TIMEOUT = object()
+LAND_CONTINUE_SECONDS = 0.5
+LAND_TIMEOUT_MARGIN = 2.0
+LAND_TIMEOUT_GRACE_S = 5.0
+LAND_TIMEOUT_MAX_S = 90.0
+RETURN_CLIMB_FAILURE_COUNT = 2
+RETURN_CLIMB_MIN_GAIN_M = 0.5
+RETURN_CLIMB_NEAR_GROUND_M = 2.5
 
 
 def _wrap(degrees: float) -> float:
@@ -116,10 +125,8 @@ class ExecutorConfig:
     # backpack, 0.3 m apart, raised two SITL alerts); only co-visibility can
     # still prove two objects.  0 keeps the appearance check at any distance.
     alert_same_place_m: float = 1.5
-    # A commanded landing remains pending while the host reports that the
-    # vehicle is still airborne.  The bound prevents a stale telemetry stream
-    # from leaving a mission in an unbounded terminal state.
-    landing_timeout_steps: int = 15
+    # Landing timeout is derived from altitude and this expected vertical rate.
+    landing_descent_speed_mps: float = 1.0
     deliver_min_altitude_m: float = 1.0
     deliver_max_altitude_m: float = 5.0
     deliver_altitude_m: float = 2.0
@@ -197,6 +204,13 @@ class ExecutorConfig:
             value = getattr(self, name)
             if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
+        if (
+            isinstance(self.landing_descent_speed_mps, bool)
+            or not isinstance(self.landing_descent_speed_mps, (int, float))
+            or not math.isfinite(self.landing_descent_speed_mps)
+            or self.landing_descent_speed_mps <= 0
+        ):
+            raise ValueError("landing_descent_speed_mps must be finite and positive")
         ratio = self.alert_grown_reask_ratio
         if ratio is not None and (
             isinstance(ratio, bool) or not math.isfinite(ratio) or ratio <= 1.0
@@ -358,6 +372,7 @@ class _StepRun:
     landing_target_logged: bool = False
     # Number of control cycles for which landing has remained unconfirmed.
     landing_wait_steps: int = 0
+    landing_start_altitude_m: float | None = None
     fresh_ground_tracks: set[str] = field(default_factory=set)
     last_ground_s: float | None = None
     follow_blocked_attempts: int = 0
@@ -415,6 +430,8 @@ class MissionExecutor:
         package: Any | None = None,
         obstacle_source: ObstacleSource | None = None,
         airframe_adapter: AirframeMotionAdapter | None = None,
+        camera_mount: CameraMount | None = None,
+        gimbal_controller: GimbalController | None = None,
     ) -> None:
         # Validate the contract here; execution gates fail the step through on_fail.
         self.plan = (
@@ -429,6 +446,18 @@ class MissionExecutor:
         self.refs = dict(refs or {})
         self.config = config or ExecutorConfig()
         self.airframe_adapter = airframe_adapter
+        self.camera_mount = camera_mount or getattr(gimbal_controller, "mount", None)
+        if self.camera_mount is None and airframe_adapter is not None:
+            profile_mount = getattr(airframe_adapter.profile, "camera_mount", None)
+            if profile_mount is not None:
+                self.camera_mount = profile_mount.to_camera_mount()
+        if gimbal_controller is not None and self.camera_mount is not None and gimbal_controller.mount.kind != self.camera_mount.kind:
+            raise ValueError("gimbal_controller requires a gimbal camera_mount")
+        self.gimbal_controller = (
+            gimbal_controller
+            if self.camera_mount is not None and self.camera_mount.kind == "gimbal"
+            else None
+        )
         self.task_text = task_text
         package = mission_package if mission_package is not None else package
         self._package_backed = package is not None
@@ -556,6 +585,10 @@ class MissionExecutor:
         self._completed_step_ids: list[str] = []
         self._successful_step_ids: list[str] = []
         self._landed_observation: bool | None = None
+        self._return_climb_failures = 0
+        self._return_climb_checks: list[dict[str, Any]] = []
+        self._return_climb_end_boot: float | None = None
+        self.return_climb_failure_suspected = False
         self.plan_version = 1
         self._pending_retask: tuple[MissionPlan, str, int] | None = None
 
@@ -998,6 +1031,122 @@ class MissionExecutor:
         if run.step.skill in {"patrol", "monitor"}:
             self._alert_for_track(run, track_id)
 
+    def report_primitive_outcome(
+        self,
+        action: ActionPrimitive,
+        status: str,
+        *,
+        before: Mapping[str, Any],
+        after: Mapping[str, Any],
+    ) -> bool:
+        """Feed an executed primitive back into return-home recovery.
+
+        Only return-home vertical climbs count. All timing/progress evidence is
+        taken from PX4 boot time and observed NED altitude, never host wall time.
+        """
+        def reset() -> bool:
+            self._return_climb_failures = 0
+            self._return_climb_checks.clear()
+            self._return_climb_end_boot = None
+            return False
+
+        run = self._run
+        if self.return_climb_failure_suspected:
+            return False
+        if run is None or run.step.skill != "return_home":
+            return reset()
+        if (
+            action.kind != "translate" or action.up_m <= 0
+            or action.forward_m != 0 or action.right_m != 0 or action.yaw_delta_deg != 0
+        ):
+            return reset()
+        start_pos = (before.get("pose") or {}).get("local_ned_m")
+        end_pos = (after.get("pose") or {}).get("local_ned_m")
+        start_boot = before.get("pose_time_boot_ms")
+        end_boot = after.get("pose_time_boot_ms")
+        valid = (
+            status == "timeout"
+            and isinstance(start_pos, (list, tuple))
+            and len(start_pos) >= 3
+            and isinstance(end_pos, (list, tuple))
+            and len(end_pos) >= 3
+            and isinstance(start_boot, (int, float))
+            and isinstance(end_boot, (int, float))
+            and not isinstance(start_boot, bool)
+            and not isinstance(end_boot, bool)
+            and math.isfinite(start_boot) and math.isfinite(end_boot)
+            and 0 <= start_boot < end_boot
+            and (self._return_climb_end_boot is None or start_boot >= self._return_climb_end_boot)
+        )
+        if not valid:
+            return reset()
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+            for value in (start_pos[2], end_pos[2])
+        ):
+            return reset()
+
+        def low_airborne(sample, position) -> bool:
+            state = (sample.get("flight_state") or {}).get("landed_state")
+            # Explicit landed/landing/takeoff telemetry wins over a stale
+            # convenience boolean. Unknown state cannot confirm airborne.
+            airborne = sample.get("landed") is not True and (
+                state == 2 or (state is None and sample.get("landed") is False)
+            )
+            return max(0.0, -float(position[2])) <= RETURN_CLIMB_NEAR_GROUND_M and airborne
+
+        gain_m = float(start_pos[2]) - float(end_pos[2])
+        if (
+            gain_m >= RETURN_CLIMB_MIN_GAIN_M
+            or not low_airborne(before, start_pos) or not low_airborne(after, end_pos)
+        ):
+            return reset()
+        self._return_climb_failures += 1
+        self._return_climb_end_boot = float(end_boot)
+        height_m = max(0.0, -float(end_pos[2]))
+        attitude = after.get("attitude") or {}
+        roll = attitude.get("roll_deg")
+        pitch = attitude.get("pitch_deg")
+        sensors = []
+        for sample in after.get("energy_telemetry") or []:
+            message = sample.get("message", {}) if isinstance(sample, Mapping) else {}
+            if message.get("mavpackettype") == "SYS_STATUS":
+                health = message.get("onboard_control_sensors_health")
+                present = message.get("onboard_control_sensors_present")
+                if isinstance(health, int) and isinstance(present, int):
+                    sensors.append((present & ~health) != 0)
+        direct_health = after.get("sensor_health")
+        if isinstance(direct_health, bool):
+            sensors.append(not direct_health)
+        elif isinstance(after.get("sensor_status"), str):
+            sensors.append(after["sensor_status"].strip().lower() in {"bad", "degraded", "unhealthy"})
+        attitude_bad = any(
+            isinstance(value, (int, float)) and abs(float(value)) >= 90.0
+            for value in (roll, pitch)
+        )
+        sensor_bad = any(sensors)
+        self._return_climb_checks.append({
+            "start_boot_ms": start_boot, "end_boot_ms": end_boot,
+            "gain_m": gain_m, "height_m": height_m,
+            "attitude_bad": attitude_bad, "sensor_bad": sensor_bad,
+        })
+        self._return_climb_checks = self._return_climb_checks[-2:]
+        if self._return_climb_failures < RETURN_CLIMB_FAILURE_COUNT:
+            return False
+        self.return_climb_failure_suspected = True
+        self.alerts.append("climb_failed_suspected_loss_of_control")
+        self.mission_log.append({
+            "event": "climb_failed_suspected_loss_of_control",
+            "sim_time_s": float(end_boot) / 1000.0,
+            "height_m": height_m,
+            "consecutive_timeouts": self._return_climb_failures,
+            "attitude_bad": any(check["attitude_bad"] for check in self._return_climb_checks),
+            "sensor_bad": any(check["sensor_bad"] for check in self._return_climb_checks),
+            "samples": list(self._return_climb_checks),
+        })
+        self._finish("failed", "climb_failed_suspected_loss_of_control")
+        return True
+
     def _alert_for_track(self, run: _StepRun, track_id: str) -> None:
         track = run.loop.tracks.get(track_id)
         if (
@@ -1216,6 +1365,11 @@ class MissionExecutor:
             if result is None:
                 continue  # the step finished without moving; start the next one now
             action, info = result
+            gimbal_command = self._command_gimbal(run, pose_ned, yaw_deg)
+            if gimbal_command is not None:
+                info["gimbal_command"] = gimbal_command
+                if self.gimbal_controller is not None:
+                    info["gimbal_dispatched"] = True
             if action.kind == "translate" and self._translate_enters_no_fly(
                 pose_ned, yaw_deg, action
             ):
@@ -1258,6 +1412,49 @@ class MissionExecutor:
             return action, info
         return ActionPrimitive.hold(self.config.hold_s), {"mission": "stalled"}
 
+    def _command_gimbal(self, run: _StepRun, pose: Pose, yaw_deg: float) -> dict[str, float | str] | None:
+        """Aim the configured gimbal in world coordinates for the active skill."""
+        controller = self.gimbal_controller
+        mount = self.camera_mount
+        if mount is None or mount.kind != "gimbal":
+            return None
+        step = run.step
+        target: tuple[float, float] | None = None
+        if step.skill == "inspect":
+            target = run.centre_ne or self.resolve(str(step.params.get("target_ref", "")))
+        elif step.skill == "follow":
+            track = next((item for item in self._current if item.track_id == run.follow_track_id), None)
+            target = track.ground if track is not None else run.follow_last_position
+        elif step.skill in {"area_search", "count", "patrol", "monitor"}:
+            track = next((item for item in self._current if item.ground is not None), None)
+            target = track.ground if track is not None else None
+        if step.skill in {"survey", "count"}:
+            pitch_down = math.pi / 2.0
+            target_yaw = yaw_deg
+        elif target is not None:
+            dn, de = target[0] - pose[0], target[1] - pose[1]
+            distance = math.hypot(dn, de)
+            pitch_down = math.atan2(max(0.0, -pose[2]), max(distance, 1e-6))
+            target_yaw = math.degrees(math.atan2(de, dn))
+        else:
+            pitch_down = mount.pitch_rad
+            target_yaw = yaw_deg + math.degrees(mount.yaw_rad)
+        pitch_down = min(mount.limits.pitch_max_rad, max(mount.limits.pitch_min_rad, pitch_down))
+        yaw_world = math.radians(target_yaw)
+        command = {
+            "pitch_down_rad": float(pitch_down),
+            "yaw_world_rad": yaw_world,
+            "mode": mount.stabilization,
+        }
+        if controller is not None:
+            controller.command_pitch_yaw(
+                command["pitch_down_rad"],
+                math.radians(target_yaw),
+                mode=mount.stabilization,
+                vehicle_yaw_rad=math.radians(yaw_deg),
+            )
+        return command
+
     @staticmethod
     def _segment_circle_distance(
         start: tuple[float, float],
@@ -1293,7 +1490,7 @@ class MissionExecutor:
             return math.sqrt(action.forward_m**2 + action.right_m**2 + action.up_m**2) / 5.0
         if action.kind == "turn":
             return abs(action.yaw_delta_deg) / 90.0
-        return action.seconds if action.kind == "hold" else 0.0
+        return action.seconds if action.kind in {"hold", "continue"} else 0.0
 
     def estimated_seconds(self, action: ActionPrimitive, pose_ned: Pose | None = None) -> float:
         """Estimate action duration from the selected profile.
@@ -1369,7 +1566,7 @@ class MissionExecutor:
 
     def _budget(self, step: MissionStep, run: _StepRun | None = None) -> int:
         if step.skill == "land":
-            return max(1, self.config.landing_timeout_steps + 1)
+            return math.ceil(LAND_TIMEOUT_MAX_S / LAND_CONTINUE_SECONDS) + 2
         if step.skill == "hover":
             return max(self.config.step_budget, int(float(step.params["duration_s"])) + 2)
         if step.skill in {"patrol", "monitor"}:
@@ -2292,7 +2489,7 @@ class MissionExecutor:
                 math.atan2(run.centre_ne[1] - pose[1], run.centre_ne[0] - pose[0])
             )
             delta = _wrap(bearing - yaw)
-            if abs(delta) > self.config.turn_tolerance_deg:
+            if (self.camera_mount is None or self.camera_mount.kind != "gimbal") and abs(delta) > self.config.turn_tolerance_deg:
                 return ActionPrimitive.turn(delta), {"view": run.view_index + 1, "phase": "face"}
             run.phase = "capture"
             return ActionPrimitive.hold(self.config.hold_s), {
@@ -3655,23 +3852,48 @@ class MissionExecutor:
             self._finish("succeeded", "landed")
             return ActionPrimitive.stop(), {"phase": "landed"}
         if landed is None:
-            # A host that cannot expose EXTENDED_SYS_STATE still gets the
-            # historical bounded stop behaviour, but the record makes the
-            # missing confirmation explicit.
-            self._finish("succeeded", "landing_commanded_unconfirmed")
-            return ActionPrimitive.stop(), {"phase": "landing_commanded"}
+            # Landing is only complete after telemetry confirms it. Keep the
+            # step observable when landed state is temporarily unavailable.
+            if not run.landing_commanded:
+                run.landing_commanded = True
+                run.landing_wait_steps = 0
+                run.landing_start_altitude_m = max(0.0, -float(pose[2]))
+                return ActionPrimitive.land(), {"phase": "landing_commanded"}
+            run.landing_wait_steps += 1
+            if self._landing_timed_out(run):
+                self._finish("failed", "landing_timeout_no_telemetry")
+                return None
+            return ActionPrimitive.continue_running(), {
+                "phase": "landing_pending",
+                "landing_wait_steps": run.landing_wait_steps,
+                "landing_elapsed_s": run.elapsed_s,
+            }
         if not run.landing_commanded:
             run.landing_commanded = True
             run.landing_wait_steps = 0
-            return ActionPrimitive.stop(), {"phase": "landing_commanded"}
+            run.landing_start_altitude_m = max(0.0, -float(pose[2]))
+            return ActionPrimitive.land(), {"phase": "landing_commanded"}
         run.landing_wait_steps += 1
-        if run.landing_wait_steps >= self.config.landing_timeout_steps:
+        if self._landing_timed_out(run):
             self._finish("failed", "landing_timeout")
             return None
-        return ActionPrimitive.stop(), {
+        return ActionPrimitive.continue_running(), {
             "phase": "landing_pending",
             "landing_wait_steps": run.landing_wait_steps,
+            "landing_elapsed_s": run.elapsed_s,
         }
+
+    def _landing_timed_out(self, run: _StepRun) -> bool:
+        altitude = max(0.0, float(run.landing_start_altitude_m or 0.0))
+        timeout_s = min(
+            LAND_TIMEOUT_MAX_S,
+            max(
+                LAND_CONTINUE_SECONDS,
+                altitude / self.config.landing_descent_speed_mps * LAND_TIMEOUT_MARGIN
+                + LAND_TIMEOUT_GRACE_S,
+            ),
+        )
+        return run.elapsed_s >= timeout_s
 
     def _record(self, run, pose, yaw, ground_point, frame_id):
         if frame_id:

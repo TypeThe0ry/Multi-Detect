@@ -44,6 +44,55 @@ def test_target_fov_projection_and_range() -> None:
     assert not behind
 
 
+def test_target_fov_fixed_mount_keeps_legacy_and_gimbal_uses_world_camera_pose() -> None:
+    from multidetect.camera_mount import CameraMount
+
+    intrinsics = {"fx": 100.0, "fy": 100.0, "cx": 320.0, "cy": 240.0}
+    args = ((10.0, 0.0, 0.0), (0.0, 0.0, 0.0), 90.0, intrinsics, (640, 480))
+    legacy = target_in_fov(*args, camera_pitch_rad=0.0)
+    fixed = target_in_fov(*args, camera_pitch_rad=0.0, camera_mount=CameraMount.fixed())
+    assert fixed == legacy
+    # Vehicle faces east, while the stabilized camera points north at the target.
+    gimbal = CameraMount.gimbal(stabilization="lock-horizon")
+    aimed = target_in_fov(*args, camera_mount=gimbal)
+    assert aimed[0]
+
+
+def test_gimbal_expert_observation_emits_target_camera_command() -> None:
+    from multidetect.camera_mount import CameraMount
+
+    policy = ExpertSearchPolicy(
+        target_ned=(10.0, 0.0, 0.0),
+        intrinsics={"fx": 100.0, "fy": 100.0, "cx": 320.0, "cy": 240.0},
+        image_size=(640, 480),
+        camera_mount=CameraMount.gimbal(stabilization="lock-horizon"),
+        observation_frames=1,
+        observation_waypoints=((0.0, 0.0, 0.0),),
+    )
+    result = policy.labels(pose_ned=(0.0, 0.0, 0.0), yaw_deg=90.0)
+    # Without a fresh feedback pose the teacher must not claim that a commanded
+    # gimbal position is already visible.
+    assert result["target_in_fov"] is False
+    assert result["gimbal_command"]["yaw_world_rad"] == pytest.approx(0.0)
+    assert result["gimbal_command"]["mode"] == "lock-horizon"
+
+
+def test_gimbal_teacher_can_command_x500_nadir_limit() -> None:
+    from multidetect.autonomy.airframe_profile import load_airframe_profile
+
+    profile = load_airframe_profile("configs/airframes/x500_gimbal.json")
+    assert profile.camera_mount is not None
+    policy = ExpertSearchPolicy(
+        target_ned=(0.1, 0.0, 0.0),
+        intrinsics={"fx": 100.0, "fy": 100.0, "cx": 320.0, "cy": 240.0},
+        image_size=(640, 480),
+        camera_mount=profile.camera_mount.to_camera_mount(),
+    )
+    command = policy.labels(pose_ned=(0.0, 0.0, -10.0))["gimbal_command"]
+    assert command["pitch_down_rad"] == pytest.approx(math.atan2(10.0, 0.1), abs=1e-6)
+    assert command["pitch_down_rad"] > math.radians(45.0)
+
+
 def test_expert_search_state_machine() -> None:
     policy = ExpertSearchPolicy(
         target_ned=(20.0, 0.0, 0.0),

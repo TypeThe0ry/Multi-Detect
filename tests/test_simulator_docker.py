@@ -28,6 +28,10 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
 
     assert plan.image == PINNED_IMAGE
     assert plan.command[0:2] == ("docker", "run")
+    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "off"
+    assert dict(plan.environment)["MULTIDETECT_PX4_DAEMON"] == "1"
+    assert "px4_daemon_mode" in plan.to_mapping()
+    assert plan.command[-1].endswith("-d")
     assert ("--cap-drop", "ALL") == plan.command[
         plan.command.index("--cap-drop") : plan.command.index("--cap-drop") + 2
     ]
@@ -78,6 +82,65 @@ def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Pat
         ["docker", "stop", "--timeout", "2", "multidetect-sim"],
         ["docker", "rm", "multidetect-sim"],
     ]
+
+
+@pytest.mark.parametrize("mode", ["default", "off"])
+def test_logger_mode_is_recorded_and_off_disables_sdlog(tmp_path, monkeypatch, mode):
+    monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", mode)
+    plan = build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / mode)
+    environment = dict(plan.environment)
+    assert environment["MULTIDETECT_PX4_LOGGER_MODE"] == mode
+    assert plan.to_mapping()["environment"]["MULTIDETECT_PX4_LOGGER_MODE"] == mode
+    if mode == "off":
+        assert environment["SDLOG_BACKEND"] == "0"
+        assert environment["PX4_PARAM_SDLOG_BACKEND"] == "0"
+    else:
+        assert "SDLOG_BACKEND" not in environment
+
+
+def test_logger_mode_is_off_when_environment_is_unset(tmp_path, monkeypatch):
+    monkeypatch.delenv("MULTIDETECT_PX4_LOGGER_MODE", raising=False)
+    plan = build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "unset")
+    assert dict(plan.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "off"
+    assert dict(plan.environment)["SDLOG_BACKEND"] == "0"
+
+
+def test_logger_mode_rejects_poll_and_unknown_values(tmp_path, monkeypatch):
+    for mode in ("poll", "unknown"):
+        monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", mode)
+        with pytest.raises(DockerSimulatorPlanError, match="default or off"):
+            build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / mode)
+
+
+@pytest.mark.parametrize(("mode", "expected"), [("1", True), ("0", False)])
+def test_px4_daemon_mode_controls_startup_and_is_recorded(
+    tmp_path, monkeypatch, mode, expected
+):
+    monkeypatch.setenv("MULTIDETECT_PX4_DAEMON", mode)
+    plan = build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / f"daemon-{mode}")
+    environment = dict(plan.environment)
+    assert environment["MULTIDETECT_PX4_DAEMON"] == mode
+    assert plan.to_mapping()["px4_daemon_mode"] is expected
+    assert plan.command[-1].endswith(" -d") is expected
+
+
+def test_px4_daemon_mode_rejects_values_other_than_zero_or_one(tmp_path, monkeypatch):
+    monkeypatch.setenv("MULTIDETECT_PX4_DAEMON", "true")
+    with pytest.raises(DockerSimulatorPlanError, match="must be 0 or 1"):
+        build_docker_simulator_plan(SCENARIO, job_dir=tmp_path / "invalid-daemon")
+
+
+def test_gimbal_airframe_uses_px4_gimbal_model_without_starting_docker(tmp_path: Path) -> None:
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "gimbal",
+        airframe_profile_id="x500_gimbal",
+    )
+    env = dict(plan.environment)
+    assert env["PX4_SYS_AUTOSTART"] == "4019"
+    assert env["PX4_SIM_MODEL"] == "gz_x500_gimbal"
+    assert env["PX4_GZ_MODELS"] == "/opt/px4-gazebo/share/gz/models"
 
 
 @pytest.mark.parametrize(

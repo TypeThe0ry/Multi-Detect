@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "config": "r15-world-set.json",
+  "generated_index": "index.json",
+  "count": 4,
+  "seed": 20261125,
+  "world_prefix": "gen_r21id_r9p_w",
+  "split_counts": {
+    "train": 4,
+    "val": 0,
+    "test": 0
+  }
+}

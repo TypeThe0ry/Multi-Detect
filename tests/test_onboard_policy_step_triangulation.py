@@ -247,7 +247,9 @@ def test_multistep_find_position_drives_inspect_summary_and_persisted_downlink(t
     )
     subject._slow_identity = lambda *args: {"decision": "confirm_target", "confidence": 0.99}
     detection = Detection((290, 350, 350, 410), 0.9)
-    for index, east in enumerate((0.0, 10.0)):
+    # The second positive view must clear the onboard loop's independent-view
+    # bearing gate; a 10 m lateral shift is only ~18 degrees at this range.
+    for index, east in enumerate((0.0, 18.0)):
         camera = (0.0, east, -20.0)
         vector = (30.0, -east, 20.0)
         norm = math.hypot(*vector)

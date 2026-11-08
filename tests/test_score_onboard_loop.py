@@ -4,6 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from multidetect.simulator.task_semantics import task_equivalent
 
 
@@ -41,6 +43,33 @@ def test_loop_trajectory_position_uses_constant_speed_and_wraps() -> None:
     assert target_pose_at_time(
         {"pose": {"x_east_m": 0.0, "y_north_m": 0.0}, "trajectory": trajectory}, 1.0
     ) == {"x_east_m": 2.0, "y_north_m": 0.0}
+
+
+def test_old_fixed_camera_score_projection_is_numerically_unchanged(tmp_path: Path) -> None:
+    from multidetect.simulator.camera_projection import project_target_bbox
+    from scripts.score_onboard_loop import _true_box, episode_camera_pitch_rad
+
+    episode = tmp_path / "episode"
+    episode.mkdir()
+    (episode / "episode.json").write_text(
+        json.dumps({"airframe_profile": {"id": "x500_mono_cam"}}), encoding="utf-8"
+    )
+    observation = {
+        "camera_info": {"width": 1280, "height": 960, "fx": 540.0, "fy": 540.0, "cx": 640.0, "cy": 480.0},
+        "pose": {"local_ned_m": [3.0, -2.0, -22.0]},
+        "attitude": {"roll_deg": 2.0, "pitch_deg": -4.0, "yaw_deg": 35.0},
+    }
+    truth = {"targets": [{"true_target": True, "target_id": "t", "pose": {"x_east_m": 30.0, "y_north_m": 40.0, "z_up_m": 0.0}}]}
+    actual, source = _true_box(episode, observation, truth)
+    expected = project_target_bbox(
+        target_ned=(40.0, 30.0, 0.0),
+        pose=observation,
+        camera_info=observation["camera_info"],
+        image_size=(1280, 960),
+        camera_pitch_rad=episode_camera_pitch_rad(episode),
+    )
+    assert source == "projection"
+    assert actual == pytest.approx(expected)
 
 
 def test_moving_track_metrics_use_sim_truth_at_each_observation() -> None:
@@ -245,6 +274,70 @@ def test_count_metrics_match_findings_to_distinct_members() -> None:
     # Two findings near the same member: only one can match it.
     assert metrics["matched_count"] == 2 and metrics["false_findings"] == 1
     assert metrics["reported_count"] == 3 and metrics["count_exact"] is False
+
+
+def test_count_metrics_keeps_structured_report_before_terminal_mission_status() -> None:
+    from scripts.score_onboard_loop import _count_metrics
+
+    members = [
+        {"pose": {"y_north_m": 0.0, "x_east_m": 0.0}},
+        {"pose": {"y_north_m": 50.0, "x_east_m": 0.0}},
+    ]
+    # This is the recorded shape from a real episode: the count report is a
+    # mapping, then health recovery/mission completion emits mission="done".
+    rows = [
+        {
+            "labels": {
+                "onboard": {
+                    "mission": {
+                        "counts": {"s1": 2},
+                        "positions": ["0.5,0.0", "49.5,0.0"],
+                    }
+                }
+            }
+        },
+        {"labels": {"onboard": {"mission": "done"}}},
+    ]
+
+    metrics = _count_metrics(rows, members, 2.0)
+    assert metrics["reported_count"] == 2
+    assert metrics["matched_count"] == 2
+    assert metrics["false_findings"] == 0
+    assert metrics["count_exact"] is True
+
+
+def test_campaign_count_summary_ignores_non_count_mission_truth_members() -> None:
+    from scripts.eval_onboard_loop_campaign import _count_summary
+
+    complete = [
+        {
+            "mission_plan_skills": ["survey", "return_home"],
+            "expected_count": 3,
+            "reported_count": None,
+            "count_exact": False,
+        },
+        {
+            "mission_plan_skills": ["monitor", "return_home"],
+            "expected_count": 3,
+            "reported_count": None,
+            "count_exact": False,
+        },
+        {
+            "mission_plan_skills": ["count", "return_home"],
+            "expected_count": 3,
+            "reported_count": 3,
+            "count_exact": True,
+        },
+    ]
+
+    assert _count_summary(complete) == {
+        "count_exact_rate": 1.0,
+        "mean_abs_count_error": 0.0,
+    }
+    assert _count_summary(complete[:2]) == {
+        "count_exact_rate": None,
+        "mean_abs_count_error": None,
+    }
 
 
 def test_mission_metrics_score_alerts_coverage_inspect_and_completion() -> None:

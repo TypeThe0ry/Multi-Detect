@@ -268,7 +268,7 @@ def _normalized(box: tuple[float, float, float, float], width: int, height: int)
 
 def _project(obs: dict, targets: list[dict], sizes: dict[str, tuple[float, float, float]], width: int, height: int, obstacles=(), min_visible_fraction: float = 0.3, stats: Counter | None = None) -> list[dict]:
     projected = []
-    pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}}
+    pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}, **({"camera_pose": obs["camera_pose"]} if obs.get("camera_pose") else {})}
     for target in targets:
         metric = target.get("pose") or {}
         cls = _target_class(target)
@@ -428,8 +428,15 @@ def _scenario_is_fixed_wing(world: str, directories: tuple[Path, ...]) -> bool:
 
 def _sample_content_key(row: dict) -> str:
     """Return the model-visible identity used by ``_row``'s sample id."""
+    # Balance replicas are intentional exposures.  Keep their copy index in the
+    # key so a later content de-duplication pass cannot erase them.
+    balance_copy = row.get("balance_copy_index")
+    if balance_copy is None:
+        match = re.search(r"~(?:view-balance|confusable-view)-(\d+)$", str(row.get("sample_id", "")))
+        if match:
+            balance_copy = int(match.group(1))
     return json.dumps(
-        [row["world"], row["image_path"], row["task_text"], row["candidates"], row["assistant_target"]],
+        [row["world"], row["image_path"], row["task_text"], row["candidates"], row["assistant_target"], balance_copy],
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -441,9 +448,6 @@ def _dedupe_rows(rows: list[dict], stats: Counter) -> list[dict]:
     seen: dict[str, dict] = {}
     for row in rows:
         sample_id = str(row.get("sample_id", ""))
-        if "~view-balance-" in sample_id or "~confusable-view-" in sample_id:
-            kept.append(row)
-            continue
         key = _sample_content_key(row)
         previous = seen.get(key)
         if previous is None:
@@ -453,6 +457,57 @@ def _dedupe_rows(rows: list[dict], stats: Counter) -> list[dict]:
         stats["duplicate_rows"] += 1
         stats[f"duplicate_rows:{previous.get('label_type', 'unknown')}->{row.get('label_type', 'unknown')}"] += 1
     return kept
+
+
+def _category_descriptor(category: str) -> dict:
+    """Represent an asset/category name using its semantic parent words."""
+    aliases = {
+        "walking_person": ("person", ("person", "pedestrian", "walking person")),
+        "standing_person": ("person", ("person", "pedestrian", "standing person")),
+        "male_visitor": ("person", ("person", "man", "pedestrian")),
+        "hatchback": ("car", ("car", "hatchback")),
+        "hatchback_blue": ("car", ("car", "hatchback")),
+        "hatchback_red": ("car", ("car", "hatchback")),
+    }
+    parent, words = aliases.get(category, (category, (category.replace("_", " "),)))
+    return {"class": parent, "category_words": list(words), "color": None}
+
+
+def _category_task_equivalent(requested_category: str, candidate: dict) -> bool:
+    """Whether a candidate is a semantic subtype of the requested category."""
+    return task_equivalent(_category_descriptor(str(requested_category)), candidate)
+
+
+def _decision_conflict_key(row: dict) -> str:
+    candidates = row.get("candidates") or []
+    focus = row.get("focus_track_id")
+    focused = next(
+        (candidate for candidate in candidates if candidate.get("track_id") == focus),
+        candidates[0] if candidates else None,
+    )
+    return json.dumps(
+        [row.get("image_path"), row.get("task_text"), focused],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _validate_no_conflicting_decisions(rows: Sequence[dict]) -> int:
+    decisions: dict[str, str] = {}
+    conflicts: list[tuple[str, str, str]] = []
+    for row in rows:
+        key = _decision_conflict_key(row)
+        decision = str((row.get("assistant_target") or {}).get("decision", "unknown"))
+        previous = decisions.get(key)
+        if previous is not None and previous != decision:
+            conflicts.append((key, previous, decision))
+        else:
+            decisions[key] = decision
+    if conflicts:
+        sample = conflicts[0]
+        raise ValueError(f"conflicting decisions for identical model input ({len(conflicts)} groups): {sample[1]} vs {sample[2]}")
+    return 0
 
 
 def _append_generated_row(groups, kind: str, row: dict, stats: Counter) -> None:
@@ -646,8 +701,16 @@ def _coverage(inner, outer) -> float:
     return ix * iy / area if area > 0 else 0.0
 
 
-def _identity_match(box, track: str, confirm_min_side_px: float) -> dict:
-    if min(box[2] - box[0], box[3] - box[1]) >= confirm_min_side_px:
+def _identity_match(
+    box, track: str, confirm_min_side_px: float | None, *, range_m: float | None = None
+) -> dict:
+    min_side = min(box[2] - box[0], box[3] - box[1])
+    too_small = (
+        min_side < confirm_min_side_px
+        if confirm_min_side_px is not None
+        else (range_m is not None and range_m > 45) or min_side < 12
+    )
+    if not too_small:
         return _decision("confirm_target", track=track, reason="Candidate class and color match the task.")
     return _decision("approach_track", track=track, reason="Matching candidate is distant; approach for a closer view.")
 
@@ -681,7 +744,7 @@ def _counterfactual_negative_focus(named: dict, others: list[tuple[int, dict]], 
 CONFUSABLE_NEGATIVES = {
     "pickup": ("suv", "car"), "suv": ("pickup", "car"), "car": ("suv", "pickup", "postbox", "mailbox"),
     "person": ("jersey_barrier", "postbox", "mailbox"),
-    "jersey_barrier": ("person",), "postbox": ("person", "car", "pickup"), "mailbox": ("person", "car"),
+    "jersey_barrier": ("person",), "postbox": ("person", "car", "pickup", "suv"), "mailbox": ("person", "car"),
 }
 
 
@@ -691,6 +754,29 @@ def _confusable_task(category: str, variant: int) -> str:
              "postbox": ("postbox", "postbox"), "mailbox": ("mailbox", "mailbox")}
     name = names.get(category, (category, category))[variant % 2]
     return f"Find the {name} and record its position."
+
+
+def _confusable_negative_counter(
+    pair_key: str, view_metadata: dict | None, view_cap: int | None,
+) -> tuple[str, int]:
+    """Return the counter and limit for one hard-negative pair.
+
+    The historical path has one global 30-row cap.  r9r opts into a cap per
+    derived view so a pair cannot consume its entire budget before recovery.
+    """
+    base = f"confusable_pair:{pair_key}:reject"
+    if view_cap is None:
+        return base, 30
+    view = str((view_metadata or {}).get("view") or "missing")
+    return f"{base}:{view}", view_cap
+
+
+def _effective_confusable_negative_view_cap(
+    index_document: Mapping[str, object], requested: int | None,
+) -> int | None:
+    if requested is None and index_document.get("profile") == "r21id-r9r":
+        return 30
+    return requested
 
 
 def _balance_identity_views(
@@ -728,6 +814,7 @@ def _balance_identity_views(
             for index in range(added):
                 duplicate = dict(originals[rng.randrange(len(originals))])
                 duplicate["sample_id"] = f"{duplicate['sample_id']}~view-balance-{index + 1}"
+                duplicate["balance_copy_index"] = index + 1
                 result.append(duplicate)
     return result, report
 
@@ -760,6 +847,7 @@ def _balance_confusable_negative_views(
             for index in range(added):
                 duplicate = dict(originals[rng.randrange(len(originals))])
                 duplicate["sample_id"] = f"{duplicate['sample_id']}~confusable-view-{index + 1}"
+                duplicate["balance_copy_index"] = index + 1
                 result.append(duplicate)
     return result, report
 
@@ -960,6 +1048,7 @@ def build_dataset(
     balance_task_categories: float | None = None, max_upsample: int = 4,
     balance_identity_views: bool = False,
     balance_confusable_negative_views: bool = False,
+    confusable_negative_view_cap: int | None = None,
     task_variant_positive_cap: float | None = None,
     image_augmentation: str | Mapping[str, object] | None = None,
 ) -> dict:
@@ -975,6 +1064,8 @@ def build_dataset(
         raise ValueError("task_variant_positive_cap must be finite and non-negative")
     if max_upsample < 1:
         raise ValueError("max_upsample must be at least 1")
+    if confusable_negative_view_cap is not None and confusable_negative_view_cap < 1:
+        raise ValueError("confusable_negative_view_cap must be at least 1")
     if crop_policy not in {"none", "candidate_zoom_v1", "candidate_zoom_v2"}:
         raise ValueError("unsupported crop_policy")
     if identity_variant not in IDENTITY_VARIANTS:
@@ -982,6 +1073,9 @@ def build_dataset(
     if not 0.0 <= float(min_visible_fraction) <= 1.0:
         raise ValueError("min_visible_fraction must be in [0, 1]")
     index_document = _json(index)
+    confusable_negative_view_cap = _effective_confusable_negative_view_cap(
+        index_document, confusable_negative_view_cap,
+    )
     world_splits = {str(w["world_id"]): str(w["split"]) for w in index_document["worlds"]}
     world_metadata = {str(w["world_id"]): {"asset_mode": index_document.get("asset_mode"), **w} for w in index_document["worlds"]}
     # A full campaign has train/val/test; a top-up round (r15) only adds training
@@ -1097,12 +1191,27 @@ def build_dataset(
                     distractor_category = _target_category(p["target"])
                     for near_category in CONFUSABLE_NEGATIVES.get(distractor_category, ()):
                         near_task = _confusable_task(near_category, variant)
-                        same_category = [q for q in projected if _target_category(q["target"]) == near_category]
+                        # Semantic words can start with a parent category
+                        # (SUV truth has ["car", "suv"]). Match the requested
+                        # task rather than comparing only that first word.
+                        same_category = [
+                            q for q in projected
+                            if _category_task_equivalent(near_category, q["target"])
+                            and q["target"].get("asset_slug") not in held_out_slugs
+                        ]
+                        if _category_task_equivalent(near_category, p["target"]):
+                            stats["dropped_confusable_task_equivalent"] += 1
+                            continue
+                        # A matching true target does not invalidate a reject
+                        # for this different focused candidate in the same frame.
                         pair_key = f"{near_category}->{distractor_category}"
                         # Bound each directional pair family so the new hard
                         # negatives correct coverage without swamping r18 replay.
-                        if stats[f"confusable_pair:{pair_key}:reject"] < 30:
-                            stats[f"confusable_pair:{pair_key}:reject"] += 1
+                        pair_counter, pair_limit = _confusable_negative_counter(
+                            pair_key, view_metadata, confusable_negative_view_cap,
+                        )
+                        if stats[pair_counter] < pair_limit:
+                            stats[pair_counter] += 1
                             hard_negative = _row(
                                 world=world, split=split, frame=frame, task_text=near_task, box=p["box"], size=size,
                                 target=_decision("reject_track", track=f"track-{p_index + 1}", reason=f"Task asks for {near_category}; candidate is {distractor_category}."),
@@ -1114,20 +1223,27 @@ def build_dataset(
                         for q in same_category:
                             q_index = projected.index(q)
                             stats[f"confusable_pair:{pair_key}:positive"] += 1
+                            hard_target = _identity_match(
+                                q["box"], f"track-{q_index + 1}", confirm_min_side_px,
+                                range_m=q.get("range_m"),
+                            )
                             hard_positive = _row(
                                 world=world, split=split, frame=frame, task_text=near_task, box=q["box"], size=size,
-                                target=_decision("confirm_target", track=f"track-{q_index + 1}", reason="Candidate class matches the renamed task."),
-                                kind="confirm_target", campaign=campaign, label_type="confusable_positive",
+                                target=hard_target,
+                                kind=hard_target["decision"], campaign=campaign, label_type="confusable_positive",
                                 candidate_boxes=projected_boxes, focus_index=q_index, visible_fraction=q.get("visible_fraction"),
                                 task_category=near_category, view_metadata=view_metadata, target_id=q["target"].get("target_id"))
                             hard_positive["confusable_pair_type"] = pair_key
-                            buckets[split]["confirm_target"].append(hard_positive)
+                            buckets[split][hard_target["decision"]].append(hard_positive)
                 other_task = _counterfactual_task(p["target"], [o["target"] for o in projected], variant) if counterfactual_tasks and split != "test" else None
                 if other_task is not None:
                     # The same object is the answer when the task names it: identity
                     # depends on the task text, not on the object's class alone.
                     stats["counterfactual"] += 1
-                    match = _identity_match(p["box"], f"track-{p_index + 1}", confirm_min_side_px if confirm_min_side_px is not None else 20.0)
+                    match = _identity_match(
+                        p["box"], f"track-{p_index + 1}", confirm_min_side_px,
+                        range_m=p.get("range_m"),
+                    )
                     buckets[split][match["decision"]].append(_row(world=world, split=split, frame=frame, task_text=other_task, box=p["box"], size=size, target=match, kind=match["decision"], campaign=campaign, label_type="counterfactual", candidate_boxes=projected_boxes, focus_index=p_index, visible_fraction=p.get("visible_fraction"), task_category=row_task_category))
                     pick = _counterfactual_negative_focus(
                         p["target"], [(q_index, q["target"]) for q_index, q in enumerate(projected) if q_index != p_index], held_out_slugs,
@@ -1169,25 +1285,39 @@ def build_dataset(
                 )
                 if not text:
                     continue
+                # A requested asset alias may be a subtype of the primary
+                # category (walking_person -> person, hatchback -> car).  Such
+                # a task describes the true target and must never receive a
+                # reject label.
+                true_candidate = next(
+                    (item for item in projected if item["target"].get("target_id") == true_id),
+                    None,
+                )
+                semantic_alias = true_candidate is not None and _category_task_equivalent(
+                    requested_category, true_candidate["target"]
+                )
+                if semantic_alias:
+                    stats["dropped_confusable_task_equivalent"] += 1
                 pair_key = f"{requested_category}->{primary_category}"
                 for true_index, true_candidate in enumerate(projected):
                     if true_candidate["target"].get("target_id") != true_id:
                         continue
-                    rejected = _row(
-                        world=world, split=split, frame=frame, task_text=text,
-                        box=true_candidate["box"], size=size,
-                        target=_decision(
-                            "reject_track", track=f"track-{true_index + 1}",
-                            reason=f"Task asks for {requested_category}; candidate is {primary_category}.",
-                        ),
-                        kind="reject_track", campaign=campaign,
-                        label_type="confusable_negative", candidate_boxes=projected_boxes,
-                        focus_index=true_index, visible_fraction=true_candidate.get("visible_fraction"),
-                        task_category=requested_category, view_metadata=view_metadata or {},
-                        target_id=true_candidate["target"].get("target_id"),
-                    )
-                    rejected["confusable_pair_type"] = pair_key
-                    buckets[split]["reject_track"].append(rejected)
+                    if not semantic_alias:
+                        rejected = _row(
+                            world=world, split=split, frame=frame, task_text=text,
+                            box=true_candidate["box"], size=size,
+                            target=_decision(
+                                "reject_track", track=f"track-{true_index + 1}",
+                                reason=f"Task asks for {requested_category}; candidate is {primary_category}.",
+                            ),
+                            kind="reject_track", campaign=campaign,
+                            label_type="confusable_negative", candidate_boxes=projected_boxes,
+                            focus_index=true_index, visible_fraction=true_candidate.get("visible_fraction"),
+                            task_category=requested_category, view_metadata=view_metadata or {},
+                            target_id=true_candidate["target"].get("target_id"),
+                        )
+                        rejected["confusable_pair_type"] = pair_key
+                        buckets[split]["reject_track"].append(rejected)
                     for positive_index, positive_candidate in requested_candidates:
                         min_side = min(
                             positive_candidate["box"][2] - positive_candidate["box"][0],
@@ -1327,6 +1457,9 @@ def build_dataset(
                 raise ValueError("Duplicate sample ID")
             seen.add(row["sample_id"])
             parse_onboard_decision(row["assistant_target"])
+    conflict_count = 0
+    for rows in selected.values():
+        conflict_count += _validate_no_conflicting_decisions(rows)
     output.mkdir(parents=True, exist_ok=True)
     if image_augmentation is not None:
         _materialize_image_augmentation(selected, output, image_augmentation, seed, source_hashes)
@@ -1362,6 +1495,7 @@ def build_dataset(
         "world_splits": {"urban_inspection_multirotor_001": "train", **world_splits},
         "counts": {split: {"total": len(rows), "worlds": len({r["world"] for r in rows}), "decisions": dict(Counter(r["assistant_target"]["decision"] for r in rows)), "label_types": dict(Counter(r["label_type"] for r in rows))} for split, rows in selected.items()},
         "source_counts": dict(stats),
+        "conflicting_decision_groups": conflict_count,
         "visibility": {"min_visible_fraction": float(min_visible_fraction), "dropped_occluded": int(stats.get("dropped_occluded", 0))},
         "source_sha256": dict(sorted(source_hashes.items())),
         "output_sha256": output_hashes,
@@ -1370,6 +1504,8 @@ def build_dataset(
         report["image_augmentation"] = {"option": image_augmentation, "seed": seed}
     if task_text_variants:
         report["task_text_variants"] = True
+    if confusable_negative_view_cap is not None:
+        report["confusable_negative_view_cap"] = confusable_negative_view_cap
     if task_variant_cap_report is not None:
         report["task_variant_positive_cap"] = task_variant_cap_report
     if identity_variant != "default":
@@ -1389,11 +1525,13 @@ def build_dataset(
         report["identity_view_balance"] = {
             "max_upsample": max_upsample,
             "strata": train_view_report,
+            "effective_count": sum(item["final"] for item in train_view_report.values()),
         }
     if balance_confusable_negative_views:
         report["confusable_negative_view_balance"] = {
             "max_upsample": max_upsample,
             "strata": train_confusable_view_report,
+            "effective_count": sum(item["final"] for item in train_confusable_view_report.values()),
         }
     (output / "manifest.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return report
@@ -1426,10 +1564,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
     parser.add_argument("--balance-identity-views", action="store_true", help="train only: upsample task-category/decision strata to balance front, oblique, edge_truncated, and recovery views")
     parser.add_argument("--balance-confusable-negative-views", action="store_true", help="train only: upsample existing confusable-negative pair families toward view parity")
+    parser.add_argument(
+        "--confusable-negative-view-cap", type=int, default=None,
+        help="opt-in per-view cap for each confusable negative pair; default keeps the historical global cap",
+    )
     parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, task_text_variants=args.task_text_variants, task_variant_positive_cap=args.task_variant_positive_cap, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, image_augmentation=args.image_augmentation)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, task_text_variants=args.task_text_variants, task_variant_positive_cap=args.task_variant_positive_cap, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, confusable_negative_view_cap=args.confusable_negative_view_cap, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 

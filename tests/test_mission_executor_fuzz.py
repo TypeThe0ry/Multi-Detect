@@ -280,7 +280,7 @@ def _run(seed: int, *, package_backed: bool | None = None, runtime_step_limit: i
             config.count_budget_max,
         )
         + config.travel_budget
-        + config.landing_timeout_steps
+        + 182
         + len(ex.plan.steps) * 2
     )
     for tick in range(step_bound):

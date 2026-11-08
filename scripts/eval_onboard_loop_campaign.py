@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance  # noqa: E402
 from scripts.model_round_guard import ensure_free_disk  # noqa: E402
 from scripts.score_onboard_loop import score_episode  # noqa: E402
+from scripts.check_onboard_climb_px4_evidence import check_climb_fault_evidence  # noqa: E402
 
 
 def _episode_metadata(episode: Path) -> dict[str, Any]:
@@ -33,6 +34,55 @@ def _episode_metadata(episode: Path) -> dict[str, Any]:
     except (OSError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _climb_fault_evidence(episode: Path, enabled: bool) -> dict[str, Any] | None:
+    """Attach the read-only evidence classification only to opted-in campaigns."""
+    if not enabled:
+        return None
+    try:
+        return check_climb_fault_evidence(episode)
+    except Exception as exc:  # evidence must never change campaign scoring
+        return {
+            "checker": "onboard-climb-px4-evidence-checker",
+            "read_only": True,
+            "artifact": str(episode.resolve()),
+            "error": f"{type(exc).__name__}: {exc}",
+            "counts": None,
+            "points": [],
+        }
+
+
+def _is_count_task(row: dict[str, Any]) -> bool:
+    """Return whether generic count metrics apply to an episode.
+
+    Count-site truth contains ``count_member`` targets for survey and monitor
+    missions too. Their expected checks use coverage or alerts, so those truth
+    members must not make the count summary look like a failed count task.
+    Older episodes without mission labels retain the historical
+    ``expected_count`` fallback.
+    """
+    skills = row.get("mission_plan_skills")
+    if isinstance(skills, list):
+        return "count" in skills
+    return "expected_count" in row
+
+
+def _count_summary(complete: list[dict[str, Any]]) -> dict[str, float | None]:
+    count_rows = [row for row in complete if _is_count_task(row) and "expected_count" in row]
+    return {
+        "count_exact_rate": (
+            sum(row.get("count_exact", False) for row in count_rows) / len(count_rows)
+            if count_rows
+            else None
+        ),
+        "mean_abs_count_error": (
+            sum(abs((row.get("reported_count") or 0) - row["expected_count"]) for row in count_rows)
+            / len(count_rows)
+            if count_rows
+            else None
+        ),
+    }
 
 
 def episode_is_complete(episode: Path) -> bool:
@@ -111,6 +161,19 @@ def retry_failed_episodes(out: Path) -> list[Path]:
         shutil.move(str(episode), str(destination))
         archived.append(destination)
     return archived
+
+
+def unique_retry_targets(
+    failed: list[tuple[int | None, int | None]], completed_indices: set[int]
+) -> list[tuple[int | None, int | None]]:
+    """Return one retry per logical index, excluding indexes already completed."""
+    unique = {}
+    for episode_index, seed in failed:
+        if episode_index is not None and episode_index in completed_indices:
+            continue
+        key = ("index", episode_index) if episode_index is not None else ("seed", seed)
+        unique.setdefault(key, (episode_index, seed))
+    return list(unique.values())
 
 
 def _expert_reference(campaign: Path, world: str) -> dict[str, Any] | None:
@@ -207,14 +270,36 @@ def main(argv: list[str] | None = None) -> int:
         retry_targets: list[tuple[int | None, int | None]] = []
         if args.retry_failed_episodes and out.is_dir():
             failed = []
+            completed_indices = {
+                index
+                for episode in sorted((out / "episodes").glob("*"))
+                if episode.is_dir()
+                and episode_is_complete(episode)
+                and (index := _episode_index(episode)) is not None
+            }
             for episode in sorted((out / "episodes").glob("*")):
                 if episode.is_dir() and not episode_is_complete(episode):
                     metadata = _episode_metadata(episode)
                     failed.append(
                         (_episode_index(episode, metadata), _episode_seed(episode, metadata))
                     )
-            retry_failed_episodes(out)
-            retry_targets = failed
+            # Multiple interrupted directories can belong to one logical
+            # episode (for example after an earlier retry). Archive every
+            # directory, but collect that episode only once on resume.
+            archived = retry_failed_episodes(out)
+            if archived:
+                print(
+                    json.dumps(
+                        {
+                            "world": world_id,
+                            "resume_action": "archived_incomplete_episodes",
+                            "episodes": [str(path) for path in archived],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+            retry_targets = unique_retry_targets(failed, completed_indices)
         complete_dirs = (
             [
                 episode
@@ -420,6 +505,12 @@ def main(argv: list[str] | None = None) -> int:
                 task_text=world.get("task_text"),
                 target=world.get("target_combo"),
             )
+            evidence = _climb_fault_evidence(
+                episode,
+                bool(mission_config and mission_config.get("sim_climb_timeout_injection")),
+            )
+            if evidence is not None:
+                scored["climb_fault_evidence"] = evidence
             rows.append(scored)
             print(
                 json.dumps(
@@ -437,6 +528,7 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
     complete = [r for r in rows if r["status"] == "complete"]
+    count_summary = _count_summary(complete)
     summary = {
         "worlds": [w["world_id"] for w in worlds],
         "episodes": len(rows),
@@ -458,17 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         "no_confirm_rate": sum(not r["confirmed"] for r in complete) / len(complete)
         if complete
         else None,
-        "count_exact_rate": (
-            sum(r.get("count_exact", False) for r in complete) / len(complete)
-            if complete and any("expected_count" in r for r in complete)
-            else None
-        ),
-        "mean_abs_count_error": (
-            sum(abs((r.get("reported_count") or 0) - r["expected_count"]) for r in complete)
-            / len(complete)
-            if complete and all("expected_count" in r for r in complete)
-            else None
-        ),
+        **count_summary,
         "median_position_error_m": sorted(
             r["position_error_m"] for r in complete if r.get("position_error_m") is not None
         )[len([r for r in complete if r.get("position_error_m") is not None]) // 2]

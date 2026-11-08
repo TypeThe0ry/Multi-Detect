@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from multidetect.autonomy.airframe_profile import airframe_profile_category
 from multidetect.simulator.cpu import resolve_cpu_isolation
 from multidetect.sim_network import sim_network_mode
 from scripts.platform_paths import default_llama_server
@@ -105,6 +106,35 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def recorded_episode_is_complete(record: dict) -> bool:
+    """Trust a saved collection completion only while its artifact still verifies."""
+    if record.get("status") != "complete":
+        return False
+    path_value = record.get("path")
+    expected_hash = record.get("sha256")
+    if not path_value or not expected_hash:
+        return False
+    path = Path(path_value)
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        return metadata.get("status") == "complete" and sha256(path) == expected_hash
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def incomplete_episode_artifacts(target: Path) -> list[str]:
+    """Find earlier collector outputs without a final complete status."""
+    paths = []
+    for path in sorted(target.glob("attempt-*/**/episode-*/episode.json")):
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            metadata = {}
+        if not isinstance(metadata, dict) or metadata.get("status") != "complete":
+            paths.append(str(path))
+    return paths
+
+
 def bucket(short_side: float) -> str:
     for edge, name in zip((12, 16, 20, 32), BUCKETS, strict=False):
         if short_side < edge:
@@ -123,6 +153,65 @@ def content_digest(row: dict) -> str:
     return hashlib.sha256(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def decision_conflict_key(row: dict) -> str:
+    candidates = row.get("candidates") or []
+    focus = row.get("focus_track_id")
+    focused = next(
+        (candidate for candidate in candidates if candidate.get("track_id") == focus),
+        candidates[0] if candidates else None,
+    )
+    return json.dumps(
+        [row.get("image_path"), row.get("task_text"), focused],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def validate_no_conflicting_decisions(rows: list[dict]) -> int:
+    decisions: dict[str, str] = {}
+    conflicts = 0
+    for row in rows:
+        key = decision_conflict_key(row)
+        decision = str((row.get("assistant_target") or {}).get("decision", "unknown"))
+        previous = decisions.get(key)
+        if previous is not None and previous != decision:
+            conflicts += 1
+        else:
+            decisions[key] = decision
+    if conflicts:
+        raise ValueError(f"conflicting decisions for identical model input ({conflicts} groups)")
+    return conflicts
+
+
+def drop_legacy_conflicting_confusable_positives(rows: list[dict]) -> tuple[list[dict], int]:
+    """Remove historical alias positives superseded by an original label.
+
+    Older replay sets contain ``confusable_positive`` rows for a task/candidate
+    that already has a true-target or counterfactual label.  They are semantic
+    duplicates, so retaining both would make the new post-merge conflict gate
+    reject an otherwise clean r6 additions set.
+    """
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        groups.setdefault(decision_conflict_key(row), []).append(row)
+    kept: list[dict] = []
+    dropped = 0
+    protected_labels = {"true_target", "proposal_true", "counterfactual", "proposal_counterfactual"}
+    for group in groups.values():
+        labels = {str(row.get("label_type")) for row in group}
+        decisions = {str((row.get("assistant_target") or {}).get("decision")) for row in group}
+        if len(decisions) > 1 and "confusable_positive" in labels and labels & protected_labels:
+            for row in group:
+                if row.get("label_type") == "confusable_positive":
+                    dropped += 1
+                else:
+                    kept.append(row)
+        else:
+            kept.extend(group)
+    return kept, dropped
 
 
 def merge_without_copies(base: list[dict], additions: list[dict]) -> list[dict]:
@@ -161,6 +250,25 @@ def distribution(rows: list[dict]) -> dict:
         )
         stats[(cls, size, polarity)] += 1
     return {"|".join(key): value for key, value in sorted(stats.items())}
+
+
+def effective_view_counts(rows: list[dict]) -> dict:
+    identity: Counter = Counter()
+    hard_pairs: Counter = Counter()
+    positive = {"confirm_target", "approach_track"}
+    for row in rows:
+        view = str(row.get("view") or "missing")
+        decision = str((row.get("assistant_target") or {}).get("decision", "unknown"))
+        polarity = "positive" if decision in positive else "negative" if decision == "reject_track" else "other"
+        category = str(row.get("task_category") or row.get("target_class") or "unknown")
+        identity[(category, polarity, view)] += 1
+        pair = row.get("confusable_pair_type")
+        if pair and row.get("label_type") == "confusable_negative" and decision == "reject_track":
+            hard_pairs[(str(pair), view)] += 1
+    return {
+        "task_category_polarity_view": {"|".join(key): value for key, value in sorted(identity.items())},
+        "confusable_negative_pair_view": {"|".join(key): value for key, value in sorted(hard_pairs.items())},
+    }
 
 
 def r21id_r2_breakdown(rows: list[dict]) -> dict:
@@ -654,6 +762,50 @@ def round_world_ids(index: Path) -> list[str]:
     return [str(item["world_id"]) for item in doc.get("worlds", []) if item.get("world_id")]
 
 
+def selected_episode_metadata(
+    keys_file: Path | None, key_roots: list[Path], data_root: Path
+) -> list[Path]:
+    """Resolve audited logical keys through each root's final round-state path."""
+    if keys_file is None:
+        if key_roots:
+            raise ValueError("--episode-key-root requires --episode-keys-file")
+        return []
+    if not key_roots:
+        raise ValueError("--episode-keys-file requires at least one --episode-key-root")
+    keys = [line.strip() for line in keys_file.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    if len(keys) != len(set(keys)):
+        raise ValueError("episode key list contains duplicates")
+    found: dict[str, Path] = {}
+    for root_arg in key_roots:
+        root = root_arg if root_arg.is_absolute() else data_root / root_arg
+        state_path = root / "pipeline" / "round-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        for key in keys:
+            record = state.get("episodes", {}).get(key)
+            if record is None:
+                continue
+            if record.get("status") != "complete" or not record.get("path"):
+                raise ValueError(f"episode key {key} is not complete in {state_path}")
+            metadata = Path(record["path"])
+            if not metadata.is_absolute():
+                metadata = root / metadata
+            metadata = metadata.resolve(strict=True)
+            episode = json.loads(metadata.read_text(encoding="utf-8"))
+            world = next((part for part in metadata.parts if part.startswith("gen_")), None)
+            ep_parent = next((part for part in metadata.parts if part.startswith("ep-")), None)
+            if episode.get("status") not in (None, "complete") or f"{world}:{ep_parent[3:]}" != key:
+                raise ValueError(f"episode key/path/status mismatch for {key}: {metadata}")
+            if key in found:
+                raise ValueError(f"episode key {key} appears in multiple key roots")
+            found[key] = metadata.parent
+    missing = sorted(set(keys) - found.keys())
+    if missing:
+        raise ValueError(f"episode keys absent from complete round-state paths: {missing}")
+    print(f"[episode-keys] selected {len(found)} audited logical episodes")
+    return [found[key] for key in keys]
+
+
 def filter_collection_options(options: dict, categories: set[str] | None = None) -> dict:
     """Select scenario options by resolved airframe category."""
     selected = set(categories or ())
@@ -954,7 +1106,12 @@ class Round:
         # never be mistaken for this key's episode (or another key's).
         prefix = cmd[cmd.index("--container-prefix") + 1]
         attempt = 0
-        try_index = 0
+        existing_attempts = [
+            int(path.name.removeprefix("attempt-"))
+            for path in target.glob("attempt-*")
+            if path.is_dir() and path.name.removeprefix("attempt-").isdigit()
+        ]
+        try_index = max(existing_attempts, default=-1) + 1
         docker_outages = 0
         while attempt <= self.a.retries:
             if getattr(self, "_docker_abort", None) and self._docker_abort.is_set():
@@ -1047,18 +1204,7 @@ class Round:
         for scenario in scenarios:
             try:
                 airframe, takeoff, _ = self._collection_airframe(scenario)
-                from scripts.collect_sim_teacher_episodes import _airframe_profile
-
-                profile = _airframe_profile(airframe, takeoff)
-                category = str(getattr(profile, "category", ""))
-                if not category:
-                    normalized_airframe = airframe.lower().replace("-", "_")
-                    category = (
-                        "multirotor" if normalized_airframe in {"x500", "x500_mono_cam", "multirotor"}
-                        else "fixed_wing" if normalized_airframe in {"fixed_wing", "fw"}
-                        else "vtol" if normalized_airframe == "vtol"
-                        else ""
-                    )
+                category = airframe_profile_category(airframe, takeoff, base_dir=ROOT)
                 if category not in {"multirotor", "fixed_wing", "vtol"}:
                     raise ValueError(f"airframe {airframe!r} has unsupported category {category!r}")
                 collection_options[scenario] = (airframe, takeoff, category)
@@ -1098,8 +1244,15 @@ class Round:
             airframe, takeoff_method, _category = collection_options[scenario]
             for idx in range(getattr(self.a, "episodes_per_world", R15_EPISODES_PER_WORLD)):
                 key = f"{world}:{idx}"
-                if self.state["episodes"].get(key, {}).get("status") == "complete":
+                prior = self.state["episodes"].get(key, {})
+                if recorded_episode_is_complete(prior):
                     continue
+                if prior.get("status") == "complete":
+                    prior["resume_action"] = "rerun_unverified_completion"
+                    self.state["episodes"][key] = prior
+                    print(
+                        f"[collect] {key}: saved completion has no verified final episode; rerunning"
+                    )
                 worker = idx % self.a.workers
                 target = self.a.episodes / world / f"ep-{idx}"
                 cmd = [
@@ -1189,6 +1342,9 @@ class Round:
             slots.put(slot)
 
         def run_on_free_slot(key: str, cmd: list[str], target: Path):
+            interrupted = incomplete_episode_artifacts(target)
+            if interrupted:
+                print(f"[collect] {key}: 重跑中断 episode；保留原始目录：{interrupted}")
             slot = slots.get()
             try:
                 lock = SitlLock(
@@ -1196,6 +1352,7 @@ class Round:
                     label=f"r15-worker-slot-{slot}",
                     slots=configured_slot_count(),
                     min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
+                    priority=int(os.environ.get("MULTIDETECT_SITL_COLLECTION_PRIORITY", "0")),
                 )
                 lock.acquire()
                 try:
@@ -1204,7 +1361,11 @@ class Round:
                     slot_env = os.environ.copy()
                     slot_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
                     slot_env["MULTIDETECT_SITL_SLOT"] = str(slot)
-                    return self._collect_one(key, slotted, target, env=slot_env)
+                    result = self._collect_one(key, slotted, target, env=slot_env)
+                    if interrupted:
+                        result["resume_action"] = "reran_after_incomplete_episode"
+                        result["interrupted_episodes"] = interrupted
+                    return result
                 finally:
                     lock.release()
             finally:
@@ -1263,6 +1424,13 @@ class Round:
             for world in world_ids:
                 if (root / world).is_dir():
                     cmd += ["--campaign", str(root / world)]
+        selected = selected_episode_metadata(
+            getattr(self.a, "episode_keys_file", None),
+            getattr(self.a, "episode_key_root", []),
+            getattr(self.a, "data_root", ROOT),
+        )
+        for episode_dir in selected:
+            cmd += ["--campaign", str(episode_dir)]
         if "--campaign" not in cmd and not self.a.dry_run:
             raise RuntimeError(
                 f"annotate 找不到本轮 index 中任何 world 的采集目录：{[str(r) for r in roots]}"
@@ -1323,6 +1491,13 @@ class Round:
                     "不能重建 SFT；请恢复原 r15-additions 或重新采集"
                 )
             extra = [arg for root in self.a.extra_episodes for arg in ("--campaign", str(root))]
+            selected = selected_episode_metadata(
+                getattr(self.a, "episode_keys_file", None),
+                getattr(self.a, "episode_key_root", []),
+                getattr(self.a, "data_root", ROOT),
+            )
+            for episode_dir in selected:
+                extra.extend(("--campaign", str(episode_dir)))
             cmd = [
                 sys.executable,
                 "scripts/build_slow_system_sft.py",
@@ -1744,6 +1919,8 @@ def merge_cli(args):
                 rows, {row_key(row) for row in full}, target_ratio, seed=args.seed
             )
             trim_report["r12_negative_top_up"] = top_up_count
+        rows, legacy_conflicts_dropped = drop_legacy_conflicting_confusable_positives(rows)
+        validate_no_conflicting_decisions(rows)
         (out / f"{split}.jsonl").write_text(
             "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows),
             encoding="utf-8",
@@ -1754,6 +1931,10 @@ def merge_cli(args):
             "r15_additions": len(added),
             "merged": len(rows),
             "classes_size_polarity": distribution(rows),
+            "effective_rows": len(rows),
+            "balance_copy_rows": sum(1 for row in rows if row.get("balance_copy_index") is not None),
+            "legacy_conflicting_confusable_positives_dropped": legacy_conflicts_dropped,
+            "effective_view_counts": effective_view_counts(rows),
         }
         if addition_filter is not None:
             stats[split]["r21id_r2_filter"] = addition_filter
@@ -1951,6 +2132,10 @@ def main():
         default=[],
         help="more campaign roots (e.g. confuser flights) to annotate and build from",
     )
+    p.add_argument("--episode-keys-file", type=Path, default=None,
+                   help="audited logical episode keys, one per line")
+    p.add_argument("--episode-key-root", type=Path, action="append", default=[],
+                   help="round root whose pipeline/round-state.json resolves selected keys")
     p.add_argument(
         "--teacher-target",
         choices=("true", "confuser"),

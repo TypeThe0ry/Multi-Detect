@@ -532,6 +532,34 @@ class PymavlinkPrimitiveExecutor:
             if wall_timeout_hit:
                 ack["wall_timeout"] = True
             return ExecutionResult(status, held, ack=ack)
+        if action.kind == "continue":
+            while True:
+                now = self._clock()
+                if now - start_time >= action.seconds or not wall_progress_ok(now):
+                    break
+                self._send_setpoint(*start_pos, start_yaw)
+                self._sleep(1.0 / self.stream_hz)
+            held = self._clock() - start_time
+            status = "success" if held >= action.seconds else "timeout"
+            ack = {"continue": True}
+            if wall_timeout_hit:
+                ack["wall_timeout"] = True
+            return ExecutionResult(status, held, ack=ack)
+        if action.kind == "land":
+            set_mode = getattr(self.vehicle, "set_mode", None)
+            if not callable(set_mode):
+                return ExecutionResult(
+                    "failed",
+                    self._clock() - start_time,
+                    ack={"error": "vehicle lacks set_mode for LAND"},
+                )
+            try:
+                set_mode("LAND")
+            except Exception as exc:
+                return ExecutionResult(
+                    "failed", self._clock() - start_time, ack={"error": str(exc)}
+                )
+            return ExecutionResult("success", self._clock() - start_time, ack={"mode": "LAND"})
         if action.kind == "stop":
             self._send_setpoint(*start_pos, start_yaw)
             return ExecutionResult("success", self._clock() - start_time)
@@ -568,7 +596,7 @@ class PymavlinkPrimitiveExecutor:
         return ExecutionResult(
             result,
             elapsed,
-            tuple(current[i] - start_pos[i] for i in range(3)),
+            tuple(current[i] - measured_start[i] for i in range(3)),
             float(self._yaw()) - start_yaw,
             ack,
         )

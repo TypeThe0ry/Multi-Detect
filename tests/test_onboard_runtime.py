@@ -180,6 +180,72 @@ def test_runtime_calls_final_arbiter_before_pump_target() -> None:
         runtime.close()
 
 
+def test_mission_landing_allows_only_land_mode_and_landed_disarm() -> None:
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    runtime = OnboardRuntime(vehicle, camera, SlowPolicy(), config=RuntimeConfig())
+    runtime.start()
+    try:
+        runtime._send_landing_once(vehicle.snapshot())
+        deadline = time.monotonic() + 1.0
+        while not runtime._landing_commanded and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert runtime._landing_commanded
+        vehicle.mode = "AUTO.LAND"
+        runtime._guard()
+        assert runtime.hazard is None
+        vehicle.landed = True
+        vehicle.armed = False
+        runtime._guard()
+        assert runtime.hazard is None
+        assert runtime.pump is not None and not runtime.pump._stream_enabled
+    finally:
+        runtime.close()
+
+
+def test_mission_landing_does_not_mask_unrelated_mode_change() -> None:
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    runtime = OnboardRuntime(vehicle, camera, SlowPolicy(), config=RuntimeConfig())
+    runtime.start()
+    try:
+        runtime._send_landing_once(vehicle.snapshot())
+        deadline = time.monotonic() + 1.0
+        while not runtime._landing_commanded and time.monotonic() < deadline:
+            time.sleep(0.005)
+        vehicle.mode = "POSCTL"
+        runtime._guard()
+        assert runtime.hazard == "offboard_exited"
+    finally:
+        runtime.close()
+
+
+def test_mission_landing_retries_after_vehicle_land_failure() -> None:
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    calls = []
+    original = vehicle.land
+
+    def flaky_land():
+        calls.append(len(calls))
+        if len(calls) == 1:
+            raise RuntimeError("temporary command failure")
+        return original()
+
+    vehicle.land = flaky_land
+    runtime = OnboardRuntime(vehicle, camera, SlowPolicy(), config=RuntimeConfig())
+    runtime.start()
+    try:
+        runtime._send_landing_once(vehicle.snapshot())
+        deadline = time.monotonic() + 1.0
+        while runtime._command_thread is not None and runtime._command_thread.is_alive():
+            time.sleep(0.005)
+        assert not runtime._landing_commanded
+        runtime.poll()
+        while not runtime._landing_commanded and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert runtime._landing_commanded and len(calls) == 2
+    finally:
+        runtime.close()
+
+
 def test_runtime_has_one_checked_setpoint_boundary():
     source = inspect.getsource(OnboardRuntime)
     assert source.count("self.pump.set_target(") == 1

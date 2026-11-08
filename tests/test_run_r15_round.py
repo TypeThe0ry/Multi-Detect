@@ -13,6 +13,7 @@ from scripts.run_r15_round import (
     merge_without_copies,
     stratified_replay,
     filter_r21id_r2_additions,
+    selected_episode_metadata,
 )
 from scripts.train_slow_system_lora import initialize_adapter, resolve_adapter_weights
 
@@ -110,6 +111,29 @@ def test_r21id_train_command_passes_learning_rate_and_hot_start(tmp_path):
     command = captured[0][1]
     assert command[command.index("--learning-rate") + 1] == "2e-05"
     assert command[command.index("--init-adapter") + 1] == str(args.r12_adapter)
+
+
+def test_selected_episode_metadata_filters_logical_keys_and_rejects_failed(tmp_path):
+    root = tmp_path / "r7"
+    state_dir = root / "pipeline"
+    episode_dir = root / "episodes" / "gen_r21id_r7_w0000" / "ep-0" / "attempt-0" / "episodes" / "episode-0000-abcd"
+    episode_dir.mkdir(parents=True)
+    (episode_dir / "episode.json").write_text('{"status":"complete","episode_index":0}', encoding="utf-8")
+    state_dir.mkdir()
+    (state_dir / "round-state.json").write_text(
+        '{"episodes":{"gen_r21id_r7_w0000:0":{"status":"complete","path":"'
+        + str(episode_dir / "episode.json")
+        + '"},"gen_r21id_r7_w0013:0":{"status":"failed"}}}',
+        encoding="utf-8",
+    )
+    keys = tmp_path / "keys.txt"
+    keys.write_text("gen_r21id_r7_w0000:0\n", encoding="utf-8")
+    selected = selected_episode_metadata(keys, [root], tmp_path)
+    assert selected == [episode_dir]
+    keys.write_text("gen_r21id_r7_w0013:0\n", encoding="utf-8")
+    import pytest
+    with pytest.raises(ValueError, match="not complete"):
+        selected_episode_metadata(keys, [root], tmp_path)
 
 
 def test_merge_uses_explicit_additions_path(tmp_path):
@@ -766,6 +790,45 @@ def test_merge_gate_still_fails_when_true_positives_alone_tilt_the_mix(tmp_path:
         _write_jsonl(add / f"{split}.jsonl", [])
 
     with pytest.raises(SystemExit, match="positive ratio"):
+        merge_cli(_merge_args(tmp_path))
+
+
+def test_merge_preserves_explicit_balance_copies_and_reports_effective_rows(tmp_path: Path):
+    import json
+    from scripts.run_r15_round import merge_cli
+
+    _r12_dataset(tmp_path)
+    add = tmp_path / "add"
+    add.mkdir()
+    original = _identity("copy-source", "reject_track", "distractor")
+    copy = {**original, "sample_id": "copy-source~view-balance-1", "balance_copy_index": 1}
+    _write_jsonl(add / "train.jsonl", [original, copy])
+    for split in ("val", "test"):
+        _write_jsonl(add / f"{split}.jsonl", [])
+
+    merge_cli(_merge_args(tmp_path))
+    rows = [json.loads(line) for line in (tmp_path / "merged" / "train.jsonl").read_text().splitlines()]
+    assert sum(row.get("balance_copy_index") == 1 for row in rows) == 1
+    manifest = json.loads((tmp_path / "merged" / "manifest.json").read_text())
+    assert manifest["counts"]["train"]["effective_rows"] == len(rows)
+    assert manifest["counts"]["train"]["balance_copy_rows"] == 1
+
+
+def test_merge_rejects_conflicting_decisions_for_same_model_input(tmp_path: Path):
+    import pytest
+    from scripts.run_r15_round import merge_cli
+
+    _r12_dataset(tmp_path)
+    add = tmp_path / "add"
+    add.mkdir()
+    base = _identity("same", "confirm_target", "true_target", image="same.png", task="Find the person.")
+    reject = {**base, "sample_id": "same-reject", "assistant_target": {"decision": "reject_track"}}
+    _write_jsonl(add / "train.jsonl", [reject])
+    for split in ("val", "test"):
+        _write_jsonl(add / f"{split}.jsonl", [])
+    # Put the accepting row in the base dataset so the post-merge gate sees both.
+    _write_jsonl(tmp_path / "r12" / "train.jsonl", [_identity(f"r12-p{i}", "confirm_target", "true_target") for i in range(40)] + [base] + [_identity(f"r12-n{i}", "reject_track", "distractor") for i in range(60)])
+    with pytest.raises(ValueError, match="conflicting decisions"):
         merge_cli(_merge_args(tmp_path))
 
 

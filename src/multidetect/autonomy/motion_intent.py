@@ -679,7 +679,7 @@ class AirframeMotionAdapter:
                 metadata={"fail_closed": True},
             )
         if self.profile.category == "vtol" and self.mode == "MC":
-            if action.kind == "hold":
+            if action.kind in {"hold", "continue"}:
                 return MotionCommand(
                     "mc_hold",
                     target_ned=pose,
@@ -688,6 +688,8 @@ class AirframeMotionAdapter:
                     mode="MC",
                     metadata=meta,
                 )
+            if action.kind == "land":
+                return MotionCommand("mc_land", target_ned=pose, mode="MC", metadata=meta)
             if action.kind == "stop":
                 if isinstance(onboard, Mapping) and onboard.get("supervisor_action") == "land_now":
                     return MotionCommand("mc_land", target_ned=pose, mode="MC", metadata=meta)
@@ -753,7 +755,7 @@ class AirframeMotionAdapter:
                     reason="fixed-wing fly-by pass",
                     metadata=meta,
                 )
-        if action.kind == "hold":
+        if action.kind in {"hold", "continue"}:
             return MotionCommand(
                 "loiter",
                 target_ned=pose,
@@ -763,6 +765,8 @@ class AirframeMotionAdapter:
                 mode=self.mode,
                 metadata=meta,
             )
+        if action.kind == "land":
+            return MotionCommand("fw_land", target_ned=pose, mode=self.mode, metadata=metadata or {})
         if action.kind == "stop":
             return MotionCommand("stop", target_ned=pose, mode=self.mode, metadata=metadata or {})
         if action.kind == "turn":

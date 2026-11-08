@@ -623,6 +623,7 @@ def test_px4_logger_mode_override_and_default_preserve_other_airframes(tmp_path,
         ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json",
         job_dir=tmp_path / "default",
         gpu_render=False,
+        px4_logger_mode="default",
     )
     assert dict(default.environment)["MULTIDETECT_PX4_LOGGER_MODE"] == "default"
     assert "rc.logging" not in default.command[-1]

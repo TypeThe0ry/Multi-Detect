@@ -29,6 +29,8 @@ DEPTH_WIRE_MAX_SKEW_NS = 100_000_000
 DEPTH_WIRE_ENCODINGS = frozenset({"FLOAT32_M", "UINT16_MM"})
 DEPTH_WIRE_REGISTRATION = "registered_to_rgb"
 DEPTH_WIRE_COORDINATE_SPACE = "rgb_pixel_aligned"
+# PX4 x500_gimbal sets rotorVelocitySlowdownSim=10; Gazebo joint velocity is physical speed / 10.
+ROTOR_VELOCITY_SLOWDOWN = 10
 
 
 class GazeboDepthWireError(ValueError):
@@ -88,6 +90,16 @@ def _positive_int(value: object, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise GazeboDepthWireError(f"{name} must be a positive integer")
     return value
+
+
+def _finite_number(value: object, name: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+    ):
+        raise GazeboDepthWireError(f"{name} must be finite")
+    return float(value)
 
 
 def _sequence(value: object) -> int:
@@ -175,7 +187,9 @@ def _validate_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
     normalized["stride_bytes"] = stride
     if "joint_state" in normalized:
         joint_state = normalized["joint_state"]
-        if not isinstance(joint_state, dict) or set(joint_state) != {
+        if not isinstance(joint_state, dict):
+            raise GazeboDepthWireError("joint_state must be an object")
+        if set(joint_state) != {
             "timestamp_ns",
             "source_timestamp_ns",
             "source_skew_ns",
@@ -197,12 +211,64 @@ def _validate_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
             or skew > DEPTH_WIRE_MAX_SKEW_NS
         ):
             raise GazeboDepthWireError("joint state source timestamp is stale or inconsistent")
-        for name in ("gimbal_joint_state", "propeller_joint_state"):
-            state = joint_state[name]
-            if state is not None and (
-                not isinstance(state, dict) or state.get("timestamp_ns") != rgb_stamp
-            ):
-                raise GazeboDepthWireError(f"{name} timestamp is not aligned with RGB")
+        gimbal_state = joint_state["gimbal_joint_state"]
+        if gimbal_state is not None:
+            if not isinstance(gimbal_state, dict) or set(gimbal_state) != {
+                "timestamp_ns",
+                "position_rad",
+                "velocity_rad_s",
+                "source",
+                "fresh",
+            }:
+                raise GazeboDepthWireError("gimbal_joint_state field set mismatch")
+            if _positive_int(gimbal_state["timestamp_ns"], "gimbal timestamp_ns") != rgb_stamp:
+                raise GazeboDepthWireError("gimbal_joint_state timestamp is not aligned with RGB")
+            for field in ("position_rad", "velocity_rad_s"):
+                values = gimbal_state[field]
+                if not isinstance(values, dict) or set(values) != {"pitch", "yaw", "roll"}:
+                    raise GazeboDepthWireError(f"gimbal {field} must contain pitch, yaw, and roll")
+                for axis, value in values.items():
+                    _finite_number(value, f"gimbal {field}.{axis}")
+            if gimbal_state["source"] != "gazebo_joint_state" or gimbal_state["fresh"] is not True:
+                raise GazeboDepthWireError("gimbal_joint_state source/fresh flag is invalid")
+        propeller_state = joint_state["propeller_joint_state"]
+        if propeller_state is not None:
+            if not isinstance(propeller_state, dict) or set(propeller_state) != {
+                "timestamp_ns",
+                "joint_names",
+                "angles_rad",
+                "spin_rad_s",
+                "velocity_slowdown",
+                "source",
+            }:
+                raise GazeboDepthWireError("propeller_joint_state field set mismatch")
+            if _positive_int(
+                propeller_state["timestamp_ns"], "propeller timestamp_ns"
+            ) != rgb_stamp:
+                raise GazeboDepthWireError(
+                    "propeller_joint_state timestamp is not aligned with RGB"
+                )
+            expected_names = [f"rotor_{index}_joint" for index in range(4)]
+            if propeller_state["joint_names"] != expected_names:
+                raise GazeboDepthWireError("propeller joint names do not match x500 rotors")
+            for field in ("angles_rad", "spin_rad_s"):
+                values = propeller_state[field]
+                if not isinstance(values, list) or len(values) != len(expected_names):
+                    raise GazeboDepthWireError(f"propeller {field} must contain four values")
+                for index, value in enumerate(values):
+                    _finite_number(value, f"propeller {field}[{index}]")
+            velocity_slowdown = _positive_int(
+                propeller_state["velocity_slowdown"],
+                "propeller velocity_slowdown",
+            )
+            if velocity_slowdown != ROTOR_VELOCITY_SLOWDOWN:
+                raise GazeboDepthWireError(
+                    "propeller velocity_slowdown does not match the PX4 model"
+                )
+            if propeller_state["source"] != "gazebo_joint_state":
+                raise GazeboDepthWireError("propeller_joint_state source is invalid")
+        if gimbal_state is None and propeller_state is None:
+            raise GazeboDepthWireError("joint_state contains no actuator samples")
     return normalized
 
 

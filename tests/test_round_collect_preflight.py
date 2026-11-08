@@ -176,6 +176,20 @@ def test_deterministic_collector_config_failure_is_not_retried(monkeypatch, tmp_
     assert len(calls) == 1
 
 
+def test_recorded_episode_completion_requires_final_status_and_matching_hash(tmp_path: Path):
+    from scripts.run_r15_round import recorded_episode_is_complete, sha256
+
+    episode = tmp_path / "episode.json"
+    episode.write_text(json.dumps({"status": None}), encoding="utf-8")
+    record = {"status": "complete", "path": str(episode), "sha256": sha256(episode)}
+    assert recorded_episode_is_complete(record) is False
+
+    episode.write_text(json.dumps({"status": "complete"}), encoding="utf-8")
+    assert recorded_episode_is_complete(record) is False
+    record["sha256"] = sha256(episode)
+    assert recorded_episode_is_complete(record) is True
+
+
 def test_collect_one_does_not_merge_failed_episode_as_complete(monkeypatch, tmp_path: Path):
     import types
     import scripts.run_r15_round as round_script

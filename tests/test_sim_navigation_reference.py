@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from gimbal_collision_fixtures import gimbal_sources
 from test_sim_planning_inputs import _attestation, _context
 
 from multidetect.autonomy.contracts import GeoPoint
@@ -447,6 +448,53 @@ def test_current_source_qualification_preserves_raw_context(fixture):
     derived = ExplicitSimOriginBinding.from_mapping(result.derived_origin).to_mapping()
     assert derived["verified_home_enu_m"] == pytest.approx([0, 0, 0.24])
     assert derived["expires_at_s"] <= 102.363
+
+
+def test_gimbal_profile_uses_pinned_collision_closure_for_navigation_reference(fixture):
+    args, _ = fixture
+    root = args["artifact_root"]
+    gimbal_bindings = gimbal_sources(root)
+    runtime_source = document(
+        root,
+        "runtime.json",
+        {
+            "scenario_id": "fixture-scenario",
+            "vehicle": {"airframe_profile_id": "x500_gimbal"},
+        },
+    )
+    runtime_binding = native_binding(root, runtime_source)
+    args.pop("model_sources")
+    args.update(
+        gimbal_sources=gimbal_bindings,
+        observed_context=None,
+        runtime_attestation=None,
+    )
+
+    def use_gimbal(capture):
+        capture["profile"]["airframe_profile_id"] = "x500_gimbal"
+        capture["profile"]["model_name"] = "x500_gimbal"
+        capture["runtime_source"] = runtime_binding
+
+    args = update_capture((args, _), use_gimbal)
+    result = audit_sim_navigation_reference(**args).to_mapping()
+    assert result["model_to_navigation_body_offset_flu_m"] == pytest.approx([0, 0, 0.24])
+    assert result["gimbal_collision_geometry"]["collision_count"] == 10
+    assert len(result["gimbal_collision_geometry"]["source_expanded_collision_definitions"]) == 10
+    assert any(
+        collision["collision_id"] == "camera_link/cgo3_camera_collision"
+        and collision["kind"] == "sphere"
+        and collision["source_sha256"] == gimbal_bindings["gimbal_model.sdf"].sha256
+        for collision in result["gimbal_collision_geometry"][
+            "source_expanded_collision_definitions"
+        ]
+    )
+    assert result["gimbal_collision_geometry"]["source_joint_limits_rad"]["cgo3_camera_joint"] == {
+        "lower_rad": -2.35619,
+        "upper_rad": 0.7854,
+    }
+    assert {source["path"] for source in result["source_evidence"]} >= {
+        binding.path for binding in gimbal_bindings.values()
+    }
 
 
 def test_sealed_historical_window_never_renews_origin(fixture):

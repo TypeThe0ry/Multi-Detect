@@ -16,16 +16,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
+from multidetect.simulator.camera_projection import project_target_bbox  # noqa: E402
 from multidetect.sim_teacher.spawn_clearance import (  # noqa: E402
     spawn_clearance_report,
     teacher_intent_clearance_altitude,
     teacher_intent_clearance_route_points,
 )
+from multidetect.simulator.task_semantics import fuel_task_texts  # noqa: E402
 from multidetect.simulator.world_gen import (  # noqa: E402
     FIXED_WING_SENSORS,
+    build_teacher_actuator_state,
     generate_fuel_worlds,  # noqa: E402
 )
-from multidetect.simulator.task_semantics import fuel_task_texts  # noqa: E402
 
 
 def r21id_r4_templates():
@@ -90,6 +92,163 @@ def r21id_r5_templates():
                 "split": "val" if band_index == 2 else "train",
                 "r5_direction": f"{target}->{confuser}",
                 "geometry_reference": None,
+            })
+    return rows
+
+
+def r21id_r7_templates():
+    """Diverse train/val identity worlds for the r21id-r7 hard-reject families."""
+    bands = (("8-12", 10), ("12-16", 13), ("16-24", 19), ("24-32", 28), ("12-16", 14))
+    appearances = ("noon_clear", "overcast_flat", "morning_low_sun", "haze", "evening_low_sun")
+    rows = []
+    families = (
+        # ``generate_fuel_worlds`` keys confusers by target slug, so each
+        # repeated target slug keeps one stable paired model.  The two families
+        # deliberately use the catalog's postbox and mailbox models.
+        ("suv", ("postbox",) * 5, (18.0, 22.0, 26.0, 30.0, 20.0), "suv->postbox"),
+        ("hatchback", ("mailbox",) * 5, (16.0, 20.0, 24.0, 28.0, 18.0), "car->postbox"),
+        ("walking_person", ("jersey_barrier",) * 5, (6.0, 8.0, 10.0, 12.0, 7.0), "person->jersey_barrier"),
+    )
+    target_variants = {
+        "suv": ("suv",) * 5,
+        "hatchback": ("hatchback", "hatchback_blue", "hatchback_red", "hatchback", "hatchback_blue"),
+        "walking_person": ("walking_person", "male_visitor", "walking_person", "male_visitor", "walking_person"),
+    }
+    occlusions = ("building", "guardrail", "pipe_line", "none", "building")
+    for family_index, (family, confusers, heights, direction) in enumerate(families):
+        for i, (band, px) in enumerate(bands):
+            rows.append({
+                "case": "identity_multiview",
+                "target": target_variants[family][i],
+                "confusers": [confusers[i]],
+                "forced_distractors": ["electrical_box"],
+                "appearance": appearances[i],
+                "height_m": heights[i],
+                "target_short_side_px": band,
+                "target_short_side_px_value": px,
+                "split": "val" if i == 4 else "train",
+                "r7_family": direction,
+                "occlusion": occlusions[(family_index + i) % len(occlusions)],
+                "geometry_reference": None,
+            })
+    return rows
+
+
+def r21id_r8_templates():
+    """Replacement and focused hard-reject worlds selected after the r7 audit."""
+    rows = []
+    specs = (
+        ("male_visitor", "jersey_barrier", 8.0, "12-16", 13, "morning_low_sun", "person->jersey_barrier"),
+        ("hatchback", "mailbox", 20.0, "12-16", 14, "overcast_flat", "car->mailbox"),
+        ("suv", "postbox", 24.0, "16-24", 19, "haze", "suv->postbox"),
+    )
+    for target, confuser, height, band, px, appearance, direction in specs:
+        rows.append({
+            "case": "identity_multiview",
+            "target": target,
+            "confusers": [confuser],
+            "forced_distractors": ["electrical_box"],
+            "appearance": appearance,
+            "height_m": height,
+            "target_short_side_px": band,
+            "target_short_side_px_value": px,
+            "split": "train",
+            "r8_family": direction,
+            "occlusion": "none",
+            "geometry_reference": None,
+        })
+    return rows
+
+
+def r21id_r9p_templates():
+    """Small r9 pilot for the mailbox and postbox rejection gap.
+
+    The true target keeps the r8 identity geometry.  Each world also carries a
+    close confuser route: mailbox views stay on the broad front face so the
+    narrow projected edge remains above the builder threshold, while postbox
+    views use the proposed 25--30 m route.
+    """
+    specs = (
+        ("hatchback", "mailbox", 20.0, "12-16", 14, "overcast_flat", "car->mailbox", 6.0, 10.0),
+        ("hatchback", "mailbox", 20.0, "16-24", 16, "morning_low_sun", "car->mailbox", 6.0, 10.0),
+        ("suv", "postbox", 24.0, "16-24", 19, "haze", "suv->postbox", 12.0, 28.0),
+        ("suv", "postbox", 24.0, "24-32", 24, "noon_clear", "suv->postbox", 12.0, 30.0),
+    )
+    rows = []
+    for target, confuser, height, band, px, appearance, direction, confuser_altitude, confuser_slant in specs:
+        rows.append({
+            "case": "identity_multiview",
+            "target": target,
+            "confusers": [confuser],
+            "forced_distractors": ["electrical_box"],
+            "appearance": appearance,
+            "height_m": height,
+            "target_short_side_px": band,
+            "target_short_side_px_value": px,
+            "split": "train",
+            "r9p_direction": direction,
+            "confuser_camera_altitude_m": confuser_altitude,
+            "confuser_slant_distance_m": confuser_slant,
+            "geometry_reference": "r8-rejection-yield-20261105",
+        })
+    return rows
+
+
+def r21id_r9q_templates():
+    """Four car-to-mailbox worlds for a close, front-facing confuser route."""
+    specs = (
+        (18.0, "12-16", 14, "overcast_flat", 5.5),
+        (20.0, "16-24", 16, "morning_low_sun", 5.8),
+        (16.0, "12-16", 13, "haze", 5.4),
+        (22.0, "16-24", 18, "noon_clear", 6.0),
+    )
+    return [
+        {
+            "case": "identity_multiview",
+            "target": "hatchback",
+            "confusers": ["mailbox"],
+            "forced_distractors": ["electrical_box"],
+            "appearance": appearance,
+            "height_m": height,
+            "target_short_side_px": band,
+            "target_short_side_px_value": px,
+            "split": "train",
+            "r9q_direction": "car->mailbox",
+            "mailbox_slant_distance_m": slant,
+            "geometry_reference": "r9p-yield-20261106",
+        }
+        for height, band, px, appearance, slant in specs
+    ]
+
+
+def r21id_r9r_templates():
+    """Balanced, varied worlds for both mailbox and postbox rejection pairs."""
+    rows = []
+    appearances = ("noon_clear", "overcast_flat", "morning_low_sun", "haze", "evening_low_sun", "dusk_dim")
+    for pair_index, (target, confuser, direction, altitude, distances) in enumerate((
+        ("hatchback", "mailbox", "car->mailbox", 3.0, (5.4, 5.8, 6.2, 5.6, 6.0, 5.5)),
+        ("suv", "postbox", "suv->postbox", 8.0, (16.0, 18.0, 20.0, 17.0, 19.0, 21.0)),
+    )):
+        for i in range(24):
+            appearance = appearances[(i + pair_index * 2) % len(appearances)]
+            rows.append({
+                "case": "identity_multiview",
+                "target": target,
+                "confusers": [confuser],
+                "forced_distractors": ["electrical_box"],
+                "appearance": appearance,
+                "height_m": (16.0, 19.0, 22.0, 18.0, 24.0, 20.0)[i % 6],
+                "target_short_side_px": ("12-16", "16-24", "12-16", "24-32", "16-24", "12-16")[i % 6],
+                "target_short_side_px_value": (14, 18, 13, 24, 17, 15)[i % 6],
+                "split": "val" if i >= 18 else "train",
+                "r9r_direction": direction,
+                "confuser_camera_altitude_m": altitude,
+                "confuser_slant_distance_m": distances[i % len(distances)],
+                "target_east_m": 58.0 + (i % 4) * 2.0,
+                "target_north_m": -12.0 + (i % 6) * 4.0,
+                "target_yaw_rad": (0.0, 0.18, -0.18, 0.35, -0.35, 0.08)[i % 6],
+                "confuser_yaw_offset_rad": (0.0, 0.04, -0.04, 0.08, -0.08, 0.02)[i % 6],
+                "geometry_reference": "r9p-yield-20261106+r9q-mailbox-plan-20261106",
             })
     return rows
 
@@ -211,7 +370,7 @@ def main(argv=None):
         "--config", type=Path, default=ROOT / "configs/scenarios/generated-r15/r15-world-set.json"
     )
     p.add_argument("--out-worlds", type=Path, default=ROOT / "simulation/gazebo/worlds")
-    p.add_argument("--out-scenarios", type=Path, default=ROOT / "configs/scenarios/generated-r15")
+    p.add_argument("--out-scenarios", type=Path)
     p.add_argument("--world-prefix", help="override the generated world id prefix")
     p.add_argument("--seed", type=int, help="override the configured generation seed")
     p.add_argument("--count", type=int, help="override the configured world count")
@@ -219,14 +378,53 @@ def main(argv=None):
     p.add_argument("--resolved-root", type=Path, help="override resolved asset root")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument(
+        "--gimbal-sidecar",
+        action="store_true",
+        help="write a sidecar and index reference; teacher-intent profiles also link it",
+    )
+    p.add_argument("--gimbal-yaw-rad", type=float)
+    p.add_argument("--gimbal-roll-rad", type=float)
+    p.add_argument(
+        "--stabilization-mode",
+        choices=("follow-body", "lock-horizon", "follow-yaw"),
+    )
+    p.add_argument(
+        "--propeller-spin-rad-s",
+        type=float,
+        nargs=4,
+        metavar=("R1", "R2", "R3", "R4"),
+        help="four signed rotor rates in rad/s, in generator rotor order",
+    )
+    p.add_argument(
         "--profile",
-        choices=("default", "r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"),
+        choices=("default", "r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"),
         default="default",
         help="optional hard-case profile; default preserves the r15 config",
     )
     a = p.parse_args(argv)
+    sidecar_overrides = (
+        a.gimbal_yaw_rad,
+        a.gimbal_roll_rad,
+        a.stabilization_mode,
+        a.propeller_spin_rad_s,
+    )
+    if not a.gimbal_sidecar and any(value is not None for value in sidecar_overrides):
+        p.error("gimbal sidecar values require --gimbal-sidecar")
+    actuator_state = None
+    if a.gimbal_sidecar:
+        try:
+            actuator_state = build_teacher_actuator_state(
+                gimbal_yaw_rad=0.0 if a.gimbal_yaw_rad is None else a.gimbal_yaw_rad,
+                gimbal_roll_rad=0.0 if a.gimbal_roll_rad is None else a.gimbal_roll_rad,
+                stabilization_mode=a.stabilization_mode or "lock-horizon",
+                propeller_spin_rad_s=a.propeller_spin_rad_s or (0.0, 0.0, 0.0, 0.0),
+            )
+        except ValueError as exc:
+            p.error(str(exc))
     cfg = json.loads(a.config.read_text(encoding="utf-8"))
-    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
+    if a.out_scenarios is None:
+        a.out_scenarios = ROOT / "configs/scenarios/generated-r21id-r9r" if a.profile == "r21id-r9r" else ROOT / "configs/scenarios/generated-r15"
+    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
         # Four deterministic hard-case families. All true-target slugs are
         # outside generated-v2's frozen holdout. Cone/barrier is the primary
         # paired hard case; hatchbacks provide non-held-out vehicle lookalikes.
@@ -305,6 +503,16 @@ def main(argv=None):
             templates = tuple(r21id_r4_templates())
         elif a.profile == "r21id-r5":
             templates = tuple(r21id_r5_templates())
+        elif a.profile == "r21id-r7":
+            templates = tuple(r21id_r7_templates())
+        elif a.profile == "r21id-r8":
+            templates = tuple(r21id_r8_templates())
+        elif a.profile == "r21id-r9p":
+            templates = tuple(r21id_r9p_templates())
+        elif a.profile == "r21id-r9q":
+            templates = tuple(r21id_r9q_templates())
+        elif a.profile == "r21id-r9r":
+            templates = tuple(r21id_r9r_templates())
         elif a.profile == "r21id-r3":
             # Six independently seeded worlds per identity class. The final ten
             # entries are held-out combinations from the frozen identity set.
@@ -341,12 +549,34 @@ def main(argv=None):
             val_indices = set(sorted(val_indices)[:4])
             for i, template in enumerate(templates):
                 template["split"] = "test" if i in test_indices else ("val" if i in val_indices else "train")
+        profile_prefix = {
+            "r21id-r9p": "gen_r21id_r9p_w",
+            "r21id-r9q": "gen_r21id_r9q_w",
+            "r21id-r9r": "gen_r21id_r9r_w",
+            "r21id-r8": "gen_r21id_r8_w",
+            "r21id-r7": "gen_r21id_r7_w",
+            "r21id-r5": "gen_r21id_r5_w",
+            "r21id-r4": "gen_r21id_r4_w",
+            "r21id-r3": "gen_r21id_r3_w",
+            "r21-identity": "gen_r21id_w",
+        }
+        profile_seed = {
+            "r21id-r9p": 20261125,
+            "r21id-r9q": 20261126,
+            "r21id-r9r": 20261127,
+            "r21id-r8": 20261122,
+            "r21id-r7": 20261107,
+            "r21id-r5": 20261102,
+            "r21id-r4": 20261031,
+            "r21id-r3": 20261028,
+            "r21-identity": 20261025,
+        }
         cfg.update(
             {
-                "world_prefix": "gen_r21id_r5_w" if a.profile == "r21id-r5" else ("gen_r21id_r4_w" if a.profile == "r21id-r4" else ("gen_r21id_r3_w" if a.profile == "r21id-r3" else ("gen_r21id_w" if a.profile == "r21-identity" else "gen_r20_w"))),
-                "seed": 20261102 if a.profile == "r21id-r5" else (20261031 if a.profile == "r21id-r4" else (20261028 if a.profile == "r21id-r3" else (20261025 if a.profile == "r21-identity" else 20261024))),
+                "world_prefix": profile_prefix.get(a.profile, "gen_r20_w"),
+                "seed": profile_seed.get(a.profile, 20261024),
                 "count": len(templates),
-                "split_ratios": [8 / 12, 4 / 12, 0.0] if a.profile == "r21id-r5" else ([18 / 24, 6 / 24, 0.0] if a.profile == "r21id-r4" else ([56 / 72, 4 / 72, 12 / 72] if a.profile == "r21id-r3" else ([0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0]))),
+                "split_ratios": [1.0, 0.0, 0.0] if a.profile in ("r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r") else ([12 / 15, 3 / 15, 0.0] if a.profile == "r21id-r7" else ([8 / 12, 4 / 12, 0.0] if a.profile == "r21id-r5" else ([18 / 24, 6 / 24, 0.0] if a.profile == "r21id-r4" else ([56 / 72, 4 / 72, 12 / 72] if a.profile == "r21id-r3" else ([0.75, 0.125, 0.125] if a.profile == "r21-identity" else [0.8, 0.2, 0.0]))))),
                 "spread_m": [80.0, 120.0],
                 "count_copies": 1,
                 "confuser_copies": 1,
@@ -358,20 +588,18 @@ def main(argv=None):
             dict(t, split=t.get("split", "train" if i < 16 else "val")) for i, t in enumerate(templates)
         ]
     if a.dry_run:
-        print(
-            json.dumps(
-                {
-                    "count": cfg["count"],
-                    "seed": cfg["seed"],
-                    "world_prefix": cfg["world_prefix"],
-                    "splits": {
-                        s: sum(w["split"] == s for w in cfg["worlds"])
-                        for s in ("train", "val", "test")
-                    },
-                },
-                ensure_ascii=False,
-            )
-        )
+        summary = {
+            "count": cfg["count"],
+            "seed": cfg["seed"],
+            "world_prefix": cfg["world_prefix"],
+            "splits": {
+                s: sum(w["split"] == s for w in cfg["worlds"])
+                for s in ("train", "val", "test")
+            },
+        }
+        if actuator_state is not None:
+            summary["actuator_state_sidecar"] = actuator_state
+        print(json.dumps(summary, ensure_ascii=False))
         return 0
     if a.world_prefix:
         cfg["world_prefix"] = a.world_prefix
@@ -415,17 +643,18 @@ def main(argv=None):
         confuser_copies=cfg["confuser_copies"],
         appearance=tuple(w["appearance"] for w in cfg["worlds"]),
         forced_distractors=forced,
+        actuator_state=actuator_state,
     )
-    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
+    if a.profile in ("r20", "r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
         doc["profile"] = a.profile
         for entry, world in zip(doc["worlds"], cfg["worlds"], strict=True):
             entry["split"] = world.get("split", entry.get("split", "train"))
             entry["hard_case_profile"] = world["case"]
             entry["paired_confusers"] = list(world.get("confusers", ()))
             entry["view_geometry"] = {"paired_same_world": True}
-            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
+            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
                 entry["hard_case_profile"] = "identity_multiview"
-                if a.profile not in ("r21id-r4", "r21id-r5"):
+                if a.profile not in ("r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
                     entry["view_geometry"].update({
                     "camera_altitude_m": world["height_m"], "ground_distance_m": world["distance_m"],
                     "target_short_side_px": world["target_short_side_px"],
@@ -447,7 +676,7 @@ def main(argv=None):
             # Place the target in a controlled camera-relative position and write
             # the same pose into SDF and truth, preserving asset and label identity.
             case = entry["hard_case_profile"]
-            if a.profile in ("r21id-r4", "r21id-r5"):
+            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
                 catalog = json.loads((a.catalog or ROOT / cfg["catalog"]).read_text(encoding="utf-8"))
                 asset = next(x for x in catalog["assets"] if x["slug"] == target["asset_slug"])
                 dimensions = [float(value) for value in asset["measured_size_m"]]
@@ -455,10 +684,12 @@ def main(argv=None):
                 altitude = float(world["height_m"])
                 slant = DEFAULT_CAMERA_INFO["fx"] * short_edge / float(world["target_short_side_px_value"])
                 tx, ty, tz, angle = math.sqrt(max(1.0, slant * slant - altitude * altitude)), 0.0, 0.0, -0.42
-                if a.profile == "r21id-r5":
+                if a.profile in ("r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9r"):
                     # Point each teacher station at the ground target centre;
                     # r4's fixed pitch is too steep for the larger r5 standoffs.
                     angle = -math.atan2(altitude, max(tx, 1e-6))
+                if a.profile == "r21id-r9r":
+                    tx, ty = float(world["target_east_m"]), float(world["target_north_m"])
                 entry["view_geometry"].update({
                     "camera_altitude_m": altitude,
                     "ground_distance_m": round(tx, 3),
@@ -467,7 +698,10 @@ def main(argv=None):
                 "target_short_side_px_estimate": round(
                     projected_short_edge_px(
                         asset, tx, altitude,
-                        visible_face=(a.profile == "r21id-r5" and target["asset_slug"] == "stop_sign"),
+                        visible_face=(
+                    a.profile in ("r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9r")
+                            and target["asset_slug"] == "stop_sign"
+                        ),
                     ), 2
                 ),
                     "camera_intrinsics": {k: DEFAULT_CAMERA_INFO[k] for k in ("width", "height", "fx", "fy", "cx", "cy")},
@@ -521,7 +755,7 @@ def main(argv=None):
                         "camera_pitch_rad": angle,
                     }
                 )
-            target["pose"].update({"x_east_m": tx, "y_north_m": ty, "z_up_m": tz, "yaw_rad": 0.0})
+            target["pose"].update({"x_east_m": tx, "y_north_m": ty, "z_up_m": tz, "yaw_rad": float(world.get("target_yaw_rad", 0.0))})
             target["position"].update(
                 {
                     "altitude_m": tz,
@@ -559,7 +793,7 @@ def main(argv=None):
                     "z_up_m": 0.0,
                 }
                 observation_intent["ground_distance_m"] = 80.0
-            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
+            if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
                 target_radius = math.hypot(tx, ty)
                 radial = (tx / target_radius, ty / target_radius) if target_radius else (1.0, 0.0)
                 perpendicular = (-radial[1], radial[0])
@@ -580,7 +814,7 @@ def main(argv=None):
                     })
                 observation_intent["observation_frames"] = 8
                 if (
-                    a.profile == "r21id-r5"
+                    a.profile in ("r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r")
                     or target["asset_slug"] in {"pickup", "suv"}
                     and world["target_short_side_px"] in {"8-12", "12-16"}
                 ):
@@ -590,7 +824,217 @@ def main(argv=None):
                         math.hypot(tx, altitude) + 5.0, 3
                     )
                 observation_intent["views"] = views
-            if a.profile in ("r21id-r4", "r21id-r5"):
+                if a.profile == "r21id-r9p":
+                    confuser = next(
+                        item for item in truth["targets"]
+                        if item.get("confuser") and item.get("asset_slug") == world["confusers"][0]
+                    )
+                    confuser_x = tx + 3.5
+                    confuser_y = ty
+                    confuser_altitude = float(world["confuser_camera_altitude_m"])
+                    confuser_slant = float(world["confuser_slant_distance_m"])
+                    confuser_ground = math.sqrt(max(1.0, confuser_slant * confuser_slant - confuser_altitude * confuser_altitude))
+                    # Keep the mailbox on its broad front face: the camera
+                    # stations stay in the +east hemisphere, with small lateral
+                    # offsets for oblique/recovery rather than a full orbit.
+                    confuser_views = []
+                    for view_name, lateral in zip(
+                        ("front", "oblique", "edge_truncated", "recovery"),
+                        (0.0, 0.35, -0.35, 0.18),
+                        strict=True,
+                    ):
+                        dx = confuser_ground / math.sqrt(1.0 + lateral * lateral)
+                        dy = lateral * dx
+                        confuser_views.append({
+                            "view": view_name,
+                            "observation_waypoint": {
+                                "x_east_m": round(confuser_x - dx, 3),
+                                "y_north_m": round(confuser_y + dy, 3),
+                                "z_up_m": 0.0,
+                            },
+                        })
+                    confuser_observation = {
+                        "camera_altitude_m": confuser_altitude,
+                        "camera_pitch_rad": -math.atan2(confuser_altitude, max(confuser_ground, 1e-6)),
+                        "observation_waypoint": confuser_views[0]["observation_waypoint"],
+                        "observation_frames": 8,
+                        "max_detection_range_m": round(confuser_slant + 5.0, 3),
+                        "standoff_m": 4.0 if world["confusers"][0] == "mailbox" else 12.0,
+                        "views": confuser_views,
+                        "visible_face": "broad_front",
+                        "confuser_slant_distance_m": confuser_slant,
+                        "confuser_projected_short_edge_px": round(
+                            DEFAULT_CAMERA_INFO["fx"] * max(float(confuser["size_m"][0]), float(confuser["size_m"][1])) / confuser_slant,
+                            2,
+                        ),
+                    }
+                    entry["view_geometry"]["confuser_observation"] = {
+                        "camera_altitude_m": confuser_altitude,
+                        "slant_distance_m": confuser_slant,
+                        "route_views": [row["view"] for row in confuser_views],
+                        "route_ground_distance_m": round(confuser_ground, 3),
+                        "projected_width_px": confuser_observation["confuser_projected_short_edge_px"],
+                        "projected_height_px": round(
+                            DEFAULT_CAMERA_INFO["fx"] * float(confuser["size_m"][2]) / confuser_slant,
+                            2,
+                        ),
+                        "builder_min_box_side_px": round(
+                            min(
+                                confuser_observation["confuser_projected_short_edge_px"],
+                                DEFAULT_CAMERA_INFO["fx"] * float(confuser["size_m"][2]) / confuser_slant,
+                            ),
+                            2,
+                        ),
+                        "builder_min_box_px": 8,
+                        "builder_min_area_px": 4,
+                        "per_view": [
+                            {
+                                "view": view["view"],
+                                "slant_distance_m": round(
+                                    math.sqrt(
+                                        (float(view["observation_waypoint"]["x_east_m"]) - confuser_x) ** 2
+                                        + (float(view["observation_waypoint"]["y_north_m"]) - confuser_y) ** 2
+                                        + confuser_altitude**2
+                                    ),
+                                    3,
+                                ),
+                                "projected_width_px": round(
+                                    DEFAULT_CAMERA_INFO["fx"] * max(float(confuser["size_m"][0]), float(confuser["size_m"][1]))
+                                    / math.sqrt(
+                                        (float(view["observation_waypoint"]["x_east_m"]) - confuser_x) ** 2
+                                        + (float(view["observation_waypoint"]["y_north_m"]) - confuser_y) ** 2
+                                        + confuser_altitude**2
+                                    ),
+                                    2,
+                                ),
+                                "projected_height_px": round(
+                                    DEFAULT_CAMERA_INFO["fx"] * float(confuser["size_m"][2])
+                                    / math.sqrt(
+                                        (float(view["observation_waypoint"]["x_east_m"]) - confuser_x) ** 2
+                                        + (float(view["observation_waypoint"]["y_north_m"]) - confuser_y) ** 2
+                                        + confuser_altitude**2
+                                    ),
+                                    2,
+                                ),
+                            }
+                            for view in confuser_views
+                        ],
+                    }
+                    observation_intent["confuser_observation"] = confuser_observation
+                elif a.profile == "r21id-r9q":
+                    confuser = next(item for item in truth["targets"] if item.get("confuser") and item.get("asset_slug") == "mailbox")
+                    source_size = tuple(float(value) for value in confuser["size_m"])
+                    # Keep the source mesh dimensions intact for identity learning.
+                    confuser_x, confuser_y = tx + 3.5, ty
+                    confuser["pose"].update({"x_east_m": confuser_x, "y_north_m": confuser_y, "z_up_m": 0.0, "yaw_rad": math.pi / 2.0})
+                    confuser["position"].update({"altitude_m": 0.0, "latitude_deg": round(1.352100 + confuser_y / 111_132.0, 8), "longitude_deg": round(103.819800 + confuser_x / (111_320.0 * math.cos(math.radians(1.352100))), 8)})
+                    confuser_slant = float(world["mailbox_slant_distance_m"])
+                    confuser_altitude = 3.0
+                    ground = math.sqrt(max(1.0, confuser_slant**2 - confuser_altitude**2))
+                    lateral = (-0.30, -0.10, 0.10, 0.30)
+                    views = []
+                    for name, offset in zip(("front", "oblique", "edge_truncated", "recovery"), lateral, strict=True):
+                        views.append({"view": name, "observation_waypoint": {"x_east_m": round(confuser_x - ground, 3), "y_north_m": round(confuser_y + offset, 3), "z_up_m": 0.0}})
+                    mailbox_intent = {
+                        "camera_altitude_m": confuser_altitude,
+                        "camera_pitch_rad": -math.atan2(confuser_altitude, max(ground, 1e-6)),
+                        "observation_waypoint": views[0]["observation_waypoint"],
+                        "observation_frames": 8,
+                        "max_detection_range_m": round(confuser_slant + 2.0, 3),
+                        "standoff_m": round(ground, 3),
+                        "views": views,
+                        "front_face_axis": "+local_y",
+                        "predicted_slant_distance_m": round(confuser_slant, 3),
+                    }
+                    per_view = []
+                    for view in views:
+                        waypoint = view["observation_waypoint"]
+                        camera_yaw = math.degrees(math.atan2(
+                            confuser_x - waypoint["x_east_m"],
+                            confuser_y - waypoint["y_north_m"],
+                        ))
+                        camera_pose = {
+                            "local_ned_m": (
+                                waypoint["y_north_m"], waypoint["x_east_m"], -confuser_altitude
+                            ),
+                            "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": camera_yaw},
+                        }
+                        bbox = project_target_bbox(
+                            target_ned=(confuser_y, confuser_x, float(confuser["pose"]["z_up_m"])),
+                            pose=camera_pose,
+                            camera_info=DEFAULT_CAMERA_INFO,
+                            image_size=(DEFAULT_CAMERA_INFO["width"], DEFAULT_CAMERA_INFO["height"]),
+                            target_size_m=tuple(float(value) for value in confuser["size_m"]),
+                            target_yaw_rad=float(confuser["pose"]["yaw_rad"]),
+                            target_bottom_offset_m=float(confuser["bottom_offset_m"]),
+                        )
+                        if bbox is None:
+                            raise RuntimeError(f"{wid}: mailbox projection missing for {view['view']}")
+                        side_px = min(bbox[2] - bbox[0], bbox[3] - bbox[1])
+                        per_view.append({"view": view["view"], "minimum_short_side_px": round(side_px, 2)})
+                    observation_intent["confuser_observation"] = mailbox_intent
+                    entry["r9q_direction"] = "car->mailbox"
+                    entry["view_geometry"]["confuser_observation"] = {
+                        "camera_altitude_m": confuser_altitude,
+                        "slant_distance_m": confuser_slant,
+                        "mailbox_size_m": list(confuser["size_m"]),
+                        "mailbox_yaw_rad": round(float(confuser["pose"]["yaw_rad"]), 6),
+                        "route_views": [row["view"] for row in views],
+                        "per_view": per_view,
+                        "qualifying_frames_per_view": {
+                            row["view"]: 8 if row["minimum_short_side_px"] >= 8.0 else 0
+                            for row in per_view
+                        },
+                        "mesh_scale": [1.0, 1.0, 1.0],
+                        "builder_min_box_side_px": 8,
+                        "builder_min_box_px": 8,
+                        "builder_min_area_px": 4,
+                        "source_mesh_size_m": list(source_size),
+                    }
+                elif a.profile == "r21id-r9r":
+                    confuser_slug = world["confusers"][0]
+                    confuser = next(item for item in truth["targets"] if item.get("confuser") and item.get("asset_slug") == confuser_slug)
+                    source_size = tuple(float(value) for value in confuser["size_m"])
+                    confuser_x, confuser_y = tx + 3.5, ty
+                    confuser_yaw = math.pi / 2.0 + float(world["confuser_yaw_offset_rad"])
+                    confuser["pose"].update({"x_east_m": confuser_x, "y_north_m": confuser_y, "z_up_m": 0.0, "yaw_rad": confuser_yaw})
+                    confuser["position"].update({"altitude_m": 0.0, "latitude_deg": round(1.352100 + confuser_y / 111_132.0, 8), "longitude_deg": round(103.819800 + confuser_x / (111_320.0 * math.cos(math.radians(1.352100))), 8)})
+                    confuser_slant = float(world["confuser_slant_distance_m"])
+                    confuser_altitude = float(world["confuser_camera_altitude_m"])
+                    ground = math.sqrt(max(1.0, confuser_slant**2 - confuser_altitude**2))
+                    views = []
+                    for name, angle_deg in zip(("front", "oblique", "edge_truncated", "recovery"), (0.0, 30.0, 65.0, -30.0), strict=True):
+                        angle = math.radians(angle_deg)
+                        front_east = -math.sin(confuser_yaw)
+                        front_north = math.cos(confuser_yaw)
+                        offset_east = front_east * math.cos(angle) - front_north * math.sin(angle)
+                        offset_north = front_east * math.sin(angle) + front_north * math.cos(angle)
+                        views.append({"view": name, "observation_waypoint": {"x_east_m": round(confuser_x + ground * offset_east, 3), "y_north_m": round(confuser_y + ground * offset_north, 3), "z_up_m": 0.0}})
+                    per_view = []
+                    for view in views:
+                        waypoint = view["observation_waypoint"]
+                        yaw = math.degrees(math.atan2(confuser_x - waypoint["x_east_m"], confuser_y - waypoint["y_north_m"]))
+                        pose = {"local_ned_m": (waypoint["y_north_m"], waypoint["x_east_m"], -confuser_altitude), "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": yaw}}
+                        bbox = project_target_bbox(target_ned=(confuser_y, confuser_x, 0.0), pose=pose, camera_info=DEFAULT_CAMERA_INFO, image_size=(DEFAULT_CAMERA_INFO["width"], DEFAULT_CAMERA_INFO["height"]), target_size_m=source_size, target_yaw_rad=confuser_yaw, target_bottom_offset_m=float(confuser["bottom_offset_m"]))
+                        if bbox is None:
+                            raise RuntimeError(f"{wid}: {confuser_slug} projection missing for {view['view']}")
+                        side_px = min(bbox[2] - bbox[0], bbox[3] - bbox[1])
+                        if side_px < 8.0:
+                            raise RuntimeError(f"{wid}: {confuser_slug} projection {side_px:.2f}px below 8px in {view['view']}")
+                        per_view.append({"view": view["view"], "minimum_short_side_px": round(side_px, 2)})
+                    observation_intent["confuser_observation"] = {"camera_altitude_m": confuser_altitude, "camera_pitch_rad": -math.atan2(confuser_altitude, max(ground, 1e-6)), "observation_waypoint": views[0]["observation_waypoint"], "observation_frames": 8, "max_detection_range_m": round(confuser_slant + 2.0, 3), "standoff_m": 4.0, "views": views, "front_face_axis": "+local_y", "predicted_slant_distance_m": round(confuser_slant, 3)}
+                    observation_intent.update({
+                        "camera_altitude_m": confuser_altitude,
+                        "camera_pitch_rad": -math.atan2(confuser_altitude, max(ground, 1e-6)),
+                        "observation_waypoint": views[0]["observation_waypoint"],
+                        "observation_frames": 8,
+                        "max_detection_range_m": round(confuser_slant + 2.0, 3),
+                        "standoff_m": 4.0,
+                        "views": views,
+                    })
+                    entry["r9r_direction"] = world["r9r_direction"]
+                    entry["view_geometry"]["confuser_observation"] = {"camera_altitude_m": confuser_altitude, "slant_distance_m": confuser_slant, "confuser_size_m": list(source_size), "confuser_yaw_rad": round(confuser_yaw, 6), "route_views": [row["view"] for row in views], "per_view": per_view, "qualifying_frames_per_view": {row["view"]: 8 for row in per_view}, "mesh_scale": [1.0, 1.0, 1.0], "builder_min_box_side_px": 8, "builder_min_area_px": 4, "source_mesh_size_m": list(source_size)}
+            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
                 runtime["vehicle"]["spawn_pose"].update({
                     "x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.2,
                     "roll_rad": 0.0, "pitch_rad": 0.0, "yaw_rad": 0.0,
@@ -606,7 +1050,7 @@ def main(argv=None):
                         {"requested_category": slug, "task_text": texts[slug][0], "task_text_en": texts[slug][1]}
                         for slug in (requested, other)
                     ]
-                if a.profile == "r21id-r5":
+                if a.profile in ("r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
                     confuser_slug = world["confusers"][0]
                     confuser = next(
                         item for item in truth["targets"]
@@ -643,10 +1087,28 @@ def main(argv=None):
                     }]
                 entry["hard_case_profile"] = "identity_hard_negative"
                 entry["paired_confusers"] = list(world.get("confusers", ()))
+                if a.profile == "r21id-r7":
+                    entry["r7_family"] = world["r7_family"]
+                    entry["occlusion_profile"] = world["occlusion"]
+                if a.profile == "r21id-r8":
+                    entry["r8_family"] = world["r8_family"]
+                    entry["occlusion_profile"] = world["occlusion"]
+                if a.profile == "r21id-r9p":
+                    entry["r9p_direction"] = world["r9p_direction"]
+                if a.profile == "r21id-r9q":
+                    entry["r9q_direction"] = world["r9q_direction"]
+                if a.profile == "r21id-r9r":
+                    entry["r9r_direction"] = world["r9r_direction"]
             teacher_intent = {
                 "kind": "find_and_observe",
                 "observation": observation_intent,
             }
+            if "confuser_observation" in observation_intent:
+                teacher_intent["confuser_observation"] = observation_intent.pop("confuser_observation")
+            if "actuator_state_sidecar" in entry:
+                teacher_intent["actuator_state_sidecar"] = dict(
+                    entry["actuator_state_sidecar"]
+                )
             spawn_pose = {
                 "x_east_m": 0.0,
                 "y_north_m": 0.0,
@@ -661,8 +1123,8 @@ def main(argv=None):
                 raise RuntimeError(f"{wid}: target SDF model not found")
             model.find(
                 "pose"
-            ).text = f"{tx:.3f} {ty:.3f} {tz + float(target['size_m'][2]) / 2:.3f} 0 0 0"
-            if a.profile in ("r21id-r3", "r21id-r4", "r21id-r5") and world.get("confusers"):
+            ).text = f"{tx:.3f} {ty:.3f} {tz + float(target['size_m'][2]) / 2:.3f} 0 0 {float(target['pose'].get('yaw_rad', 0.0)):.6f}"
+            if a.profile in ("r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p") and world.get("confusers"):
                 pair_slug = world.get("confusers", [None])[0]
                 pair = next((row for row in truth["targets"] if row.get("confuser") and row["asset_slug"] == pair_slug), None)
                 if pair is not None:
@@ -673,6 +1135,36 @@ def main(argv=None):
                     if pair_model is None:
                         raise RuntimeError(f"{wid}: paired {pair_slug} SDF model not found")
                     pair_model.find("pose").text = f"{pair_x:.3f} {pair_y:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
+            if a.profile == "r21id-r9q":
+                pair = next(item for item in truth["targets"] if item.get("confuser") and item.get("asset_slug") == "mailbox")
+                pair_model = root.find(".//model[@name='" + pair["target_id"] + "']")
+                if pair_model is None:
+                    raise RuntimeError(f"{wid}: paired mailbox SDF model not found")
+                pair_model.find("pose").text = f"{pair['pose']['x_east_m']:.3f} {pair['pose']['y_north_m']:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 {float(pair['pose']['yaw_rad']):.6f}"
+                bounds = pair_model.find("./link[@name='bounds']/collision[@name='bounds_collision']/geometry/box/size")
+                if bounds is None:
+                    raise RuntimeError(f"{wid}: mailbox truth bounds missing")
+                bounds.text = " ".join(f"{value:.6f}" for value in pair["size_m"])
+                for mesh in pair_model.findall(".//mesh"):
+                    scale_node = mesh.find("scale")
+                    if scale_node is None:
+                        scale_node = ET.SubElement(mesh, "scale")
+                    scale_node.text = "1 1 1"
+            if a.profile == "r21id-r9r":
+                pair = next(item for item in truth["targets"] if item.get("confuser") and item["asset_slug"] == world["confusers"][0])
+                pair_model = root.find(".//model[@name='" + pair["target_id"] + "']")
+                if pair_model is None:
+                    raise RuntimeError(f"{wid}: paired confuser SDF model not found")
+                pair_model.find("pose").text = f"{pair['pose']['x_east_m']:.3f} {pair['pose']['y_north_m']:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 {float(pair['pose']['yaw_rad']):.6f}"
+                bounds = pair_model.find("./link[@name='bounds']/collision/geometry/box/size")
+                if bounds is None:
+                    raise RuntimeError(f"{wid}: confuser truth bounds missing")
+                bounds.text = " ".join(f"{value:.6f}" for value in pair["size_m"])
+                for mesh in pair_model.findall(".//mesh"):
+                    scale_node = mesh.find("scale")
+                    if scale_node is None:
+                        scale_node = ET.SubElement(mesh, "scale")
+                    scale_node.text = "1 1 1"
             if case == "paired_confusers" and target["asset_slug"] == "construction_cone":
                 pair = next(
                     row
@@ -700,7 +1192,7 @@ def main(argv=None):
                 pair_model.find("pose").text = (
                     f"{tx + 3.5:.3f} {ty:.3f} {float(pair['size_m'][2]) / 2:.3f} 0 0 0"
                 )
-            if case == "hydrant_building_occlusion_truncation" or a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
+            if case == "hydrant_building_occlusion_truncation" or a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q"):
                 # Keep the occluder on the target ray while placing its nearest
                 # footprint edge outside the multirotor takeoff clearance ring.
                 # The old midpoint (tx/2, ty/2) put the 12x8 m building over
@@ -711,29 +1203,49 @@ def main(argv=None):
                 # waypoint; keep its near footprint beyond every view's 15 m
                 # clearance ring while remaining on the target ray.
                 target_radius = math.hypot(tx, ty)
-                if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5"):
+                if a.profile in ("r21-identity", "r21id-r3", "r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q"):
                     building_radius = 2.0 * target_radius + 24.0
                     scale = building_radius / max(target_radius, 1e-6)
                 else:
                     scale = 2.0
                 building_x, building_y = (scale * tx, scale * ty)
-                building_xml = (
-                    f'<model name="{a.profile.replace("-", "_")}_building_occluder"><static>true</static>'
-                    f"<pose>{building_x:.3f} {building_y:.3f} 6 0 0 0</pose><link name=\"body\">"
-                    '<collision name="collision"><geometry><box><size>12 8 12</size>'
-                    "</box></geometry></collision>"
-                    '<visual name="visual"><geometry><box><size>12 8 12</size></box>'
-                    "</geometry><material><ambient>0.35 0.35 0.38 1</ambient>"
-                    "<diffuse>0.42 0.42 0.45 1</diffuse></material></visual>"
-                    "</link></model>"
-                )
-                building = ET.fromstring(building_xml)
-                root.find("world").append(building)
+                occlusion = world.get("occlusion", "building") if a.profile in ("r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q") else "building"
+                if occlusion == "none":
+                    occluder_xml = ""
+                elif occlusion == "guardrail":
+                    occluder_xml = (
+                        f'<model name="{a.profile.replace("-", "_")}_guardrail_occluder"><static>true</static>'
+                        f'<pose>{building_x:.3f} {building_y:.3f} 0.9 0 0 0.25</pose><link name="body">'
+                        '<collision name="collision"><geometry><box><size>12 0.6 1.8</size></box></geometry></collision>'
+                        '<visual name="visual"><geometry><box><size>12 0.6 1.8</size></box></geometry>'
+                        '<material><ambient>0.48 0.48 0.18 1</ambient><diffuse>0.62 0.62 0.22 1</diffuse></material></visual>'
+                        '</link></model>'
+                    )
+                elif occlusion == "pipe_line":
+                    occluder_xml = (
+                        f'<model name="{a.profile.replace("-", "_")}_pipe_line_occluder"><static>true</static>'
+                        f'<pose>{building_x:.3f} {building_y:.3f} 5 0 0 0</pose><link name="body">'
+                        '<collision name="collision"><geometry><cylinder><radius>0.45</radius><length>10</length></cylinder></geometry></collision>'
+                        '<visual name="visual"><geometry><cylinder><radius>0.45</radius><length>10</length></cylinder></geometry>'
+                        '<material><ambient>0.24 0.28 0.30 1</ambient><diffuse>0.30 0.34 0.36 1</diffuse></material></visual>'
+                        '</link></model>'
+                    )
+                else:
+                    occluder_xml = (
+                        f'<model name="{a.profile.replace("-", "_")}_building_occluder"><static>true</static>'
+                        f"<pose>{building_x:.3f} {building_y:.3f} 6 0 0 0</pose><link name=\"body\">"
+                        '<collision name="collision"><geometry><box><size>12 8 12</size></box></geometry></collision>'
+                        '<visual name="visual"><geometry><box><size>12 8 12</size></box></geometry>'
+                        '<material><ambient>0.35 0.35 0.38 1</ambient><diffuse>0.42 0.42 0.45 1</diffuse></material></visual>'
+                        '</link></model>'
+                    )
+                if occluder_xml:
+                    root.find("world").append(ET.fromstring(occluder_xml))
             sdf_path = a.out_worlds / f"{wid}.sdf"
             with sdf_path.open("w", encoding="utf-8", newline="\n") as stream:
                 stream.write(ET.tostring(root.getroot(), encoding="unicode") + "\n")
             scene_shift_m = 0.0
-            if a.profile in ("r21id-r4", "r21id-r5"):
+            if a.profile in ("r21id-r4", "r21id-r5", "r21id-r7", "r21id-r8", "r21id-r9p", "r21id-r9q", "r21id-r9r"):
                 target_radius = math.hypot(tx, ty)
                 radial_east = tx / target_radius
                 radial_north = ty / target_radius
@@ -749,6 +1261,10 @@ def main(argv=None):
                     _translate_sdf_scene(sdf_path, shift_east, shift_north)
                     _shift_truth_scene(truth, shift_east, shift_north)
                     _shift_observation_views(observation_intent, shift_east, shift_north)
+                    if "confuser_observation" in teacher_intent:
+                        _shift_observation_views(
+                            teacher_intent["confuser_observation"], shift_east, shift_north
+                        )
                     shifted_target_radius = math.hypot(tx + shift_east, ty + shift_north)
                     geometry = entry["view_geometry"]
                     old_slant = geometry.get("slant_distance_m")

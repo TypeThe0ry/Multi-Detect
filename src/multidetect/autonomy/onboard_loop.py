@@ -542,6 +542,10 @@ class LoopConfig:
     # Passed through mission loop factories to the target-blind search policy.
     restart_route: bool = True
     count_dedupe_m: float = 4.0
+    # Fused ground estimates can be separated slightly beyond their combined
+    # sigma (28-head hydrant: 1.95 m apart vs 1.74 m combined sigma). Keep a
+    # small calibration margin without widening the ordinary footprint gate.
+    count_dedupe_sigma_factor: float = 1.15
     # Second look: after this many steps without a confirmation, fly to the far side
     # of candidates that were rejected from one side only and ask again (an object
     # can look different from behind, e.g. the grey back of a stop sign).
@@ -817,6 +821,11 @@ class LoopConfig:
             or self.ground_reid_max_steps < 0
         ):
             raise ValueError("ground_reid_max_steps must be a non-negative integer or None")
+        if (
+            not math.isfinite(self.count_dedupe_sigma_factor)
+            or self.count_dedupe_sigma_factor < 1.0
+        ):
+            raise ValueError("count_dedupe_sigma_factor must be finite and at least 1")
         if not math.isfinite(self.ground_reid_radius_m) or self.ground_reid_radius_m <= 0:
             raise ValueError("ground_reid_radius_m must be finite and positive")
         if (
@@ -1431,8 +1440,20 @@ class OnboardLoop:
         for key in list(self._co_visibility_pairs):
             if key[0] not in live_ids or key[1] not in live_ids:
                 self._co_visibility_pairs.pop(key, None)
-        while len(self._co_visibility_pairs) > self.co_visibility_max_pairs:
-            oldest = min(self._co_visibility_pairs, key=self._co_visibility_pairs.get)
+        overflow = len(self._co_visibility_pairs) - self.co_visibility_max_pairs
+        if overflow > 0:
+            # ``dict`` iteration is insertion ordered, so stable sorting by the
+            # step preserves the old repeated-min semantics for equal steps
+            # while scanning the relation table only once.
+            oldest_keys = [
+                key
+                for key, _step in sorted(
+                    self._co_visibility_pairs.items(), key=lambda item: item[1]
+                )[:overflow]
+            ]
+        else:
+            oldest_keys = []
+        for oldest in oldest_keys:
             self._co_visibility_pairs.pop(oldest, None)
             left = self._tracks.get(oldest[0])
             right = self._tracks.get(oldest[1])
@@ -3377,7 +3398,10 @@ class OnboardLoop:
             return max(
                 1.5,
                 self.config.memory_footprint_factor * footprint,
-                min(self.config.count_dedupe_m, sigma),
+                min(
+                    self.config.count_dedupe_m,
+                    self.config.count_dedupe_sigma_factor * sigma,
+                ),
             )
 
         def same_object(prior: dict[str, Any]) -> bool:
@@ -3418,9 +3442,12 @@ class OnboardLoop:
         """Counting mode: keep the confirmation (unless already counted) and search on."""
         self._end_fw_pass()
         position = record["position_estimate_ne"]
-        duplicate = position is not None and self._counted_at(
-            track, position, record.get("position_sigma_m")
-        )
+        if position is None:
+            info["count_blocked"] = "position_unavailable"
+            self.state, self._focus = "searching", None
+            self._approach_sizes.clear()
+            return self._search_step(pose_ned, yaw_deg), info
+        duplicate = self._counted_at(track, position, record.get("position_sigma_m"))
         if track.needs_fresh_verdict:
             info["count_blocked"] = "fresh_verdict_required"
             self.state, self._focus = "searching", None

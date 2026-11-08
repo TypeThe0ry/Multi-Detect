@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,11 @@ import pytest
 from multidetect.autonomy.mission_package import load_mission_package
 from multidetect.autonomy.mission_security import sign_document
 from scripts.onboard_main import _admit_package
+from scripts.onboard_policy import validate_sim_ground_events
+from scripts.collect_sim_teacher_episodes import SimClimbTimeoutInjector
+from scripts.collect_sim_teacher_episodes import sim_pre_abort_descent_altitude
+from multidetect.sim_teacher.executor import ExecutionResult
+from multidetect.sim_teacher.primitives import ActionPrimitive
 from scripts.run_onboard_fault_campaign import (
     FAULTS,
     CampaignSession,
@@ -16,10 +22,13 @@ from scripts.run_onboard_fault_campaign import (
     PositionSetpoint,
     _build_session,
     expected_outcome,
+    observed_from_observation,
     run_campaign,
+    run_climb_failure_fixture,
     schedule_faults,
     verdict,
 )
+from scripts.run_mission_suite import merge_config
 
 
 def test_fault_schedule_is_sorted_and_rejects_overlap():
@@ -51,6 +60,188 @@ def test_verdict_checks_reason_and_deadline():
     assert verdict("conservative", "hold", "stale pose", elapsed_s=0.2)["passed"]
     assert not verdict("return_now", "hold", "stale battery", elapsed_s=0.2)["passed"]
     assert not verdict("continue", "continue", "ok", elapsed_s=4, deadline_s=3)["passed"]
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "fault", "fault_at", "deadline", "expected_action", "expected_reason"),
+    [
+        ("watchdog-before-deadline.jsonl", "camera_freeze", 10.0, 10.6,
+         "conservative", "stale_camera"),
+        ("terminal-before-deadline.jsonl", "battery_sag", 20.0, 20.6,
+         "land_now", "energy"),
+        ("late-policy-worker.jsonl", "slow_model_timeout", 30.0, 30.6,
+         "conservative", "autonomy_timeout"),
+    ],
+)
+def test_verdict_timeline_regression_fixtures(
+    fixture_name, fault, fault_at, deadline, expected_action, expected_reason
+):
+    fixture = Path(__file__).parent / "fixtures" / "onboard_fault_campaign_verdict" / fixture_name
+    decisions = [json.loads(line) for line in fixture.read_text(encoding="utf-8").splitlines()]
+    end = fault_at + 3.0
+    history = [
+        {"timestamp": fault_at + 0.1, "state": {"mode": "OFFBOARD", "armed": True}},
+        {"timestamp": fault_at + 2.9, "state": {"mode": "OFFBOARD", "armed": True}},
+    ]
+    setpoints = [
+        {"timestamp": fault_at + 0.2, "accepted": True,
+         "setpoint": {"north_m": 0.0, "east_m": 0.0}},
+        {"timestamp": fault_at + 1.0, "accepted": True,
+         "setpoint": {"north_m": 0.1, "east_m": 0.0}},
+        {"timestamp": fault_at + 2.0, "accepted": True,
+         "setpoint": {"north_m": 0.2, "east_m": 0.0}},
+        {"timestamp": fault_at + 2.9, "accepted": True,
+         "setpoint": {"north_m": 0.3, "east_m": 0.0}},
+    ]
+    if fault == "battery_sag":
+        history = [
+            {"timestamp": 20.2, "state": {"mode": "OFFBOARD", "armed": True}},
+            {"timestamp": 20.5, "state": {"mode": "LAND", "armed": True}},
+            {"timestamp": 22.9, "state": {"mode": "LAND", "armed": True}},
+        ]
+        setpoints = [{"timestamp": 20.3, "accepted": True, "mode": "OFFBOARD"}]
+    observation = {
+        "fault": fault,
+        "fault_at": fault_at,
+        "react_deadline": deadline,
+        "window_end": end,
+        "mission_records": decisions,
+        "vehicle_history": history,
+        "setpoints": setpoints,
+    }
+
+    action, reason, elapsed = observed_from_observation(observation)
+    result = verdict(expected_action, observation=observation, deadline_s=deadline - fault_at)
+
+    assert action == expected_action
+    assert expected_reason in reason
+    assert elapsed <= deadline - fault_at
+    assert result["passed"], observation.get("verdict_error", "")
+
+
+def test_two_climb_timeouts_escalate_through_policy_with_durable_failure(tmp_path):
+    report = run_climb_failure_fixture(tmp_path / "fixture")
+    assert report["passed"], report["checks"]
+    assert all(report["checks"].values())
+    summary = report["final_summary"]
+    reason = "climb_failed_suspected_loss_of_control"
+    assert summary["failure_class"] == summary["terminal_reason"] == reason
+    assert summary["terminal_action"] == "land_now"
+    assert summary["recovery_history"][-1]["state"] == "failed"
+    assert reason in summary["report"]["alerts"]
+    assert summary["recovery_failure"]["land_execution"] == "unverified"
+    assert report["px4_ack"] is report["px4_mode"] is report["px4_landed_state"] is None
+    records = [json.loads(line) for line in (tmp_path / "fixture/mission.jsonl").read_text(encoding="utf-8").splitlines()]
+    finals = [row["summary"] for row in records if row["kind"] == "final_summary"]
+    assert [row["terminal_action"] for row in finals] == ["return_now", "land_now"]
+    events = [row for row in records if row["kind"] == reason]
+    assert len(events) == 1 and events[0]["consecutive_timeouts"] == 2
+
+
+def test_climb_fixture_rejects_missing_policy_outcome_feedback(tmp_path, monkeypatch):
+    from scripts.onboard_policy import OnboardPolicy
+
+    monkeypatch.setattr(OnboardPolicy, "report_primitive_outcome", lambda *args, **kwargs: False)
+    report = run_climb_failure_fixture(tmp_path / "mutant")
+    assert not report["passed"]
+    assert not report["checks"]["no_third_climb"]
+    assert not report["checks"]["land_escalation"]
+    assert not report["checks"]["final_failure"]
+
+
+def test_sim_climb_injector_is_sim_only_and_matches_first_two_pure_climbs():
+    with pytest.raises(ValueError, match="SIM onboard collector"):
+        SimClimbTimeoutInjector(enabled=True, runtime_mode="real", teacher="onboard")
+    with pytest.raises(ValueError, match="SIM onboard collector"):
+        SimClimbTimeoutInjector(enabled=True, runtime_mode="sim", teacher="expert_search")
+    injector = SimClimbTimeoutInjector(enabled=True, runtime_mode="sim", teacher="onboard")
+    climb = ActionPrimitive.translate(0, 0, 15)
+    before = {
+        "pose": {"local_ned_m": [0.0, 0.0, -0.8]},
+        "flight_state": {"landed_state": 2},
+        "landed": False,
+    }
+    assert injector.matches(climb, active_skill="return_home", before=before)
+    assert not injector.matches(
+        climb,
+        active_skill="return_home",
+        before={**before, "pose": {"local_ned_m": [0.0, 0.0, -3.0]}},
+    )
+    assert not injector.matches(
+        climb,
+        active_skill="return_home",
+        before={**before, "landed": True},
+    )
+    assert not injector.matches(
+        climb,
+        active_skill="return_home",
+        before={"pose": before["pose"], "flight_state": {"landed_state": None}},
+    )
+    assert not injector.matches(climb, active_skill="monitor", before=before)
+    assert not injector.matches(ActionPrimitive.translate(1, 0, 15), active_skill="return_home", before=before)
+    assert not injector.matches(ActionPrimitive.translate(0, 0, -2), active_skill="return_home", before=before)
+
+    class Executor:
+        def __init__(self):
+            self.actions = []
+            self.criterion = SimpleNamespace(timeout_s=20.0)
+
+        def execute(self, action):
+            self.actions.append(action)
+            return ExecutionResult("success", 20.0, ack={"held_position": True})
+
+    executor = Executor()
+    for _ in range(2):
+        assert injector.matches(climb, active_skill="return_home", before=before)
+        result = injector.execute(executor, climb)
+        assert result.status == "timeout"
+        assert result.ack["sim_fault_injection"] == "return_home_climb_timeout"
+    assert all(action.kind == "hold" and action.seconds == 20.0 for action in executor.actions)
+    assert not injector.matches(climb, active_skill="return_home", before=before)
+    assert injector.injected == 2
+
+
+def test_sim_climb_injector_defaults_off():
+    injector = SimClimbTimeoutInjector(enabled=False, runtime_mode="sim", teacher="onboard")
+    before = {"pose": {"local_ned_m": [0.0, 0.0, -0.8]}, "flight_state": {"landed_state": 2}, "landed": False}
+    assert not injector.matches(ActionPrimitive.translate(0, 0, 10), active_skill="return_home", before=before)
+
+
+def test_suite_mission_selects_sim_climb_injection_only_for_that_mission():
+    defaults = {"mission": "from_text"}
+    enabled = merge_config(defaults, {"id": "fault-case", "sim_climb_timeout_injection": True})
+    disabled = merge_config(defaults, {"id": "normal-case"})
+    assert enabled["sim_climb_timeout_injection"] is True
+    assert "sim_climb_timeout_injection" not in disabled
+
+
+def test_sim_climb_fault_scenario_requires_a_valid_low_altitude_pre_abort_descent():
+    scenario = merge_config(
+        {"mission": "from_text"},
+        {
+            "id": "operator-abort-low-climb-fault",
+            "sim_climb_timeout_injection": True,
+            "sim_pre_abort_descent_altitude_m": 1.5,
+            "sim_ground_events": [{"t_s": 0, "event": "abort"}],
+            "mission_package": {},
+        },
+    )
+    assert scenario["sim_ground_events"] == [{"t_s": 0, "event": "abort"}]
+    assert validate_sim_ground_events(scenario) == scenario["sim_ground_events"]
+    assert sim_pre_abort_descent_altitude(scenario, teacher="onboard") == 1.5
+    assert sim_pre_abort_descent_altitude(
+        {"sim_climb_timeout_injection": True}, teacher="onboard"
+    ) is None
+    with pytest.raises(ValueError, match="requires SIM onboard climb injection"):
+        sim_pre_abort_descent_altitude(
+            {"sim_pre_abort_descent_altitude_m": 1.5}, teacher="onboard"
+        )
+    with pytest.raises(ValueError, match="requires SIM onboard climb injection"):
+        sim_pre_abort_descent_altitude(scenario, teacher="expert_search")
+    with pytest.raises(ValueError, match=r"\[0.5, 2.5\)"):
+        sim_pre_abort_descent_altitude(
+            {**scenario, "sim_pre_abort_descent_altitude_m": 2.5}, teacher="onboard"
+        )
 
 
 def test_package_entry_accepts_signature_and_rejects_bad_signature(tmp_path):

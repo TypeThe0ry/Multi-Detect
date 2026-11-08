@@ -557,7 +557,7 @@ class SafetyEnvelope:
         pose = tuple(float(v) for v in pose_ned)
         if len(pose) != 3 or not all(math.isfinite(v) for v in pose):
             return self._reject(["non_finite_pose"], stop=True)
-        if action.kind == "stop":
+        if action.kind in {"stop", "continue", "land"}:
             return self._accept(action, [])
         vehicle = self.vehicle
         mode_name = str(mode or "").lower().replace("-", "_")

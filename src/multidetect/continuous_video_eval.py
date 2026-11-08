@@ -182,7 +182,11 @@ def evaluate_video_episode(
                     candidate["pose"]["x_east_m"],
                     candidate["pose"]["z_up_m"],
                 ),
-                pose={"pose": pose, "attitude": row.get("attitude", {})},
+                pose={
+                    "pose": pose,
+                    "attitude": row.get("attitude", {}),
+                    **({"camera_pose": row["camera_pose"]} if row.get("camera_pose") else {}),
+                },
                 camera_info={**DEFAULT_CAMERA_INFO, **(row.get("camera_info") or {})},
                 image_size=(width, height),
                 target_size_m=tuple(candidate.get("size_m", (3, 1.8, 1.5))),

@@ -439,7 +439,11 @@ def build_dataset(
                         name = name.casefold().replace(" ", "_")
                         if name not in class_names:
                             name = "vehicle"
-                        pose = {**obs.get("pose", {}), "attitude": obs.get("attitude", {})}
+                        pose = {
+                            **obs.get("pose", {}),
+                            "attitude": obs.get("attitude", {}),
+                            **({"camera_pose": obs["camera_pose"]} if obs.get("camera_pose") else {}),
+                        }
                         raw_size = target.get("size_m") or target.get("measured_size_m")
                         if raw_size is None:
                             raw_size = sdf.get(str(target.get("target_id")))

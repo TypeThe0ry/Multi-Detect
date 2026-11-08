@@ -159,6 +159,66 @@ def test_offboard_wait_accepts_delayed_mode_heartbeat_while_setpoints_stream(mon
     )
 
 
+def test_sim_pre_abort_descent_budget_uses_px4_time_under_slow_rtf(monkeypatch) -> None:
+    clock = FakeClock()
+    monkeypatch.setattr(collector, "time", clock)
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+
+    state = SimpleNamespace(
+        messages={
+            "LOCAL_POSITION_NED": {"time_boot_ms": 10_000, "z": -5.0},
+        }
+    )
+    state.get = lambda name: state.messages.get(name)
+
+    class Reader:
+        def __init__(self) -> None:
+            self.state = state
+
+        def raise_if_failed(self) -> None:
+            elapsed_sim_s = (clock.monotonic() - 100.0) * 0.1
+            state.messages["LOCAL_POSITION_NED"] = {
+                "time_boot_ms": 10_000 + int(elapsed_sim_s * 1000),
+                "z": -(5.0 - min(3.5, elapsed_sim_s / 10.0)),
+            }
+
+    reader = Reader()
+    collector._wait_for_sim_pre_abort_descent(
+        reader,
+        lambda: -state.messages["LOCAL_POSITION_NED"]["z"] <= 1.75,
+        timeout_s=45.0,
+        max_wall_s=500.0,
+    )
+
+    assert clock.monotonic() >= 400.0
+    assert clock.monotonic() < 550.0
+
+
+def test_sim_pre_abort_descent_has_wall_ceiling_when_px4_clock_stalls(monkeypatch) -> None:
+    clock = FakeClock()
+    monkeypatch.setattr(collector, "time", clock)
+    monkeypatch.setattr(collector, "_progress", lambda *_args, **_kwargs: None)
+
+    state = SimpleNamespace(messages={"LOCAL_POSITION_NED": {"time_boot_ms": 10_000, "z": -5.0}})
+    state.get = lambda name: state.messages.get(name)
+
+    class Reader:
+        def __init__(self) -> None:
+            self.state = state
+
+        def raise_if_failed(self) -> None:
+            return None
+
+    with pytest.raises(TimeoutError, match="wall_ceiling"):
+        collector._wait_for_sim_pre_abort_descent(
+            Reader(),
+            lambda: False,
+            timeout_s=45.0,
+            max_wall_s=4.0,
+        )
+    assert clock.monotonic() >= 104.0
+
+
 def test_episode_watchdog_allows_overrun_while_vehicle_clock_advances() -> None:
     clock = FakeClock()
     reader = SimpleNamespace(state=SimpleNamespace(vehicle_time_boot_ms=100, count=1))

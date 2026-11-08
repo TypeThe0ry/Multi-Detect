@@ -2165,6 +2165,213 @@ def r29_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
     return rows
 
 
+def r30_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Add narrow executable contrasts for the r24/pregate failure families.
+
+    The follow family deliberately starts with ``follow``.  It does not teach a
+    search step for an already identified target, which is the failure that
+    consumed the Linux follow mission's step budget.
+    """
+    rows = []
+    zones = [
+        ("zone:lot", "停车场", "the lot"),
+        ("zone:field", "场地", "the field"),
+        ("zone:yard", "院子", "the yard"),
+        ("zone:farm", "农田", "the farm"),
+    ]
+    pois = [
+        ("poi:gate", "大门", "the gate", "入口", "the entrance"),
+        ("poi:tower", "水塔", "the tower", "塔区", "the tower area"),
+        ("poi:shed", "仓库", "the warehouse", "库房", "the storage building"),
+        ("poi:bridge", "桥", "the bridge", "桥梁", "the bridge span"),
+    ]
+    objects = [
+        ("person", "行人", "a person"),
+        ("red car", "红色轿车", "a red car"),
+        ("worker", "工人", "a worker"),
+        ("bicycle", "自行车", "a bicycle"),
+        ("dog", "狗", "a dog"),
+        ("blue backpack", "蓝色背包", "a blue backpack"),
+        ("truck", "卡车", "a truck"),
+        ("motorcycle", "摩托车", "a motorcycle"),
+        ("boat", "小船", "a boat"),
+        ("mailbox", "邮箱", "a mailbox"),
+    ]
+
+    def plan(text, steps, report):
+        return {"plan_version": 1, "goal": text[:160], "steps": steps, "report": report}
+
+    def emit(text, refs, target, family, role):
+        key = normalize_task(text)
+        if key in held_out or key in seen:
+            return False
+        validate_mission_plan(target)
+        findings = check_plan_intent(target, text, tuple(refs))
+        _, _, unknown_refs = check_plan_refs(target, refs, substitute=False)
+        if findings or unknown_refs:
+            raise ValueError(
+                f"r30 positive validation failed ({family}): {findings}; "
+                f"unknown_refs={unknown_refs}: {text}"
+            )
+        seen.add(key)
+        rows.append({
+            "sample_id": f"plan-r30-{family}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:24]}",
+            "kind": "mission_plan", "world": "synthetic_plan_r30", "family": family,
+            "pair_role": role, "task_text": text, "refs": list(refs), "capabilities": [],
+            "expected_valid": True, "expected_findings": [],
+            "prompt": plan_prompt(text, refs=tuple(refs), capabilities=frozenset(),
+                                  prompt_variant=args.prompt_variant),
+            "assistant_target": target,
+        })
+        return True
+
+    specs = (
+        ("direct_follow", args.r30_direct_follow_count),
+        ("step_fidelity", args.r30_step_fidelity_count),
+        ("terminal_intent", args.r30_terminal_intent_count),
+        ("grounded_refs", args.r30_grounded_refs_count),
+    )
+    for family, count in specs:
+        made = 0
+        attempt = 0
+        while made < count:
+            if attempt >= count * 100 + 100:
+                raise ValueError(f"r30 template pool exhausted for {family}: {made}/{count}")
+            zh = attempt % 2 == 0
+            index = attempt // 2
+            query, query_zh, query_phrase = objects[index % len(objects)]
+            zone, zone_zh, zone_en = zones[(index // len(objects)) % len(zones)]
+            poi, poi_zh, poi_en, alias_zh, alias_en = pois[(index // 3) % len(pois)]
+            minutes = (1, 2, 3, 5)[index % 4]
+            minute_text = "minute" if minutes == 1 else "minutes"
+            views = 2 + index % 7
+            if family == "direct_follow":
+                if zh:
+                    texts = (
+                        f"直接跟随{zone_zh}附近的{query_zh}{minutes}分钟，结束后返航。",
+                        f"目标已经找到，在{zone_zh}跟着{query_zh}走{minutes}分钟，然后回到起飞点。",
+                        f"锁定{zone_zh}里的{query_zh}后持续跟随{minutes}分钟，完成就回家。",
+                    )
+                    text = texts[index % len(texts)]
+                else:
+                    texts = (
+                        f"Follow {query_phrase} near {zone_en} for {minutes} {minute_text}, then return home.",
+                        f"The target is already identified; follow the {query} in {zone_en} for {minutes} {minute_text} and fly back to launch.",
+                        f"Keep following the {query} around {zone_en} for {minutes} {minute_text}, then come back to base.",
+                    )
+                    text = texts[index % len(texts)]
+                target = plan(text, [
+                    S("s1", "follow", {"track_ref": "track:1", "query": query,
+                                        "duration_s": minutes * 60}, "s2", "s2"),
+                    H("s2"),
+                ], ["track"])
+                role = "follow_first_no_search"
+                refs = ()
+            elif family == "step_fidelity":
+                if zh:
+                    text = (f"到{poi_zh}核对标志，从{zh_number(views)}个角度检查，拍照留档后返航。"
+                            if index % 2 == 0 else
+                            f"在{zone_zh}找{query_zh}，找到后记录位置，再回到起飞点。")
+                else:
+                    text = (f"Go to {poi_en}, inspect the sign from {views} views, record it, then return home."
+                            if index % 2 == 0 else
+                            f"Search {zone_en} for the {query}, record its position, and then fly back to launch.")
+                if index % 2 == 0:
+                    target = plan(text, [
+                        S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                        S("s2", "inspect", {"target_ref": poi, "query": "标志" if zh else "sign",
+                                              "standoff_m": 12, "views": views}, "s3", "s3"),
+                        S("s3", "record", {"query": "标志" if zh else "sign"}, "s4", "s4"),
+                        H("s4"),
+                    ], ["findings", "views", "evidence", "positions"])
+                else:
+                    target = plan(text, [
+                        S("s1", "area_search", {"region": zone, "query": query}, "s2", "s3"),
+                        S("s2", "record", {"query": query}, "s3", "s3"),
+                        H("s3"),
+                    ], ["findings", "evidence", "positions"])
+                refs = (f"{poi} ({poi_zh} / {poi_en} / {alias_zh} / {alias_en})",
+                        f"{zone} ({zone_zh} / {zone_en})")
+                role = "retain_explicit_actions"
+            elif family == "terminal_intent":
+                local_land = index % 2 == 0
+                if zh:
+                    text = (f"到{poi_zh}从{zh_number(views)}个角度检查信标，不要返航，完成后就在这里降落。" if local_land else
+                            f"到{poi_zh}从{zh_number(views)}个角度检查信标，不要在这里降落，完成后返回起飞点。")
+                else:
+                    text = (f"Go to {poi_en} and inspect the beacon from {views} views; do not return home, land there when done." if local_land else
+                            f"Go to {poi_en} and inspect the beacon from {views} views; do not land there, then return home.")
+                terminal = "land" if local_land else "return_home"
+                target = plan(text, [
+                    S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                    S("s2", "inspect", {"target_ref": poi, "query": "信标" if zh else "beacon",
+                                          "standoff_m": 10, "views": views}, "s3", "s3"),
+                    S("s3", terminal, {}, None, None),
+                ], ["findings", "positions"])
+                refs = (f"{poi} ({poi_zh} / {poi_en} / {alias_zh} / {alias_en})",)
+                role = "land_here" if local_land else "return_home"
+            else:
+                use_alias = index % 2 == 0
+                place_zh = alias_zh if use_alias else poi_zh
+                place_en = alias_en if use_alias else poi_en
+                if zh:
+                    text = f"到{place_zh}从{zh_number(views)}个角度检查入口标志，记录位置后返航。"
+                else:
+                    text = f"At {place_en}, inspect the entrance sign from {views} views, record its position, and return home."
+                target = plan(text, [
+                    S("s1", "goto", {"target_ref": poi}, "s2", "s2"),
+                    S("s2", "inspect", {"target_ref": poi, "query": "入口标志" if zh else "entrance sign",
+                                          "standoff_m": 10, "views": views}, "s3", "s3"),
+                    S("s3", "record", {"query": "入口标志" if zh else "entrance sign"}, "s4", "s4"),
+                    H("s4"),
+                ], ["findings", "evidence", "positions"])
+                refs = (f"{poi} ({poi_zh} / {poi_en} / {alias_zh} / {alias_en})",)
+                role = "alias_or_canonical_ref"
+            if emit(text, refs, target, family, role):
+                made += 1
+            attempt += 1
+    return rows
+
+
+def r31_rows(args, held_out: set[str], seen: set[str]) -> list[dict]:
+    """Small bilingual r30 contrasts, balanced across the named skill strata."""
+    rows = []
+    buckets = ("record/inspect", "monitor/hover", "patrol/goto", "land/return_home")
+    specs = (("direct_follow", args.r31_direct_follow_count),
+             ("step_fidelity", args.r31_step_fidelity_count),
+             ("terminal_intent", args.r31_terminal_intent_count),
+             ("grounded_refs", args.r31_grounded_refs_count))
+    # Generate a balanced candidate pool with r30's validated positive templates,
+    # then assign deterministic family x bucket x language quotas.
+    r30_args = argparse.Namespace(**vars(args))
+    r30_args.r30_direct_follow_count = args.r31_direct_follow_count * 2
+    r30_args.r30_step_fidelity_count = args.r31_step_fidelity_count * 2
+    r30_args.r30_terminal_intent_count = args.r31_terminal_intent_count * 2
+    r30_args.r30_grounded_refs_count = args.r31_grounded_refs_count * 2
+    pool = r30_rows(r30_args, held_out, set(seen))
+    pool_by_family = {name: [r for r in pool if r["family"] == name] for name, _ in specs}
+    for family, count in specs:
+        candidates = pool_by_family[family]
+        if not count:
+            continue
+        selected = []
+        for i in range(count):
+            bucket = buckets[(i // 2) % len(buckets)]
+            lang = "zh" if i % 2 == 0 else "en"
+            match = next((r for r in candidates if r not in selected
+                          and ("zh" if re.search(r"[\u3400-\u9fff]", r["task_text"]) else "en") == lang), None)
+            if match is None:
+                match = candidates[i % len(candidates)]
+            item = dict(match)
+            item["world"] = "synthetic_plan_r31"
+            item["sample_id"] = item["sample_id"].replace("plan-r30-", "plan-r31-")
+            item["skill_bucket"] = bucket
+            item["family"] = family
+            selected.append(match)
+            rows.append(item)
+    return rows
+
+
 V5_FAMILIES = (
     "conditional_branch", "two_targets", "count_stop", "alert_action", "evidence_only",
     "colloquial",
@@ -2862,6 +3069,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--r29-query-grounding-count", type=int, default=72)
     parser.add_argument("--r29-ref-alias-count", type=int, default=72)
     parser.add_argument("--r29-return-intent-count", type=int, default=72)
+    parser.add_argument("--r30-recipe", action="store_true",
+                        help="extend the r24 recipe with focused follow/order/terminal/reference positives")
+    parser.add_argument("--r30-direct-follow-count", type=int, default=80,
+                        help="direct-follow rows whose first skill is follow (default: 80)")
+    parser.add_argument("--r30-step-fidelity-count", type=int, default=80,
+                        help="rows retaining explicit intermediate evidence actions (default: 80)")
+    parser.add_argument("--r30-terminal-intent-count", type=int, default=40,
+                        help="rows contrasting local land and return-home terminals (default: 40)")
+    parser.add_argument("--r30-grounded-refs-count", type=int, default=40,
+                        help="rows resolving aliases to supplied references (default: 40)")
+    parser.add_argument("--r31-recipe", action="store_true",
+                        help="add a small balanced r31 positive slice on the r24 base")
+    parser.add_argument("--r31-direct-follow-count", type=int, default=40)
+    parser.add_argument("--r31-step-fidelity-count", type=int, default=40)
+    parser.add_argument("--r31-terminal-intent-count", type=int, default=20)
+    parser.add_argument("--r31-grounded-refs-count", type=int, default=20)
     parser.add_argument(
         "--eval-tasks",
         type=Path,
@@ -2887,6 +3110,11 @@ def main(argv: list[str] | None = None) -> int:
     if any(value < 0 for value in (args.r28_stop_count, args.r28_fixed_wing_count,
                                    args.r28_return_count)):
         parser.error("r28 counts must be non-negative")
+    if any(value < 0 for value in (args.r30_direct_follow_count,
+                                   args.r30_step_fidelity_count,
+                                   args.r30_terminal_intent_count,
+                                   args.r30_grounded_refs_count)):
+        parser.error("r30 counts must be non-negative")
     if args.r28_fixed_wing_count % 2:
         parser.error("r28 fixed-wing contrast count must be even for paired aircraft contexts")
     if args.r25_recipe:
@@ -2901,6 +3129,30 @@ def main(argv: list[str] | None = None) -> int:
         args.r23_recipe = True
         args.r24_recipe = True
         args.r24_unknown_count = 0
+    if args.r30_recipe or args.r31_recipe:
+        # r30 deliberately inherits only the executable r24 base.  The refusal
+        # recipes and r29's broader contrasts are excluded to keep this round
+        # focused and to preserve the v3 distribution.
+        args.r23_recipe = True
+        args.r24_recipe = True
+        args.r24_unknown_count = 0
+        if any(value % 2 for value in (args.r30_direct_follow_count,
+                                       args.r30_step_fidelity_count,
+                                       args.r30_terminal_intent_count,
+                                       args.r30_grounded_refs_count)):
+            parser.error("r30 counts must be even for an equal Chinese/English split")
+    if args.r31_recipe:
+        # r31 is exactly the replay slice plus its four positive families.
+        args.r23_recipe = False
+        args.r24_recipe = False
+        args.r20_plan_intent = False
+        args.r24_unknown_count = 0
+        if args.replay_planner_train is None:
+            parser.error("--r31-recipe requires --replay-planner-train")
+        if any(value < 0 or value % 2 for value in (args.r31_direct_follow_count,
+                args.r31_step_fidelity_count, args.r31_terminal_intent_count,
+                args.r31_grounded_refs_count)):
+            parser.error("r31 family counts must be non-negative and even")
     if args.r27_recipe:
         args.r23_recipe = True
         args.r24_recipe = True
@@ -2919,7 +3171,7 @@ def main(argv: list[str] | None = None) -> int:
         for path in eval_paths
         for task in json.loads(path.read_text(encoding="utf-8"))["tasks"]
     }
-    if getattr(args, "r28_recipe", False) or getattr(args, "r29_recipe", False):
+    if getattr(args, "r28_recipe", False) or getattr(args, "r29_recipe", False) or getattr(args, "r30_recipe", False) or getattr(args, "r31_recipe", False):
         # The 15 return-home probe tasks gate planner replacement too; r28 targets
         # their failure mode, so keep them (and near-duplicates) out of training.
         probe = ROOT / "configs/onboard/plan-probe-tasks-return-home.json"
@@ -2927,6 +3179,14 @@ def main(argv: list[str] | None = None) -> int:
             normalize_task(task["text"])
             for task in json.loads(probe.read_text(encoding="utf-8"))["tasks"]
         }
+    if getattr(args, "r30_recipe", False) or getattr(args, "r31_recipe", False):
+        for suite in (ROOT / "configs/onboard").glob("suite-follow*.json"):
+            document = json.loads(suite.read_text(encoding="utf-8"))
+            held_out |= {
+                normalize_task(task["task_text"])
+                for task in document.get("tasks", ())
+                if task.get("task_text")
+            }
     labels = {r[0]: f"{r[1]} / {r[2]}" for r in ZONES + POIS + ROUTES}
     rng = random.Random(args.seed)
     rows, seen = [], set()
@@ -2934,11 +3194,17 @@ def main(argv: list[str] | None = None) -> int:
     replay_ids: set[str] = set()
     if args.replay_planner_train:
         replay = load_replay_rows(args.replay_planner_train, {normalize_task(x) for x in held_out})
+        if args.r31_recipe:
+            if len(replay) < 1500:
+                raise ValueError(f"r31 requires 1,500 replay rows; found {len(replay)}")
+            replay = replay[:1500]
         rows.extend(replay)
         seen.update(normalize_task(row["task_text"]) for row in replay)
         replay_ids = {str(row.get("sample_id")) for row in replay}
         replay_count = len(replay)
         args.rows += replay_count
+        if args.r31_recipe:
+            args.rows = replay_count
     if args.version == "v5":
         rows = v5_rows(args, held_out, labels)
     if args.r20_intent_pairs:
@@ -3043,6 +3309,14 @@ def main(argv: list[str] | None = None) -> int:
         new_rows = r29_rows(args, held_out, seen)
         rows.extend(new_rows)
         args.rows += len(new_rows)
+    if args.r30_recipe:
+        new_rows = r30_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
+    if args.r31_recipe:
+        new_rows = r31_rows(args, held_out, seen)
+        rows.extend(new_rows)
+        args.rows += len(new_rows)
     while len(rows) < args.rows + args.val_rows:
         if args.version == "v4":
             generator = mission_v3 if rng.random() < 1 / 3 else mission
@@ -3098,7 +3372,8 @@ def main(argv: list[str] | None = None) -> int:
                                           "r28_stop_threshold", "r28_fixed_wing_hover",
                                           "r28_fixed_wing_target_land", "r29_query_ungrounded",
                                           "r29_return_negated_land", "r29_query_grounding",
-                                          "r29_ref_alias", "r29_return_intent"}:
+                                          "r29_ref_alias", "r29_return_intent", "r30_direct_follow",
+                                          "r30_step_fidelity", "r30_terminal_intent", "r30_grounded_refs"}:
                 continue
             if isinstance(row.get("task_text"), str):
                 old = row["task_text"]
@@ -3227,6 +3502,53 @@ def main(argv: list[str] | None = None) -> int:
                 row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}
                 for row in r29_all),
         }
+    if args.r30_recipe:
+        r30_all = [row for row in rows if row.get("world") == "synthetic_plan_r30"]
+        collisions = sorted({normalize_task(row["task_text"]) for row in rows
+                             if normalize_task(row["task_text"]) in held_out})
+        if collisions:
+            raise ValueError(f"r30 holdout leakage: {collisions[:3]}")
+        manifest["r30_recipe"] = {
+            "rows_added": len(r30_all),
+            "requested": {
+                "direct_follow": args.r30_direct_follow_count,
+                "step_fidelity": args.r30_step_fidelity_count,
+                "terminal_intent": args.r30_terminal_intent_count,
+                "grounded_refs": args.r30_grounded_refs_count,
+            },
+            "family_counts": dict(sorted(Counter(row["family"] for row in r30_all).items())),
+            "language_counts": dict(sorted(Counter(
+                "zh" if re.search(r"[\u3400-\u9fff]", row["task_text"]) else "en"
+                for row in r30_all).items())),
+            "first_skill_counts": dict(sorted(Counter(
+                row["assistant_target"]["steps"][0]["skill"] for row in r30_all
+            ).items())),
+            "holdout_sources": ["plan-eval-tasks*.json", "plan-probe-tasks-return-home.json",
+                                "suite-follow*.json"],
+            "holdout_collisions": 0,
+            "structured_refusal_rows": sum(
+                row.get("assistant_target", {}).get("decision") in {"reject", "clarify"}
+                for row in r30_all),
+        }
+    if args.r31_recipe:
+        r31_all = [row for row in rows if row.get("world") == "synthetic_plan_r31"]
+        collisions = sorted({normalize_task(row["task_text"]) for row in rows
+                             if normalize_task(row["task_text"]) in held_out})
+        if collisions:
+            raise ValueError(f"r31 holdout leakage: {collisions[:3]}")
+        manifest["r31_recipe"] = {
+            "rows_added": len(r31_all),
+            "family_counts": dict(sorted(Counter(row["family"] for row in r31_all).items())),
+            "family_skill_language_counts": {
+                f"{family}|{bucket}|{lang}": count for (family, bucket, lang), count in sorted(Counter(
+                    (row["family"], row["skill_bucket"],
+                     "zh" if re.search(r"[\u3400-\u9fff]", row["task_text"]) else "en")
+                    for row in r31_all).items())},
+            "replay_rows": replay_count,
+            "holdout_sources": ["plan-eval-tasks*.json", "plan-probe-tasks-return-home.json", "suite-follow*.json"],
+            "holdout_collisions": 0,
+            "structured_refusal_rows": sum(row.get("assistant_target", {}).get("decision") in {"reject", "clarify"} for row in r31_all),
+        }
     if replay_count:
         manifest["replay_planner_train_rows"] = replay_count
         manifest["replay_planner_train_path"] = str(args.replay_planner_train)
@@ -3276,7 +3598,7 @@ def main(argv: list[str] | None = None) -> int:
         language_counts = {name: Counter(
             "zh" if any("\u4e00" <= char <= "\u9fff" for char in row["task_text"]) else "en"
             for row in part) for name, part in splits.items()}
-        stats = [f"#{' r28' if args.r28_recipe else ' r27' if args.r27_recipe else ' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
+        stats = [f"#{' r31' if args.r31_recipe else ' r30' if args.r30_recipe else ' r29' if args.r29_recipe else ' r28' if args.r28_recipe else ' r27' if args.r27_recipe else ' r26' if args.r26_recipe else ' r25' if args.r25_recipe else ' r24' if args.r24_recipe else ' r23'} planner dataset statistics", "",
                  f"- Version: {args.version}; seed: {args.seed}",
                  f"- Rows: train {len(splits['train'])}, val {len(splits['val'])}",
                  "", "| Split | zh | en |", "|---|---:|---:|"]
@@ -3318,6 +3640,15 @@ def main(argv: list[str] | None = None) -> int:
                       "", "| r28 family | Rows |", "|---|---:|"]
             stats += [f"| {family} | {count} |"
                       for family, count in manifest["r28_recipe"]["family_counts"].items()]
+        if args.r30_recipe:
+            stats += ["", "| r30 family | Rows |", "|---|---:|"]
+            stats += [f"| {family} | {count} |"
+                      for family, count in manifest["r30_recipe"]["family_counts"].items()]
+            stats += ["", "r30 direct-follow rows start with `follow` and contain no search step; all r30 rows are executable positives.",
+                      "Holdout leakage check covers planning-v3/v4/v5, the return-home probe, and follow-suite task texts: 0 collisions.", ""]
+        if args.r31_recipe:
+            stats += ["", f"r31 replay rows: {replay_count}; r31 positive rows: {manifest['r31_recipe']['rows_added']}.",
+                      "Holdout leakage check covers planning-v3/v4/v5, the return-home probe, and follow-suite task texts: 0 collisions.", ""]
         (args.output / "r23-data-stats.md").write_text("\n".join(stats), encoding="utf-8")
     required = args.require_skills
     if required is None:

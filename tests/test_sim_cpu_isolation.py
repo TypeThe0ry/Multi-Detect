@@ -294,6 +294,8 @@ def test_episode_provenance_records_affinity_and_does_not_claim_attached_affinit
     tmp_path, monkeypatch, attach
 ):
     _auto(monkeypatch)
+    monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", "off")
+    monkeypatch.setenv("LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S", "90")
     monkeypatch.setenv("MULTIDETECT_SITL_SLOT", "2")
     plan = _collection_plan(tmp_path)
     if attach:
@@ -301,6 +303,13 @@ def test_episode_provenance_records_affinity_and_does_not_claim_attached_affinit
     monkeypatch.setattr(collector, "_hover_policy", lambda *_: object())
     monkeypatch.setattr(collector, "build_provenance", lambda **_: {})
     monkeypatch.setattr(collector, "snapshot_config", lambda *_: None)
+    monkeypatch.setattr(
+        collector.subprocess,
+        "run",
+        lambda command, **kwargs: SimpleNamespace(
+            returncode=1, stdout="", stderr="fake Docker unavailable"
+        ),
+    )
 
     def stop_before_docker(_self):
         raise RuntimeError("offline stop before Docker")
@@ -310,6 +319,9 @@ def test_episode_provenance_records_affinity_and_does_not_claim_attached_affinit
         collector.run_episode(plan, Path(plan.truth), 0)
     meta_path, = (tmp_path / "episodes").glob("*/episode.json")
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["provenance"]["px4_logger_mode"] == "off"
+    assert meta["provenance"]["px4_daemon_mode"] is True
+    assert meta["provenance"]["linux_primitive_clock_stall_timeout_s"] == 90.0
     allocation = meta["provenance"]["simulator_cpu_isolation"]
     if attach:
         assert allocation == {"mode": "attached", "cpuset_cpus": None, "cpu_shares": None}

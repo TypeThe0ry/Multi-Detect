@@ -1163,6 +1163,23 @@ def _observe(loop: OnboardLoop, step: int, boxes: dict) -> list:
     )
 
 
+def test_count_does_not_add_a_second_result_without_a_fresh_position():
+    loop = _loop(stop_on_confirm=False)
+    (track,) = _observe(loop, 0, {_box(640, 700, 20): (-22.9813591813, 28.9331661776)})
+    first = _count(loop, track, (-22.9813591813, 28.9331661776))
+    assert "counted" in first
+
+    # joint2 step 105 logged this same cone at (-16.9495, 29.4145),
+    # 6.05 m from the prior point and outside the configured 4 m radius.
+    # The frame had no fresh camera_pose, so the projection must be absent;
+    # an invalid stale-pose point must not become another count.
+    stale_record = {"track_id": track.track_id, "position_estimate_ne": None}
+    _, info = loop._count_confirmation(track, stale_record, (0.0, 0.0, -8.0), 0.0, {})
+    assert info["count_blocked"] == "position_unavailable"
+    assert len(loop.confirmations) == 1
+    assert loop.config.count_dedupe_m == 4.0
+
+
 def test_count_dedupe_ignores_co_visibility_after_a_track_migrates_onto_a_counted_object():
     # 2026-10-19 SIM count (gen_cnt2_w0000): t2 (another object, 6 m away) and
     # t3 (a cone) shared step 0; t3 was counted, then t2 re-associated onto the
@@ -1651,6 +1668,41 @@ def test_count_dedupe_widens_with_the_position_uncertainty_of_both_estimates():
     assert count_twice(3.6, 1.2) == 1
     # Precise estimates that far apart are two objects (1.5 m footprint radius).
     assert count_twice(0.3, 0.3) == 2
+
+
+def test_count_dedupe_allows_small_calibration_margin_for_fused_estimates():
+    from multidetect.autonomy.onboard_loop import AppearanceSignature
+
+    hydrant = AppearanceSignature(size_range=0.02, aspect_ratio=0.5, footprint_m=0.8)
+    loop = _loop(stop_on_confirm=False)
+    (first,) = _observe(loop, 0, {_box(400, 700, 13): (39.167, -20.818)})
+    first.appearance = hydrant
+    loop._count_confirmation(
+        first,
+        {
+            "track_id": first.track_id,
+            "position_estimate_ne": [39.167, -20.818],
+            "position_sigma_m": 1.233,
+        },
+        (0.0, 0.0, -8.0),
+        0.0,
+        {},
+    )
+    (second,) = _observe(loop, 90, {_box(900, 300, 13): (37.936, -19.307)})
+    second.appearance = hydrant
+    _, info = loop._count_confirmation(
+        second,
+        {
+            "track_id": second.track_id,
+            "position_estimate_ne": [37.936, -19.307],
+            "position_sigma_m": 1.229,
+        },
+        (0.0, 0.0, -8.0),
+        0.0,
+        {},
+    )
+    assert info["duplicate_of_counted"] == second.track_id
+    assert len(loop.confirmations) == 1
 
 
 def test_count_does_not_approach_a_new_track_id_on_a_counted_object() -> None:

@@ -8,6 +8,7 @@ import pytest
 from multidetect.autonomy.fw_search import FixedWingSearch, camera_footprint_width_m
 from multidetect.autonomy.motion_intent import AirframeMotionAdapter, dynamics_from_profile
 from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig
+from multidetect.camera_mount import CameraMount, compose_camera_pose
 from multidetect.sim_teacher.primitives import ActionPrimitive, body_to_ned
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -265,4 +266,31 @@ def test_fixed_wing_coverage_search_tracks_cells_and_reserves_return_budget() ->
     final = search.next_action(pose_ned=(0.0, 0.0, -30.0), yaw_deg=0.0)
     assert final.kind == "stop"
     assert search.search_outcome == "budget_reserve"
+
+
+def test_fixed_wing_gimbal_coverage_requires_a_fresh_composed_pose() -> None:
+    search = FixedWingSearch(
+        home_ned=(0.0, 0.0, 0.0), radius_m=55.0,
+        footprint_width_m=100.0, turn_radius_m=21.2, max_leg_m=30.0,
+        coverage_enabled=True, camera_is_gimballed=True,
+        camera_intrinsics={"fx": 540.0, "fy": 540.0, "cx": 640.0, "cy": 480.0},
+        max_search_calls=10, return_reserve_calls=2,
+    )
+    search._record_camera_coverage((0.0, 0.0, -30.0), 0.0)
+    assert search.coverage_fraction == 0.0
+    composed = compose_camera_pose(
+        (0.0, 0.0, -30.0), vehicle_roll_rad=0.0, vehicle_pitch_rad=0.0,
+        vehicle_yaw_rad=0.0, mount=CameraMount.fixed(pitch_rad=math.radians(45.0)),
+    )
+    search._record_camera_coverage(
+        (0.0, 0.0, -30.0), 0.0,
+        {"center_ned": composed.center_ned, "optical_to_world": composed.optical_to_world,
+         "gimbal_feedback_fresh": False},
+    )
+    assert search.coverage_fraction == 0.0
+    search._record_camera_coverage(
+        (0.0, 0.0, -30.0), 0.0,
+        {"center_ned": composed.center_ned, "optical_to_world": composed.optical_to_world,
+         "gimbal_feedback_fresh": True},
+    )
     assert 0.0 < search.coverage_fraction < 0.99

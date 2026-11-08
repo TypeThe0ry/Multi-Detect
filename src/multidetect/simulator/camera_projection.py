@@ -11,41 +11,15 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 from multidetect.autonomy.ground_model import GroundModel
+from multidetect.camera_mount import CameraMount, GimbalLimits, compose_camera_pose
 
 CAMERA_MOUNT_X_M = 0.18
 CAMERA_MOUNT_Z_DOWN_M = 0.12
 CAMERA_MOUNT_PITCH_RAD = 0.18
-
-
-def _camera_extrinsics(
-    pose: Mapping[str, Any], camera_pitch_rad: float, camera_extrinsics: Mapping[str, Any] | None
-) -> tuple[tuple[float, float, float], tuple[tuple[float, float, float], ...]]:
-    """Return camera position and optical-to-body rotation.
-
-    Fixed-camera callers retain the historical x500 numbers.  A gimbal caller
-    supplies ``position_body_ned`` and a row-major ``rotation_body_from_camera``
-    computed from the base mount and live yaw/roll/pitch joints.
-    """
-    supplied = camera_extrinsics
-    if supplied is None and isinstance(pose.get("camera_extrinsics"), Mapping):
-        supplied = pose["camera_extrinsics"]
-    if isinstance(supplied, Mapping):
-        position = supplied.get("position_body_ned", (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M))
-        rotation = supplied.get("rotation_body_from_camera")
-        if isinstance(position, Sequence) and len(position) >= 3 and isinstance(rotation, Sequence) and len(rotation) == 9:
-            p = tuple(float(position[index]) for index in range(3))
-            r = tuple(float(rotation[index]) for index in range(9))
-            if all(math.isfinite(value) for value in (*p, *r)):
-                return p, (r[0:3], r[3:6], r[6:9])
-    cp, sp = math.cos(camera_pitch_rad), math.sin(camera_pitch_rad)
-    return (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M), ((cp, 0.0, -sp), (0.0, 1.0, 0.0), (sp, 0.0, cp))
-
-
-def _mat_vec(matrix, vector):
-    return tuple(sum(matrix[row][column] * vector[column] for column in range(3)) for row in range(3))
 
 
 def _finite(value: object) -> float | None:
@@ -122,6 +96,134 @@ def _pose_values(pose: Mapping[str, Any]) -> tuple[float, float, float, float, f
     return north, east, down, roll, pitch, yaw
 
 
+def _gimbal_pose_is_stale(pose: Mapping[str, Any]) -> bool:
+    """Whether this frame explicitly says its gimbal orientation is stale."""
+    # A stale high-level status invalidates any composed pose that may have
+    # been retained by a legacy recorder.  The joint sidecar remains useful
+    # metadata, but it must not silently bless that older camera pose.
+    state = pose.get("gimbal_state")
+    if isinstance(state, Mapping) and state.get("fresh") is False:
+        return True
+    camera = pose.get("camera_pose")
+    if isinstance(camera, Mapping):
+        if camera.get("gimbal_feedback_fresh") is False:
+            return True
+        center, rotation = camera.get("center_ned"), camera.get("optical_to_world")
+        if (
+            isinstance(center, Sequence)
+            and not isinstance(center, (str, bytes))
+            and len(center) == 3
+            and isinstance(rotation, Sequence)
+            and not isinstance(rotation, (str, bytes))
+            and len(rotation) == 9
+        ):
+            return False
+    joint = pose.get("gimbal_joint_state")
+    return (
+        isinstance(joint, Mapping)
+        and joint.get("source") not in {None, "fixed_mount", "unavailable"}
+        and joint.get("fresh") is False
+    )
+
+
+def _recorded_camera_pose(
+    pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None
+) -> tuple[tuple[float, float, float], tuple[float, ...]] | None:
+    """Return a frame camera pose, composing legacy gimbal feedback when needed.
+
+    Recorded ``camera_pose`` is authoritative.  Older gimbal recordings may
+    contain only fresh ``gimbal_state`` (or its joint-state spelling), so compose
+    it against the measured vehicle pose before falling back to the historical
+    fixed-camera geometry.
+    """
+    camera = pose.get("camera_pose")
+    if not isinstance(camera, Mapping):
+        camera = None
+    center = camera.get("center_ned") if camera is not None else None
+    rotation = camera.get("optical_to_world") if camera is not None else None
+    if not isinstance(center, Sequence) or isinstance(center, (str, bytes)) or len(center) != 3:
+        center = rotation = None
+    if not isinstance(rotation, Sequence) or isinstance(rotation, (str, bytes)) or len(rotation) != 9:
+        center = rotation = None
+    if center is not None and rotation is not None:
+        values = tuple(_finite(value) for value in (*center, *rotation))
+        if not any(value is None for value in values):
+            return tuple(float(value) for value in center), tuple(float(value) for value in rotation)
+
+    state = pose.get("gimbal_state")
+    angle_names = ("pitch_rad", "yaw_rad", "roll_rad")
+    if not isinstance(state, Mapping):
+        joint = pose.get("gimbal_joint_state")
+        state = (
+            joint.get("position_rad")
+            if isinstance(joint, Mapping) and joint.get("source") not in {"fixed_mount", "unavailable"}
+            else None
+        )
+        angle_names = ("pitch", "yaw", "roll")
+    if not isinstance(state, Mapping):
+        return None
+    angles = tuple(_finite(state.get(name)) for name in angle_names)
+    if any(value is None for value in angles):
+        return None
+    values = _pose_values(pose)
+    if values is None:
+        return None
+    base = camera_mount if camera_mount is not None and camera_mount.kind == "gimbal" else CameraMount.gimbal()
+    yaw_frame = state.get("yaw_frame")
+    stabilization = (
+        "lock-horizon" if yaw_frame == "world" else "follow-body"
+        if yaw_frame == "body" else base.stabilization
+    )
+    if not (
+        base.limits.pitch_min_rad <= float(angles[0]) <= base.limits.pitch_max_rad
+        and base.limits.yaw_min_rad <= float(angles[1]) <= base.limits.yaw_max_rad
+        and base.limits.roll_min_rad <= float(angles[2]) <= base.limits.roll_max_rad
+    ):
+        # Keep replay geometry available for recorded feedback marked
+        # out-of-limits; the observation is still the measured pose.
+        base = replace(
+            base,
+            limits=GimbalLimits(
+                pitch_min_rad=-math.pi,
+                pitch_max_rad=math.pi,
+                yaw_min_rad=-math.pi,
+                yaw_max_rad=math.pi,
+                roll_min_rad=-math.pi,
+                roll_max_rad=math.pi,
+            ),
+        )
+    mount = replace(
+        base,
+        pitch_rad=float(angles[0]),
+        yaw_rad=float(angles[1]),
+        roll_rad=float(angles[2]),
+        stabilization=stabilization,
+    )
+    rotation_override = state.get("rotation")
+    if isinstance(rotation_override, Sequence) and not isinstance(rotation_override, (str, bytes)) and len(rotation_override) == 9:
+        parsed = tuple(_finite(value) for value in rotation_override)
+        if all(value is not None for value in parsed):
+            rotation_frame = yaw_frame if yaw_frame in {"body", "world"} else "body"
+            composed = compose_camera_pose(
+                tuple(values[:3]),
+                vehicle_roll_rad=math.radians(values[3]),
+                vehicle_pitch_rad=math.radians(values[4]),
+                vehicle_yaw_rad=math.radians(values[5]),
+                mount=mount,
+                rotation_override=tuple(float(value) for value in parsed),
+                rotation_frame=rotation_frame,
+            )
+            return composed.center_ned, composed.optical_to_world
+    composed = compose_camera_pose(
+        tuple(values[:3]),
+        vehicle_roll_rad=math.radians(values[3]),
+        vehicle_pitch_rad=math.radians(values[4]),
+        vehicle_yaw_rad=math.radians(values[5]),
+        mount=mount,
+    )
+    return composed.center_ned, composed.optical_to_world
+
+
 def _world_to_body_ned(
     vector_ned: tuple[float, float, float], *, roll_rad: float, pitch_rad: float, yaw_rad: float
 ) -> tuple[float, float, float]:
@@ -155,18 +257,60 @@ def _body_to_world_ned(
     return cy * x2 - sy * y1, sy * x2 + cy * y1, z2
 
 
+def _legacy_camera_pose(
+    pose: Mapping[str, Any], camera_extrinsics: Mapping[str, Any] | None
+) -> tuple[tuple[float, float, float], tuple[float, ...]] | None:
+    values = _pose_values(pose)
+    if values is None or not isinstance(camera_extrinsics, Mapping):
+        return None
+    position = camera_extrinsics.get(
+        "position_body_ned", (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M)
+    )
+    rotation = camera_extrinsics.get("rotation_body_from_camera")
+    if not isinstance(position, Sequence) or len(position) != 3:
+        return None
+    if not isinstance(rotation, Sequence) or len(rotation) != 9:
+        return None
+    body = _body_to_world_ned(
+        tuple(float(value) for value in position),
+        roll_rad=math.radians(values[3]),
+        pitch_rad=math.radians(values[4]),
+        yaw_rad=math.radians(values[5]),
+    )
+    center = (values[0] + body[0], values[1] + body[1], values[2] + body[2])
+    world_rotation = tuple(float(value) for value in rotation)
+    return center, world_rotation
+
+
 def camera_center_ned_up(
-    pose: Mapping[str, Any], *, camera_extrinsics: Mapping[str, Any] | None = None
+    pose: Mapping[str, Any], *, camera_mount: CameraMount | None = None,
+    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[float, float, float] | None:
     """Return camera centre as ``(north_m, east_m, up_m)`` for a recorded pose."""
+    if _gimbal_pose_is_stale(pose):
+        return None
+    legacy = _legacy_camera_pose(pose, camera_extrinsics)
+    if legacy is not None:
+        return legacy[0][0], legacy[0][1], -legacy[0][2]
+    recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
+    if recorded is not None:
+        return recorded[0][0], recorded[0][1], -recorded[0][2]
     values = _pose_values(pose)
     if values is None:
         return None
     north, east, down, roll_deg, pitch_deg, yaw_deg = values
+    if camera_mount is not None:
+        composed = compose_camera_pose(
+            (north, east, down),
+            vehicle_roll_rad=math.radians(roll_deg),
+            vehicle_pitch_rad=math.radians(pitch_deg),
+            vehicle_yaw_rad=math.radians(yaw_deg),
+            mount=camera_mount,
+        )
+        return composed.center_ned[0], composed.center_ned[1], -composed.center_ned[2]
     roll, pitch, yaw = (math.radians(value) for value in (roll_deg, pitch_deg, yaw_deg))
-    position_body, _ = _camera_extrinsics(pose, CAMERA_MOUNT_PITCH_RAD, camera_extrinsics)
     mount_world = _body_to_world_ned(
-        position_body,
+        (CAMERA_MOUNT_X_M, 0.0, -CAMERA_MOUNT_Z_DOWN_M),
         roll_rad=roll,
         pitch_rad=pitch,
         yaw_rad=yaw,
@@ -182,19 +326,51 @@ def _pixel_camera_ray_raw(
     camera_info: Mapping[str, Any] | None,
     image_size: tuple[int, int],
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+    camera_mount: CameraMount | None = None,
     camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Shared inverse projection; retain the legacy unnormalized ground ray."""
+    if _gimbal_pose_is_stale(pose):
+        return None
+    recorded = _legacy_camera_pose(pose, camera_extrinsics) or _recorded_camera_pose(
+        pose, camera_mount=camera_mount
+    )
+    if recorded is not None:
+        fx, fy, cx, cy = _intrinsics(camera_info, image_size)
+        x, y, z = 1.0, (u - cx) / fx, (v - cy) / fy
+        center, rotation = recorded
+        ray = tuple(
+            rotation[row * 3] * x
+            + rotation[row * 3 + 1] * y
+            + rotation[row * 3 + 2] * z
+            for row in range(3)
+        )
+        return (center[0], center[1], -center[2]), ray
     values = _pose_values(pose)
-    centre = camera_center_ned_up(pose, camera_extrinsics=camera_extrinsics)
+    centre = camera_center_ned_up(
+        pose, camera_mount=camera_mount, camera_extrinsics=camera_extrinsics
+    )
     if values is None or centre is None:
         return None
     _, _, _, roll_deg, pitch_deg, yaw_deg = values
     fx, fy, cx, cy = _intrinsics(camera_info, image_size)
     # Optical frame of _body_to_camera_optical: +X forward, +Y right, +Z down.
     x, y, z = 1.0, (u - cx) / fx, (v - cy) / fy
-    _, rotation = _camera_extrinsics(pose, camera_pitch_rad, camera_extrinsics)
-    body = _mat_vec(rotation, (x, y, z))
+    if camera_mount is not None:
+        composed = compose_camera_pose(
+            (values[0], values[1], values[2]),
+            vehicle_roll_rad=math.radians(values[3]),
+            vehicle_pitch_rad=math.radians(values[4]),
+            vehicle_yaw_rad=math.radians(values[5]),
+            mount=camera_mount,
+        )
+        optical_to_world = composed.optical_to_world
+        north = optical_to_world[0] * x + optical_to_world[1] * y + optical_to_world[2] * z
+        east = optical_to_world[3] * x + optical_to_world[4] * y + optical_to_world[5] * z
+        down = optical_to_world[6] * x + optical_to_world[7] * y + optical_to_world[8] * z
+        return centre, (north, east, down)
+    cp, sp = math.cos(camera_pitch_rad), math.sin(camera_pitch_rad)
+    body = (cp * x - sp * z, y, sp * x + cp * z)
     north, east, down = _body_to_world_ned(
         body,
         roll_rad=math.radians(roll_deg),
@@ -212,6 +388,7 @@ def pixel_camera_ray(
     camera_info: Mapping[str, Any] | None,
     image_size: tuple[int, int],
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
+    camera_mount: CameraMount | None = None,
     camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
     """Return the camera centre and unit pixel ray, both in true N/E/down.
@@ -221,7 +398,8 @@ def pixel_camera_ray(
     """
     result = _pixel_camera_ray_raw(
         u, v, pose=pose, camera_info=camera_info, image_size=image_size,
-        camera_pitch_rad=camera_pitch_rad, camera_extrinsics=camera_extrinsics,
+        camera_pitch_rad=camera_pitch_rad, camera_mount=camera_mount,
+        camera_extrinsics=camera_extrinsics,
     )
     if result is None:
         return None
@@ -242,12 +420,12 @@ def pixel_ground_point(
     ground_up_m: float = 0.0,
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     ground_model: GroundModel | None = None,
-    camera_extrinsics: Mapping[str, Any] | None = None,
+    camera_mount: CameraMount | None = None,
 ) -> tuple[float, float] | None:
     """Invert ``project_target_bbox`` on a surface, preserving legacy arithmetic."""
     result = _pixel_camera_ray_raw(
         u, v, pose=pose, camera_info=camera_info, image_size=image_size,
-        camera_pitch_rad=camera_pitch_rad, camera_extrinsics=camera_extrinsics,
+        camera_pitch_rad=camera_pitch_rad, camera_mount=camera_mount,
     )
     if result is None:
         return None
@@ -339,7 +517,6 @@ def visible_fraction(
 def _body_to_camera_optical(
     vector_body_ned: tuple[float, float, float], *,
     mount_pitch_rad: float,
-    camera_extrinsics: Mapping[str, Any] | None = None,
 ) -> tuple[float, float, float]:
     """Apply the camera translation and downward mount pitch.
 
@@ -347,10 +524,13 @@ def _body_to_camera_optical(
     +Z down.  A point on the body forward axis therefore moves upward in the
     image when the camera is pitched down, as it does in the SDF.
     """
-    position, rotation = _camera_extrinsics({}, mount_pitch_rad, camera_extrinsics)
-    relative = tuple(vector_body_ned[index] - position[index] for index in range(3))
-    # Rotation is optical-to-body; transpose it for body-to-optical.
-    return tuple(sum(rotation[column][row] * relative[column] for column in range(3)) for row in range(3))
+    body_x, body_y, body_z = vector_body_ned
+    body_x -= CAMERA_MOUNT_X_M
+    # The SDF camera is 0.12 m above base_link (z_down=-0.12), so the
+    # target-to-camera vector gains +0.12 m in the down direction.
+    body_z += CAMERA_MOUNT_Z_DOWN_M
+    cp, sp = math.cos(mount_pitch_rad), math.sin(mount_pitch_rad)
+    return cp * body_x + sp * body_z, body_y, -sp * body_x + cp * body_z
 
 
 def project_target_bbox(
@@ -363,7 +543,7 @@ def project_target_bbox(
     camera_pitch_rad: float = CAMERA_MOUNT_PITCH_RAD,
     target_yaw_rad: float = 0.0,
     target_bottom_offset_m: float | None = None,
-    camera_extrinsics: Mapping[str, Any] | None = None,
+    camera_mount: CameraMount | None = None,
 ) -> tuple[float, float, float, float] | None:
     """Project an upright SDF box and return clipped pixel ``(x1,y1,x2,y2)``.
 
@@ -377,10 +557,13 @@ def project_target_bbox(
         raise ValueError("target_size_m must contain three finite positive dimensions")
     if len(image_size) != 2 or image_size[0] <= 0 or image_size[1] <= 0:
         raise ValueError("image_size must be positive (width, height)")
+    if _gimbal_pose_is_stale(pose):
+        return None
     values = _pose_values(pose)
     if values is None:
         return None
     pn, pe, p_down, roll_deg, pitch_deg, yaw_deg = values
+    recorded = _recorded_camera_pose(pose, camera_mount=camera_mount)
     target_north, target_east, target_up = target_ned
     if not all(
         math.isfinite(float(value))
@@ -398,9 +581,17 @@ def project_target_bbox(
         if bottom_offset is None:
             return None
         centre_up = float(target_up) + bottom_offset + sz / 2.0
-    relative_up = centre_up + p_down
     roll, pitch, yaw = (math.radians(value) for value in (roll_deg, pitch_deg, yaw_deg))
     fx, fy, cx, cy = _intrinsics(camera_info, image_size)
+    composed = None
+    if camera_mount is not None:
+        composed = compose_camera_pose(
+            (pn, pe, p_down),
+            vehicle_roll_rad=roll,
+            vehicle_pitch_rad=pitch,
+            vehicle_yaw_rad=yaw,
+            mount=camera_mount,
+        )
     corners: list[tuple[float, float]] = []
     cos_target, sin_target = math.cos(target_yaw_rad), math.sin(target_yaw_rad)
     for dx in (-sx / 2.0, sx / 2.0):
@@ -409,15 +600,49 @@ def project_target_bbox(
                 # Generated SDF target x is east and y is north.
                 offset_east = cos_target * dx - sin_target * dy
                 offset_north = sin_target * dx + cos_target * dy
-                vector_ned = (
-                    float(target_north) + offset_north - pn,
-                    float(target_east) + offset_east - pe,
-                    -relative_up - dz,
+                world_point = (
+                    float(target_north) + offset_north,
+                    float(target_east) + offset_east,
+                    -(centre_up + dz),
                 )
-                body = _world_to_body_ned(vector_ned, roll_rad=roll, pitch_rad=pitch, yaw_rad=yaw)
-                cam_x, cam_y, cam_z = _body_to_camera_optical(
-                    body, mount_pitch_rad=camera_pitch_rad, camera_extrinsics=camera_extrinsics
-                )
+                if recorded is not None:
+                    vector_ned = tuple(world_point[index] - recorded[0][index] for index in range(3))
+                    optical_to_world = recorded[1]
+                    cam_x = sum(optical_to_world[3 * row] * vector_ned[row] for row in range(3))
+                    cam_y = sum(optical_to_world[3 * row + 1] * vector_ned[row] for row in range(3))
+                    cam_z = sum(optical_to_world[3 * row + 2] * vector_ned[row] for row in range(3))
+                elif composed is None:
+                    vector_ned = (
+                        world_point[0] - pn,
+                        world_point[1] - pe,
+                        world_point[2] - p_down,
+                    )
+                    body = _world_to_body_ned(
+                        vector_ned, roll_rad=roll, pitch_rad=pitch, yaw_rad=yaw
+                    )
+                    cam_x, cam_y, cam_z = _body_to_camera_optical(
+                        body, mount_pitch_rad=camera_pitch_rad
+                    )
+                else:
+                    vector_ned = tuple(
+                        world_point[index] - composed.center_ned[index] for index in range(3)
+                    )
+                    optical_to_world = composed.optical_to_world
+                    cam_x = (
+                        optical_to_world[0] * vector_ned[0]
+                        + optical_to_world[3] * vector_ned[1]
+                        + optical_to_world[6] * vector_ned[2]
+                    )
+                    cam_y = (
+                        optical_to_world[1] * vector_ned[0]
+                        + optical_to_world[4] * vector_ned[1]
+                        + optical_to_world[7] * vector_ned[2]
+                    )
+                    cam_z = (
+                        optical_to_world[2] * vector_ned[0]
+                        + optical_to_world[5] * vector_ned[1]
+                        + optical_to_world[8] * vector_ned[2]
+                    )
                 if cam_x <= 1e-6:
                     continue
                 corners.append((cx + fx * cam_y / cam_x, cy + fy * cam_z / cam_x))

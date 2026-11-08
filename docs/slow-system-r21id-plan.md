@@ -616,3 +616,188 @@ $PY scripts/run_r15_round.py --stage train --out artifacts/r21id-r5/pipeline \
 训练 episodes 由 `r4d + r4e + r4g + r5 新采集` 组成，baseline 固定为 `r21id-r3`；r5 的新增世界只进入 train/val collection，r3 frozen test 继续单独评测。
 
 **r21id-r4 不替换 r21id-r3**（v1 真实飞行集干扰物拒绝下降 1.9 个百分点、v3 下降 2.6 个百分点，超过 2 个百分点门槛；四视角与小目标召回改善记录在案，作为 r5 起点）。r4 merged GGUF：`/data/projects/Multi-Detect-env/Multi-Detect/artifacts/r21id-r4/pipeline/merged-gguf/`；adapter：`/data/projects/Multi-Detect-env/Multi-Detect/artifacts/r21id-r4/pipeline/adapter/`。继续以 r3 为当前机载身份模型，r5 以 r3 adapter 热启动，并把 r4 的四视角一致率、真目标误拒与 `<12 px` recall 改善作为不可回退的对照指标。
+
+## r21id-r5 / r5b 结果与决定（2026-11-04）
+
+本节先读取主仓库 `/data/projects/Multi-Detect-env/Multi-Detect/.tmp/r5-decision.md`、同名 `.json`，再用 `scripts/report_identity_round.py` 的离线函数重算，结果完全一致。证据为 `artifacts/r21id-r{3,4,5,5b}/pipeline/eval-v{1,3}.json`、各轮 additions/merged manifest 与训练 JSONL，以及 `artifacts/evaluation/r21id-r{3,4,5,5b}-view-eval/` 的冻结输出。r4/r5/r5b 的 additions、merged 三个 split 均核对了实际 SHA256 与 manifest；r5 和 r5b 两套数据逐 split 字节相同。本次只做 CPU 离线分析和文档更新，未运行 GPU、SITL、Docker、推理或训练。
+
+### 指标与替换决定
+
+表中为原始比率；括号内为相对 r3 的绝对百分点差，四视角保留报告原有精度。拒绝率、召回、一致率越高越好，误拒/误收越低越好。
+
+| 集合/指标 | r21id-r3 | r21id-r4 | r21id-r5（2.5e-5） | r21id-r5b（5e-5） |
+|---|---:|---:|---:|---:|
+| v1 干扰物拒绝率 | 0.993197 | 0.973761（-1.944 pp） | 0.973761（-1.944 pp） | 0.985423（-0.777 pp） |
+| v3 干扰物拒绝率 | 1.000000 | 0.974138（-2.586 pp） | 0.922414（-7.759 pp） | 0.956897（-4.310 pp） |
+| v3 `<12 px` 真目标召回 | 0.621622 | 0.756757（+13.514 pp） | 0.621622（+0.000 pp） | 0.648649（+2.703 pp） |
+| 四视角实例一致率 | 0.733300 | 0.833300（+10.000 pp） | 0.766700（+3.340 pp） | 0.800000（+6.670 pp） |
+| 四视角真目标误拒率 | 0.085900 | 0.041800（-4.410 pp） | 0.058500（-2.740 pp） | 0.054900（-3.100 pp） |
+| 四视角干扰物误收率 | 0.094300 | 0.074600（-1.970 pp） | 0.098600（+0.430 pp） | 0.067800（-2.650 pp） |
+
+**决定：r4、r5、r5b 均不替换 r21id-r3；当前机载身份模型继续使用 r3。** r5/r5b 都通过 v1 相对门槛（≥0.973197），但 v3 未达到 ≥0.98；116 条显式干扰物中，r5 拒绝 107 条、r5b 拒绝 111 条，最多只能误收 2 条才满足下降不超过 2 pp。r5 小目标召回回到 r3 的 46/74，r5b 为 48/74，均未达到 r4 的 56/74 减 3 pp 所得的 ≥0.726757（至少 54/74）。
+
+r5 还未达到三项四视角相对门槛；r5b 的四视角误收 79/1,166（6.78%）优于 r3 的 110/1,166 和 r4 的 87/1,166，通过 ≤0.075 单项，但一致率 24/30 和误拒 46/838 仍未达到 ≥0.833、≤0.042。r5b 三项四视角指标虽全优于 r3，也不足以抵消 v3 和小目标退化。两轮绝对门槛均只通过真目标误拒 ≤0.08，一致率 ≥0.90、误收 ≤0.026 仍失败。
+
+**r5c 正在训练**（负责人提供的状态）：与 r5b 相同配方但去掉 `--task-text-variants`，用于消融交换任务行；本节不预判其评测结果，也不操作该训练进程。
+
+### v3 新增误收的完整逐行对照
+
+以下为 r5/r5b 相对 r3 的新增误收并集，共 9 个 `sample_id`，没有 Top-N 截断；r3 对这 9 行均为 `reject_track`。任务文本按预测实际使用的请求列出，不能用 recorded task 或 world 主任务替代。所有行的 view 均为 `unknown`。为便于横向比较，决策缩写 R=`reject_track`、A=`approach_track`、C=`confirm_target`；`unknown` 类别表示 truth 无可解析类别，不能据此认定一定为空候选。
+
+| sample_id | task text | 候选类别 | 尺寸档（px） | world | r4 | r5 | r5b |
+|---|---|---|---|---|---|---|---|
+| `af88675786b1042568960b86` | Find the car and record its position. | postbox | 12-16 | `gen_v2_w0035` | A | A | A |
+| `33d2ffa0f7869482b5a7c519` | Find the car and record its position. | postbox | 8-12 | `gen_v2_w0035` | R | A | R |
+| `b27230f2235b6f60250c5b05` | Find the car and record its position. | bus | >=32 | `gen_v2_w0035` | R | C | R |
+| `a6bdcff53cc2802f63dfaad2` | Find the car and record its position. | unknown | <8 | `gen_v2_w0035` | R | C | R |
+| `0f840af44bf4e9d51be652be` | Find the person and record its position. | jersey_barrier | 12-16 | `gen_v2_w0036` | R | A | A |
+| `43aefe9b8ca70564f15ba7ea` | Find the person and record its position. | jersey_barrier | 8-12 | `gen_v2_w0036` | A | A | C |
+| `66cf4e051d5b86deca51b2de` | Find the person and record its position. | jersey_barrier | 8-12 | `gen_v2_w0036` | A | A | A |
+| `21b690d40c90674e8f5c4d1a` | Find the person and record its position. | postbox | <8 | `gen_v2_w0036` | R | A | R |
+| `3d0f48d01f9d9e177bd12d60` | Find the pickup and record its position. | unknown | <8 | `gen_v2_w0037` | R | A | A |
+
+r5 新增误收 9 行（7 A、2 C），r5b 为其中 5 行（4 A、1 C）；两轮都没有修复 r4 的全部 3 行 v3 新增误收。r5 相对 r4 多出 6 行：同族 car→postbox 和 person→barrier 各 1 行，新族 car→bus、car→unknown、person→postbox、pickup→unknown 各 1 行；其中 person→postbox 是历史四视角已知族，但属于本轮 v3 新增。r5b 比 r4 多出 person→barrier 1 行、pickup→unknown 1 行，并把 `43aefe…` 从 approach 升为 confirm，说明误收还涉及错误确认。
+
+**r5 hard-reject worlds 是否修复了 r4 的四个回归方向？** 下表统计该家族在各固定集的全部误收（非仅新增），中英文同类请求合并；分母固定，因此可直接对照。
+
+| 集合 / 请求→候选 | 计分数 | r3 误收 | r4 误收 | r5 误收 | r5b 误收 | 判断 |
+|---|---:|---:|---:|---:|---:|---|
+| v1 SUV→postbox | 34 | 0 | 13 | 17 | 13 | 未修复；r5 更差，r5b 总数仍为 r4 水平 |
+| v1 person→jersey_barrier | 60 | 1 | 6 | 4 | 2 | 部分修复；相对 r3 仍新增 3 / 1 行 |
+| v1 red stop sign→jersey_barrier | 119 | 0 | 6 | 0 | 0 | r4 的 6 行已全部恢复拒绝；仅限此固定集结论 |
+| v3 car→postbox | 8 | 0 | 1 | 2 | 1 | 未修复；原错误 `af886…` 均保留 |
+| v3 person→jersey_barrier | 11 | 0 | 2 | 3 | 3 | 未修复；还新增 12-16 px 的一行 |
+
+v1 新增误收总数由 r4 的 24 行变为 r5 的 22、r5b 的 14，不等于其总误收数（还需计入 r3 原有错误的保留/修复）。不能把“stop sign 已修复”推广成“四个方向都已修复”，也不能把四视角汇总改善解释为 v1/v3 同样改善。
+
+### 实际训练数据构成与配方偏差
+
+r4、r5、r5b 均从 r3 adapter 热启动、训练 1 epoch。r4 为 lr=5e-5、7,131 optimizer steps；r5 为 2.5e-5、r5b 为 5e-5，两者均为 7,639 steps。r5/r5b additions train/val/test 为 8,357/3,271/0，merged 为 30,555/5,649/2,447；r4 对应为 7,213/1,407/0 和 28,521/3,785/2,447。r5/r5b 数据 SHA256 相同、训练样本数相同，故较高 LR 的 r5b 在本次对照中整体更好；这不证明继续加大学习率会单调改善。
+
+实际 merge 的 base 都是 **r3 的 `r15-sft`（train 22,843 行，完整保留）**，而不是前文建议的“r4 全量 replay”。r5 additions 重建了 r4/r5 episodes，不等于复用 r4 合并集。merged 正例比例（仅 positive/(positive+reject)，不含其他任务）r4 为 0.410315、r5 为 0.410300，基本相同；不能把 r5 退化简单归因于全局正例占比上升。
+
+**manifest `counts.train.label_types`：** r5b 与 r5 相同。
+
+| label_type | r4 | r5 / r5b | 变化 |
+|---|---:|---:|---:|
+| `ambiguous_task` | 25 | 34 | +9 |
+| `background` | 60 | 85 | +25 |
+| `confusable_negative` | 760 | 811 | +51 |
+| `confusable_positive` | 934 | 1,054 | +120 |
+| `counterfactual` | 813 | 1,074 | +261 |
+| `counterfactual_negative` | 770 | 978 | +208 |
+| `distractor` | 1,149 | 1,199 | +50 |
+| `no_candidate` | 150 | 195 | +45 |
+| `proposal_background` | 29 | 29 | 0 |
+| `proposal_counterfactual` | 572 | 657 | +85 |
+| `proposal_counterfactual_negative` | 296 | 344 | +48 |
+| `proposal_distractor` | 599 | 734 | +135 |
+| `proposal_scenery` | 30 | 26 | -4 |
+| `proposal_true` | 302 | 399 | +97 |
+| `true_target` | 724 | 738 | +14 |
+
+**pair 计数需区分 manifest 源统计与最终行。** 下表 P/R 分别为接受正例 / reject；源统计来自 manifest `source_counts.confusable_pair:*`，跨 split、在采样/去重前累计，且不覆盖所有 index 交换任务行，`—` 表示没有该源计数键。train 列按 additions JSONL 的显式 `confusable_pair_type` 实数，包含 r4 的平衡副本；pair 表不能代替普通 `distractor` 等无 pair 字段行的覆盖审计。正例所带 pair 是配对家族，不表示正例候选就是箭头右侧的被拒类别。
+
+| confusable_pair_type | r4 源 P/R | r5 源 P/R | r4 additions train P/R | r5 additions train P/R |
+|---|---:|---:|---:|---:|
+| `car->mailbox` | — | 3/3 | 0/0 | 0/0 |
+| `car->pickup` | 156/30 | 163/30 | 129/33 | 108/30 |
+| `car->postbox` | 65/30 | 92/30 | 65/58 | 55/29 |
+| `hatchback->car` | — | — | 0/0 | 24/51 |
+| `jersey_barrier->person` | 0/23 | 0/23 | 0/18 | 91/100 |
+| `jersey_barrier->stop_sign` | — | — | 0/0 | 45/45 |
+| `mailbox->car` | 0/30 | 0/30 | 0/45 | 0/30 |
+| `mailbox->person` | 0/23 | 0/23 | 0/20 | 0/13 |
+| `person->jersey_barrier` | 0/10 | 140/30 | 0/2 | 87/22 |
+| `person->mailbox` | — | 0/3 | 0/0 | 0/0 |
+| `person->postbox` | 172/30 | 172/30 | 187/41 | 127/29 |
+| `pickup->car` | 134/30 | 141/30 | 179/43 | 123/30 |
+| `pickup->postbox` | 0/30 | 0/30 | 0/77 | 0/29 |
+| `pickup->suv` | — | — | 86/132 | 82/94 |
+| `postbox->car` | 185/30 | 185/30 | 148/46 | 119/35 |
+| `postbox->person` | 8/23 | 8/23 | 0/22 | 0/13 |
+| `postbox->suv` | — | — | 0/0 | 3/4 |
+| `suv->car` | 0/30 | 0/30 | 0/40 | 0/30 |
+| `suv->pickup` | 0/30 | 0/30 | 140/183 | 109/139 |
+| `walking_person->person` | — | — | 0/0 | 81/88 |
+
+**视角与优化器实际输入。** 下表按 additions train 的 `view` 与 `assistant_target.decision` 实数；每格为 positive/reject/其他，positive 包括 approach 与 confirm。
+
+| view | r4 P/R/其他 | r5 / r5b P/R/其他 |
+|---|---:|---:|
+| front | 570/709/30 | 634/776/37 |
+| oblique | 624/663/4 | 645/651/5 |
+| edge_truncated | 761/812/25 | 994/1,012/31 |
+| recovery | 692/713/29 | 796/800/41 |
+| 缺失 | 698/796/87 | 853/967/115 |
+| 合计 | 3,345/3,693/175 | 3,922/4,206/229 |
+
+r4 manifest 的 `identity_view_balance` 增加 1,095 行、`confusable_negative_view_balance` 增加 145 行；r5 两项 `max_upsample` 都是 1、增加数都为 0，并未实现“正例不复制、负例继续 2 倍”的拆分。但 r4 这 1,240 条仅改 ID 的副本随后被 `run_r15_round.merge_without_copies` 按内容去重，merged train 中平衡副本为 0；加上 merge 裁掉 295 条 counterfactual 正例，正好得到 22,843+7,213−1,240−295=28,521。r5 则为 22,843+8,357−645=30,555。因此不能把 additions 中的复制次数当作训练曝光次数，或声称“取消上采样”已被证明导致 r5 回退。
+
+r5 的 `task_variant_positive_cap=1.0` 在 train+val 合计只从 1,471 条 `confusable_positive` 保留 1,449 条、裁掉 22 条（约 1.5%）；train 仍有 1,054 条。该标签也由通用 `--confusable-negatives` 生成，不全部来自 index 交换任务；cap 不管 `counterfactual` / `proposal_counterfactual`，后两者 train 仍从 1,385 增至 1,731。加上小目标 proposal_true 增加，说明不是“没有正例”，而是正例/负例的局部语义和有效覆盖仍需校验。
+
+### 四个补采方向的有效覆盖与交换任务冲突
+
+为避免仅查 pair 字段漏掉真实拒绝，以下按**实际 task_text → target_id 反查 truth 候选类别**计数所有可追溯 reject；不使用可能仍记录原任务类别的 counterfactual `task_category`。缺少 target_id/可解析 truth 的历史行不冒充可验证配对。视角顺序固定为 front/oblique/edge_truncated/recovery/缺失。
+
+| 方向 | r4 additions reject | r5 additions reject | r5 additions 视角分布 | r4 merged reject | r5 merged reject |
+|---|---:|---:|---|---:|---:|
+| SUV→postbox | 1 | 7 | 0/0/0/0/7 | 3 | 9 |
+| person→jersey_barrier | 2 | 214 | 45/39/49/63/18 | 37 | 249 |
+| red stop sign→jersey_barrier | 0 | 192 | 61/40/36/47/8 | 0 | 192 |
+| car→postbox | 73 | 45 | 1/7/18/13/6 | 679 | 684 |
+
+SUV→postbox 的 7 条 additions 仅 6 条来自新 `r5_w0001`、1 条来自旧 `r4_w0008`，全部无 view；merged 仅多出 r3 replay 中 2 条 edge。car→postbox 虽有大量历史 replay，本轮新 `r5_w0009/w0010` 合计只有 5 条普通 distractor，且全部无 view；不能把 world 已生成/已采集等同于形成有效四视角专向覆盖。stop sign→barrier 的 192 条来自两个新 train world，覆盖四视角，与其 v1 修复方向一致；person→barrier 也确实增加了数据，但 v3 反而多误收一行，说明数量增加不足以证明泛化修复。
+
+更直接的数据质量问题来自新增 alias pair：`walking_person->person` 的 88 条 reject、`hatchback->car` 的 51 条 reject，在该组实际数据中把同一个真目标按资产名和语义类别差异拒绝。按模型可见输入 `image_path + task_text + memory + candidates + focus_track_id` 严格分组，分别存在 **81 组和 24 组同时接受/拒绝的冲突，共 105 组、210 行**；r4 中这两个 pair 均不存在。r5/r5b merged 保留了这些行，正例 cap 和整体比例门禁都未清除冲突。例如：
+
+- `r5_w0003`、`.../attempt-3/episodes/episode-0000-84e900d8/rgb/000047_after.jpg`，任务 `Find the person and record its position.`、`target_true_gen_r21id_r5_w0003`、track-1、recovery：`04878ed3dcdc28aeafbe70de` 为 confirm，`bcf11135d83fc567c92c42d7` 为 reject。
+- `r5_w0009`、`.../episode-0000-28a2a5ad/rgb/000002_after.jpg`，任务 `找到轿车并记录位置`、`target_true_gen_r21id_r5_w0009`、track-1：`043ed5789eeb772653c8f9a1` 为 reject，`0b5cb1c0fe344305e68c9f61` 为 approach。
+
+这提供了可修复的局部标签冲突证据，也可能损害 person/car 真目标召回；但不能据此断言全部 v3 误收都由它导致。r5c 关闭 index 交换任务会同时去掉正确和错误的变体行，而通用 confusable/counterfactual 行仍可能存在，因此它是交换任务开关的消融，不是只删除这 139 条错误 reject 的单因素实验。
+
+### 下一轮 r6：先清标签、补有效覆盖，维持 5e-5 单轮
+
+**主配方：r3 adapter 热启动 + 完整 r3 replay + 经语义/配对审计的 r4/r5 原始新增数据，lr=5e-5、1 epoch。** 以 r5b 为学习率对照，不继承 r5/r5b adapter，不先做 2 epoch/1.5e-5；较低 LR 的 r5 已丢掉 r4 小目标收益，不能继续把降 LR 当成默认修复。保持 seed=20261011、accumulation=4、LoRA rank=16/alpha=32、`candidate_zoom_v2` 和原评测阈值；训练步数随审计后实际样本数计算，不沿用 7,639 的固定上限。
+
+1. **新增集用 r5c 的“关闭 `--task-text-variants`”作为主构建起点，保留 `--confusable-negatives`。** 先归一化请求/候选语义类别，避免本批 `walking_person/person`、`hatchback/car` 等价目标生成 reject；必须检查同一 target_id 和实际任务含义，不能把 `pickup` 与 `suv` 合并。若以后重新开启交换任务，只允许语义不同且真目标/干扰物可分辨的方向。对现有 r5 数据的局部清理对照，应删除上述 139 条错误 alias reject，保留语义正确的正例并去重，而非把全部 `confusable_positive` 删除；主实验与该局部清理对照分开排队。
+2. **保住真实小目标正例，限制无配对的接受扩张。** 保留 train 原始 `true_target`/`proposal_true`，特别是按真实图片尺寸和候选框计算的 `<16 px` 行；r4/r5 对应原始帧按输入去重后取并集，不直接叠加两个 merged 集。新增 counterfactual approach 只保留同帧、同任务且另一个明确错配候选有 reject 的配对行；recovery 正例必须对应同一真目标。仅裁无配对/冲突的反事实行，不给 additions 整体乘 0.25，也不复制正例；最终 manifest 要同时报告小目标保留数、过滤原因和优化器实际类别/视角曝光数。
+3. **四个专向拒绝以有效行验收。** SUV→postbox、person→barrier、stop sign→barrier、car→postbox 各需至少 3 个独立 train world，分别覆盖 8-12、12-16、16-24 px；每 world 每视角至少 8 个不同有效帧的拒绝及同帧真目标正例，即每方向至少 96 个唯一拒绝帧，且原始请求和英文请求都要覆盖。另留每方向至少 1 个独立 val world，既有 val/test 不转入 train。先审计现有 episodes 抵扣配额，缺口以后再补采；尤其 SUV/car 的 postbox 干扰物必须实际入框、有可解析 target_id/view。不能通过复制那 7/5 条无 view 行假装补齐，本次不执行补采。
+4. **平衡检查在 merge 后实施。** 保留 `pickup↔suv`、person→postbox、postbox→car 等已有负例覆盖，按实际请求类别×正负×view 及 hard-pair×view 检查最终输入；普通 distractor/proposal_distractor 也计入专向覆盖。首次 r6 采用唯一帧配额、不依赖重复行上采样；如后续需要负例 2 倍权重，应另行实现可审计的训练采样权重，并验证 merge 后曝光确实增加，不能只改 sample_id 或把共用 `--max-upsample` 改成 2。r6 构建前必须使新增集同输入正负冲突为 0、alias 错拒为 0，所有专向配额和小真目标保留检查通过；达不到就先补数据，不启动训练。
+
+**期望效果与判读顺序。** 先等 r5c 用同一报告完成评测，再与 r5b 对齐：若 person/car 小目标召回与 v3 拒绝改善，支持交换行有害的解释；若无改善，仍不能把已证实的冲突保留为正确训练标签，且应把主要精力放在有效 postbox 难例覆盖和未见 world 泛化。r6 预期通过清除互相矛盾的身份监督改善小目标召回，通过补齐 SUV/car→postbox 的真正四视角数据降低这些固定集回归，同时保留 stop sign 修复和 r5b 四视角误收收益；这是待验证假设，不承诺具体增益。
+
+验收门槛保持不变：v1/v3 拒绝率分别 ≥0.973197/0.98，v3 `<12 px` recall ≥0.726757，四视角一致率 ≥0.833、真目标误拒 ≤0.042、干扰物误收 ≤0.075，并继续报告绝对门槛 0.90/0.08/0.026。固定集必须同时给出全量新增误收及旧错误修复清单；新增独立 world 的留出评测另报，不能用固定集或同 world 新帧代替。未全部满足前保留 r3，不因 r5c 正在训练而提前切换。语义冲突门、r6 数据构建与后续训练/评测均是待执行工作，本节不宣称它们已经完成。
+
+### r6 数据修复离线验证（2026-11-04）
+
+已在当前工作树修改 `scripts/build_slow_system_sft.py` 与 `scripts/run_r15_round.py`。confusable 生成现在调用已有的 `task_equivalent` 语义判断：`walking_person→person`、`hatchback→car` 等子类型不再生成错误 reject；同一模型输入的不同决策在构建和 merge 后均执行冲突门禁。历史 r3 replay 中 80 组已存在的 `confusable_positive` 与原始真目标/反事实正例冲突，在 merge 时删除旧的冗余 `confusable_positive`，其余未解决冲突仍使构建失败。
+
+按 r6 离线配方读取 `r21id-r4d+r4e+r4g+r5a` episodes、`runs/src-r21r5t/configs/scenarios/generated-r21id-r4r5/index.json` 和只读 proposal cache `artifacts/r21id-r5/pipeline/yoloe-v3-cache.jsonl`，关闭 `--task-text-variants`，未写入 `artifacts/`。`.tmp/r21id-r6-sft-final/manifest.json` 的 `conflicting_decision_groups=0`；train/val 为 6,951/2,741 行，`dropped_confusable_task_equivalent=1,015`，`walking_person->person` 与 `hatchback->car` 错拒均为 0。`max-upsample=1` 时没有重复副本，merge 前有效 view balance 计数为通用 strata 3,549、hard-negative strata 212。
+
+以完整 r3 replay 在 `.tmp/r21id-r6-merged-final/` 离线合并后，冲突门禁通过；train 29,629 行，其中为清理历史冲突删除 80 条冗余 alias 正例，平衡副本 0。merged train 的实际行视角计数 front/oblique/edge_truncated/recovery/missing 为 5,766/4,420/6,721/4,050/8,672；显式 confusable-negative hard-pair 行为 645（对应五视角 161/81/207/85/111）。该结果只证明数据构建门禁和计数逻辑通过，尚未启动训练、GPU、SITL 或评测。
+
+### r21id-r7 worlds（只生成，未采集）
+
+r5/r5b 的结果显示 SUV→postbox、car→postbox 仍有固定集误收，person→jersey_barrier 只部分改善。r7 用 `scripts/generate_r15_worlds.py --profile r21id-r7` 重做三类 hard-reject 世界，沿用 r4/r5 的四视角、场景平移净空和 teacher view visibility 机制；本轮只写入 train/val，不触碰 r3 冻结 test，也没有运行 SITL、Docker、GPU 或真实采集。
+
+| 世界编号 | split | 目标资产 | 配对干扰物 | 目标短边档位 | 外观/遮挡变化 |
+|---|---|---|---|---|---|
+| `gen_r21id_r7_w0000..w0004` | train×4、val×1 | `suv` | `postbox` | 8-12、12-16、16-24、24-32、12-16 px | noon/overcast/morning/haze/evening；building、guardrail、pipe_line、none |
+| `gen_r21id_r7_w0005..w0009` | train×4、val×1 | `hatchback`、`hatchback_blue`、`hatchback_red` | `mailbox` | 8-12、12-16、16-24、24-32、12-16 px | 同上；包含蓝/红车身变体 |
+| `gen_r21id_r7_w0010..w0014` | train×4、val×1 | `walking_person`、`male_visitor` | `jersey_barrier` | 8-12、12-16、16-24、24-32、12-16 px | 同上；行人模型变体与不同隔离墩姿态/遮挡布局 |
+
+索引文件为 `configs/scenarios/generated-r21id-r7/index.json`，每个世界都有 `.scenario.json`、`.runtime_input.json`、`.truth.json`、`.expectations.json` 和 `.teacher_intent.json`；SDF 位于 `simulation/gazebo/worlds/`，地图和地形 sidecar 位于 `simulation/maps/`、`simulation/terrain/`。目录中的 `postbox` 与 `mailbox` 是资产目录现有的两个邮筒模型；屏障目录只有 `jersey_barrier`，因此屏障族通过目标行人模型、姿态、背景、光照和 building/guardrail/pipe_line/none 遮挡布局增加变化。
+
+后续排队采集时只使用该 train/val index，并显式声明 SITL 槽位。例如 4 个 worker 使用 4 个全局槽位：
+
+```bash
+export MULTIDETECT_SITL_SLOTS=4
+PYTHONPATH=src:. PYTHONUTF8=1 python scripts/run_r15_round.py --stage collect \
+  --scenarios configs/scenarios/generated-r21id-r7 \
+  --r15-index configs/scenarios/generated-r21id-r7/index.json \
+  --out artifacts/r21id-r7 --episodes artifacts/r21id-r7/episodes \
+  --workers 4 --episodes-per-world 4
+```
+
+采集前仍需按四视角门槛检查每个位至少 8 帧、观察高度误差不超过 3 m、目标地面距离相对设计值不超过 25%，并审计每个方向的有效拒绝帧和同帧真目标正例；本轮不执行上述命令。

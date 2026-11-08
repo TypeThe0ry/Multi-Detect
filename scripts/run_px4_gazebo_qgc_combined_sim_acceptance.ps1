@@ -3269,7 +3269,9 @@ DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal | awk '/STREAM/ {print $1
 test -n "$DOCKER_HOST_IP"
 RC=/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink
 sed -i "s|mavlink start -x -u \$udp_gcs_port_local.*|mavlink start -x -t $DOCKER_HOST_IP -u \$udp_gcs_port_local -o __PX4_TELEMETRY_PORT__ -r 4000000 -f \$mavlink_network_interface_arg|" "$RC"
-exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS
+PX4_DAEMON=${MULTIDETECT_PX4_DAEMON:-1}
+case "$PX4_DAEMON" in 0) PX4_DAEMON_ARG= ;; 1) PX4_DAEMON_ARG=-d ;; *) exit 73 ;; esac
+exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS $PX4_DAEMON_ARG
 '@
     # PowerShell here-strings inherit the checkout's line endings.  The
     # payload is passed as one exact argv element to Linux `/bin/sh -c`, where

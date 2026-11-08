@@ -546,3 +546,93 @@ r29 = r24 基础数据（不变）+ 针对“r24 + 预检”剩余失分的正�
 | 返航探测 | 15/15 | 14/15 |
 
 结论：**不替换**。v5 小幅提升（query_grounding 8→11），但 v3 降 9 个点、探测掉 1 题。从 r25 到 r29 连续五轮，凡是在 r24 上追加训练数据，v3 都会下降，说明在当前 2B 模型和数据规模下，规划模型已接近这条路线的上限；现役维持 **r24 + 主机预检**（v3 0.80、v5 93/126、探测 15/15）。规划这条线暂停新训练轮次，后续更值得做的是：用 Linux SITL 任务套件验证现役组合的闭环表现、在真实任务文本上核对预检，以及把剩余错误类型（否定查询、否定降落）优先考虑用主机侧意图检查兜底而不是加训练数据。
+
+## r30 数据准备（离线）
+
+nightly ext-2 的 `follow-red-person-return` 暴露了新的可执行错误：r24 在已经明确
+目标的 follow 任务前插入 `area_search`，耗尽 180 步预算，套件期望的
+`follow -> return_home` 没有开始。对 r24 + 主机预检的 planning-v5 缓存逐题复核后，
+33 个模型失分归为“禁止范围额外动作”11、“漏掉中间动作”11、“技能替换”6、
+“未落地引用”3、“终步混淆”1 和“额外导航步骤”1；预检正确处理的能力/未知地点题
+不作为训练错误。逐题归类和 follow 证据见 [`docs/r30-planning-errors.md`](r30-planning-errors.md)。
+
+`--r30-recipe` 只在 r24 基础上增加四族可执行正例，默认新增 240 行：
+`direct_follow` 80、`step_fidelity` 80、`terminal_intent` 40、`grounded_refs` 40，
+各族中英文各半。direct-follow 行的首步固定为 `follow`，不含 `area_search`；其余族
+分别保留显式中间动作、区分 `land`/`return_home` 终步和解析已给引用。r30 不继承
+r25-r29 的结构化拒绝或拒绝候选，避免把 host pregate 逻辑重新教给模型。
+
+只生成数据的命令如下（不训练、不评测）：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch-r30
+python scripts/run_planner_round.py --stage data --force-stage data \
+  --out .tmp/r30-data --eval-root .tmp/r30-eval \
+  --rows 2000 --val-rows 100 --intent-count 80 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl \
+  --negative-target-mode rejected_candidate --r30-recipe \
+  --r30-direct-follow-count 80 \
+  --r30-step-fidelity-count 80 \
+  --r30-terminal-intent-count 40 \
+  --r30-grounded-refs-count 40
+```
+
+holdout 同时覆盖 v3/v4/v5、15 条返航 probe 和 follow suite 文本；生成器会在 manifest
+记录 family、首技能、语言和碰撞数，`dataset/r23-data-stats.md` 会写出四族计数及泄漏
+检查。r30 数据构造仍使用 CPU 准入检查，不启动 SITL、Docker、llama-server 或 GPU。
+
+## r30 结果与决定（2026-11-04）
+
+r30 是 r24 配方加 240 条定向正例（`direct_follow` 80、`step_fidelity` 80、`terminal_intent` 40、`grounded_refs` 40）。本轮只读比较报告和评测缓存，没有改动 artifacts。
+
+| 指标 | r30 candidate | r24 baseline | 差值 |
+|---|---:|---:|---:|
+| planning-v3 精确步骤序列率 | 0.750 | 0.800 | -5.0 pp |
+| planning-v4 精确/正确拒绝率 | 0.950 | 0.900 | +5.0 pp |
+| planning-v5 精确/正确拒绝率 | 0.746（94/126） | 0.714（90/126） | +3.2 pp |
+| 返航 probe | 15/15 | 15/15 | 持平 |
+
+决定：**不替换，继续使用 r24**。v3 是主回归闸门，r30 低 5 个百分点；v4 的提升不足以抵消 v3 回退，probe 也没有新增收益。
+
+逐题翻转方面，v3 有 6 题由错变对、10 题由对变错。提升覆盖 `goto→count→land`、补回 `hover`、`monitor`、英文 `record→land` 等；回退包括 `count→return_home` 变 `count→land`、重复 `record`/`patrol`、漏掉 `goto`/`hover`/`survey`，以及 `record`↔`inspect`、`record`↔`monitor`、`monitor`↔`hover` 的相近技能替换。v4 只有 1 个翻转：英文 `query_ungrounded` 从 `goto→return_home` 改为 `inspect→return_home`，因此正确率提升 0.90→0.95。v5 有 7 题提升、6 题回退：`query_grounding` 0.571→0.786、`return_negated_land` 0.500→0.643；但 `return_intent` 0.714→0.571、`ref_alias` 0.643→0.571、`query_ungrounded` 0.214→0.143。
+
+可复核的逐题索引（JSON rows 的 0-based index）为：v3 提升 `2,5,24,28,46,47`，回退 `0,7,26,31,32,56,60,64,69,71`；v5 提升 `7,17,18,20,100,104,106`，回退 `1,6,11,22,96,112`。v3 提升族主要是 `step_fidelity`/`terminal_intent`，但同两族也包含大部分回退；v5 提升集中在 `return_negated_land` 和 `query_grounding`，回退集中在 `return_intent`、`ref_alias`、`query_ungrounded`。这些索引对应的 `text`、`expected`、`predicted` 均保留在 candidate/baseline JSON，避免在文档中复制长任务文本。
+
+按 r30 目标族看，`direct_follow` 在 v3/v4/v5 没有可直接验证的 follow 题，不能宣称已修复；`step_fidelity` 只部分生效，补回若干中间步骤但仍有大量漏步和相近技能替换；`terminal_intent` 在 v5 的“不要返航、就地落地”上有收益，却在 v3 引入终步漂移；`grounded_refs` 使 v4 的 query 拒绝变正确，但 v5 `ref_alias` 反而回退。因此四族都没有达到“目标错误已稳定修复”的标准。
+
+回归更符合数据组成与模板重叠：r30 训练集 5,620 行中，r24 replay 1,500 行（26.7%），r23 扩展 680 行，r24 定向行 160 行，r30 定向行 240 行（4.3%），其余为既有 backbone/能力数据。新增族使用高度规则化的中英文短模板，`goto`、`record`、`hover`、`monitor`、`land/return_home` 反复共现；模型在通用 v3 长链上出现动作复制、漏首步/终步和相近技能替换。holdout collision 为 0，只表示没有文本泄漏，不表示模板组合没有分布重叠。
+
+follow mission check：`configs/onboard/suite-follow-r21idr3-r24plan.json` 期望 `[follow, return_home]`。r30 artifacts 下没有该 suite 的缓存 plan、`mission_summary.json` 或 `steps.jsonl`，所以本项为**离线未验证**；不能声称首步已经是 `follow`。已有 r24 ext-2 证据仍为 `[area_search, follow, return_home]`，正是 `direct_follow` 的目标错误。
+
+### r31 配方
+
+只生成 r31 数据（离线，不训练）：
+
+```bash
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+export MULTIDETECT_PLANNER_SCRATCH=$PWD/.tmp/planner-scratch-r31
+python scripts/run_planner_round.py --stage data --force-stage data \
+  --out .tmp/r31-data --eval-root .tmp/r31-eval \
+  --rows 2000 --val-rows 100 --intent-count 80 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl \
+  --negative-target-mode rejected_candidate --r31-recipe \
+  --r31-direct-follow-count 40 --r31-step-fidelity-count 40 \
+  --r31-terminal-intent-count 20 --r31-grounded-refs-count 20
+```
+
+训练/评测命令（r24 adapter 热启动、r24 baseline、host pregate、planning-v5）：
+
+```bash
+python scripts/run_planner_round.py --stage all --out .tmp/r31 \
+  --replay-planner-train artifacts/datasets/plan-sft-v4/train.jsonl --r31-recipe \
+  --init-adapter artifacts/models/slow-system-lora-v2-r24-planner/adapter \
+  --baseline-gguf artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf \
+  --baseline-label r24 --plan-pregate --include-planning-v5 --epochs 1 --learning-rate 2.5e-5
+```
+
+先保护 r24 的通用 v3 分布，再做小规模验证：保留 1,500 条 r24 replay，把四族缩小为 120 条（`direct_follow` 40、`step_fidelity` 40、`terminal_intent` 20、`grounded_refs` 20），中英文各半；按 `record/inspect`、`monitor/hover`、`patrol/goto`、`land/return_home` 分层，并使用与 holdout 不同的句式模板。不要加入新的拒绝目标，继续由 host pregate/validator 处理 `query_ungrounded` 和未知引用；按 family×skill×language 分桶采样，避免短模板挤压多步骤 v3 数据。r24 热启动、1 epoch、学习率不高于 `2.5e-5`。评测除 v3/v4/v5 和 15 条 probe 外，必须补跑 follow suite 的 planner-only 检查，断言首步为 `follow` 且计划不含 `area_search`；若 v3 仍低于 0.80 或 probe 低于 15/15，停止替换尝试。
+
+### r31 结果（2026-11-04）
+
+r31（1,500 条 r24 回放 + 120 条四族样本，r24 热启动，学习率 2.5e-5，1 epoch）：planning-v3 0.688（r24 0.800），planning-v4 0.850（r24 0.900），返航探测 15/15（r24 15/15）。v3、v4 都比 r24 差，**不替换，继续使用 r24 + 主机预检**。r25–r31 连续七轮都没有超过 r24：在 r24 上继续做小规模针对性微调，会损伤 v3 的通用分布。规划训练暂停，后续改从数据规模、基座或评测口径入手，不再沿用“r24 热启动 + 少量补样”这条路线。

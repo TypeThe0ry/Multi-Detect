@@ -32,6 +32,7 @@ from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_net
 from multidetect.simulation import load_runtime_scenario
 from multidetect.simulator.cpu import SimulatorCpuIsolation, resolve_cpu_isolation
 from multidetect.simulator.delta_tailsitter import select_visual_mesh
+from multidetect.simulator.px4_image import PINNED_IMAGE
 from multidetect.simulator.stack import (
     SimulatorStackError,
     SimulatorStackPorts,
@@ -40,9 +41,6 @@ from multidetect.simulator.stack import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
-PINNED_IMAGE = (
-    "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
-)
 CONTAINER_MODEL_ROOT = "/opt/multidetect-gazebo-models"
 CONTAINER_WORLD_ROOT = "/opt/px4-gazebo/share/gz/worlds"
 CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"
@@ -53,6 +51,28 @@ DEFAULT_GPU_DEVICES = ("1", "2")
 DEFAULT_GPU_AVOID = ("0", "3")
 NVIDIA_EGL_VENDOR_FILE = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+PX4_LOGGER_MODE_ENV = "MULTIDETECT_PX4_LOGGER_MODE"
+PX4_DAEMON_MODE_ENV = "MULTIDETECT_PX4_DAEMON"
+
+
+def resolve_px4_logger_mode(value: str | None = None) -> str:
+    """Resolve and validate the logger setting used by every simulator plan."""
+    mode = os.environ.get(PX4_LOGGER_MODE_ENV, "off") if value is None else value
+    mode = str(mode).strip().lower()
+    if mode not in {"default", "off"}:
+        raise DockerSimulatorPlanError(f"{PX4_LOGGER_MODE_ENV} must be default or off")
+    return mode
+
+
+def resolve_px4_daemon_mode(value: str | int | bool | None = None) -> bool:
+    """Resolve whether PX4 should run without the interactive ``pxh`` shell."""
+    raw = os.environ.get(PX4_DAEMON_MODE_ENV, "1") if value is None else value
+    normalized = str(raw).strip().lower()
+    if normalized not in {"0", "1"}:
+        raise DockerSimulatorPlanError(f"{PX4_DAEMON_MODE_ENV} must be 0 or 1")
+    return normalized == "1"
+
+
 # SIM-only PX4 parameters, applied by rcS from PX4_PARAM_* before
 # px4-rc.gzsim starts the simulated sensors.  Without them EKF2's attitude
 # drifted from Gazebo's ground truth in banked flight (fixed-wing loiters:
@@ -405,6 +425,8 @@ class DockerSimulatorPlan:
                 "airframe_profile_id": self.airframe_profile_id,
             },
             "environment": dict(self.environment),
+            "px4_logger_mode": dict(self.environment).get(PX4_LOGGER_MODE_ENV, "off"),
+            "px4_daemon_mode": dict(self.environment).get(PX4_DAEMON_MODE_ENV, "1") == "1",
             "gpu_render": self.gpu_render,
             "gpu_device": self.gpu_device,
             "gpu_devices": list(self.gpu_devices),
@@ -548,6 +570,8 @@ def build_docker_simulator_plan(
     worker_index: int = 0,
     sim_network: str | None = None,
     sim_instance: int = 0,
+    airframe_profile_id: str | None = None,
+    px4_logger_mode: str | None = None,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
@@ -690,25 +714,25 @@ def build_docker_simulator_plan(
         "GZ_VERBOSE": "0",
         **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
-    requested_logger_mode = os.environ.get("MULTIDETECT_PX4_LOGGER_MODE")
-    default_logger_mode = (
-        "off"
-        if model_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}
-        else "default"
-    )
-    logger_mode = requested_logger_mode or default_logger_mode
-    if logger_mode not in {"default", "poll", "off"}:
-        raise DockerSimulatorPlanError(
-            "MULTIDETECT_PX4_LOGGER_MODE must be default, poll, or off"
-        )
-    container_environment["MULTIDETECT_PX4_LOGGER_MODE"] = logger_mode
-    # Without -d, PX4's shell reads EOF from /dev/null and prints its prompt in a
-    # tight loop.  Same switch as 263f2b95 on the main branch.
-    daemon_mode = os.environ.get("MULTIDETECT_PX4_DAEMON", "1").strip() != "0"
-    container_environment["MULTIDETECT_PX4_DAEMON"] = "1" if daemon_mode else "0"
+    logger_mode = resolve_px4_logger_mode(px4_logger_mode)
+    container_environment[PX4_LOGGER_MODE_ENV] = logger_mode
+    daemon_mode = resolve_px4_daemon_mode()
+    container_environment[PX4_DAEMON_MODE_ENV] = "1" if daemon_mode else "0"
     if logger_mode == "off":
         container_environment["SDLOG_BACKEND"] = "0"
         container_environment["PX4_PARAM_SDLOG_BACKEND"] = "0"
+    if airframe_profile_id == "x500_gimbal":
+        container_environment["PX4_SYS_AUTOSTART"] = "4019"
+        container_environment["PX4_SIM_MODEL"] = "gz_x500_gimbal"
+        container_environment["PX4_GZ_MODELS"] = CONTAINER_IMAGE_MODEL_ROOT
+    # The gimbal overlay shadows the image-provided x500_gimbal model.  Keep
+    # PX4 pointed at that image model root so its model://gimbal dependency is
+    # resolved from the same upstream directory.
+    container_model_root = (
+        CONTAINER_IMAGE_MODEL_ROOT
+        if airframe_profile_id == "x500_gimbal"
+        else CONTAINER_MODEL_ROOT
+    )
     if gpu_render:
         # NVIDIA Container Toolkit injects the driver libraries.  EGL_PLATFORM
         # and the vendor manifest make the selection deterministic in a
@@ -828,7 +852,7 @@ def build_docker_simulator_plan(
                 if selected_network_mode == "host"
                 else "export PX4_NET_INTERFACE=; "
             ),
-            "export PX4_GZ_MODELS=/opt/multidetect-gazebo-models; ",
+            f"export PX4_GZ_MODELS={container_model_root}; ",
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
             SIM_STARTUP_PATCHES,
             "export GZ_SIM_RESOURCE_PATH=",

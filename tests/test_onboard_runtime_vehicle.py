@@ -159,6 +159,31 @@ def test_adapter_reuses_collector_wire_encoding_and_serializes_sends() -> None:
     assert len(connection.mav.heartbeats) == 1
 
 
+def test_gimbal_profile_requests_device_attitude_at_20_hz() -> None:
+    connection = FakeConnection()
+    vehicle = PymavlinkVehicle(
+        "/dev/ttyTHS1", connection=connection, request_gimbal_attitude_stream=True
+    )
+
+    vehicle._request_streams()
+
+    gimbal_requests = [call for call in connection.mav.commands if call[4] == 285]
+    assert len(gimbal_requests) == 1
+    assert gimbal_requests[0][2] == 511
+    assert gimbal_requests[0][5] == 50_000
+
+
+def test_fixed_camera_profile_keeps_existing_gimbal_stream_interval() -> None:
+    connection = FakeConnection()
+    vehicle = PymavlinkVehicle("/dev/ttyTHS1", connection=connection)
+
+    vehicle._request_streams()
+
+    gimbal_requests = [call for call in connection.mav.commands if call[4] == 285]
+    assert len(gimbal_requests) == 1
+    assert gimbal_requests[0][5] == 200_000
+
+
 def test_commands_encode_px4_modes_and_actions() -> None:
     connection = FakeConnection()
     vehicle = PymavlinkVehicle("udpin:0.0.0.0:14540", connection=connection)
@@ -208,8 +233,9 @@ def test_receiver_lifecycle_and_requests_without_hardware() -> None:
     assert vehicle.snapshot().mode == "HOLD"
     assert vehicle.snapshot().position_ned == (1, 2, -3)
     assert all(args[2] == 511 for args in connection.mav.commands[:-1])
+    assert any(args[4:6] == (285.0, 200_000.0) for args in connection.mav.commands)
     assert connection.mav.commands[-1][2:5] == (512, 0, 148.0)
-    assert len(connection.mav.commands) == 9
+    assert len(connection.mav.commands) == 10
     vehicle.close()
     vehicle.close()
     assert connection.closed

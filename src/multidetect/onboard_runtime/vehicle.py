@@ -30,6 +30,7 @@ from multidetect.sim_teacher.executor import (
     SetpointStreamer,
 )
 from multidetect.sim_teacher.streams import MavlinkReader, gimbal_angles_from_status
+from multidetect.gimbal_controller import parse_gimbal_device_attitude_status
 
 from .fw_vtol_commands import (
     CommandSpec,
@@ -125,6 +126,7 @@ class VehicleState:
     time_boot_ms: int | None = None
     gimbal_angles_deg: Vector3 | None = None
     gimbal_observed_monotonic: float | None = None
+    gimbal_attitude_rad: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,7 +259,7 @@ class PymavlinkVehicle:
     encode_custom_mode = staticmethod(encode_custom_mode)
     parse_custom_mode = staticmethod(parse_custom_mode)
     _INTERVALS = ((32, 50_000), (30, 50_000), (33, 200_000),
-                  (242, 1_000_000), (245, 200_000), (1, 1_000_000),
+                  (242, 1_000_000), (245, 200_000), (285, 200_000), (1, 1_000_000),
                   (147, 1_000_000), (230, 200_000))
 
     def __init__(
@@ -268,6 +270,7 @@ class PymavlinkVehicle:
         connection: Any = None,
         target_system: int | None = None,
         target_component: int | None = None,
+        request_gimbal_attitude_stream: bool = False,
         write_timeout_s: float = 0.05,
         clock: Callable[[], float] = _precise_monotonic,
         gimbal_yaw_correction_deg: float = 0.0,
@@ -283,11 +286,14 @@ class PymavlinkVehicle:
                 raise ValueError("target MAVLink IDs must be in 1..255")
         if not math.isfinite(write_timeout_s) or write_timeout_s <= 0:
             raise ValueError("write_timeout_s must be positive and finite")
+        if not isinstance(request_gimbal_attitude_stream, bool):
+            raise ValueError("request_gimbal_attitude_stream must be boolean")
         self.endpoint = endpoint
         self.baud = baud
         self.connection = connection
         self.target_system = target_system
         self.target_component = target_component
+        self.request_gimbal_attitude_stream = request_gimbal_attitude_stream
         self._clock = clock
         self._gimbal_yaw_correction_deg = float(gimbal_yaw_correction_deg)
         self._write_timeout_s = write_timeout_s
@@ -434,6 +440,13 @@ class PymavlinkVehicle:
                             angles["roll"], angles["pitch"], angles["yaw"]
                         ),
                         gimbal_observed_monotonic=stamp,
+                    )
+                gimbal = parse_gimbal_device_attitude_status(message)
+                if gimbal is not None:
+                    updates["gimbal_attitude_rad"] = (
+                        gimbal.roll_rad,
+                        gimbal.pitch_rad,
+                        gimbal.yaw_rad,
                     )
             elif kind == "HOME_POSITION":
                 home = _vector(message, ("latitude", "longitude", "altitude"))
@@ -795,9 +808,39 @@ class PymavlinkVehicle:
     def request_home_position(self) -> None:
         self._command(512, 242.0)
 
+    def send_gimbal_pitch_yaw(
+        self,
+        pitch_down_rad: float,
+        yaw_world_rad: float,
+        *,
+        mode: str = "lock-horizon",
+        vehicle_yaw_rad: float = 0.0,
+    ) -> None:
+        """Point the gimbal in earth frame using MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW."""
+        if not all(math.isfinite(value) for value in (pitch_down_rad, yaw_world_rad, vehicle_yaw_rad)):
+            raise ValueError("gimbal angles must be finite")
+        if mode not in {"follow-body", "lock-horizon", "follow-yaw"}:
+            raise ValueError("unsupported gimbal mode")
+        yaw_command_rad = (
+            yaw_world_rad - vehicle_yaw_rad if mode == "follow-yaw" else yaw_world_rad
+        )
+        flags = 24.0 if mode == "lock-horizon" else 8.0 if mode == "follow-yaw" else 0.0
+        self._command(
+            1000,
+            -math.degrees(pitch_down_rad),
+            math.degrees(yaw_command_rad),
+            math.nan,
+            math.nan,
+            flags,
+            0.0,
+            0.0,
+        )
+
     def _request_streams(self) -> None:
         self._streams_requested = True
         for message_id, interval_us in self._INTERVALS:
+            if message_id == 285 and self.request_gimbal_attitude_stream:
+                interval_us = 50_000
             self._command(511, float(message_id), float(interval_us))
         if not self._autopilot_version_requested:
             self._autopilot_version_requested = True

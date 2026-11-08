@@ -14,7 +14,7 @@ CAMERA = CameraModel(500, 500, 500, 400, 1000, 800)
 TARGET = (30.0, 0.0, -1.0)
 GROUND = (34.0, 0.0)
 # About 15 degrees of parallax at 30 m: clears the always-on distance gate.
-WIDE = ((0.0, -4.0, -10.0), (0.0, 4.0, -10.0))
+WIDE = ((0.0, -9.0, -10.0), (0.0, 9.0, -10.0))
 
 
 def loop(**options):
@@ -44,16 +44,16 @@ def observe(subject, pose, *, ray=True, stamp=None):
     return subject.update_tracks([detection(pose)], **kwargs)
 
 
-def act(subject, tracks, pose):
+def act(subject, tracks, pose, ground=GROUND):
     subject.apply_verdict(tracks[0].track_id, "confirm_target")
-    return subject.next_action(tracks, pose_ned=pose, yaw_deg=0, ground_point=lambda u, v: GROUND)
+    return subject.next_action(tracks, pose_ned=pose, yaw_deg=0, ground_point=lambda u, v: ground)
 
 
 @pytest.mark.parametrize("count", [False, True])
 def test_disabled_is_identical_including_records_association_and_memory(count):
     original = loop(stop_on_confirm=not count, memory_enabled=True)
     disabled = loop(step_triangulation=False, stop_on_confirm=not count, memory_enabled=True)
-    for pose in ((0.0, -1.0, -10.0), (0.0, 1.0, -10.0)):
+    for pose in ((0.0, -9.0, -10.0), (0.0, 9.0, -10.0)):
         a = observe(original, pose, ray=False)
 
         def forbidden(*args):
@@ -157,7 +157,7 @@ def test_multistep_estimate_is_reported_without_changing_tracking_ground(count):
     assert record["position_source"] == "fused"
     assert record["position_sigma_m"] > 0
     assert record["position_view_count"] == 2
-    assert record["position_baseline_m"] == pytest.approx(8)
+    assert record["position_baseline_m"] == pytest.approx(18)
     assert record["position_ray_angle_deg"] > 10
     assert record["position_consistent"] is True
     assert info["horizontal_m"] == pytest.approx(
@@ -357,7 +357,7 @@ def test_count_deduplicates_estimated_positions_even_when_ground_anchors_differ(
                 ground_point=lambda u, v, anchor=anchor: anchor,
                 camera_ray=lambda u, v, pose=pose: (pose, CAMERA.ray_ned(u, v, 0)),
             )
-            _, info = act(subject, current, pose)
+            _, info = act(subject, current, pose, anchor)
     assert set(subject.tracks) == {"t1", "t2"}
     assert (
         math.dist(subject.tracks["t1"].ground, subject.tracks["t2"].ground)

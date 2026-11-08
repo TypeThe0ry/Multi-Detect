@@ -114,7 +114,7 @@ def collect_rows(roots: list[Path]) -> list[dict[str, Any]]:
                     continue
                 info = obs.get("camera_info") or {}
                 size = (int(info.get("width", 640)), int(info.get("height", 480)))
-                pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}}
+                pose = {**(obs.get("pose") or {}), "attitude": obs.get("attitude") or {}, **({"camera_pose": obs["camera_pose"]} if obs.get("camera_pose") else {})}
                 objects = []
                 for target in targets:
                     try:

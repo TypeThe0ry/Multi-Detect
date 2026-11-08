@@ -136,7 +136,6 @@ from multidetect.autonomy.onboard_policy_parts.model_config import (  # noqa: E4
     _planning_model_spec as _planning_model_spec_impl,
 )
 
-
 MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
 
@@ -324,6 +323,11 @@ class OnboardPolicy(RuntimeAdmissionMixin):
         # Hover-mode VTOLs plan like a multirotor; only their commands differ.
         plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
+        sim_climb_timeout_injection = options.get("sim_climb_timeout_injection", False)
+        if type(sim_climb_timeout_injection) is not bool:
+            raise ValueError("sim_climb_timeout_injection must be a boolean")
+        if sim_climb_timeout_injection and effective_runtime_mode != "sim":
+            raise ValueError("sim_climb_timeout_injection is only available in SIM runtime")
         self.config = options
         self.runtime_mode = effective_runtime_mode
         sim_events = validate_sim_ground_events(options)
@@ -393,6 +397,7 @@ class OnboardPolicy(RuntimeAdmissionMixin):
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
+        self._search_camera_pose: Mapping[str, object] | None = None
         if frame_format not in {"png", "jpeg"}:
             raise ValueError("frame_format must be png or jpeg")
         self.frame_format = frame_format
@@ -529,6 +534,24 @@ class OnboardPolicy(RuntimeAdmissionMixin):
     def ground_event(self, event: dict[str, Any]) -> bool:
         """Optional transport adapter: timestamps are local receipt times."""
         return self.supervisor.ground_event(event) if self.supervisor is not None else False
+
+    def report_primitive_outcome(self, action, status: str, *, before, after) -> bool:
+        """Feed PX4 execution evidence back to active return-home recovery."""
+        supervisor = self.supervisor
+        executor = supervisor if supervisor is not None else self.executor
+        check = getattr(executor, "report_primitive_outcome", None)
+        return bool(callable(check) and check(action, status, before=before, after=after))
+
+    def active_mission_skill(self) -> str | None:
+        """Return the skill whose primitive the collector is about to execute."""
+        supervisor = self.supervisor
+        if supervisor is not None and supervisor.action in {"return_now", "land_now"}:
+            recovery = getattr(supervisor, "_recovery", None)
+            if recovery is not None:
+                step = recovery.current_step
+                return step.skill if step is not None else None
+        step = self.executor.current_step if self.executor is not None else None
+        return step.skill if step is not None else None
 
     def set_downlink_sender(self, sender: Callable[[dict[str, Any]], object] | None) -> None:
         """Attach an optional acknowledged transport; delivery runs in the queue worker."""
@@ -1019,6 +1042,9 @@ class OnboardPolicy(RuntimeAdmissionMixin):
                 )
 
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        # Replace on every frame, including missing feedback: a gimbal search
+        # must never count coverage using the previous frame's camera pose.
+        self._search_camera_pose = observation.get("camera_pose")
         self._sync_vehicle_mode(observation)
         if getattr(self, "motion_adapter", None) is not None:
             self._set_active_camera_mode(self.motion_adapter.mode)
@@ -1898,8 +1924,13 @@ def build_onboard_policy(
     frame_quality: int = 90,
     airframe: str | None = None,
     runtime_step_limit: int | None = None,
+    runtime_mode: str | None = None,
+    camera_mount: dict[str, Any] | None = None,
 ) -> OnboardPolicy:
     config = json.loads(config_path.read_text(encoding="utf-8")) if config_path else None
+    if camera_mount is not None:
+        config = {**(config or {})}
+        config.setdefault("camera_mount", camera_mount)
     if airframe is not None:
         # The collector flies a specific airframe; the policy must plan for it.
         config = {**(config or {}), "airframe": airframe}
@@ -1915,6 +1946,7 @@ def build_onboard_policy(
         config=config,
         frame_format=frame_format,
         frame_quality=frame_quality,
+        runtime_mode=runtime_mode,
     )
 
 

@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +14,7 @@ def test_session_plan_enables_browser_viewer() -> None:
     assert world.name == "urban_inspection_multirotor_001.sdf"
     assert VIEWER_IMAGE in command
     assert "HEADLESS=1" in command
+    assert command[-1].endswith("-d")
     assert "DISPLAY=:99" in command
     assert "127.0.0.1:6080:6080/tcp" in command
     assert any("Xvfb :99" in token for token in command)
@@ -30,6 +31,139 @@ def test_session_plan_sends_gcs_to_host_without_publishing_port() -> None:
     )
     assert "127.0.0.1:14560:14560/udp" not in command
     assert any("-t $DOCKER_HOST_IP -u 14542 -o 14560" in token for token in command)
+
+
+def test_session_container_snapshot_uses_fake_docker(monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[1] == "inspect":
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": json.dumps(
+                        {
+                            "Id": "session-container-id",
+                            "State": {
+                                "Running": True,
+                                "ExitCode": 0,
+                                "OOMKilled": False,
+                                "FinishedAt": "0001-01-01T00:00:00Z",
+                            },
+                        }
+                    ),
+                    "stderr": "",
+                },
+            )()
+        return type(
+            "Result",
+            (),
+            {"returncode": 0, "stdout": "PID COMMAND\n5678 px4\n", "stderr": ""},
+        )()
+
+    monkeypatch.setattr(session.subprocess, "run", run)
+    snapshot = session._container_runtime_snapshot("docker", "session-container")
+    assert snapshot["container_id"] == "session-container-id"
+    assert snapshot["state"] == {
+        "running": True,
+        "exit_code": 0,
+        "oom_killed": False,
+        "finished_at": "0001-01-01T00:00:00Z",
+    }
+    assert snapshot["px4_process_alive"] is True
+    assert snapshot["px4_host_pids"] == [5678]
+    assert len(calls) == 2
+
+
+def test_nonzero_task_logs_failure_and_cleanup_snapshots(monkeypatch, tmp_path):
+    class FakeLock:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def acquire(self, *_args, **_kwargs):
+            raise AssertionError("inherited lock should not be reacquired")
+
+        def release(self):
+            pass
+
+    class Result:
+        returncode = 0
+        stdout = "true\n"
+        stderr = ""
+
+    stopped = False
+
+    def run(command, **_kwargs):
+        nonlocal stopped
+        if command[:2] == ["docker", "inspect"]:
+            if "{{.State.Running}}" in command:
+                return Result()
+            state = {
+                "Running": not stopped,
+                "ExitCode": 0 if not stopped else 137,
+                "OOMKilled": False,
+                "FinishedAt": "0001-01-01T00:00:00Z" if not stopped else "2026-11-05T01:02:03Z",
+            }
+            return type(
+                "InspectResult",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": json.dumps({"Id": "session-container-id", "State": state}),
+                    "stderr": "",
+                },
+            )()
+        if command[:2] == ["docker", "top"]:
+            return type(
+                "TopResult",
+                (),
+                {"returncode": 0, "stdout": "PID COMMAND\n5678 px4\n", "stderr": ""},
+            )()
+        if command[:2] == ["docker", "stop"]:
+            stopped = True
+        return Result()
+
+    monkeypatch.setattr(session, "SitlLock", FakeLock)
+    monkeypatch.setattr(session, "validate_runtime_prerequisites", lambda **_: None)
+    monkeypatch.setattr(session, "ensure_viewer_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        session,
+        "build_session_command",
+        lambda **_kwargs: (
+            ["docker", "run"],
+            type("Plan", (), {"docker_executable": "docker", "container_name": "c"})(),
+            ROOT / "simulation/gazebo/worlds/gen_cnt2_w0000.sdf",
+        ),
+    )
+    monkeypatch.setattr(session, "_wait_world_ready", lambda *_args: (True, True, ""))
+    monkeypatch.setattr(session, "_run_task", lambda *_args, **_kwargs: 9)
+    monkeypatch.setattr(session.subprocess, "run", run)
+    monkeypatch.setenv("MULTIDETECT_SITL_LOCK_HELD", "1")
+    log_path = tmp_path / "session.jsonl"
+
+    try:
+        assert main([
+            "--onboard-task", "test", "--exit-after-task",
+            "--onboard-out", str(tmp_path / "out"), "--artifacts-root", str(tmp_path / "art"),
+            "--session-log", str(log_path),
+        ]) == 9
+    finally:
+        monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+
+    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    ready = next(row for row in rows if row["phase"] == "container_ready_snapshot")
+    failure = next(row for row in rows if row["phase"] == "container_failure_snapshot")
+    cleanup = next(row for row in rows if row["phase"] == "container_cleanup")
+    assert ready["container_snapshot"]["px4_host_pids"] == [5678]
+    assert failure["reason"] == "onboard task exited with code 9"
+    assert failure["container_snapshot"]["state"]["running"] is True
+    assert failure["container_snapshot"]["px4_process_alive"] is True
+    assert failure["container_snapshot"]["container_id"] == "session-container-id"
+    assert cleanup["container_snapshot"]["state"]["exit_code"] == 137
+    assert cleanup["container_snapshot"]["px4_process_alive"] is False
 
 
 def test_session_options_reject_invalid_snapshot_interval() -> None:
@@ -92,6 +226,7 @@ def test_world_must_be_repository_owned() -> None:
     ("airframe", "world", "model"),
     [
         ("x500", "urban_inspection_multirotor_001.sdf", "px4_multirotor_standard"),
+        ("x500_gimbal", "urban_inspection_multirotor_001.sdf", "px4_multirotor_standard"),
         ("standard_vtol", "river_rescue_vtol_001.sdf", "px4_vtol_standard"),
         ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter_mono_cam"),
         ("delta_tailsitter", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter_mono_cam"),
@@ -109,6 +244,15 @@ def test_session_plan_selects_airframe_runtime(airframe: str, world: str, model:
     assert selected_world.name == world
     assert plan.scenario_id
     assert plan.vehicle_model == model
+
+
+def test_gimbal_session_plan_keeps_gimbal_px4_selection() -> None:
+    _, plan, _ = build_session_command(
+        airframe="x500_gimbal", container_name="test-x500-gimbal"
+    )
+    environment = dict(plan.environment)
+    assert environment["PX4_SYS_AUTOSTART"] == "4019"
+    assert environment["PX4_SIM_MODEL"] == "gz_x500_gimbal"
 
 
 @pytest.mark.parametrize(

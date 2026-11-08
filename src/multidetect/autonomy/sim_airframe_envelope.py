@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .onboard_executed_trajectory import EvidenceBinding
 from .serialization import AutonomyContractError, canonical_json, canonical_sha256, require_real
+from .sim_gimbal_collision import load_gimbal_collision_geometry
 from .sim_loaded_world import _xml, decode_generated_sdf_reply
 from .sim_navigation_reference import _x500_model_offset
 from .sim_static_route_clearance import (
@@ -305,6 +306,75 @@ def _loaded(root, source, collisions, offset, models, identities):
     return world, vehicle, actual, contact_declarations
 
 
+def _loaded_gimbal(root, source, geometry, identities):
+    payload = _bound_bytes(root, source, MAXIMUM_SOURCE_BYTES, identities)
+    document = _xml(decode_generated_sdf_reply(payload))
+    _require(len(document) == 1 and document[0].tag == "world", "single generated world required")
+    world = document[0]
+    matches = [m for m in world.findall("model") if m.attrib.get("name") == "x500_gimbal_0"]
+    _require(len(matches) == 1, "exactly one loaded x500 gimbal vehicle required")
+    vehicle = matches[0]
+    _require(
+        not any(x.tag in {"include", "model"} for x in vehicle),
+        "loaded gimbal vehicle has unresolved/nested composition",
+    )
+    links = vehicle.findall("link")
+    expected_links = _LINKS | {
+        "cgo3_mount_link",
+        "cgo3_vertical_arm_link",
+        "cgo3_horizontal_arm_link",
+        "camera_link",
+    }
+    _require(
+        len(links) == len(expected_links) and {_name(link) for link in links} == expected_links,
+        "loaded x500 gimbal link closure differs",
+    )
+    actual = {}
+    declarations = {}
+    for link in links:
+        name = _name(link)
+        for child in link.findall("collision"):
+            key = f"{name}/{_name(child)}"
+            _require(key not in actual, "duplicate loaded gimbal collision")
+            actual[key] = _collision(child, _pose(link), key, source.sha256)
+            contact = child.find("surface/contact/ode")
+            declarations[key] = {
+                "min_depth_text": None if contact is None else contact.findtext("min_depth"),
+                "max_vel_text": None if contact is None else contact.findtext("max_vel"),
+                "collide_bitmask_text": child.findtext("surface/contact/collide_bitmask"),
+            }
+    expected = geometry.collision_definitions
+    _require(
+        len(list(vehicle.iter("collision"))) == len(actual) == len(expected) == 10
+        and set(actual) == set(expected),
+        "generated gimbal collision closure is missing/extra or hidden",
+    )
+    for key, original in expected.items():
+        found = actual[key]
+        _require(
+            found.kind == original.kind
+            and _close(found.center_enu_m, original.center_enu_m)
+            and _close(found.half_extents_local_m, original.half_extents_local_m),
+            "loaded gimbal collision geometry/center differs from original SDF expansion",
+        )
+        if key.startswith("base_link/"):
+            _require(
+                _close(_flat(found.rotation), _flat(original.rotation)),
+                "loaded base collision rotation differs",
+            )
+        elif key.startswith("rotor_"):
+            _require(
+                _close(tuple(found.rotation[i][2] for i in range(3)), (0, 0, 1)),
+                "loaded rotor axis differs from source-derived sweep",
+            )
+    nav = _pose(next(link for link in links if _name(link) == "base_link"))
+    _require(
+        _close(nav[1], geometry.model_offset) and _close(_flat(nav[0]), _flat(_IDENTITY)),
+        "loaded gimbal body frame differs from source x500 base",
+    )
+    return world, vehicle, actual, declarations
+
+
 @dataclass(frozen=True, slots=True)
 class SourceDerivedSimAirframeEnvelopeAudit:
     _document_json: str
@@ -327,9 +397,10 @@ class SourceDerivedSimAirframeEnvelopeAudit:
 def audit_x500_collision_envelope(
     *,
     artifact_root: str | Path,
-    model_sources: dict[str, EvidenceBinding],
-    extraction_source: EvidenceBinding,
+    model_sources: dict[str, EvidenceBinding] | None = None,
+    extraction_source: EvidenceBinding | None = None,
     generated_sdf_source: EvidenceBinding,
+    gimbal_sources: dict[str, EvidenceBinding] | None = None,
     maximum_tilt_deg: float = 180.0,
 ) -> SourceDerivedSimAirframeEnvelopeAudit:
     """Recompute bounded source geometry; reject unknown shapes/frame semantics.
@@ -343,25 +414,53 @@ def audit_x500_collision_envelope(
     root = Path(artifact_root).resolve(strict=True)
     identities = {}
     _require(
-        type(model_sources) is dict
-        and set(model_sources) == {"x500_mono_cam", "x500", "x500_base"}
-        and all(
-            type(v) is EvidenceBinding and v.json_pointer is None for v in model_sources.values()
-        ),
-        "exact whole-file three-model source bindings required",
+        type(generated_sdf_source) is EvidenceBinding and generated_sdf_source.json_pointer is None,
+        "original generated SDF response required",
     )
-    _require(
-        type(extraction_source) is EvidenceBinding
-        and extraction_source.json_pointer == ""
-        and type(generated_sdf_source) is EvidenceBinding
-        and generated_sdf_source.json_pointer is None,
-        "explicit whole extraction JSON and original generated SDF response required",
-    )
-    models, offset, collisions, samples, points = _models(root, model_sources, identities)
-    _extraction(root, extraction_source, model_sources, identities)
-    world, vehicle, actual, declarations = _loaded(
-        root, generated_sdf_source, collisions, offset, models, identities
-    )
+    gimbal_geometry = None
+    if gimbal_sources is None:
+        _require(
+            type(model_sources) is dict
+            and set(model_sources) == {"x500_mono_cam", "x500", "x500_base"}
+            and all(
+                type(v) is EvidenceBinding and v.json_pointer is None
+                for v in model_sources.values()
+            ),
+            "exact whole-file three-model source bindings required",
+        )
+        _require(
+            type(extraction_source) is EvidenceBinding and extraction_source.json_pointer == "",
+            "explicit whole extraction JSON required",
+        )
+        models, offset, collisions, samples, points = _models(root, model_sources, identities)
+        _extraction(root, extraction_source, model_sources, identities)
+        world, vehicle, actual, declarations = _loaded(
+            root, generated_sdf_source, collisions, offset, models, identities
+        )
+    else:
+        _require(
+            model_sources is None and extraction_source is None,
+            "fixed x500 and gimbal source closures cannot be mixed",
+        )
+        gimbal_geometry = load_gimbal_collision_geometry(root, gimbal_sources, identities)
+        models = None
+        offset = gimbal_geometry.model_offset
+        collisions = gimbal_geometry.base_collisions
+        samples = []
+        points = []
+        for key, collision in collisions.items():
+            if key.startswith("base_link/"):
+                for point in _corners(collision, offset):
+                    points.append(point)
+                    samples.append((math.hypot(*point[:2]), point[2]))
+            else:
+                center = tuple(collision.center_enu_m[i] - offset[i] for i in range(3))
+                hx, hy, hz = collision.half_extents_local_m
+                rho = math.hypot(*center[:2]) + math.hypot(hx, hy)
+                samples.extend((rho, center[2] + sign * hz) for sign in (-1, 1))
+        world, vehicle, actual, declarations = _loaded_gimbal(
+            root, generated_sdf_source, gimbal_geometry, identities
+        )
     pose = _pose(vehicle)
     loaded_body = _compose(pose, (_IDENTITY, offset))[1]
     world_points = []
@@ -392,6 +491,66 @@ def audit_x500_collision_envelope(
     )
     pad_top = support.center_enu_m[2] + support.half_extents_local_m[2]
     body_bottom = min(p[2] for p in world_points)
+    gimbal_loaded_bottom = None
+    if gimbal_geometry is not None:
+        loaded_camera = actual["camera_link/cgo3_camera_collision"]
+        camera_world = _compose(pose, (_IDENTITY, loaded_camera.center_enu_m))[1]
+        gimbal_loaded_bottom = camera_world[2] - gimbal_geometry.sphere_radius_m
+    envelope_bounds = _bounds(samples, math.radians(tilt))
+    fixed_collision_bounds = dict(envelope_bounds)
+    level_bounds = {
+        "horizontal_radius_m": max(rho for rho, _ in samples) + OUTWARD_PAD_M,
+        "bottom_offset_m": min(z for _, z in samples) - OUTWARD_PAD_M,
+        "top_offset_m": max(z for _, z in samples) + OUTWARD_PAD_M,
+    }
+    gimbal_bounds = None
+    gimbal_extension = None
+    if gimbal_geometry is not None:
+        gimbal_bounds = gimbal_geometry.swept_bounds(tilt)
+        gimbal_extension = {
+            "horizontal_radius_extension_m": max(
+                0.0,
+                gimbal_bounds["horizontal_radius_m"]
+                - fixed_collision_bounds["horizontal_radius_m"],
+            ),
+            "bottom_offset_extension_m": max(
+                0.0,
+                fixed_collision_bounds["bottom_offset_m"] - gimbal_bounds["bottom_offset_m"],
+            ),
+            "top_offset_extension_m": max(
+                0.0,
+                gimbal_bounds["top_offset_m"] - fixed_collision_bounds["top_offset_m"],
+            ),
+        }
+        gimbal_extension["extends_existing_envelope"] = any(
+            gimbal_extension[key] > 1e-9
+            for key in (
+                "horizontal_radius_extension_m",
+                "bottom_offset_extension_m",
+                "top_offset_extension_m",
+            )
+        )
+        envelope_bounds = {
+            "horizontal_radius_m": max(
+                envelope_bounds["horizontal_radius_m"], gimbal_bounds["horizontal_radius_m"]
+            ),
+            "bottom_offset_m": min(
+                envelope_bounds["bottom_offset_m"], gimbal_bounds["bottom_offset_m"]
+            ),
+            "top_offset_m": max(envelope_bounds["top_offset_m"], gimbal_bounds["top_offset_m"]),
+        }
+        level_bounds = {
+            "horizontal_radius_m": max(
+                level_bounds["horizontal_radius_m"], gimbal_bounds["level_horizontal_radius_m"]
+            ),
+            "bottom_offset_m": min(
+                level_bounds["bottom_offset_m"], gimbal_bounds["level_bottom_offset_m"]
+            ),
+            "top_offset_m": max(level_bounds["top_offset_m"], gimbal_bounds["level_top_offset_m"]),
+        }
+    expected_collisions = (
+        collisions if gimbal_geometry is None else gimbal_geometry.collision_definitions
+    )
     # These are source-declared collision points in one saved model pose, not
     # contact-force observations. No named support or ground exemption is granted.
     document = {
@@ -403,11 +562,17 @@ def audit_x500_collision_envelope(
         "reference_point": "source-derived_base_link_body_navigation_candidate",
         "model_to_body_offset_flu_m": list(offset),
         "position_formula": "body_ENU = model_ENU + R(model_FLU_to_ENU) * model_to_body_offset_FLU",
-        "model_sources": {k: v.to_mapping() for k, v in sorted(model_sources.items())},
-        "extraction_source": extraction_source.to_mapping(),
+        **(
+            {
+                "model_sources": {k: v.to_mapping() for k, v in sorted(model_sources.items())},
+                "extraction_source": extraction_source.to_mapping(),
+            }
+            if gimbal_geometry is None
+            else {"gimbal_sources": {k: v.to_mapping() for k, v in sorted(gimbal_sources.items())}}
+        ),
         "generated_sdf_source": generated_sdf_source.to_mapping(),
-        "collision_count": len(collisions),
-        "collision_ids": sorted(collisions),
+        "collision_count": len(expected_collisions),
+        "collision_ids": sorted(expected_collisions),
         "loaded_collision_definitions_match": True,
         "rotor_sweep": (
             "each revolute collision box swept through every joint angle around body-up axis"
@@ -417,12 +582,8 @@ def audit_x500_collision_envelope(
             "yaw": "unrestricted",
             "runtime_tilt_bound_verified": False,
         },
-        "envelope_bounds": _bounds(samples, math.radians(tilt)),
-        "level_body_collision_bounds": {
-            "horizontal_radius_m": max(rho for rho, _ in samples) + OUTWARD_PAD_M,
-            "bottom_offset_m": min(z for _, z in samples) - OUTWARD_PAD_M,
-            "top_offset_m": max(z for _, z in samples) + OUTWARD_PAD_M,
-        },
+        "envelope_bounds": envelope_bounds,
+        "level_body_collision_bounds": level_bounds,
         "outward_numerical_padding_m": OUTWARD_PAD_M,
         "loaded_definition_comparison_tolerance": TOLERANCE,
         "loaded_pose_diagnostic": {
@@ -433,6 +594,14 @@ def audit_x500_collision_envelope(
             "bottom_minus_pad_top_m": body_bottom - pad_top,
             "overlap_is_geometry_only_not_solver_contact_proof": True,
             "source_pose_is_sensor_coeval_claimed": False,
+            **(
+                {
+                    "gimbal_camera_collision_bottom_up_m": gimbal_loaded_bottom,
+                    "all_loaded_collision_bottom_up_m": min(body_bottom, gimbal_loaded_bottom),
+                }
+                if gimbal_geometry is not None
+                else {}
+            ),
         },
         "physics_declarations": {
             "world_physics_attributes": dict(_one(world, "physics").attrib),
@@ -455,6 +624,23 @@ def audit_x500_collision_envelope(
             "explicit three models, retained image-extraction receipt "
             "and saved generated-world reply; "
             "not image build authentication"
+            if gimbal_geometry is None
+            else (
+                "pinned seven-binding gimbal closure, expanded loaded collisions, "
+                "and source-derived joint-range sphere sweep"
+            )
+        ),
+        **(
+            {
+                "gimbal_collision_range": {
+                    "source_joint_limits_rad": gimbal_geometry.joint_limits,
+                    "source_sphere_radius_m": gimbal_geometry.sphere_radius_m,
+                    "extension_beyond_x500_collision_envelope": gimbal_extension,
+                    **gimbal_bounds,
+                }
+            }
+            if gimbal_geometry is not None
+            else {}
         ),
         "claims": {
             name: False
@@ -474,9 +660,13 @@ def audit_x500_collision_envelope(
             )
         },
     }
-    for source in model_sources.values():
-        _read_bound_sdf(root, source, identities)
-    _bound_json(root, extraction_source, identities)
+    if gimbal_geometry is None:
+        for source in model_sources.values():
+            _read_bound_sdf(root, source, identities)
+        _bound_json(root, extraction_source, identities)
+    else:
+        for source in gimbal_geometry.source_bindings:
+            _bound_bytes(root, source, MAXIMUM_SOURCE_BYTES, identities)
     _bound_bytes(root, generated_sdf_source, MAXIMUM_SOURCE_BYTES, identities)
     _require(bool(points), "rigid body collision support points missing")
     return SourceDerivedSimAirframeEnvelopeAudit(canonical_json(document))

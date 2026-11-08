@@ -14,6 +14,7 @@ import random
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
+from multidetect.autonomy.fw_geometry import camera_ground_footprint
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO, DEFAULT_CAMERA_PITCH_DOWN_RAD
 from multidetect.simulator.task_semantics import TYPICAL_SIZE_M
 
@@ -30,6 +31,7 @@ class CoverageCamera:
     width_px: int = DEFAULT_CAMERA_INFO["width"]
     height_px: int = DEFAULT_CAMERA_INFO["height"]
     pitch_down_deg: float = math.degrees(DEFAULT_CAMERA_PITCH_DOWN_RAD)
+    camera_pose: Mapping[str, object] | None = None
 
     @classmethod
     def from_runtime(
@@ -37,6 +39,7 @@ class CoverageCamera:
         camera_info: Mapping[str, float],
         *,
         pitch_down_rad: float = DEFAULT_CAMERA_PITCH_DOWN_RAD,
+        camera_pose: Mapping[str, object] | None = None,
     ) -> CoverageCamera:
         """Build from the ``DEFAULT_CAMERA_INFO``/OnboardPolicy camera mapping."""
         return cls(
@@ -44,6 +47,7 @@ class CoverageCamera:
             cx=float(camera_info["cx"]), cy=float(camera_info["cy"]),
             width_px=int(camera_info["width"]), height_px=int(camera_info["height"]),
             pitch_down_deg=math.degrees(float(pitch_down_rad)),
+            camera_pose=camera_pose,
         )
 
     @property
@@ -62,6 +66,16 @@ class CoverageCamera:
         """
         if altitude_m <= 0 or not math.isfinite(altitude_m):
             raise ValueError("altitude_m must be finite and positive")
+        if self.camera_pose is not None:
+            corners = camera_ground_footprint(
+                self.camera_pose,
+                {"fx": self.fx, "fy": self.fy, "cx": self.cx, "cy": self.cy},
+                (self.width_px, self.height_px),
+            )
+            if corners is None:
+                return 0.0, 0.0
+            norths, easts = zip(*corners, strict=True)
+            return max(easts) - min(easts), max(norths) - min(norths)
         pitch = math.radians(self.pitch_down_deg)
         points: list[tuple[float, float]] = []
         for u in (0.0, float(self.width_px)):
@@ -228,6 +242,27 @@ def current_expanding_square(
     """Replicate ``ExpertSearchPolicy._build_spiral`` exactly (square legs)."""
     hfov = camera.hfov_rad
     vfov = camera.vfov_rad
+    if camera.camera_pose is not None:
+        width, _ = camera.footprint(altitude_m)
+        half_swath = width / 2.0
+        spacing = min(70.0, radius_m / 2.0, max(8.0, 1.6 * half_swath))
+        points: list[Point] = []
+        north = east = 0.0
+        length, direction_index = spacing, 0
+        directions = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
+        while math.hypot(north, east) < radius_m:
+            for _ in range(2):
+                dn, de = directions[direction_index % 4]
+                candidate = (north + dn * length, east + de * length)
+                if math.hypot(*candidate) > radius_m:
+                    scale = radius_m / max(math.hypot(*candidate), 1e-12)
+                    points.append((candidate[0] * scale, candidate[1] * scale))
+                    return points
+                north, east = candidate
+                points.append(candidate)
+                direction_index += 1
+            length += spacing
+        return points
     vertical_ratio = math.tan(vfov / 2.0)
     pitch = math.radians(camera.pitch_down_deg)
     onset = (
