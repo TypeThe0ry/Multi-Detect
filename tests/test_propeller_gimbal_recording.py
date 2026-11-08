@@ -138,6 +138,61 @@ def test_gimbal_recording_contract_fails_closed_for_missing_invalid_or_misaligne
         validate_gimbal_recording_observation(sample)
 
 
+def test_collector_rejects_gimbal_frame_before_recorder_writes_step(tmp_path: Path) -> None:
+    from scripts import collect_sim_teacher_episodes as collector
+
+    recorder = EpisodeRecorder(tmp_path, "gimbal-rejected")
+    before = _valid_gimbal_recording_observation()
+    after = _valid_gimbal_recording_observation()
+    after["propeller_joint_state"]["timestamp_ns"] = 101
+
+    with pytest.raises(ValueError, match="propeller joint timestamp"):
+        collector._record_policy_step(
+            recorder,
+            before,
+            {},
+            camera_mount=CameraMount.gimbal(),
+            ack={},
+            outcome={},
+            obs_after=after,
+            labels={},
+        )
+
+    assert recorder.index == 0
+    assert not recorder.steps_path.exists()
+    assert list(recorder.rgb_dir.iterdir()) == []
+    assert list(recorder.depth_dir.iterdir()) == []
+
+
+def test_collector_records_fixed_camera_without_gimbal_sidecar(tmp_path: Path) -> None:
+    from scripts import collect_sim_teacher_episodes as collector
+    from multidetect.sim_teacher import ActionPrimitive
+
+    recorder = EpisodeRecorder(tmp_path, "fixed-camera")
+    observation = {
+        "rgb": b"fixed-camera-frame",
+        "depth": np.ones((1, 1), dtype=np.float32),
+        "frame_sensor_stamp_ns": 100,
+    }
+
+    assert collector._record_policy_step(
+        recorder,
+        observation,
+        ActionPrimitive.stop(),
+        camera_mount=CameraMount.fixed(),
+        ack={},
+        outcome={},
+        obs_after=observation,
+        labels={},
+    ) is False
+
+    rows = [json.loads(line) for line in recorder.steps_path.read_text().splitlines()]
+    assert len(rows) == 1
+    assert recorder.index == 1
+    assert rows[0]["obs_before"]["rgb_path"]
+    assert rows[0]["obs_before"]["depth_path"]
+
+
 def test_fixed_camera_observation_does_not_require_gimbal_contract() -> None:
     sensor = SensorSample(
         rgb=b"rgb",

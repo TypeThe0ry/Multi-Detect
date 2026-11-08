@@ -2655,6 +2655,7 @@ def _record_policy_step(
     before: dict[str, Any],
     action: Any,
     *,
+    camera_mount: Any = None,
     ack: dict[str, Any],
     outcome: dict[str, Any],
     obs_after: dict[str, Any],
@@ -2662,6 +2663,9 @@ def _record_policy_step(
     timing: dict[str, Any] | None = None,
 ) -> bool:
     """Persist one policy step and report whether the primitive loop continues."""
+    if camera_mount is not None and camera_mount.kind == "gimbal":
+        validate_gimbal_recording_observation(before)
+        validate_gimbal_recording_observation(obs_after)
     recorder.record_step(
         before,
         action,
@@ -5515,6 +5519,7 @@ def run_episode(
                     recorder,
                     before,
                     step_action,
+                    camera_mount=camera_mount,
                     ack=ack,
                     outcome={
                         "status": result.status,
