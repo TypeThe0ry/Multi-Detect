@@ -39,6 +39,14 @@
 
 [PX4 官方安全配置](https://docs.px4.io/main/en/config/safety) 可用于选择待测场景；执行时以本机确切固件参数与实际事件为准。
 
+## 空速链路与启动告警
+
+- [ ] 真机导出并核对 `SYS_HAS_NUM_ASPD`、`ASPD_PRIMARY`、`ASPD_DO_CHECKS`、`ASPD_FALLBACK`、`FW_USE_AIRSPD`；这里没有取得真机实读值，不将源码默认值当成真机配置。检查选中的来源是否与实装皮托管/差压传感器一致，以及失效后实际切换来源和动作。
+- [ ] 保存 `airspeed_validated` 的 timestamp、`airspeed_source`、校准/真空速及各传感器有效性，与 `failure_detector_status`、转换状态、姿态和控制输出对齐。覆盖无数据、冻结读数、创新/负载检查和恢复；仅有正的 `VFR_HUD.airspeed` 或解锁成功不能证明该链路有效。
+- [ ] 记录并解释启动告警的清除过程。2026-11-09 候选镜像复验的固定相机 episode `091e36db` 在启动阶段出现 `Preflight Fail: Airspeed selector module down`，之后已解锁起飞并进入 FW sustain，后续 `VFR_HUD.airspeed` 约 15.48 m/s；这不足以判定有持续故障，也不足以证明全部空速保护已生效。原始证据保存在仓库外 `runs/delta-candidate-recheck-20261109/output-r2/fixed/episodes/episode-0000-091e36db/mavlink.jsonl`，最终门禁另行判定。
+
+确切 PX4 `83c4f4e580558816f0e398918f66358988004696` 的 [airspeedCheck.cpp](https://github.com/PX4/PX4-Autopilot/blob/83c4f4e580558816f0e398918f66358988004696/src/modules/commander/HealthAndArmingChecks/checks/airspeedCheck.cpp) 在无可用或超过 2 s 的 `airspeed_validated` 数据时进入该告警分支；检查还受 `SYS_HAS_NUM_ASPD` 和机型状态约束。该告警不能仅凭字符串推断模块永久停止。同版本参数定义中的 `ASPD_DO_CHECKS` 只在 `ASPD_PRIMARY>0` 时应用；应核对实际来源和有效位，而非只看参数已设置。
+
 ## 电源、导航、执行器及共用软件
 
 - [ ] 真机导出 `COM_LOW_BAT_ACT`、`BAT_*_THR`、`COM_FLTT_LOW_ACT`、`COM_FLT_TIME_MAX`，校准电池电压/电流；验证低电量、返航能量不足和掉电动作。本轮仿真 `COM_LOW_BAT_ACT=3`，其余未实测。
