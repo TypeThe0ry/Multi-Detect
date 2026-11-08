@@ -535,6 +535,7 @@ def assemble_runtime_runners(
             port=identity_port,
             max_new_tokens=128 if split_planning else (768 if mission == "from_text" else 128),
             crop_policy="candidate_zoom_v2",
+            max_side=options["identity_max_side"],
             identity_only=True,
             logprobs=True,
             fast_identity=str(options.get("fast_identity", False)).lower()
