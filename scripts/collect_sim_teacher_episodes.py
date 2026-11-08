@@ -40,6 +40,7 @@ from multidetect.autonomy.airframe_profile import (  # noqa: E402
     airframe_uses_multirotor_executor,
     resolve_airframe_profile,
 )
+from multidetect.autonomy.mission_executor import RETURN_CLIMB_NEAR_GROUND_M  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.gimbal_controller import Px4GimbalController  # noqa: E402
@@ -74,11 +75,14 @@ from multidetect.sim_teacher.streams import (  # noqa: E402
     MavlinkState,
     SensorStreamReader,
     build_observation,
+    validate_gimbal_recording_observation,
 )
+from multidetect.sim_teacher.vehicle_loss import VehicleLossDetector  # noqa: E402
 from multidetect.simulator.cpu import resolve_cpu_isolation  # noqa: E402
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.px4_clock_stall_capture import capture_stall as capture_px4_clock_stall  # noqa: E402
+from scripts.analyze_sensor_timeouts import build_failure_snapshot  # noqa: E402
 from scripts.run_simulator_docker import (  # noqa: E402
     CONTAINER_IMAGE_MODEL_ROOT,
     CONTAINER_MODEL_ROOT,
@@ -101,10 +105,167 @@ DEFAULT_DEPTH_ENCODING = "UINT16_MM"
 DEFAULT_MIN_FREE_GB = 15.0
 DEFAULT_DISK_CHECK_INTERVAL_STEPS = 10
 DEFAULT_VIDEO_MAX_BYTES = 8 * 1024**3
+HOST_PRESSURE_SAMPLE_INTERVAL_S = 5.0
+
+
+def _parse_cpu_set(raw: str) -> tuple[int, ...]:
+    cpus: set[int] = set()
+    for item in raw.split(","):
+        bounds = item.split("-")
+        try:
+            start = int(bounds[0])
+            end = int(bounds[-1])
+        except (ValueError, IndexError):
+            continue
+        if start < 0 or end < start:
+            continue
+        cpus.update(range(start, end + 1))
+    return tuple(sorted(cpus))
+
+
+def _current_cpuset() -> tuple[int, ...]:
+    for path in (
+        Path("/sys/fs/cgroup/cpuset.cpus.effective"),
+        Path("/sys/fs/cgroup/cpuset/cpuset.cpus").resolve(),
+    ):
+        try:
+            cpus = _parse_cpu_set(path.read_text(encoding="ascii").strip())
+        except OSError:
+            continue
+        if cpus:
+            return cpus
+    try:
+        return tuple(sorted(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return tuple(range(os.cpu_count() or 0))
+
+
+def _proc_cpu_ticks() -> dict[int, tuple[int, int]]:
+    result: dict[int, tuple[int, int]] = {}
+    for line in Path("/proc/stat").read_text(encoding="ascii").splitlines():
+        fields = line.split()
+        if not fields or not fields[0].startswith("cpu") or fields[0] == "cpu":
+            continue
+        try:
+            cpu = int(fields[0][3:])
+            ticks = [int(value) for value in fields[1:]]
+        except ValueError:
+            continue
+        if ticks:
+            idle = ticks[3] + (ticks[4] if len(ticks) > 4 else 0)
+            result[cpu] = (sum(ticks), idle)
+    return result
+
+
+def _pressure_summary(path: str) -> dict[str, dict[str, float]] | None:
+    try:
+        lines = Path(path).read_text(encoding="ascii").splitlines()
+        result = {}
+        for line in lines:
+            values = line.split()
+            if not values:
+                continue
+            parsed = {
+                key: float(value)
+                for key, value in (
+                    item.split("=", 1) for item in values[1:] if "=" in item
+                )
+            }
+            if parsed:
+                result[values[0]] = parsed
+        return result or None
+    except (OSError, ValueError):
+        return None
+
+
+class HostPressureSampler:
+    """Best-effort host load recorder; failures are isolated from collection."""
+
+    def __init__(
+        self,
+        episode_dir: Path,
+        cpus: tuple[int, ...],
+        interval_s: float = HOST_PRESSURE_SAMPLE_INTERVAL_S,
+    ):
+        self.path = episode_dir / "host_pressure.jsonl"
+        self.cpus = cpus
+        self.interval_s = interval_s
+        self.sim_clock_provider: Any | None = None
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, name="sim-host-pressure", daemon=True)
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def close(self) -> None:
+        self.stop_event.set()
+        if self.thread.is_alive():
+            self.thread.join(timeout=max(1.0, self.interval_s + 1.0))
+
+    def _sample(
+        self, previous: dict[int, tuple[int, int]] | None
+    ) -> tuple[dict[str, Any], dict[int, tuple[int, int]]]:
+        now = time.time()
+        ticks = _proc_cpu_ticks()
+        per_core: list[float] = []
+        if previous is not None:
+            for cpu in self.cpus:
+                old, current = previous.get(cpu), ticks.get(cpu)
+                if old is None or current is None:
+                    continue
+                total_delta = current[0] - old[0]
+                idle_delta = current[1] - old[1]
+                if total_delta > 0:
+                    per_core.append(100.0 * (total_delta - idle_delta) / total_delta)
+        try:
+            loadavg = Path("/proc/loadavg").read_text(encoding="ascii").strip()
+        except OSError:
+            loadavg = None
+        row = {
+            "wall_time": now,
+            "monotonic_ns": time.monotonic_ns(),
+            "loadavg": loadavg,
+            "cpu_pressure": _pressure_summary("/proc/pressure/cpu"),
+            "memory_pressure": _pressure_summary("/proc/pressure/memory"),
+            "io_pressure": _pressure_summary("/proc/pressure/io"),
+            "cpuset_cpus": list(self.cpus),
+            "core_busy_percent_mean": statistics.fmean(per_core) if per_core else None,
+            "core_busy_percent_max": max(per_core) if per_core else None,
+            "px4_sim_time_boot_ms": self._sim_time_boot_ms(),
+        }
+        return row, ticks
+
+    def _sim_time_boot_ms(self) -> int | None:
+        if self.sim_clock_provider is None:
+            return None
+        try:
+            value = self.sim_clock_provider()
+            return value if isinstance(value, int) and not isinstance(value, bool) else None
+        except Exception:
+            return None
+
+    def _run(self) -> None:
+        previous = None
+        while not self.stop_event.is_set():
+            try:
+                row, previous = self._sample(previous)
+                with self.path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(row, separators=(",", ":")) + "\n")
+            except Exception:
+                pass
+            self.stop_event.wait(self.interval_s)
 
 
 class LowDiskSpace(RuntimeError):
     """Normal campaign stop caused by the configured free-space floor."""
+
+
+class VehicleLostControl(RuntimeError):
+    """The recorded telemetry shows an uncommanded fall or sustained tumble."""
+
+    def __init__(self, event: dict[str, Any]):
+        self.event = event
+        super().__init__(f"vehicle lost control: {event.get('reason', 'telemetry rule')}")
 
 
 def free_space_bytes(path: str | Path) -> int:
@@ -149,6 +310,10 @@ DEFAULT_TELEMETRY_PORT = 14541
 # 180 s (run_simulator_docker.GAZEBO_WORLD_ATTEMPTS); wait past that.
 DEFAULT_HEARTBEAT_TIMEOUT_S = 240.0
 DEFAULT_PREARM_HEALTH_TIMEOUT_S = 45.0
+# Linux SITL can advance PX4's clock much more slowly than host time under load.
+# Wait for the nominal budget in PX4 time, but never wait indefinitely on a
+# frozen simulator. Windows retains the established wall-clock behavior.
+PREARM_HEALTH_HARD_WALL_CEILING_S = 900.0
 DEFAULT_OFFBOARD_ENTER_TIMEOUT_S = 30.0
 LAND_BASE_TIMEOUT_S = 60.0
 LAND_MIN_TIMEOUT_S = 120.0
@@ -175,6 +340,8 @@ FIXED_WING_LANDING_APPROACH_ALT_M = 20.0
 MAV_CMD_NAV_LOITER_TO_ALT = 31
 MAV_FRAME_MISSION = 2
 LANDING_TELEMETRY_STALE_S = 30.0
+SIM_PRE_ABORT_DESCENT_TIMEOUT_S = 45.0
+SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S = 900.0
 MOTION_ARRIVAL_TOLERANCE_M = 8.0
 MOTION_ALONG_TRACK_DONE_M = 5.0
 # A fixed-wing reposition may complete by flying past its waypoint, but a
@@ -265,6 +432,8 @@ class CollectionPlan:
     takeoff_altitude_m: float | None = None
     # JSON overrides for ``--teacher onboard`` (model paths, thresholds).
     onboard_config: str | None = None
+    sim_climb_timeout_injection: bool = False
+    sim_pre_abort_descent_altitude_m: float | None = None
     depth_format: str = "npy"
     # --no-depth: the frame server still streams depth (its wire contract requires
     # it); only the recorder stops persisting it.
@@ -947,11 +1116,17 @@ def _failure_class(reason: str, snapshot: dict[str, Any]) -> str:
         return "px4_crashed"
     if "clock stalled" in reason.lower() and px4_alive is True:
         return "clock_stalled_alive"
+    if "sensor stream produced no frame" in reason.lower():
+        return "sensor_stream_stalled"
     if px4_alive is True:
         return "px4_alive_other_failure"
     if px4_alive is False:
         return "px4_not_alive"
     return "px4_status_unknown"
+
+
+def _is_sensor_stream_timeout(reason: str) -> bool:
+    return "sensor stream produced no frame" in reason.lower()
 
 
 class DockerSimEnvironment:
@@ -1159,6 +1334,14 @@ class DockerSimEnvironment:
             timeout=30,
             check=False,
         )
+        if listing.returncode != 0:
+            self._progress(
+                "px4_ulog_unavailable",
+                container=self.name,
+                status="not_found_or_unavailable",
+                error=listing.stderr.strip() or None,
+            )
+            return []
         destination = Path(self.plan.out) / "jobs" / self.name / "px4-ulog"
         copied: list[str] = []
         for remote in sorted(line.strip() for line in listing.stdout.splitlines() if line.strip()):
@@ -1173,7 +1356,12 @@ class DockerSimEnvironment:
             )
             if result.returncode == 0:
                 copied.append(str(local))
-        self._progress("px4_ulog_copied", container=self.name, files=copied)
+        self._progress(
+            "px4_ulog_copied" if copied else "px4_ulog_unavailable",
+            container=self.name,
+            files=copied,
+            status="copied" if copied else "not_found",
+        )
         return copied
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -1184,7 +1372,7 @@ class DockerSimEnvironment:
                 reason,
                 px4_clock_diagnostics=clock_diagnostics,
             )
-            if "clock stalled" in reason.lower():
+            if "clock stalled" in reason.lower() or _is_sensor_stream_timeout(reason):
                 evidence = self.capture_stall_evidence(
                     reason, px4_clock_diagnostics=clock_diagnostics
                 )
@@ -1194,10 +1382,18 @@ class DockerSimEnvironment:
                         "samples": len(evidence.get("samples", [])),
                     }
         if self.started and self.plan.keep_px4_ulog:
-            try:
-                self.copy_px4_ulogs()
-            except (OSError, subprocess.SubprocessError) as error:
-                self._progress("px4_ulog_copy_failed", container=self.name, error=str(error))
+            if resolve_px4_logger_mode() == "off":
+                self._progress("px4_ulog_disabled", container=self.name, status="disabled")
+            else:
+                try:
+                    self.copy_px4_ulogs()
+                except (OSError, subprocess.SubprocessError) as error:
+                    self._progress(
+                        "px4_ulog_unavailable",
+                        container=self.name,
+                        status="copy_failed",
+                        error=str(error),
+                    )
         if self.started and exc_type is not None:
             # Keep the container's own last words: a PX4 that never sends a
             # heartbeat leaves nothing else behind once the container is removed.
@@ -1496,6 +1692,25 @@ def resolve_takeoff_altitude(
     return auto_takeoff_altitude_m(scenario_world_path(runtime_path))
 
 
+def sim_pre_abort_descent_altitude(config: Mapping[str, Any], *, teacher: str) -> float | None:
+    """Validate the SIM-only low-altitude setup paired with climb injection."""
+    value = config.get("sim_pre_abort_descent_altitude_m")
+    if value is None:
+        return None
+    if teacher != "onboard" or config.get("sim_climb_timeout_injection") is not True:
+        raise ValueError("sim_pre_abort_descent_altitude_m requires SIM onboard climb injection")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not 0.5 <= value < RETURN_CLIMB_NEAR_GROUND_M
+    ):
+        raise ValueError(
+            "sim_pre_abort_descent_altitude_m must be finite and in [0.5, 2.5) metres"
+        )
+    return float(value)
+
+
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
     altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
     # Generated teacher intent is the authoritative camera geometry.  Resolve it
@@ -1669,6 +1884,7 @@ def _onboard_policy(plan: CollectionPlan, task_text: str, work_dir: Path):
         frame_quality=plan.onboard_frame_quality,
         airframe=_onboard_airframe_id(plan),
         runtime_step_limit=plan.steps_per_episode,
+        runtime_mode="sim",
     )
     _start_sim_operator_link(plan, policy)
     return policy
@@ -2034,6 +2250,73 @@ def _apply_motion_wait_result(executed: Any, motion_wait: Mapping[str, Any]) -> 
     )
 
 
+class SimClimbTimeoutInjector:
+    """Inject two return-home climb timeouts while holding the current NED target."""
+
+    def __init__(self, *, enabled: bool, runtime_mode: str, teacher: str) -> None:
+        if type(enabled) is not bool:
+            raise ValueError("sim_climb_timeout_injection must be a boolean")
+        if enabled and (runtime_mode != "sim" or teacher != "onboard"):
+            raise ValueError("sim_climb_timeout_injection is only available to the SIM onboard collector")
+        self.enabled = enabled
+        self.injected = 0
+
+    def matches(
+        self,
+        action: ActionPrimitive,
+        *,
+        active_skill: str | None,
+        before: Mapping[str, Any] | None,
+    ) -> bool:
+        pose = before.get("pose", {}) if isinstance(before, Mapping) else {}
+        position = pose.get("local_ned_m") if isinstance(pose, Mapping) else None
+        flight = before.get("flight_state", {}) if isinstance(before, Mapping) else {}
+        landed_state = flight.get("landed_state") if isinstance(flight, Mapping) else None
+        altitude = None
+        if isinstance(position, (list, tuple)) and len(position) >= 3:
+            try:
+                if isinstance(position[2], bool):
+                    raise ValueError("boolean NED altitude")
+                altitude = max(0.0, -float(position[2]))
+            except (TypeError, ValueError):
+                pass
+        airborne = (
+            before.get("landed") is not True
+            and (
+                landed_state == 2
+                or (landed_state is None and before.get("landed") is False)
+            )
+        ) if isinstance(before, Mapping) else False
+        return bool(
+            self.enabled
+            and self.injected < 2
+            and active_skill == "return_home"
+            and action.kind == "translate"
+            and action.up_m > 0
+            and action.forward_m == 0
+            and action.right_m == 0
+            and action.yaw_delta_deg == 0
+            and altitude is not None
+            and math.isfinite(altitude)
+            and altitude <= RETURN_CLIMB_NEAR_GROUND_M
+            and airborne
+        )
+
+    def execute(self, executor: Any, action: ActionPrimitive) -> Any:
+        """Hold in place for the executor timeout, then report the requested climb timeout."""
+        criterion = getattr(executor, "criterion", None)
+        timeout_s = float(getattr(criterion, "timeout_s", 20.0))
+        held = executor.execute(ActionPrimitive.hold(timeout_s))
+        ack = {
+            **held.ack,
+            "sim_fault_injection": "return_home_climb_timeout",
+            "requested_action": action.to_dict(),
+        }
+        result = dataclasses.replace(held, status="timeout", ack=ack)
+        self.injected += 1
+        return result
+
+
 def _policy_for(
     plan: CollectionPlan,
     truth_path: Path,
@@ -2380,6 +2663,7 @@ def _record_policy_step(
     before: dict[str, Any],
     action: Any,
     *,
+    camera_mount: Any = None,
     ack: dict[str, Any],
     outcome: dict[str, Any],
     obs_after: dict[str, Any],
@@ -2387,6 +2671,9 @@ def _record_policy_step(
     timing: dict[str, Any] | None = None,
 ) -> bool:
     """Persist one policy step and report whether the primitive loop continues."""
+    if camera_mount is not None and camera_mount.kind == "gimbal":
+        validate_gimbal_recording_observation(before)
+        validate_gimbal_recording_observation(obs_after)
     recorder.record_step(
         before,
         action,
@@ -2627,10 +2914,16 @@ def _prearm_health_snapshot(state: Any) -> dict[str, Any] | None:
     return None
 
 
+def _achieved_delta_ned(before_pose: Any, after_pose: Any) -> list[float]:
+    """Return this primitive's measured local-NED displacement."""
+    return [float(after_pose[index]) - float(before_pose[index]) for index in range(3)]
+
+
 def _wait_prearm_health(
     reader: MavlinkReader,
     timeout_s: float,
     *,
+    max_wall_s: float = PREARM_HEALTH_HARD_WALL_CEILING_S,
     heartbeat_connection: Any | None = None,
     mavutil_module: Any | None = None,
     setpoint: callable | None = None,
@@ -2642,12 +2935,27 @@ def _wait_prearm_health(
     healthy ``SYS_STATUS`` snapshot, no recent ``Preflight Fail`` text, and a
     ten second heartbeat warm-up before declaring the vehicle ready.
     """
-    deadline = time.monotonic() + timeout_s
-    started = time.monotonic()
+    wall_started = time.monotonic()
+    budget_clock = (
+        time.monotonic
+        if os.name == "nt"
+        else _SimClock(reader, wall=time.monotonic)
+    )
+    started = budget_clock()
+    deadline = started + float(timeout_s)
+    wall_deadline = wall_started + (
+        float(timeout_s) if os.name == "nt" else max(0.0, float(max_wall_s))
+    )
     last_report = 0.0
     last_snapshot: dict[str, Any] | None = None
-    while time.monotonic() < deadline:
+    while True:
         reader.raise_if_failed()
+        wall_now = time.monotonic()
+        budget_now = budget_clock()
+        if wall_now >= wall_deadline:
+            break
+        if budget_now >= deadline:
+            break
         snapshot = _prearm_health_snapshot(reader.state)
         if snapshot != last_snapshot:
             last_snapshot = snapshot
@@ -2663,7 +2971,7 @@ def _wait_prearm_health(
         if source == "SYS_STATUS":
             # SYS_STATUS has no arming_check_error_flags.  Require the
             # heartbeat warm-up and silence after the last preflight failure.
-            warm = time.monotonic() - started >= max(0.0, float(warmup_s))
+            warm = budget_now - started >= max(0.0, float(warmup_s))
             recent_failure = (
                 time.monotonic_ns() - int(getattr(reader.state, "last_preflight_failure_ns", 0))
             ) / 1e9 < 5.0
@@ -2678,11 +2986,10 @@ def _wait_prearm_health(
         if ready:
             _progress("prearm_health_ok", **snapshot)
             result = dict(snapshot)
-            result["heartbeat_warmup_s"] = time.monotonic() - started
+            result["heartbeat_warmup_s"] = budget_now - started
             return result
-        now = time.monotonic()
-        if now - last_report >= 5.0:
-            last_report = now
+        if wall_now - last_report >= 5.0:
+            last_report = wall_now
             _progress(
                 "prearm_health_waiting",
                 source=None if snapshot is None else snapshot["source"],
@@ -2725,6 +3032,38 @@ def _wait_for(
             _progress(phase + "_waiting", **fields)
         time.sleep(interval_s)
     raise TimeoutError(f"timed out waiting for {phase} after {timeout_s:.1f}s")
+
+
+def _wait_for_sim_pre_abort_descent(
+    reader: Any,
+    predicate: callable,
+    *,
+    timeout_s: float = SIM_PRE_ABORT_DESCENT_TIMEOUT_S,
+    max_wall_s: float = SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S,
+    phase: str = "sim_pre_abort_descent_reached",
+    interval_s: float = 0.05,
+) -> None:
+    """Wait on PX4 lockstep time while bounding a frozen SITL by wall time."""
+    wall_started = time.monotonic()
+    sim_clock = _SimClock(reader, wall=time.monotonic)
+    started = sim_clock()
+    deadline = started + float(timeout_s)
+    wall_deadline = wall_started + max(0.0, float(max_wall_s))
+    while True:
+        reader.raise_if_failed()
+        if predicate():
+            _progress(phase)
+            return
+        wall_now = time.monotonic()
+        sim_now = sim_clock()
+        if wall_now >= wall_deadline:
+            raise TimeoutError(
+                f"timed out waiting for {phase} after {timeout_s:.1f}s of PX4 time; "
+                f"wall_ceiling_s={max_wall_s:.1f}"
+            )
+        if sim_now >= deadline:
+            raise TimeoutError(f"timed out waiting for {phase} after {timeout_s:.1f}s of PX4 time")
+        time.sleep(min(interval_s, max(0.0, wall_deadline - wall_now)))
 
 
 def _wait_for_offboard(
@@ -3826,6 +4165,95 @@ def _fresh_sensor_snapshot(
     raise TimeoutError(f"sensor stream produced no frame within {timeout_s:.1f}s")
 
 
+def _frame_wait_diagnostics(
+    *,
+    phase: str,
+    sensor_reader: SensorStreamReader,
+    mav_reader: MavlinkReader,
+    pose_state: MavlinkState,
+    min_sensor_stamp_ns: int | None,
+    started_monotonic_ns: int,
+    primitive_end_monotonic_ns: int | None = None,
+    freshness_watermark_ns: int | None = None,
+    ended_monotonic_ns: int | None = None,
+    started_wall_time: float | None = None,
+    ended_wall_time: float | None = None,
+    host_pressure_path: Path | None = None,
+    error: BaseException | None = None,
+) -> dict[str, Any]:
+    """Capture the clocks and watermarks surrounding one causal frame wait."""
+    now_ns = ended_monotonic_ns if ended_monotonic_ns is not None else time.monotonic_ns()
+    state = _snapshot_mavlink_state(mav_reader.state)
+    latest = sensor_reader.latest
+    local = state.get("LOCAL_POSITION_NED")
+    pose_ms = _field(local, "time_boot_ms", None)
+    status_text = state.get("STATUSTEXT")
+    last_status = _field(status_text, "text", None)
+    pressure_row = None
+    if host_pressure_path is not None:
+        try:
+            lines = host_pressure_path.read_text(encoding="utf-8").splitlines()
+            if lines:
+                value = json.loads(lines[-1])
+                pressure_row = value if isinstance(value, dict) else None
+        except (OSError, ValueError):
+            pass
+    requested_pose_ms = _field(pose_state.get("LOCAL_POSITION_NED"), "time_boot_ms", None)
+    local_received = state.received_monotonic_ns.get("LOCAL_POSITION_NED")
+    freshness_ns = freshness_watermark_ns or started_monotonic_ns
+    px4_stalled = (
+        local_received is not None
+        and local_received <= freshness_ns
+        and isinstance(requested_pose_ms, (int, float))
+        and isinstance(pose_ms, (int, float))
+        and pose_ms <= requested_pose_ms
+    )
+    if ended_monotonic_ns is None:
+        classification = "frame_wait_started"
+    elif error is None:
+        classification = "frame_wait_satisfied"
+    elif (
+        latest is not None
+        and latest.received_monotonic_ns > freshness_ns
+        and min_sensor_stamp_ns is not None
+        and latest.sensor_stamp_ns < min_sensor_stamp_ns
+    ):
+        classification = "frame_timestamp_below_pose_watermark"
+    elif latest is None or latest.received_monotonic_ns <= freshness_ns:
+        classification = (
+            "px4_clock_and_telemetry_stalled" if px4_stalled else "no_new_frame_observed"
+        )
+    else:
+        classification = (
+            "px4_clock_and_telemetry_stalled" if px4_stalled else "frame_wait_timeout_unclassified"
+        )
+    return {
+        "phase": phase,
+        "started_monotonic_ns": started_monotonic_ns,
+        "primitive_end_monotonic_ns": primitive_end_monotonic_ns,
+        "started_wall_time": started_wall_time,
+        "ended_monotonic_ns": ended_monotonic_ns,
+        "ended_wall_time": ended_wall_time if ended_wall_time is not None else time.time(),
+        "duration_s": max(0, now_ns - started_monotonic_ns) / 1e9,
+        "pose_time_boot_ms": pose_ms,
+        "requested_pose_time_boot_ms": requested_pose_ms,
+        "pose_received_monotonic_ns": state.received_monotonic_ns.get("LOCAL_POSITION_NED"),
+        "pose_received_wall_time": state.received_wall_time.get("LOCAL_POSITION_NED"),
+        "required_sensor_stamp_ns": min_sensor_stamp_ns,
+        "last_frame_sensor_stamp_ns": latest.sensor_stamp_ns if latest is not None else None,
+        "last_frame_received_monotonic_ns": latest.received_monotonic_ns if latest is not None else None,
+        "last_frame_received_wall_time": latest.received_wall_time if latest is not None else None,
+        "frames_received": sensor_reader.frames_received,
+        "last_statustext": last_status,
+        "statustext_received_monotonic_ns": state.received_monotonic_ns.get("STATUSTEXT"),
+        "statustext_received_wall_time": state.received_wall_time.get("STATUSTEXT"),
+        "px4_vehicle_time_boot_ms": state.vehicle_time_boot_ms,
+        "host_pressure_sample": pressure_row,
+        "failure_class": classification,
+        "error": f"{type(error).__name__}: {error}" if error is not None else None,
+    }
+
+
 def _arm(
     connection: Any,
     reader: MavlinkReader,
@@ -4118,6 +4546,11 @@ def run_episode(
     )
     recorder.meta["provenance"]["config_snapshot"] = config_snapshot
     recorder.meta["provenance"]["px4_logger_mode"] = resolve_px4_logger_mode()
+    recorder.meta["provenance"]["px4_ulog_status"] = (
+        "disabled"
+        if resolve_px4_logger_mode() == "off"
+        else "requested" if plan.keep_px4_ulog else "not_requested"
+    )
     recorder.meta["provenance"]["px4_daemon_mode"] = resolve_px4_daemon_mode()
     recorder.meta["provenance"]["linux_primitive_clock_stall_timeout_s"] = (
         _linux_primitive_clock_stall_timeout_s()
@@ -4142,24 +4575,55 @@ def run_episode(
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
 
     environment = DockerSimEnvironment(plan, episode_id, episode_dir=recorder.episode_dir)
+    try:
+        sampler_cpus = (
+            _parse_cpu_set(cpu_isolation.cpuset_cpus)
+            if cpu_isolation is not None
+            else _current_cpuset()
+        )
+    except (AttributeError, OSError):
+        sampler_cpus = tuple(range(os.cpu_count() or 0))
+    host_pressure_sampler = HostPressureSampler(recorder.episode_dir, sampler_cpus)
 
     def record_container_failure(exc: Exception) -> None:
+        recorder.meta["failure"] = f"{type(exc).__name__}: {exc}"
         clock_diagnostics = getattr(exc, "px4_clock_diagnostics", None)
         diagnostics = environment.capture_failure_diagnostics(
             f"{type(exc).__name__}: {exc}",
             px4_clock_diagnostics=clock_diagnostics,
         )
+        sensor_stream_timeout = _is_sensor_stream_timeout(str(exc))
+        if sensor_stream_timeout:
+            evidence = environment.capture_stall_evidence(
+                f"{type(exc).__name__}: {exc}", px4_clock_diagnostics=clock_diagnostics
+            )
+            diagnostics["stall_capture"] = {
+                "path": evidence.get("path"),
+                "samples": len(evidence.get("samples", [])),
+            }
         if diagnostics.get("cleanup_state") is None:
             environment.capture_cleanup_diagnostics()
         recorder.meta["failure_class"] = diagnostics["failure_class"]
         recorder.meta["container_failure_diagnostics"] = diagnostics
-        if clock_diagnostics is not None or "clock stalled" in str(exc).lower():
+        if clock_diagnostics is not None or "clock stalled" in str(exc).lower() or sensor_stream_timeout:
             recorder.meta["failure_record"] = {
-                "kind": "px4_sim_clock_stall",
+                "kind": "sensor_stream_stalled" if sensor_stream_timeout else "px4_sim_clock_stall",
                 **(clock_diagnostics or {}),
                 "stall_capture_path": (diagnostics.get("stall_capture") or {}).get("path"),
             }
+        recorder.meta["failure_snapshot"] = build_failure_snapshot(
+            recorder.meta,
+            timeline=recorder.meta.get("frame_wait_timeline"),
+            pressure_path=host_pressure_sampler.path,
+            capture=environment.stall_capture,
+            final_failure_class=diagnostics.get("failure_class"),
+        )
 
+    try:
+        host_pressure_sampler.start()
+    except Exception:
+        # Host diagnostics are strictly best effort and must never abort SIM.
+        pass
     try:
         with environment:
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
@@ -4212,6 +4676,9 @@ def run_episode(
                 recorder.record_mavlink(row)
 
             mav_reader = MavlinkReader(telemetry_connection, on_message=_record_mavlink).start()
+            host_pressure_sampler.sim_clock_provider = (
+                lambda: mav_reader.state.vehicle_time_boot_ms
+            )
             episode_watchdog = _EpisodeProgressWatchdog(started, plan.max_episode_s, mav_reader)
             _progress("mavlink_reader_started", telemetry_port=plan.telemetry_port)
             _wait_for(
@@ -4352,6 +4819,96 @@ def run_episode(
                 if plan.segmentation
                 else None,
             ).start()
+
+            def wait_for_observation_frame(
+                phase: str,
+                pose_state: MavlinkState,
+                min_sensor_stamp_ns: int | None,
+                started_ns: int | None = None,
+            ):
+                # ``started_ns`` is the freshness watermark from the primitive
+                # boundary.  Keep the actual wait start separate so the
+                # snapshot can audit both clocks without changing the 15 s
+                # budget or the frame acceptance rule.
+                freshness_watermark_ns = started_ns
+                wait_started_ns = time.monotonic_ns()
+                wait_started_wall = time.time()
+                start_row = _frame_wait_diagnostics(
+                    phase=phase,
+                    sensor_reader=sensor_reader,
+                    mav_reader=mav_reader,
+                    pose_state=pose_state,
+                    min_sensor_stamp_ns=min_sensor_stamp_ns,
+                    started_monotonic_ns=wait_started_ns,
+                    primitive_end_monotonic_ns=freshness_watermark_ns,
+                    freshness_watermark_ns=freshness_watermark_ns,
+                    started_wall_time=wait_started_wall,
+                    host_pressure_path=host_pressure_sampler.path,
+                )
+                recorder.meta.setdefault("frame_wait_timeline", []).append(start_row)
+                try:
+                    sample = _fresh_sensor_snapshot(
+                        sensor_reader,
+                        freshness_watermark_ns or wait_started_ns,
+                        SENSOR_FRAME_WAIT_S,
+                        min_sensor_stamp_ns=min_sensor_stamp_ns,
+                        poll_interval_s=plan.sensor_poll_interval_s,
+                    )
+                except BaseException as error:
+                    end_row = _frame_wait_diagnostics(
+                        phase=phase,
+                        sensor_reader=sensor_reader,
+                        mav_reader=mav_reader,
+                        pose_state=pose_state,
+                        min_sensor_stamp_ns=min_sensor_stamp_ns,
+                        started_monotonic_ns=wait_started_ns,
+                        primitive_end_monotonic_ns=freshness_watermark_ns,
+                        freshness_watermark_ns=freshness_watermark_ns,
+                        started_wall_time=wait_started_wall,
+                        ended_wall_time=time.time(),
+                        ended_monotonic_ns=time.monotonic_ns(),
+                        host_pressure_path=host_pressure_sampler.path,
+                        error=error,
+                    )
+                    recorder.meta.setdefault("frame_wait_timeline", []).append(end_row)
+                    try:
+                        recorder.record_mavlink(
+                            {"message_type": "frame_wait_diagnostic", **end_row}
+                        )
+                        recorder.episode_path.write_text(
+                            json.dumps(recorder.meta, indent=2), encoding="utf-8"
+                        )
+                    except Exception as diagnostic_error:
+                        end_row["diagnostic_write_error"] = (
+                            f"{type(diagnostic_error).__name__}: {diagnostic_error}"
+                        )
+                    raise
+                end_row = _frame_wait_diagnostics(
+                    phase=phase,
+                    sensor_reader=sensor_reader,
+                    mav_reader=mav_reader,
+                    pose_state=pose_state,
+                    min_sensor_stamp_ns=min_sensor_stamp_ns,
+                    started_monotonic_ns=wait_started_ns,
+                    primitive_end_monotonic_ns=freshness_watermark_ns,
+                    freshness_watermark_ns=freshness_watermark_ns,
+                    started_wall_time=wait_started_wall,
+                    ended_wall_time=time.time(),
+                    ended_monotonic_ns=time.monotonic_ns(),
+                    host_pressure_path=host_pressure_sampler.path,
+                )
+                end_row["last_frame_sensor_stamp_ns"] = sample.sensor_stamp_ns
+                end_row["last_frame_received_monotonic_ns"] = sample.received_monotonic_ns
+                end_row["last_frame_received_wall_time"] = sample.received_wall_time
+                recorder.meta.setdefault("frame_wait_timeline", []).append(end_row)
+                try:
+                    recorder.record_mavlink(
+                        {"message_type": "frame_wait_diagnostic", **end_row}
+                    )
+                except Exception:
+                    pass
+                return sample
+
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
             sensor_reader.request(0)
@@ -4412,6 +4969,9 @@ def run_episode(
             prearm_health = _wait_prearm_health(
                 mav_reader,
                 _episode_budget(started, plan.max_episode_s, DEFAULT_PREARM_HEALTH_TIMEOUT_S),
+                max_wall_s=_episode_budget(
+                    started, plan.max_episode_s, PREARM_HEALTH_HARD_WALL_CEILING_S
+                ),
                 heartbeat_connection=telemetry_connection,
                 mavutil_module=mavutil,
             )
@@ -4614,6 +5174,39 @@ def run_episode(
                     }
                 )
                 _progress("takeoff_reached", method=takeoff_method)
+            vehicle_loss_detector = VehicleLossDetector()
+            if plan.sim_pre_abort_descent_altitude_m is not None:
+                if setpoint_streamer is None:
+                    raise RuntimeError(
+                        "sim_pre_abort_descent_altitude_m requires a multirotor setpoint streamer"
+                    )
+                descent_altitude_m = plan.sim_pre_abort_descent_altitude_m
+                setpoint_streamer.set_target(
+                    start_pos[0], start_pos[1], -descent_altitude_m, _state_yaw(mav_reader.state)
+                )
+                _progress("sim_pre_abort_descent_started", target_altitude_m=descent_altitude_m)
+                _wait_for_sim_pre_abort_descent(
+                    mav_reader,
+                    lambda: (
+                        0.5 <= -_state_position(mav_reader.state)[2] <= descent_altitude_m + 0.25
+                        and _flight_state_snapshot(mav_reader.state)["landed_state"] == 2
+                    ),
+                    max_wall_s=min(
+                        SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S,
+                        _episode_budget(
+                            started,
+                            plan.max_episode_s,
+                            SIM_PRE_ABORT_DESCENT_HARD_WALL_CEILING_S,
+                        ),
+                    ),
+                )
+                recorder.meta["sim_pre_abort_descent_altitude_m"] = descent_altitude_m
+                recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
+            climb_fault = SimClimbTimeoutInjector(
+                enabled=plan.sim_climb_timeout_injection,
+                runtime_mode="sim",
+                teacher=plan.teacher,
+            )
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
@@ -4630,12 +5223,8 @@ def run_episode(
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 t = time.perf_counter_ns()
-                before_sample = _fresh_sensor_snapshot(
-                    sensor_reader,
-                    time.monotonic_ns(),
-                    SENSOR_FRAME_WAIT_S,
-                    min_sensor_stamp_ns=pose_sim_stamp_ns,
-                    poll_interval_s=plan.sensor_poll_interval_s,
+                before_sample = wait_for_observation_frame(
+                    "obs_before", before_state, pose_sim_stamp_ns
                 )
                 timing["pre_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 before_state = mav_reader.aligned_state(before_sample.sensor_stamp_ns)
@@ -4659,6 +5248,8 @@ def run_episode(
                     },
                     camera_mount=camera_mount,
                 )
+                if camera_mount is not None and camera_mount.kind == "gimbal":
+                    validate_gimbal_recording_observation(before)
                 before = _png_observation(before)
                 timing["observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 pose = tuple(before["pose"]["local_ned_m"])
@@ -4734,6 +5325,19 @@ def run_episode(
                     )
                 else:
                     commanded_delta = primitive_to_ned(action, yaw)[:3]
+                active_skill = getattr(policy, "active_mission_skill", lambda: None)()
+                inject_climb_timeout = climb_fault.matches(
+                    step_action, active_skill=active_skill, before=before
+                )
+                if inject_climb_timeout:
+                    labels = {
+                        **labels,
+                        "sim_fault_injection": {
+                            "fault": "return_home_climb_timeout",
+                            "attempt": climb_fault.injected + 1,
+                            "active_skill": active_skill,
+                        },
+                    }
                 _progress("primitive_start", step=index, action=action.to_dict())
                 # Optional continuous capture runs during the primitive.  It only
                 # consumes already decoded latest-wins frames and never changes
@@ -4747,7 +5351,11 @@ def run_episode(
 
                 def _execute() -> None:
                     try:
-                        executed = executor.execute(action)  # noqa: B023
+                        executed = (
+                            climb_fault.execute(executor, step_action)  # noqa: B023
+                            if inject_climb_timeout  # noqa: B023
+                            else executor.execute(action)  # noqa: B023
+                        )
                         if motion is not None and executed.status == "success":  # noqa: B023
                             motion_wait = _wait_motion_command(
                                 motion,  # noqa: B023
@@ -4875,12 +5483,8 @@ def run_episode(
                 after_state = _snapshot_mavlink_state(mav_reader.state)
                 after_pose_sim_stamp_ns = _pose_sim_stamp_ns(after_state)
                 t = time.perf_counter_ns()
-                after_sample = _fresh_sensor_snapshot(
-                    sensor_reader,
-                    primitive_end_ns,
-                    SENSOR_FRAME_WAIT_S,
-                    min_sensor_stamp_ns=after_pose_sim_stamp_ns,
-                    poll_interval_s=plan.sensor_poll_interval_s,
+                after_sample = wait_for_observation_frame(
+                    "obs_after", after_state, after_pose_sim_stamp_ns, primitive_end_ns
                 )
                 timing["post_frame_wait_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 after_state = mav_reader.aligned_state(after_sample.sensor_stamp_ns)
@@ -4904,6 +5508,8 @@ def run_episode(
                     },
                     camera_mount=camera_mount,
                 )
+                if camera_mount is not None and camera_mount.kind == "gimbal":
+                    validate_gimbal_recording_observation(after)
                 after = _png_observation(after)
                 timing["after_observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 ack = {
@@ -4915,17 +5521,33 @@ def run_episode(
                     "action_ack": result.status in {"success", "timeout"},
                     "arm": _plain_record(arm_ack),
                 }
-                achieved_delta = list(result.achieved_delta_ned)
-                if motion is not None:
-                    # Guided commands report no displacement; measure it from telemetry.
-                    achieved_delta = [
-                        float(a) - float(b)
-                        for a, b in zip(after["pose"]["local_ned_m"], pose, strict=False)
-                    ]
+                climb_failure = False
+                report_outcome = getattr(policy, "report_primitive_outcome", None)
+                if callable(report_outcome):
+                    climb_failure = bool(
+                        report_outcome(
+                            step_action,
+                            result.status,
+                            before=before,
+                            after=after,
+                        )
+                    )
+                    if climb_failure:
+                        labels = {
+                            **labels,
+                            "onboard": {
+                                **(labels.get("onboard", {}) if isinstance(labels, dict) else {}),
+                                "recovery_outcome": "climb_failed_suspected_loss_of_control",
+                            },
+                        }
+                achieved_delta = _achieved_delta_ned(
+                    before["pose"]["local_ned_m"], after["pose"]["local_ned_m"]
+                )
                 continue_loop = _record_policy_step(
                     recorder,
                     before,
                     step_action,
+                    camera_mount=camera_mount,
                     ack=ack,
                     outcome={
                         "status": result.status,
@@ -4959,6 +5581,20 @@ def run_episode(
                         "total_ms": round((time.perf_counter_ns() - step_t0) / 1e6, 3),
                     },
                 )
+                if climb_failure:
+                    continue_loop = False
+                loss_event = vehicle_loss_detector.update(
+                    before,
+                    after,
+                    {"kind": step_action.kind, "up_m": step_action.up_m},
+                    commanded_delta,
+                )
+                if loss_event is not None:
+                    loss_event["step_index"] = index
+                    recorder.record_mavlink(
+                        {"message_type": "collector_vehicle_lost_control", **loss_event}
+                    )
+                    raise VehicleLostControl(loss_event)
                 # STOP is a terminal policy action.  Keep this step in the
                 # episode (including its observation pair), then immediately
                 # leave the primitive loop so we do not execute redundant
@@ -5020,6 +5656,7 @@ def run_episode(
             _copy_mover_driver_log(plan, environment, recorder, mover_driver)
             recorder.meta["mover_driver"] = mover_driver
             recorder.mark_finished(status="complete")
+            host_pressure_sampler.close()
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
             )
@@ -5043,6 +5680,7 @@ def run_episode(
                 if connection is not None:
                     connection.close()
     except LowDiskSpace as exc:
+        host_pressure_sampler.close()
         record_container_failure(exc)
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
@@ -5084,7 +5722,20 @@ def run_episode(
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
     except Exception as exc:
-        record_container_failure(exc)
+        host_pressure_sampler.close()
+        if isinstance(exc, VehicleLostControl):
+            recorder.meta["failure"] = f"{type(exc).__name__}: {exc}"
+            recorder.meta["failure_class"] = "vehicle_lost_control"
+            recorder.meta["vehicle_lost_control"] = exc.event
+            recorder.meta["failure_snapshot"] = build_failure_snapshot(
+                recorder.meta,
+                timeline=recorder.meta.get("frame_wait_timeline"),
+                pressure_path=host_pressure_sampler.path,
+                capture=environment.stall_capture,
+                final_failure_class="vehicle_lost_control",
+            )
+        else:
+            record_container_failure(exc)
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
         except Exception:
@@ -5294,6 +5945,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
+    # Keeping a ULog is an explicit request for the logger.  Preserve the
+    # global default-off policy for ordinary runs, while making this opt-in
+    # flag useful when the caller has not selected a mode itself.
+    if args.keep_px4_ulog and "MULTIDETECT_PX4_LOGGER_MODE" not in os.environ:
+        os.environ["MULTIDETECT_PX4_LOGGER_MODE"] = "default"
     if args.episodes < 1 or args.steps_per_episode < 1:
         raise SystemExit("--episodes and --steps-per-episode must be positive")
     if args.video_hz < 0.0 or args.video_max_gb <= 0.0:
@@ -5320,6 +5976,29 @@ def main(argv: Iterable[str] | None = None) -> int:
     runtime_path, truth_path = _scenario_channels(scenario)
     _airframe_profile(args.airframe)
     _validate_runtime(runtime_path, args.airframe)
+    sim_climb_timeout_injection = False
+    if args.onboard_config is not None:
+        try:
+            onboard_options = json.loads(args.onboard_config.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"invalid onboard config: {exc}") from exc
+        if not isinstance(onboard_options, dict):
+            raise SystemExit("onboard config must be a JSON object")
+        sim_climb_timeout_injection = onboard_options.get(
+            "sim_climb_timeout_injection", False
+        )
+        if type(sim_climb_timeout_injection) is not bool:
+            raise SystemExit("sim_climb_timeout_injection must be a boolean")
+        if sim_climb_timeout_injection and args.teacher != "onboard":
+            raise SystemExit("sim_climb_timeout_injection requires --teacher onboard")
+        try:
+            sim_pre_abort_descent_altitude_m = sim_pre_abort_descent_altitude(
+                onboard_options, teacher=args.teacher
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+    else:
+        sim_pre_abort_descent_altitude_m = None
     plan = CollectionPlan(
         str(scenario),
         str(runtime_path),
@@ -5347,6 +6026,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         extra_sim_params=tuple(tuple(item.split("=", 1)) for item in args.sim_param if "=" in item),
         takeoff_altitude_m=args.takeoff_altitude_m,
         onboard_config=str(args.onboard_config.resolve()) if args.onboard_config else None,
+        sim_climb_timeout_injection=sim_climb_timeout_injection,
+        sim_pre_abort_descent_altitude_m=sim_pre_abort_descent_altitude_m,
         depth_format=args.depth_format,
         capture_depth=not args.no_depth,
         rgb_format=args.rgb_format,

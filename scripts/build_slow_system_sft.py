@@ -756,6 +756,29 @@ def _confusable_task(category: str, variant: int) -> str:
     return f"Find the {name} and record its position."
 
 
+def _confusable_negative_counter(
+    pair_key: str, view_metadata: dict | None, view_cap: int | None,
+) -> tuple[str, int]:
+    """Return the counter and limit for one hard-negative pair.
+
+    The historical path has one global 30-row cap.  r9r opts into a cap per
+    derived view so a pair cannot consume its entire budget before recovery.
+    """
+    base = f"confusable_pair:{pair_key}:reject"
+    if view_cap is None:
+        return base, 30
+    view = str((view_metadata or {}).get("view") or "missing")
+    return f"{base}:{view}", view_cap
+
+
+def _effective_confusable_negative_view_cap(
+    index_document: Mapping[str, object], requested: int | None,
+) -> int | None:
+    if requested is None and index_document.get("profile") == "r21id-r9r":
+        return 30
+    return requested
+
+
 def _balance_identity_views(
     rows: list[dict], *, max_upsample: int, seed: int
 ) -> tuple[list[dict], dict[str, dict[str, int]]]:
@@ -1025,6 +1048,7 @@ def build_dataset(
     balance_task_categories: float | None = None, max_upsample: int = 4,
     balance_identity_views: bool = False,
     balance_confusable_negative_views: bool = False,
+    confusable_negative_view_cap: int | None = None,
     task_variant_positive_cap: float | None = None,
     image_augmentation: str | Mapping[str, object] | None = None,
 ) -> dict:
@@ -1040,6 +1064,8 @@ def build_dataset(
         raise ValueError("task_variant_positive_cap must be finite and non-negative")
     if max_upsample < 1:
         raise ValueError("max_upsample must be at least 1")
+    if confusable_negative_view_cap is not None and confusable_negative_view_cap < 1:
+        raise ValueError("confusable_negative_view_cap must be at least 1")
     if crop_policy not in {"none", "candidate_zoom_v1", "candidate_zoom_v2"}:
         raise ValueError("unsupported crop_policy")
     if identity_variant not in IDENTITY_VARIANTS:
@@ -1047,6 +1073,9 @@ def build_dataset(
     if not 0.0 <= float(min_visible_fraction) <= 1.0:
         raise ValueError("min_visible_fraction must be in [0, 1]")
     index_document = _json(index)
+    confusable_negative_view_cap = _effective_confusable_negative_view_cap(
+        index_document, confusable_negative_view_cap,
+    )
     world_splits = {str(w["world_id"]): str(w["split"]) for w in index_document["worlds"]}
     world_metadata = {str(w["world_id"]): {"asset_mode": index_document.get("asset_mode"), **w} for w in index_document["worlds"]}
     # A full campaign has train/val/test; a top-up round (r15) only adds training
@@ -1162,7 +1191,14 @@ def build_dataset(
                     distractor_category = _target_category(p["target"])
                     for near_category in CONFUSABLE_NEGATIVES.get(distractor_category, ()):
                         near_task = _confusable_task(near_category, variant)
-                        same_category = [q for q in projected if _target_category(q["target"]) == near_category]
+                        # Semantic words can start with a parent category
+                        # (SUV truth has ["car", "suv"]). Match the requested
+                        # task rather than comparing only that first word.
+                        same_category = [
+                            q for q in projected
+                            if _category_task_equivalent(near_category, q["target"])
+                            and q["target"].get("asset_slug") not in held_out_slugs
+                        ]
                         if _category_task_equivalent(near_category, p["target"]):
                             stats["dropped_confusable_task_equivalent"] += 1
                             continue
@@ -1171,8 +1207,11 @@ def build_dataset(
                         pair_key = f"{near_category}->{distractor_category}"
                         # Bound each directional pair family so the new hard
                         # negatives correct coverage without swamping r18 replay.
-                        if stats[f"confusable_pair:{pair_key}:reject"] < 30:
-                            stats[f"confusable_pair:{pair_key}:reject"] += 1
+                        pair_counter, pair_limit = _confusable_negative_counter(
+                            pair_key, view_metadata, confusable_negative_view_cap,
+                        )
+                        if stats[pair_counter] < pair_limit:
+                            stats[pair_counter] += 1
                             hard_negative = _row(
                                 world=world, split=split, frame=frame, task_text=near_task, box=p["box"], size=size,
                                 target=_decision("reject_track", track=f"track-{p_index + 1}", reason=f"Task asks for {near_category}; candidate is {distractor_category}."),
@@ -1465,6 +1504,8 @@ def build_dataset(
         report["image_augmentation"] = {"option": image_augmentation, "seed": seed}
     if task_text_variants:
         report["task_text_variants"] = True
+    if confusable_negative_view_cap is not None:
+        report["confusable_negative_view_cap"] = confusable_negative_view_cap
     if task_variant_cap_report is not None:
         report["task_variant_positive_cap"] = task_variant_cap_report
     if identity_variant != "default":
@@ -1523,10 +1564,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-upsample", type=int, default=4, metavar="K", help="cap each category at K times its original positive rows")
     parser.add_argument("--balance-identity-views", action="store_true", help="train only: upsample task-category/decision strata to balance front, oblique, edge_truncated, and recovery views")
     parser.add_argument("--balance-confusable-negative-views", action="store_true", help="train only: upsample existing confusable-negative pair families toward view parity")
+    parser.add_argument(
+        "--confusable-negative-view-cap", type=int, default=None,
+        help="opt-in per-view cap for each confusable negative pair; default keeps the historical global cap",
+    )
     parser.add_argument("--image-augmentation", choices=("mild", "weather"), default=None, help="opt-in seeded image-space augmentation; default keeps byte-identical source paths/output")
     args = parser.parse_args(argv)
     campaigns = args.campaign or [ROOT / "artifacts/datasets/sim-teacher" / name for name in CAMPAIGNS]
-    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, task_text_variants=args.task_text_variants, task_variant_positive_cap=args.task_variant_positive_cap, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, image_augmentation=args.image_augmentation)
+    report = build_dataset(campaigns, args.output, index=args.index, seed=args.seed, negative_ratio=args.negative_ratio, crop_policy=args.crop_policy, min_visible_fraction=args.min_visible_fraction, confirm_min_side_px=args.confirm_min_side_px, proposals=args.proposals, proposal_iou=args.proposal_iou, counterfactual_tasks=args.counterfactual_tasks, unseen_holdout=args.unseen_holdout, holdout_from=args.holdout_from, counterfactual_negatives=args.counterfactual_negatives, confusable_negatives=args.confusable_negatives, task_text_variants=args.task_text_variants, task_variant_positive_cap=args.task_variant_positive_cap, identity_variant=args.identity_variant, balance_task_categories=args.balance_task_categories, max_upsample=args.max_upsample, balance_identity_views=args.balance_identity_views, balance_confusable_negative_views=args.balance_confusable_negative_views, confusable_negative_view_cap=args.confusable_negative_view_cap, image_augmentation=args.image_augmentation)
     print(json.dumps({"output": str(args.output), "counts": report["counts"], "source_counts": report["source_counts"]}, ensure_ascii=False, indent=2))
     return 0
 

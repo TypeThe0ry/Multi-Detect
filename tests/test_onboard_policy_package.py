@@ -379,6 +379,37 @@ def test_sim_pause_resume_order_and_abort_act_bypass_models(tmp_path, model_stub
         policy.close()
 
 
+def test_climb_failure_public_policy_act_requests_land_without_third_up(tmp_path, model_stubs):
+    policy = _construct(tmp_path, {"mission_package": document()})
+    now = _clock(policy)
+    try:
+        assert policy.ground_event(_event("abort"))
+        assert policy.act({}, pose_ned=(0, 0, -0.8), yaw_deg=0)[0].kind == "hold"
+        for index, boot in enumerate((1000, 21000)):
+            before = {"pose": {"local_ned_m": [0, 0, -0.8]},
+                      "pose_time_boot_ms": boot, "landed": False,
+                      "flight_state": {"landed_state": 2}}
+            after = {**before, "pose_time_boot_ms": boot + 20000}
+            action, labels = policy.act(before, pose_ned=(0, 0, -0.8), yaw_deg=0)
+            assert action.kind == "translate" and action.up_m > 0
+            assert action.forward_m == action.right_m == action.yaw_delta_deg == 0
+            assert labels["onboard"]["supervisor_action"] == "return_now"
+            assert policy.report_primitive_outcome(action, "timeout", before=before, after=after) == (index == 1)
+            now[0] += 1
+        action, labels = policy.act(after, pose_ned=(0, 0, -0.8), yaw_deg=0)
+        assert action.kind == "stop" and action.up_m == 0
+        assert labels["onboard"]["supervisor_action"] == "land_now"
+        assert policy.supervisor._recovery_kind == "land"
+        records = _records(policy)
+        summary = [row["summary"] for row in records if row["kind"] == "final_summary"][-1]
+        assert summary["failure_class"] == "climb_failed_suspected_loss_of_control"
+        assert summary["terminal_action"] == "land_now"
+        assert summary["recovery_history"][-1]["state"] == "failed"
+        assert summary["recovery_failure"]["land_execution"] == "unverified"
+    finally:
+        policy.close()
+
+
 @pytest.mark.parametrize("mode", ["link", "budget"])
 def test_sim_return_now_and_budget_escalation(tmp_path, model_stubs, mode):
     package = document("return_now" if mode == "link" else "continue")

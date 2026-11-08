@@ -337,7 +337,12 @@ def _joint_sample_from_message(message: Any) -> dict[str, Any]:
     return {"stamp_ns": stamp_ns, "joints": joints}
 
 
-def _frame_joint_state(sample: dict[str, Any] | None, frame_stamp_ns: int) -> dict[str, Any] | None:
+def _frame_joint_state(
+    sample: dict[str, Any] | None,
+    frame_stamp_ns: int,
+    *,
+    require_complete: bool = False,
+) -> dict[str, Any] | None:
     """Bind the newest causal actuator sample to one RGB timestamp."""
     if sample is None:
         return None
@@ -377,6 +382,11 @@ def _frame_joint_state(sample: dict[str, Any] | None, frame_stamp_ns: int) -> di
             "source": "gazebo_joint_state",
             "fresh": True,
         }
+    if require_complete and (
+        result["gimbal_joint_state"] is None
+        or result["propeller_joint_state"] is None
+    ):
+        return None
     if result["gimbal_joint_state"] is None and result["propeller_joint_state"] is None:
         return None
     return result
@@ -429,6 +439,7 @@ def main() -> int:
     from gz.transport13 import Node
 
     world, model = args.world, args.model_instance
+    gimballed_airframe = "gimbal" in model.lower()
     image_topic = (
         args.image_topic or f"/world/{world}/model/{model}/link/camera_link/sensor/camera/image"
     )
@@ -632,7 +643,9 @@ def main() -> int:
                     ):
                         raise ValueError("RGB image geometry differs from CameraInfo")
                     joint_state = _frame_joint_state(
-                        joint_states.latest_at_or_before(stamp), stamp
+                        joint_states.latest_at_or_before(stamp),
+                        stamp,
+                        require_complete=gimballed_airframe,
                     )
                     if joint_state is None:
                         stats["joint_state_missing_or_stale"] += 1

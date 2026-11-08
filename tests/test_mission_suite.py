@@ -16,6 +16,7 @@ from multidetect.simulation.index import load_scenario_index, load_verified_chan
 from multidetect.simulator.stack import resolve_simulator_assets
 from scripts import augment_sim_world as augment
 from scripts import collect_sim_teacher_episodes as collector
+from scripts import eval_onboard_loop_campaign as campaign
 from scripts import run_mission_suite as suite
 
 
@@ -86,9 +87,57 @@ def test_build_command_uses_same_interpreter_and_absolute_paths(work_tmp):
     assert command[command.index("--max-episode-s") + 1] == "120"
 
 
+def test_keep_px4_ulog_selects_default_only_when_mode_is_unset(work_tmp, monkeypatch, capsys):
+    scenario = suite.ROOT / "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
+    base = [
+        "--scenario", str(scenario), "--teacher", "explore", "--episodes", "1",
+        "--steps-per-episode", "1", "--out", str(work_tmp / "collector-out"), "--dry-run",
+        "--keep-px4-ulog",
+    ]
+    monkeypatch.delenv("MULTIDETECT_PX4_LOGGER_MODE", raising=False)
+    assert collector.main(base) == 0
+    assert '"px4_logger_mode": "default"' in capsys.readouterr().out
+
+    monkeypatch.setenv("MULTIDETECT_PX4_LOGGER_MODE", "off")
+    assert collector.main(base) == 0
+    assert '"px4_logger_mode": "off"' in capsys.readouterr().out
+
+
 def test_k1_command_keeps_legacy_slot_arguments_absent(work_tmp):
     command = suite.build_command(_mission(), work_tmp / "onboard.json", work_tmp / "campaign", work_tmp / "report.json")
     assert not {"--control-port", "--telemetry-port", "--container-prefix", "--operator-port"} & set(command)
+
+
+def test_resume_archives_unfinished_attempts_and_preserves_completed_episode(tmp_path):
+    out = tmp_path / "world"
+    episodes = out / "episodes"
+    interrupted = [episodes / f"episode-0000-{suffix}" for suffix in ("first", "second")]
+    for episode in interrupted:
+        episode.mkdir(parents=True)
+        (episode / "episode.json").write_text(
+            json.dumps({"episode_index": 0, "seed": 0, "status": None}), encoding="utf-8"
+        )
+    complete = episodes / "episode-0001-done"
+    complete.mkdir(parents=True)
+    (complete / "episode.json").write_text(
+        json.dumps({"episode_index": 1, "seed": 1, "status": "complete", "step_count": 1}),
+        encoding="utf-8",
+    )
+    (complete / "steps.jsonl").write_text('{"step": 1}\n', encoding="utf-8")
+
+    archived = campaign.retry_failed_episodes(out)
+
+    assert len(archived) == 2
+    assert all(not episode.exists() for episode in interrupted)
+    assert all(path.is_dir() for path in archived)
+    assert complete.is_dir() and campaign.episode_is_complete(complete)
+    assert [path.name for path in episodes.iterdir()] == [complete.name]
+
+
+def test_resume_retries_each_incomplete_logical_episode_once():
+    assert campaign.unique_retry_targets(
+        [(0, 10), (0, 10), (1, 11)], {1}
+    ) == [(0, 10)]
 
 
 def test_worker_dry_run_assigns_unique_ports_and_container_names(work_tmp, monkeypatch, capsys):
@@ -115,6 +164,18 @@ def test_worker_dry_run_assigns_unique_ports_and_container_names(work_tmp, monke
     model_ports = [row["config"]["port"] for row in rows]
     assert len(set(controls)) == len(set(telemetry)) == len(set(prefixes)) == 2
     assert len(set(operators)) == len(set(model_ports)) == 2
+
+
+def test_gimbal_suite_requires_per_step_joint_recording(work_tmp):
+    suite_path = work_tmp / "gimbal-suite.json"
+    payload = {
+        "defaults": {"mission": "from_text"},
+        "missions": [_mission(id="gimbal-count", airframe="x500_gimbal")],
+    }
+    suite_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc_info:
+        suite.main(["--suite", str(suite_path), "--out", str(work_tmp / "out")])
+    assert exc_info.value.code == 2
 
 
 def test_build_table_maps_metrics_and_missing_episode_is_failure():
@@ -160,6 +221,51 @@ def test_build_table_maps_metrics_and_missing_episode_is_failure():
     assert missing_row["mission_completed"] is False
     assert missing["summary"]["plan_accuracy"] == 0.0
     assert missing["summary"]["completion_rate"] == 0.0
+
+
+def test_climb_fault_evidence_flows_into_suite_json_and_markdown():
+    mission = _mission(expect={"skills": ["monitor", "return_home"]})
+    evidence = {
+        "checker": "onboard-climb-px4-evidence-checker",
+        "read_only": True,
+        "artifact": "/evidence/episode-1",
+        "counts": {
+            "provable_from_px4_mavlink": 6,
+            "provable_only_from_onboard_logs": 4,
+            "missing": 0,
+        },
+        "points": [
+            {
+                "id": "two_climb_timeouts_no_altitude_gain",
+                "class": "provable_only_from_onboard_logs",
+                "class_label": "只能由机载日志证明",
+                "detail": "两次 timeout。",
+            }
+        ],
+    }
+    episode = {
+        "world": mission["world"],
+        "status": "complete",
+        "mission_plan_skills": ["monitor", "return_home"],
+        "climb_fault_evidence": evidence,
+    }
+
+    table = suite.build_table([mission], {mission["id"]: {"episodes": [episode]}})
+    row = table["missions"][0]
+    assert row["climb_fault_evidence"] == evidence
+    assert table["summary"]["climb_fault_evidence"] == {
+        "episodes": 1,
+        "counts": {
+            "provable_from_px4_mavlink": 6,
+            "provable_only_from_onboard_logs": 4,
+            "missing": 0,
+        },
+    }
+    markdown = suite.render_markdown(table)
+    assert "Climb-fault evidence" in markdown
+    assert "two_climb_timeouts_no_altitude_gain" in markdown
+    assert "只能由机载日志证明" in markdown
+    assert "此项不改变任务预期判定" in markdown
 
 
 def test_listed_alternative_plan_passes_all_expectations():

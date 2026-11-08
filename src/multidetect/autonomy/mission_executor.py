@@ -54,6 +54,9 @@ LAND_CONTINUE_SECONDS = 0.5
 LAND_TIMEOUT_MARGIN = 2.0
 LAND_TIMEOUT_GRACE_S = 5.0
 LAND_TIMEOUT_MAX_S = 90.0
+RETURN_CLIMB_FAILURE_COUNT = 2
+RETURN_CLIMB_MIN_GAIN_M = 0.5
+RETURN_CLIMB_NEAR_GROUND_M = 2.5
 
 
 def _wrap(degrees: float) -> float:
@@ -582,6 +585,10 @@ class MissionExecutor:
         self._completed_step_ids: list[str] = []
         self._successful_step_ids: list[str] = []
         self._landed_observation: bool | None = None
+        self._return_climb_failures = 0
+        self._return_climb_checks: list[dict[str, Any]] = []
+        self._return_climb_end_boot: float | None = None
+        self.return_climb_failure_suspected = False
         self.plan_version = 1
         self._pending_retask: tuple[MissionPlan, str, int] | None = None
 
@@ -1002,6 +1009,122 @@ class MissionExecutor:
             self.answers.append(f"{run.step.id}:view{run.view_index + 1}:{decision}")
         if run.step.skill in {"patrol", "monitor"}:
             self._alert_for_track(run, track_id)
+
+    def report_primitive_outcome(
+        self,
+        action: ActionPrimitive,
+        status: str,
+        *,
+        before: Mapping[str, Any],
+        after: Mapping[str, Any],
+    ) -> bool:
+        """Feed an executed primitive back into return-home recovery.
+
+        Only return-home vertical climbs count. All timing/progress evidence is
+        taken from PX4 boot time and observed NED altitude, never host wall time.
+        """
+        def reset() -> bool:
+            self._return_climb_failures = 0
+            self._return_climb_checks.clear()
+            self._return_climb_end_boot = None
+            return False
+
+        run = self._run
+        if self.return_climb_failure_suspected:
+            return False
+        if run is None or run.step.skill != "return_home":
+            return reset()
+        if (
+            action.kind != "translate" or action.up_m <= 0
+            or action.forward_m != 0 or action.right_m != 0 or action.yaw_delta_deg != 0
+        ):
+            return reset()
+        start_pos = (before.get("pose") or {}).get("local_ned_m")
+        end_pos = (after.get("pose") or {}).get("local_ned_m")
+        start_boot = before.get("pose_time_boot_ms")
+        end_boot = after.get("pose_time_boot_ms")
+        valid = (
+            status == "timeout"
+            and isinstance(start_pos, (list, tuple))
+            and len(start_pos) >= 3
+            and isinstance(end_pos, (list, tuple))
+            and len(end_pos) >= 3
+            and isinstance(start_boot, (int, float))
+            and isinstance(end_boot, (int, float))
+            and not isinstance(start_boot, bool)
+            and not isinstance(end_boot, bool)
+            and math.isfinite(start_boot) and math.isfinite(end_boot)
+            and 0 <= start_boot < end_boot
+            and (self._return_climb_end_boot is None or start_boot >= self._return_climb_end_boot)
+        )
+        if not valid:
+            return reset()
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+            for value in (start_pos[2], end_pos[2])
+        ):
+            return reset()
+
+        def low_airborne(sample, position) -> bool:
+            state = (sample.get("flight_state") or {}).get("landed_state")
+            # Explicit landed/landing/takeoff telemetry wins over a stale
+            # convenience boolean. Unknown state cannot confirm airborne.
+            airborne = sample.get("landed") is not True and (
+                state == 2 or (state is None and sample.get("landed") is False)
+            )
+            return max(0.0, -float(position[2])) <= RETURN_CLIMB_NEAR_GROUND_M and airborne
+
+        gain_m = float(start_pos[2]) - float(end_pos[2])
+        if (
+            gain_m >= RETURN_CLIMB_MIN_GAIN_M
+            or not low_airborne(before, start_pos) or not low_airborne(after, end_pos)
+        ):
+            return reset()
+        self._return_climb_failures += 1
+        self._return_climb_end_boot = float(end_boot)
+        height_m = max(0.0, -float(end_pos[2]))
+        attitude = after.get("attitude") or {}
+        roll = attitude.get("roll_deg")
+        pitch = attitude.get("pitch_deg")
+        sensors = []
+        for sample in after.get("energy_telemetry") or []:
+            message = sample.get("message", {}) if isinstance(sample, Mapping) else {}
+            if message.get("mavpackettype") == "SYS_STATUS":
+                health = message.get("onboard_control_sensors_health")
+                present = message.get("onboard_control_sensors_present")
+                if isinstance(health, int) and isinstance(present, int):
+                    sensors.append((present & ~health) != 0)
+        direct_health = after.get("sensor_health")
+        if isinstance(direct_health, bool):
+            sensors.append(not direct_health)
+        elif isinstance(after.get("sensor_status"), str):
+            sensors.append(after["sensor_status"].strip().lower() in {"bad", "degraded", "unhealthy"})
+        attitude_bad = any(
+            isinstance(value, (int, float)) and abs(float(value)) >= 90.0
+            for value in (roll, pitch)
+        )
+        sensor_bad = any(sensors)
+        self._return_climb_checks.append({
+            "start_boot_ms": start_boot, "end_boot_ms": end_boot,
+            "gain_m": gain_m, "height_m": height_m,
+            "attitude_bad": attitude_bad, "sensor_bad": sensor_bad,
+        })
+        self._return_climb_checks = self._return_climb_checks[-2:]
+        if self._return_climb_failures < RETURN_CLIMB_FAILURE_COUNT:
+            return False
+        self.return_climb_failure_suspected = True
+        self.alerts.append("climb_failed_suspected_loss_of_control")
+        self.mission_log.append({
+            "event": "climb_failed_suspected_loss_of_control",
+            "sim_time_s": float(end_boot) / 1000.0,
+            "height_m": height_m,
+            "consecutive_timeouts": self._return_climb_failures,
+            "attitude_bad": any(check["attitude_bad"] for check in self._return_climb_checks),
+            "sensor_bad": any(check["sensor_bad"] for check in self._return_climb_checks),
+            "samples": list(self._return_climb_checks),
+        })
+        self._finish("failed", "climb_failed_suspected_loss_of_control")
+        return True
 
     def _alert_for_track(self, run: _StepRun, track_id: str) -> None:
         track = run.loop.tracks.get(track_id)

@@ -9,6 +9,9 @@ import pytest
 
 from scripts.px4_clock_stall_capture import (
     _capture_px4_gdb,
+    _parse_world_stats,
+    _parse_gz_topic_info,
+    _parse_transport_sockets,
     _read_host_threads,
     analyze_capture,
     capture_stall,
@@ -106,14 +109,30 @@ def test_capture_uses_owner_cmdline_absolute_commands_and_independent_timeouts(
     ]
     assert len(saved["samples"][0]["process_threads"]["threads"]["gz"]) == 1
     commands = [command for command, _ in calls]
-    assert len(commands) == 16
+    assert len(commands) == 22
     assert all("pxh" not in command for command in commands)
     gz_commands = [command for command in commands if "gz" in command]
-    assert len(gz_commands) == 2
-    assert all(
-        command[3:] == ["timeout", "5s", "gz", "topic", "-e", "-n", "1", "-t", "/world/default/clock"]
-        for command in gz_commands
+    assert len(gz_commands) == 6
+    assert [command[3:] for command in gz_commands] == [
+        ["gz", "topic", "-i", "-t", "/world/default/clock"],
+        ["timeout", "5s", "gz", "topic", "-e", "-n", "1", "-t", "/world/default/clock"],
+        ["timeout", "3s", "gz", "topic", "-e", "-n", "1", "-t", "/world/default/stats"],
+    ] * 2
+    assert saved["samples"][0]["transport_probe_order"] == [
+        "proc_net_sockets", "process_threads", "gz_topic_info"
+    ]
+    assert saved["samples"][1]["transport_probe_order"] == [
+        "proc_net_sockets", "process_threads", "gz_topic_info"
+    ]
+    first_topic_call = next(
+        index for index, command in enumerate(commands) if "gz topic" in " ".join(command)
     )
+    first_sample_px4_probe_call = max(
+        index for index, command in enumerate(commands)
+        if index < first_topic_call
+        and any("px4-listener" in part or "px4-work_queue" in part for part in command)
+    )
+    assert first_sample_px4_probe_call < first_topic_call
     work_queue_commands = [
         command for command in commands if any("px4-work_queue" in part for part in command)
     ]
@@ -136,13 +155,32 @@ def test_capture_uses_owner_cmdline_absolute_commands_and_independent_timeouts(
         "sensor_combined",
         "vehicle_status",
     ]
-    thread_commands = [command for command in commands if "self_pid=$$" in command[-1]]
+    thread_commands = [
+        command for command in commands
+        if "self_pid=$$" in command[-1] and "printf 'T\\t" in command[-1]
+    ]
     assert len(thread_commands) == 2
     assert all(timeout == 10.0 for command, timeout in calls if command in thread_commands)
     assert "self_pid=$$" in thread_commands[0][-1]
     assert saved["samples"][0]["host_load_per_core"] is not None
     assert saved["gdb"]["status"] == "unavailable"
+    assert [row["label"] for row in saved["gdb"]["snapshots"]] == [
+        "before_delay", "after_delay"
+    ]
     assert Path(saved["gdb_output_path"]).is_file()
+    assert saved["gz_gdb"]["status"] == "unavailable"
+    assert Path(saved["gz_gdb_output_path"]).is_file()
+
+
+def test_world_stats_parser_reads_pause_flag_and_sim_time() -> None:
+    result = _parse_world_stats("paused: true\nsim { sec: 49 nsec: 116000000 }\n")
+    assert result == {"paused": True, "sim_time_s": [49.116]}
+
+    assert _parse_world_stats("sim { sec: 50 nsec: 0 }\n")["paused"] is None
+    assert _parse_world_stats("pause: false\nsim_time { sec: 51 nsec: 2 }\n") == {
+        "paused": False,
+        "sim_time_s": [51.000000002],
+    }
 
 
 def test_host_proc_thread_reader_parses_fake_proc_tree_and_stat_comm_delimiter(
@@ -299,6 +337,85 @@ def test_analyze_capture_reports_gone_shared_futexes_and_canned_gdb_frames(tmp_p
         },
         {"tid": 102, "top_frames": ["#0  poll () from /lib/libc.so.6"]},
     ]
+
+
+def test_transport_parsers_report_topic_roles_socket_state_and_queues() -> None:
+    topic = _parse_gz_topic_info(
+        "Publishers [Address, Message Type]:\n  tcp://127.0.0.1:1234\n"
+        "Subscribers [Address, Message Type]:\n  tcp://127.0.0.1:5678\n"
+    )
+    assert topic["publisher_count"] == 1
+    assert topic["subscribers"] == ["tcp://127.0.0.1:5678"]
+    sockets = _parse_transport_sockets(
+        "S\tpx4\t10\tpx4 -i 0\t4\t12345\t01\t0000000A:0000000F\t0100007F:1234\t0200007F:5678\n"
+        "SS\tESTAB 0 15 127.0.0.1:1 127.0.0.1:2\n"
+    )
+    assert sockets["sockets"][0]["state_name"] == "ESTABLISHED"
+    assert sockets["sockets"][0]["tx_queue_bytes"] == 10
+    assert sockets["sockets"][0]["rx_queue_bytes"] == 15
+    assert sockets["ss_available"] is True
+
+
+def test_analyze_capture_separates_polling_reception_from_blocked_callback(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "gdb.txt"
+    output.write_text(
+        "=== GDB before_delay ===\n"
+        "Thread 2 (LWP 201 \"px4\"):\n"
+        "#0 poll ()\n#1 gz::transport::v13::NodeShared::RunReceptionTask()\n"
+        "=== GDB after_delay ===\n"
+        "Thread 2 (LWP 201 \"px4\"):\n"
+        "#0 poll ()\n#1 gz::transport::v13::NodeShared::RunReceptionTask()\n"
+    )
+    samples = [_sample(clock=1.0, threads=[]), _sample(clock=2.0, threads=[])]
+    for sample, queue in zip(samples, (4, 0)):
+        sample["transport_sockets"] = {
+            "sockets": [{
+                "group": "px4", "pid": 10, "inode": 20, "local_address": "a",
+                "remote_address": "b", "state": "01", "state_name": "ESTABLISHED",
+                "rx_queue_bytes": queue,
+            }]
+        }
+    result = analyze_capture({"samples": samples, "gdb": {"output_path": str(output)}})
+    assert result["messages_stopped_arriving"] is True
+    assert result["callback_blocked"] is False
+    assert result["reception_thread_classification"] == "messages_stopped_arriving"
+    assert result["transport_socket_rx_queue_changes"][0]["rx_queue_delta"] == -4
+    assert result["transport_socket_rx_queue_delta_bytes"]["px4"] == -4
+    assert result["transport_probe_can_disturb_state"] is True
+
+
+def test_analyze_capture_names_polling_reception_when_clock_probe_times_out(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "gdb.txt"
+    output.write_text(
+        "=== GDB before_delay ===\nThread 2 (LWP 201 \"px4\"):\n"
+        "#0 poll ()\n#1 gz::transport::v13::NodeShared::RunReceptionTask()\n"
+        "=== GDB after_delay ===\nThread 2 (LWP 201 \"px4\"):\n"
+        "#0 poll ()\n#1 gz::transport::v13::NodeShared::RunReceptionTask()\n"
+    )
+    samples = [_sample(clock=None, threads=[]), _sample(clock=None, threads=[])]
+    for sample in samples:
+        sample["gz_clock"]["timed_out"] = True
+    result = analyze_capture({"samples": samples, "gdb": {"output_path": str(output)}})
+    assert result["gz_clock_advanced"] == "unknown"
+    assert result["reception_thread_classification"] == "reception_polling_clock_unknown"
+    assert result["callback_thread_classification"] == "not_observed"
+
+
+def test_gdb_classifies_clock_callback_block_separately(tmp_path: Path) -> None:
+    output = tmp_path / "gdb.txt"
+    output.write_text(
+        "=== GDB before_delay ===\nThread 1 (LWP 202 \"px4\"):\n"
+        "#0 pthread_cond_broadcast ()\n#1 px4_clock_settime ()\n"
+        "=== GDB after_delay ===\nThread 1 (LWP 202 \"px4\"):\n"
+        "#0 pthread_cond_broadcast ()\n#1 px4_clock_settime ()\n"
+    )
+    result = analyze_capture({"samples": [_sample(clock=1.0, threads=[])], "gdb": {"output_path": str(output)}})
+    assert result["callback_blocked"] is True
+    assert result["callback_thread_classification"] == "callback_blocked"
 
 
 def test_analyze_capture_marks_process_gone_instead_of_empty_thread_verdict() -> None:
@@ -482,3 +599,39 @@ def test_run_episode_stall_reaches_exit_before_cleanup_and_capture_survives(
     capture = json.loads(capture_path.read_text())
     assert capture["captured_before_container_removal"] is True
     assert capture["path"] == str(capture_path)
+
+
+def test_analyze_capture_keeps_camera_unknown_and_reports_imu_progress(tmp_path: Path) -> None:
+    output = tmp_path / "gz-gdb.txt"
+    output.write_text(
+        "=== GDB before_delay ===\n"
+        "Thread 1 (LWP 300):\n"
+        "#0 pthread_mutex_lock ()\n#1 gz::sim::SimulationRunner::PublishStats()\n"
+        "#2 gz::sim::SimulationRunner::Step()\n"
+        "=== GDB after_delay ===\n"
+        "Thread 1 (LWP 300):\n"
+        "#0 pthread_mutex_lock ()\n#1 gz::sim::SimulationRunner::PublishStats()\n"
+        "#2 gz::sim::SimulationRunner::Step()\n"
+    )
+    samples = [_sample(clock=None, threads=[]), _sample(clock=None, threads=[])]
+    samples[0]["px4_listener_sensor_combined"] = {"returncode": 0, "stdout": "timestamp_sample: 100\n"}
+    samples[1]["px4_listener_sensor_combined"] = {"returncode": 0, "stdout": "timestamp_sample: 200\n"}
+    result = analyze_capture({
+        "samples": samples,
+        "gz_gdb": {"output_path": str(output)},
+    })
+    assert result["imu_progress"]["advanced"] is True
+    assert result["camera_progress"]["advanced"] == "unknown"
+    assert result["gz_publish_stats_mutex_wait_observed"] is True
+    assert result["gz_publish_stats_mutex_wait_both_snapshots"] is True
+    assert result["supports"]["gz_publish_stats_mutex_wait"] is True
+    assert result["gz_runner_stack_classification"][0]["classification"] == "publish_stats_mutex_wait"
+
+
+def test_sensor_progress_unknown_when_listener_has_no_timestamp() -> None:
+    samples = [_sample(clock=None, threads=[]), _sample(clock=None, threads=[])]
+    samples[0]["px4_listener_sensor_combined"] = {"returncode": 124, "stdout": ""}
+    samples[1]["px4_listener_sensor_combined"] = {"returncode": 124, "stdout": ""}
+    result = analyze_capture({"samples": samples})
+    assert result["imu_progress"]["advanced"] == "unknown"
+    assert result["camera_progress"]["advanced"] == "unknown"

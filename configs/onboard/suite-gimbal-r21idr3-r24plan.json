@@ -18,9 +18,22 @@
       "world": "gen_v2_w0038",
       "refs": {},
       "ref_labels": {},
-      "expect": {"skills": ["area_search", "inspect", "return_home"], "min_inspect_match_fraction": 0.75},
+      "expect": {
+        "skills": [
+          "area_search",
+          "inspect",
+          "return_home"
+        ],
+        "min_inspect_match_fraction": 0.75
+      },
       "steps": 140,
-      "max_episode_s": 2400
+      "max_episode_s": 2400,
+      "recording": {
+        "per_step": [
+          "gimbal_joint_state",
+          "propeller_joint_state"
+        ]
+      }
     },
     {
       "id": "gimbal-survey-site-overlap",
@@ -28,11 +41,31 @@
       "task_text": "Survey the site with seventy percent photo overlap and return home.",
       "index": "configs/scenarios/generated-count-site/index.json",
       "world": "gen_cnt2_w0002",
-      "refs": {"zone:site": [0, 0, 55]},
-      "ref_labels": {"zone:site": "the site"},
-      "expect": {"skills": ["survey", "return_home"], "min_survey_coverage": 0.7},
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          55
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "survey",
+          "return_home"
+        ],
+        "min_survey_coverage": 0.7
+      },
       "steps": 180,
-      "max_episode_s": 2400
+      "max_episode_s": 2400,
+      "recording": {
+        "per_step": [
+          "gimbal_joint_state",
+          "propeller_joint_state"
+        ]
+      }
     },
     {
       "id": "gimbal-count-cones",
@@ -40,11 +73,274 @@
       "task_text": "Count the orange traffic cones in the site and report their positions.",
       "index": "configs/scenarios/generated-count-site/index.json",
       "world": "gen_cnt2_w0000",
-      "refs": {"zone:site": [0, 0, 55]},
-      "ref_labels": {"zone:site": "the site"},
-      "expect": {"skills": ["count", "return_home"], "min_count_exact": 1},
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          55
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
       "steps": 150,
-      "max_episode_s": 5400
+      "max_episode_s": 5400,
+      "recording": {
+        "per_step": [
+          "gimbal_joint_state",
+          "propeller_joint_state"
+        ]
+      }
+    },
+    {
+      "id": "gimbal-find-suv-land",
+      "task_text": "Find the SUV, record its position, and land.",
+      "index": "configs/scenarios/generated-v2/index.json",
+      "world": "gen_v2_w0035",
+      "refs": {},
+      "ref_labels": {},
+      "expect": {
+        "skills": [
+          "area_search",
+          "land"
+        ],
+        "alternatives": [
+          [
+            "area_search",
+            "record",
+            "land"
+          ],
+          [
+            "area_search",
+            "record",
+            "land",
+            "return_home"
+          ]
+        ]
+      },
+      "steps": 140,
+      "max_episode_s": 2400,
+      "airframe": "x500_gimbal",
+      "recording": {
+        "per_step": [
+          "gimbal_joint_state",
+          "propeller_joint_state"
+        ]
+      }
+    },
+    {
+      "id": "gimbal-monitor-backpacks",
+      "task_text": "Monitor the site for backpacks for five minutes and report alerts.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0003",
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          55
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "monitor",
+          "return_home"
+        ],
+        "min_alert_recall": 0
+      },
+      "steps": 320,
+      "max_episode_s": 2400,
+      "airframe": "x500_gimbal",
+      "recording": {
+        "per_step": [
+          "gimbal_joint_state",
+          "propeller_joint_state"
+        ]
+      }
+    },
+    {
+      "id": "gimbal-operator-pause-resume",
+      "mission_package": {
+        "mission_id": "gimbal-operator-pause-resume",
+        "task_text": "Autonomous monitor regression, then return home.",
+        "risk_level": "low",
+        "link_loss_policy": {
+          "action": "continue"
+        },
+        "heartbeat_timeout_s": 5,
+        "home": [
+          0,
+          0
+        ],
+        "places": {},
+        "zones": {
+          "zone:site": {
+            "centre_ne": [
+              0,
+              0
+            ],
+            "radius_m": 55
+          }
+        },
+        "routes": {
+          "route:fence": [
+            [
+              -30,
+              -30
+            ],
+            [
+              -30,
+              30
+            ],
+            [
+              30,
+              30
+            ],
+            [
+              30,
+              -30
+            ],
+            [
+              -30,
+              -30
+            ]
+          ]
+        },
+        "ref_labels": {
+          "zone:site": "the site",
+          "route:fence": "fence route"
+        },
+        "operating_area": {
+          "north_min_m": -100,
+          "north_max_m": 100,
+          "east_min_m": -100,
+          "east_max_m": 100,
+          "min_altitude_m": 5,
+          "max_altitude_m": 120
+        },
+        "budget": {
+          "time_s": 3600,
+          "reserve_time_s": 180,
+          "energy_wh": 200,
+          "reserve_energy_wh": 40
+        },
+        "oversight_steps": [],
+        "plan": {
+          "plan_version": 1,
+          "goal": "Autonomous monitor then return home",
+          "report": [
+            "status",
+            "positions"
+          ],
+          "steps": [
+            {
+              "id": "work",
+              "skill": "monitor",
+              "params": {
+                "region": "zone:site",
+                "query": "backpacks",
+                "duration_s": 180
+              },
+              "on_success": "home",
+              "on_fail": "home"
+            },
+            {
+              "id": "home",
+              "skill": "return_home",
+              "params": {},
+              "on_success": null,
+              "on_fail": null
+            }
+          ]
+        }
+      },
+      "sim_ground_events": [
+        {
+          "t_s": 60,
+          "event": "pause"
+        },
+        {
+          "t_s": 90,
+          "event": "resume"
+        }
+      ],
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0003",
+      "expect": {
+        "skills": [
+          "monitor",
+          "return_home"
+        ],
+        "supervisor": {
+          "final_decision": "continue",
+          "reason": "operator policy permits autonomous execution",
+          "return_home_started": true,
+          "onboard_log_exists": true,
+          "logged_decisions": [
+            "hold",
+            "continue"
+          ],
+          "logged_reasons": [
+            "operator policy permits autonomous execution",
+            "operator pause; awaiting resume"
+          ],
+          "original_mission_completed": true,
+          "logged_ground_events": [
+            "pause",
+            "resume"
+          ]
+        }
+      },
+      "steps": 320,
+      "max_episode_s": 2400,
+      "airframe": "x500_gimbal",
+      "recording": {
+        "per_step": [
+          "gimbal_joint_state",
+          "propeller_joint_state"
+        ]
+      }
+    },
+    {
+      "id": "gimbal-count-fire-hydrants",
+      "task_text": "Count the fire hydrants in the site and report their positions.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "world": "gen_cnt2_w0001",
+      "refs": {
+        "zone:site": [
+          0,
+          0,
+          55
+        ]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": [
+          "count",
+          "return_home"
+        ],
+        "min_count_exact": 1
+      },
+      "steps": 150,
+      "max_episode_s": 2400,
+      "airframe": "x500_gimbal",
+      "recording": {
+        "per_step": [
+          "gimbal_joint_state",
+          "propeller_joint_state"
+        ]
+      }
     }
   ]
 }

@@ -49,6 +49,25 @@ def test_executor_streams_local_ned_and_completes_with_fake_vehicle():
     assert vehicle.modes == ["RTL"]
 
 
+def test_executor_achieved_delta_uses_measured_start_not_cumulative_setpoint():
+    vehicle = FakeVehicle()
+    vehicle.state[:3] = [0.0, 0.0, 0.8]
+    sim = {"t": 0.0}
+    executor = PymavlinkPrimitiveExecutor(
+        vehicle,
+        criterion=CompletionCriterion(timeout_s=0.01),
+        position=lambda: (0.0, 0.0, 0.8),
+        yaw_deg=lambda: 0.0,
+        speed_mps=lambda: 0.0,
+        clock=lambda: sim["t"],
+        sleep=lambda seconds: sim.__setitem__("t", sim["t"] + seconds),
+    )
+    executor._commanded_position = (0.0, 0.0, -14.2)
+    result = executor.execute(ActionPrimitive.translate(0.0, 0.0, 15.0))
+    assert result.status == "timeout"
+    assert result.achieved_delta_ned == pytest.approx((0.0, 0.0, 0.0))
+
+
 def test_continue_waits_for_defined_sim_duration():
     sim = {"t": 0.0}
 

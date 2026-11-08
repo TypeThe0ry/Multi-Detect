@@ -1,0 +1,202 @@
+# 重复爬升失败后的 onboard LAND 升级复核（2026-11-07）
+
+## 结论与证据边界
+
+离线确定性验证证明：低空 airborne 的 `return_home` 连续两次纯上升 primitive timeout、每次实际高度增益均小于 0.5 m 后，失败执行器进入 `climb_failed_suspected_loss_of_control`，不会再请求第三个 climb primitive。生产 policy 回灌会通过现有 supervisor `_escalate` 请求并锁存 `land_now`，保留失败执行器证据；公开 `OnboardPolicy.act()` 随后输出 `stop` 交给宿主执行 LAND。计数阈值仍为 2、0.5 m、2.5 m，supervisor 优先级未改变。
+
+**本 lane 未启动 Docker、SITL、HIL、真实飞行或模型服务，没有 PX4 LAND ack、LAND 模式或最终 landed state 的新增 live 证据。** 调度方追加的沙箱限制覆盖了原任务中的 live 执行要求；已经准备一个有界 SITL 作业，尚待调度。不能把 fixture 中的 `stop/land_now`、历史 `action_ack=true` 或未来收到的 COMMAND_ACK 解释为已落地。
+
+通用 source-level fault campaign 的整体验收仍失败；新增爬升 fixture 单独通过。因而本报告不能作为“全 onboard fault campaign 已通过”或“PX4 LAND 最终执行已验证”的签署。
+
+## 实际 outcome 回灌路径
+
+指定的 `src/multidetect/onboard_policy.py` 在本工作树不存在；实际适配层是 `scripts/onboard_policy.py`。
+
+1. `scripts/collect_sim_teacher_episodes.py` 等待 primitive 执行结束，再采集对齐的 `obs_after`，调用 `policy.report_primitive_outcome(step_action, result.status, before, after)`。使用实际执行结果及前后 PX4 NED 样本，不读取累计目标差作为实际高度增益。
+2. `OnboardPolicy.report_primitive_outcome` 委托 supervisor；无 supervisor 的兼容路径仍委托 executor。
+3. `MissionSupervisor.report_primitive_outcome` 在 terminal recovery 活跃时选择 `_recovery`，否则选择主 executor。命中后记录事件、alert 和失败快照，通过已有 `_escalate("land_now", reason)` 升级，立即同步 action 并写失败摘要。
+4. 若宿主再次调用 policy，supervisor 从失败的 `return_home` 切换为 `land` recovery，第一次输出 `stop`，后续只能是着陆等待类动作，无新 up。
+5. collector 的既有分支在命中后记录当前 step、退出 primitive 循环，正常路径进入 `_land_and_wait`。本次没有改 collector，也没有改其 vehicle-loss 规则。vehicle-loss 检查仍在退出判断之前运行，可能以独立失控异常先结束 episode，不能假定每次都到正常 LAND 收尾。
+
+另一条原生 `src/multidetect/onboard_runtime/runtime.py` 路径没有调用该 outcome hook；它在 action timeout 时使用自己的 watchdog/handoff。其通用 campaign 不能用作“两次 PX4 样本 timeout 回灌”的 live 证明。本次没有扩展该运行时的结果语义。
+
+## 状态机与计数条件
+
+`return_home / count=0 → 第一次合格 timeout / count=1 → 第二次合格 timeout / failed → supervisor land_now → 宿主 LAND 请求边界`。
+
+每次计数必须同时满足：
+
+- 活跃步骤为 `return_home`；primitive 为 `translate`、`up_m>0`，且 forward、right、yaw delta 均为零。
+- outcome 严格为 `timeout`；before/after NED z 和 PX4 boot time 都为有限数值，排除 bool、缺失和 NaN。
+- `0 <= before_boot < after_boot`；后一 primitive 的 before 不早于前一次合格 primitive 的 after，拒绝重复、重叠、倒退的 PX4 样本。
+- before 与 after 均不超过 2.5 m，且均有 airborne 证据；显式已落地或 PX4 landing/takeoff 等状态优先于可能陈旧的 `landed=False`。未知状态不能确认 airborne。
+- `before_z - after_z < 0.5 m`。达到 0.5 m 即清零；不使用 host wall time 或伪增长的 `achieved_delta_ned`。
+
+不合格 outcome 会清空连续计数与健康窗口。最近两次 after 的姿态、SYS_STATUS present/health 异常连同 PX4 时间、实际 gain、height 一起保留；连续两次无增益本身就是触发依据，不要求伪造姿态或传感器异常。首次 after 的健康异常也会保存在最终事件中。
+
+## 确定性 fixture 时间线
+
+`scripts/run_onboard_fault_campaign.py::run_climb_failure_fixture` 复用正式 MissionExecutor、MissionSupervisor、OnboardPolicy outcome 适配和 OnboardMissionLog。只在观测/primitive completion 输入边界提供静止的低空样本，不运行 FCU，也不替换失效判定或升级方法。
+
+| PX4 fixture 时间 | 输入或输出 | 可证明内容 |
+| --- | --- | --- |
+| 1.000 s | abort 已锁存，输出 hold | 沿用现有返航前 brake |
+| 2.000→22.000 s | `up 15`，timeout，0.8 m→0.8 m | 第一次失败，未升级 |
+| 22.000→42.000 s | 第二次相同 `up 15`，timeout，gain=0 | executor 终态 failed；事件与 alert 出现 |
+| 第二次回灌返回前 | `land_now` escalation、失败摘要 | failure class 与 reason 一致，LAND 执行标记 unverified |
+| 42.000 s | `stop`，`supervisor_action=land_now` | LAND 宿主请求边界；无第三个 climb |
+| 43.000 s | `continue`，仍为 land_now | 着陆等待，没有 up；不能解释为已落地 |
+
+fixture 的 `px4_ack`、`px4_mode`、`px4_landed_state` 均明确为 null。这里统计的是 climb primitive 请求，不是实际 MAVLink 高频 setpoint 流；真实流是否及时停止、LAND mode 是否确认、何时 landed 仍须 live 检查。
+
+14 项检查包含：第二次才命中、恰好两次相同 climb、LAND handoff、无第三个 climb、失败执行器终态、mission event、alerts、持久化 event/alert/escalation、最终失败类别、PX4 执行未验证标记，以及摘要只修订一次。关闭 policy outcome 回灌的 mutant 必须被拒绝。公开 policy `act()` 测试另外覆盖完整构造与 safety envelope，FAST/SLOW stub 一旦被调用就失败。
+
+## 最终摘要与审查证据
+
+原 supervisor 在第一次 `return_now` 时已经写入 `ended_early` 摘要。原实现之后即使升级 LAND，也不会更新摘要，且切换 land recovery 会覆盖失败的 `_recovery`。
+
+本次保留历史摘要，在爬升失败时追加一次新的 `final_summary`，同时原子更新 `summary.json`。最新摘要包含：`status=recovery_failed`、`action=terminal_action=land_now`、`terminal_reason=failure_class=climb_failed_suspected_loss_of_control`、失败的 `recovery_history`、alerts、两个样本以及 `land_execution=unverified`。普通 early-return 摘要仍维持原有单条行为；重复 finish 不再修订失败摘要。
+
+失败 recovery 的 mission event 与 alerts 也复制到主任务，避免 teardown 摘要和 report 丢失告警。`tests/test_compare_nightly_arms.py` 用正式 fixture 生成的 supervisor 日志测试现有 failure-class 识别器，输入布局为明确的合成 episode；这证明生成事件能被识别，不证明 live collector 的每一种落盘布局都会自动归类。独立的 collector `episode.json.status=complete` 表示采集收尾，不能替代 supervisor 的任务失败状态。
+
+## 只读历史回放
+
+输入：`artifacts/benchmarks/nightly-linux-r21idr3-r24plan-28-head/main/operator-abort/campaign/gen_cnt2_w0003/episodes/episode-0000-06a1a47d/steps.jsonl`。
+
+SHA-256：`38c7de8b3d8a7e2bbc996f0400741033ae2bf084de0fdaa884869c447ba2dedd`。未写入、移动或删除共享 artifacts。
+
+| step | PX4 before→after（ms） | 实际 gain（m） | 结果 |
+| --- | --- | ---: | --- |
+| 39 | 189488→210544 | 2.343740 | 有进展，清零 |
+| 40 | 211236→232420 | 0.043755 | 第一次合格 timeout |
+| 41 | 232620→252880 | 0.064410 | 第二次，命中失控疑似终态 |
+
+因此保留原 step 41 命中。step 38 的坠落、之后的 27 次重复 up 是历史故障证据；这次回放没有重新执行它们，也没有生成新的 PX4 LAND 证据。
+
+## 验证记录
+
+所有 Python 运行均使用 `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp`，单进程；未联网下载。
+
+```bash
+PY=/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python
+export PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp
+"$PY" -m pytest tests/test_mission_executor_remaining_gaps.py \
+  tests/test_mission_supervisor.py tests/test_onboard_policy_package.py \
+  tests/test_onboard_fault_campaign.py tests/test_compare_nightly_arms.py \
+  -q -p no:xdist -o addopts=''
+"$PY" scripts/run_onboard_fault_campaign.py \
+  --work-dir .tmp/climb-fault-campaign-final --output .tmp/climb-fault-campaign-final/report.json
+"$PY" scripts/run_onboard_gate.py -q -p no:warnings
+bash -n .tmp/jobs/39-onboard-climb-land.sh
+bash .tmp/jobs/39-onboard-climb-land.sh --prepare-only
+```
+
+- 相关单测：**234 passed，54.20 s**，日志 `.tmp/climb-related-verified.log`。进一步补强旧 fixture 的 before airborne 样本及实际计数断言后，executor 文件重跑 **64 passed，1.36 s**，日志 `.tmp/climb-negative-final.log`。此前 233 passed、1 failed 的失败是 campaign 异步日志半行读取；已用写入锁保护 fixture 快照读取，没有删除或放宽断言。
+- 单次 timeout 后恢复、timeout 但 gain 达标（含恰好 0.5 m）、慢仿真时间爬升、非 return_home、纯度不符、landing/hold、已落地、高空、未知 airborne、boot 不推进/倒退/重复/缺失/非法数值均有负例。
+- 爬升 fixture：14/14 检查通过；证据在 `.tmp/climb-fault-campaign-final/runs/climb-failure-*/fixture-report.json`、同目录 `mission.jsonl` 和 `summary.json`。
+- 通用 campaign：修复日志快照后重跑仍为 **FAIL，16 个场景中 1 个通过（battery_stale），15 个失败**，原始报告 `.tmp/climb-fault-campaign-final/report.json`，完整输出 `.tmp/climb-fault-campaign-final.log`。缺失最后窗口内 decision reason、output gap、终态模式未确认/未持续等断言均原样保留。第一次运行的 `.tmp/climb-fault-campaign/report.json` 也得到 1/16：camera_freeze 的 watchdog/handoff 记录早于判定窗口；rejected_rtl 记录三次拒绝的 RTL，未观察到 LAND。现有日志不足以把所有失败归因于机器负载；本次未修改这些场景的 deadline、模式断言或 native runtime handoff。
+- 默认 campaign bench key 原为未加前缀的可打印文本，正式 key loader 拒绝；已改为受支持的 `hmac:` 编码并设 0600。另修复 CampaignSession 读取异步追加日志时的半行竞争。
+- CPU-only onboard gate：首次 **PASS，156 s**；全部改动后再次 **PASS，152 s**，最终日志 `.tmp/climb-onboard-gate-final.log`。该 gate 不等同于通用 fault campaign 的 16 场景验收。
+- 作业脚本语法与 `--prepare-only`：通过；只生成 `.tmp/jobs/climb-land-*/suite.json` 与 dry-run 配置，没有启动 SITL 或写 artifacts。
+
+## 待调度的唯一 SITL 作业
+
+脚本：`.tmp/jobs/39-onboard-climb-land.sh`。调度方在本工作树执行：
+
+```bash
+bash .tmp/jobs/39-onboard-climb-land.sh
+```
+
+它复用 `run_mission_suite.py` 和现有 r21idr3/r24plan 的 `operator-abort` mission，不添加不稳定物理故障钩子，不降低期待结果。只收紧采集 envelope：64 steps、600 s nominal wall、现有 hard ceiling 1200 s；外层 2700 s 有界 timeout 覆盖启动/排队/收尾，另给 120 s 退出时间。一个 episode、一个 worker、无重试，由现有全局锁申请一个槽位；`MULTIDETECT_SITL_SLOTS=3`，仅槽位 0–2，未借用他人租约。设置 `MULTIDETECT_SIM_GPU_AVOID=2,3`、GPU 池与 CUDA 可见卡均仅 0/1。
+
+作业只在调度方执行时创建新目录 `artifacts/benchmarks/onboard-climb-land-followup-20261107-<UTC>-<PID>/`；不会复用旧目录。启动前检查本地 image 和模型缓存，离线环境变量禁止下载。启动 PID 保存在 `.tmp/jobs/climb-land-*/launcher.pid`；没有按名称终止其他进程或清理其他容器的命令。`--keep-px4-ulog` 保留实际日志。
+
+预期正常 abort 会进入 return_home 并完成既有降落收尾；不保证自然出现两次低空无增益 timeout。若没有触发，必须保留“正常 LAND 命令/事件边界可观测，但重复失败 live gap 未闭合”的结论，不自动再开 SITL。
+
+后续分析应按同一 PX4 时间轴关联：
+
+1. `job.log`、`main/operator-abort/report.json`、episode metadata：租约、退出原因、是否实际只有一个 episode，以及是否在预算内退出。
+2. `steps.jsonl`：每个 up 的 before/after NED、PX4 boot、landed state、outcome；是否出现第二次合格 timeout、命中后有没有第三个 climb primitive。
+3. `<episode>-onboard-frames/mission_log/mission.jsonl` 与 `summary.json`（用实际路径定位）：abort/decision、失败事件、alert、LAND escalation、最新 final_summary；保留原早期 return 摘要。
+4. `mavlink.jsonl`、collector landing diagnostics、PX4 ULog：只报告实际出现的 command/ack、heartbeat main/sub mode、EXTENDED_SYS_STATE、armed 与最终状态；COMMAND_ACK 的 command/result 必须与请求对应，不把 `SET_POSITION_TARGET_LOCAL_NED` 的合成 `action_ack` 当 PX4 COMMAND_ACK。
+5. 若有 setpoint 流日志，检查最后一次 up target 与 LAND mode 确认/streamer 停止的顺序。若只有 step 级 primitive 记录，明确不能证明流级停止时延。ack、进入 LAND、fresh landed_state=1 分别报告；只收到 ack 时保持 landed 未验证。
+
+## 改动范围与未完成项
+
+代码：`mission_executor.py` 收紧计数和保留样本；`mission_supervisor.py` 接管 outcome 路由、失败升级与摘要修订；`scripts/onboard_policy.py` 委托 supervisor；`run_onboard_fault_campaign.py` 添加确定性 fixture、接入总体 verdict、修复 bench key 与日志快照。测试修改仅在四个相关文件。新增本报告、`.tmp/jobs/39-onboard-climb-land.sh` 和仅保留作业源码可见的 `.tmp/.gitignore`。
+
+未改变 LAND 优先级，未新增空中 disarm，未修改 collector vehicle-loss、训练/release-parity/版本/进度/生成 schema；未提交 git。
+
+是否仍允许重复爬升：在已验证的 outcome 回灌链中，第二次合格失败之后**不允许再请求 climb primitive**。单次失败、进展达标或不合格样本后仍允许正常返航爬升。原生 runtime 的独立 watchdog 路径、collector vehicle-loss 提前退出路径和真实 PX4 setpoint/LAND 最终执行尚不能由本 fixture 保证。
+
+## 单次 operator-abort SITL 实际结果
+
+只读分析产物：`artifacts/benchmarks/onboard-climb-land-followup-20261107-20261107T082853Z-101230/`。suite 只有一个 `operator-abort` episode，collector `exit=0`，`episode status=complete`；这代表采集流程结束，不代表计划任务完成。实际 episode 在 `main/operator-abort/campaign/gen_cnt2_w0003/episodes/episode-0000-28cc84ba/`。
+
+- `main/operator-abort/report.json` 和 `job.log` 记录 `final_decision=return_now`、reason=`explicit operator abort`、`return_home_started=true`。steps 37 到 43 是 operator abort 后的 return recovery：先 hold，再 turn、三次水平 translate，最后 `stop`。全部 44 个 primitive outcome 都是 `success`；没有 `timeout`，且没有任何动作的 `up_m` 非零。因此 operator-abort 确实启动并执行了 return_home recovery 的返航动作，没有 return climb 请求，也谈不上 return climb timeout。报告的 `return_home_completed=false`、`mission_completed=false`，所以不能说 mission supervisor 将 home 步骤标记为完成；收尾由 collector 的着陆 teardown 接管。
+- 保护条件在此次 run 中没有发生：两次合格低空纯上升 timeout 均不存在。没有 `climb_failed_suspected_loss_of_control` event/alert，也没有由此触发的 `land_now` escalation。这里是“未触发”，不是保护失效的反例。
+- 没有 normal mission 被 operator-abort 误伤的证据：suite 仅运行这一条被显式安排 abort 的 mission，没有并行或额外的普通 mission episode。采集器报告的任务未完成与 abort 场景预期相符，不是另一任务被错误升级。
+- MAVLink 收尾证据需分层表述。`mavlink.jsonl` 有 PX4 `STATUSTEXT` “Landing detected” 后的“Disarmed by landing”，最终 `EXTENDED_SYS_STATE.landed_state=1` 且 heartbeat 显示未 armed；collector `collector_landing_complete` 记为 `landed_state_fresh=true`、`armed=false`。但该记录同时是 `land_mode_confirmed=false`、`land_ack_result=null`，文件中没有 `land_now` 的 PX4 COMMAND_ACK；因此可确认最终 fresh landed 与 disarm，不可声称明确确认过 LAND mode 或 onboard land_now 命令。primitive 中 `action_ack=true` 只代表位置 setpoint 动作记录，不是 MAVLink COMMAND_ACK。
+
+## 确定性注入建议与作业
+
+可立即运行的确定性保护链 fixture 是 `scripts/run_onboard_fault_campaign.py::run_climb_failure_fixture`：在低空固定 PX4 样本下，abort 后的两个纯上升 primitive 都回报 `timeout`，前后位置相同且 PX4 boot time 单调推进；通过真实 `report_primitive_outcome`、supervisor escalation 和 summary 路径检查第二次失败触发、无第三次 climb、`land_now` handoff。fixture 明确不启动 FCU，也不证明 SITL/PX4 执行。脚本里的通用 campaign 也使用 simulated hardware，因此不要把它的结果标成 SITL 验收。
+
+调度作业 `.tmp/jobs/40-onboard-climb-fault-campaign.sh` 只调用上述定向 fixture，不跑已知有其他失败场景的整套 campaign。它使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`、`PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp`，设置 `MULTIDETECT_SITL_SLOTS=1`，并把报告写在新的 `.tmp/jobs/climb-fault-<UTC>-<PID>/report.json`，不写共享 artifacts。可用 `bash -n` 做语法检查；运行后 fixture 的 `report.json` 应列出所有保护链 checks。此作业是源级确定性 fixture 作业，不会声称运行 SITL。
+
+本次已实现真正可由 SITL suite 选择的确定性注入。每个 mission 的 `onboard.json` 可设置 `sim_climb_timeout_injection: true`；默认值为 `false`。`scripts/collect_sim_teacher_episodes.py` 在 `--teacher onboard` 的 SIM collector 中，仅匹配 active skill 为 `return_home`、primitive 为纯正向上升 `translate`（`up_m>0` 且 forward/right/yaw 均为零）的前两次请求；before 样本还必须满足既有 2.5 m 低空阈值并有明确 airborne 证据。命中后执行器持续发送当前 NED 目标的 hold，等待 PX4 仿真时钟越过原有 completion timeout，再把原始请求记录为 `timeout`；因此 PX4 boot time 继续推进，前后低空 NED 样本没有人为高度增益。第三次及其他技能、高空/着陆/状态未知、混合位移、水平/下降动作均不注入。
+
+注入器在 `runtime_mode` 不是 `sim` 或 teacher 不是 `onboard` 时拒绝启用；`scripts/onboard_policy.py` 也在策略构造边界再次拒绝非 SIM runtime，外部 real/HIL 路径无法打开该配置。collector 通过 `active_mission_skill()` 读取 supervisor 当前 recovery 技能，命中后仍走既有 `report_primitive_outcome`，所以两次合格 timeout 之后沿用原有 failure event、alert、`land_now` escalation 和无第三次爬升行为；没有改 LAND 优先级、阈值或既有断言。
+
+新增 `.tmp/jobs/41-onboard-climb-fault-sitl.sh`：单 worker、单槽位、固定 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`，从 `suite-main-r21idr3-r24plan.json` 生成只含 `operator-abort` 的临时 suite，并按 mission 配置开启注入。作业输出使用新的 `artifacts/benchmarks/onboard-climb-fault-sitl-<UTC>-<PID>/` 目录；作业末尾的离线检查要求恰好两条注入 timeout、每条 PX4 boot time 递增且高度增益小于 0.5 m、第二次后无上升 primitive，并在 mission log 中找到失败 event、alert 与 `land_now` escalation。当前未启动 SITL，未写入共享 artifacts。
+
+## 本次实现验证
+
+使用 `PYTHONPATH=src:. PYTHONUTF8=1 TMPDIR=$PWD/.tmp`，`.venv` 单进程运行：
+
+```bash
+/data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python -m pytest \
+  tests/test_onboard_fault_campaign.py -q -p no:xdist -o addopts=''
+python -m py_compile scripts/collect_sim_teacher_episodes.py \
+  scripts/onboard_policy.py scripts/run_onboard_fault_campaign.py \
+  tests/test_onboard_fault_campaign.py
+bash -n .tmp/jobs/41-onboard-climb-fault-sitl.sh
+```
+
+结果：定向文件单测 **21 passed**；CPU-only onboard gate **PASS（107 s）**；Python 编译检查与作业脚本语法检查通过。覆盖默认关闭、非 SIM/非 onboard 拒绝、suite 按 mission 选择、低空/airborne 负例、前两次 timeout、hold 保持当前位置以及第三次请求不再注入。离线通用 fault campaign 仍以 **1/16** 场景通过并返回失败，旧有 reason/handoff 证据问题未改动；定向 climb fixture 与此 campaign 结果分开记录。真实 SITL 作业按要求只写入 job 源码，尚未执行，因此 PX4 event/alert/LAND handoff 的 live 结果仍待调度该一槽位作业取得。
+
+## 建议的下一个任务
+
+### 1. 验证确定性爬升故障注入的单槽位 SITL 结果
+
+目标：最多运行一次 `.tmp/jobs/41-onboard-climb-fault-sitl.sh`，或只读分析该 job 已生成的结果，确认真实 SITL episode 有两次低空纯 return_home climb timeout、PX4 boot time 推进且高度增益低于 0.5 m、失败 event/alert、`land_now` handoff 和无第三次 climb。证据路径：`docs/onboard-climb-land-followup-20261107.md`、`.tmp/jobs/41-onboard-climb-fault-sitl.sh`、`scripts/collect_sim_teacher_episodes.py`、`scripts/onboard_policy.py`、`scripts/run_onboard_fault_campaign.py`、`tests/test_onboard_fault_campaign.py` 与 `artifacts/benchmarks/onboard-climb-fault-sitl-*/`。不得重复调度或自动重试，不改 LAND 优先级、阈值、vehicle-loss 规则或既有断言，不启动其他 SITL/Docker/HIL/真机，不下载、不训练，不改共享 artifacts 既有文件。报告 step 级 NED/boot 证据与 mission event/alert/escalation；分别标注 LAND ACK、mode confirmation、landed state 以及没有证据的边界。将实测结果追加到本文件。
+
+### 2. 修复通用 onboard fault campaign 的证据与 handoff 验收缺口
+
+目标：解释并修复 source-level onboard fault campaign 当前 reason/output-gap/terminal LAND handoff 验收失败，同时继续拒绝现有 mutants。证据路径：`docs/onboard-climb-land-followup-20261107.md`、`scripts/run_onboard_fault_campaign.py`、`tests/test_onboard_fault_campaign.py`、`src/multidetect/onboard_runtime/runtime.py`、`.tmp/climb-fault-injection-check/report.json` 与 `.tmp/climb-fault-injection-check/runs/*/mission.jsonl`。区分窗口筛选、异步事件落盘、真实 terminal handoff 未升级 LAND；不得放宽或删除 deadline、连续输出、终态断言，不改 supervisor LAND 优先级、爬升阈值、collector vehicle-loss，不新增空中 disarm，不启动 SITL/Docker/HIL/真机、训练或下载，不写 artifacts。运行相关单测、通用 campaign 和 CPU-only onboard gate，并将逐项证据、修复结果与测试记录写入 `docs/onboard-fault-campaign-handoff-followup-20261107.md`。
+
+## 2026-11-07 实测回灌：注入 SITL 未满足前置条件
+
+只读产物：`artifacts/benchmarks/onboard-climb-fault-sitl-20261107T112641Z-1808272/`。该 run 的 `onboard.json` 确实设置了 `sim_climb_timeout_injection=true`，但 suite 运行的是 `operator-abort`：120 s 时触发显式 abort，supervisor 进入 `return_now`，最终 `final_decision=return_now`、reason=`explicit operator abort`，suite `expectation_pass_rate=0.0`。collector 和 episode 都正常结束（`exit=0`、`status=complete`），这不等于注入验收通过。
+
+逐步证据与文档预测不符：episode 共 48 步、所有 outcome 均为 `success`，timeout=0，`up_m>0` 的 primitive=0；PX4 `time_boot_ms` 从 27.888 s 推进到 173.152 s。NED 高度约为 18.135--18.517 m，始终高于 injector 要求的低空阈值 2.5 m，因此没有两次低空纯 `return_home` climb timeout，也没有第三次 climb、`climb_failed_suspected_loss_of_control` event/alert 或 `land_now` escalation。mission log 的 `summary.json` 只记录 `ended_early/return_now/explicit operator abort`，`recovery_history` 为空。
+
+这次结果暴露的是作业场景配置缺陷，而不是 supervisor 保护链的反例：注入器的明确匹配条件要求 `active_skill=return_home`、纯上升动作、airborne 且高度不超过 2.5 m；现有 `operator-abort` 在约 18 m 高度开始水平返航，根本不会生成满足条件的上升 primitive。因而不能用该 run 评价“两次 timeout 后无第三次 climb”或 LAND handoff。也没有新增 PX4 LAND ACK、LAND mode confirmation 或 fresh landed-state 证据可用于该保护链；`return_now` 收尾记录不能当作 `land_now`。
+
+本次没有修改运行时代码、LAND 优先级、阈值、vehicle-loss 规则或既有断言，也没有写入共享 `artifacts/`。应修复的是下一次 SITL 作业的前置条件：在触发 abort 前把车辆置于低于 2.5 m 的 airborne 状态，并确保 return-home recovery 生成至少两个纯上升 primitive；作业末尾还必须对 timeout 数、before/after boot 与 NED 样本、失败 event/alert/escalation 做硬检查。该修复应先有作业脚本和配置测试，再重新调度单槽 SITL。
+
+## 下一次单槽 SITL 作业方案
+
+场景前置条件已落到 collector 的 SIM/onboard 专用配置 `sim_pre_abort_descent_altitude_m`。`.tmp/jobs/42-climb-fault-sitl2.sh` 从 `suite-main-r21idr3-r24plan.json` 取原有 `operator-abort` mission，仅覆盖 SIM 事件为 `t_s=0` 并打开两项注入配置：`sim_climb_timeout_injection=true`、`sim_pre_abort_descent_altitude_m=1.5`。collector 在常规 takeoff 完成后，用同一条 multirotor position-setpoint stream 保持 N/E 并下降，等 PX4 NED telemetry 报告不高于 1.75 m 才进入 onboard mission loop；随后首次 policy observation 交付零时刻 abort。Supervisor 从该低空 airborne 样本进入原有 `return_now` recovery，其既有 cruise 目标高于 1.5 m，因此应请求纯上升 primitive。两次 timeout 仍由既有 SIM injector 在同一低空窗口模拟。
+
+新选项要求 teacher 为 onboard、同时打开 SIM 爬升注入，并限制在 `[0.5, 2.5)` m；real/HIL 配置边界不能使用此选项。它不改变 takeoff 高度规则、2.5 m 保护判定、0.5 m 进展判定、LAND 优先级、collector vehicle-loss 规则或既有断言。配置单测覆盖有效 abort 场景与缺少注入开关、非 onboard teacher、越界高度等拒绝情况。
+
+作业固定使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python`、一个 worker/一个 SITL slot、离线模型环境和新目录 `artifacts/benchmarks/onboard-climb-fault-sitl2-<UTC>-<PID>/`。作业末尾对生成的 episode 硬验收：两条 `return_home` 纯上升注入 timeout 的 before/after 都须 airborne 且不高于 2.5 m，PX4 boot time 严格递增、高度增益小于 0.5 m，第二次后没有上升 primitive，并且 mission log 含失败 event、alert 与 `land_now` escalation。该作业尚未运行；共享 `artifacts/` 目前只读，写入仅发生在调度方之后执行脚本时。
+
+下一步：先用 `.venv` 单进程运行 `tests/test_onboard_fault_campaign.py` 并检查 job shell 语法，再由调度方最多运行一次 `.tmp/jobs/42-climb-fault-sitl2.sh`。若硬校验失败，保留新目录及原始证据，不自动重试；回灌实际 NED/boot、mission event 和 MAVLink landing 证据，并明确区分 LAND ACK、LAND 模式与 fresh landed state。
+
+## 建议的下一个任务
+
+### 验证低空爬升故障 SITL 作业
+
+目标：只运行一次 `.tmp/jobs/42-climb-fault-sitl2.sh`，或只读分析该作业已经生成的结果，确认 abort 前的 PX4 高度低于 2.5 m、出现两次低空纯 `return_home` 上升 timeout、PX4 boot time 推进且高度增益均低于 0.5 m、第二次失败后没有上升 primitive，并记录失败 event、alert 和 `land_now` escalation。证据路径：`.tmp/jobs/42-climb-fault-sitl2.sh`、`scripts/collect_sim_teacher_episodes.py`、`tests/test_onboard_fault_campaign.py`、`artifacts/benchmarks/onboard-climb-fault-sitl2-*/`。不得自动重试，不改 LAND 优先级、保护阈值、vehicle-loss 规则或既有断言，不启动其他 SITL/Docker/HIL/真机，不下载或训练，不修改旧的共享 artifacts。将实际 step 级 NED/boot、mission log 与 MAVLink 证据追加到 `docs/onboard-climb-land-followup-20261107.md`，并分别说明 LAND ACK、模式确认、fresh landed state 是否有证据。

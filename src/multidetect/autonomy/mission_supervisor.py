@@ -225,6 +225,8 @@ class MissionSupervisor:
         self._time_estimated_at = self.started
         self._remaining_energy: float | None = None
         self._finished = False
+        self._recovery_failure: dict[str, Any] | None = None
+        self._failure_summary_written = False
         self._finish_lock = threading.Lock()
         self.requires_approval = bool(requires_approval)
         self.plan_sha256 = plan_digest(package, executor.plan)
@@ -921,6 +923,38 @@ class MissionSupervisor:
             )
         return self._terminal or self.action
 
+    def report_primitive_outcome(self, action, status: str, *, before, after) -> bool:
+        """Route executed recovery evidence and latch a climb failure as LAND.
+
+        Preserve the failed return executor before the next LAND recovery
+        replaces it. An earlier ended_early summary remains in the log; one
+        new final_summary records this stronger terminal outcome.
+        """
+        executor = self._recovery if self._terminal is not None else self.executor
+        if executor is None or not executor.report_primitive_outcome(
+            action, status, before=before, after=after
+        ):
+            return False
+        reason = "climb_failed_suspected_loss_of_control"
+        evidence = dict(executor.mission_log[-1])
+        self._recovery_failure = {
+            **evidence, "failure_class": reason,
+            "history": list(executor.history), "alerts": list(executor.alerts),
+            "land_execution": "unverified",
+        }
+        if executor is not self.executor:
+            self.executor.mission_log.append(evidence)
+            self.executor.alerts.extend(
+                alert for alert in executor.alerts if alert not in self.executor.alerts
+            )
+        self._time()
+        self._record(reason, **evidence)
+        self._record("alert", value=reason, failure_class=reason)
+        self._escalate("land_now", reason)
+        self.action = self._terminal
+        self.finish("recovery_failed")
+        return True
+
     def evaluate(self, *, pose_ned=None, proposed_action=None, yaw_deg=0.0) -> str:
         self._time()
         self._finish_retask_planning()
@@ -1198,13 +1232,14 @@ class MissionSupervisor:
         return action, info
 
     def finish(self, status: str = "stopped") -> None:
-        """Write the mission's one ``final_summary`` record (idempotent).
+        """Write the mission's ``final_summary`` record (idempotent).
 
         Called on completion, when a return/land latches (``ended_early``), on
         plan rejection and by the host when it stops the mission (``stopped``).
+        A later climb failure appends one revision of an early-return summary.
         """
         with self._finish_lock:
-            if self._finished:
+            if self._finished and (self._recovery_failure is None or self._failure_summary_written):
                 return
             self._time()
             executor = self.executor
@@ -1245,12 +1280,19 @@ class MissionSupervisor:
                 "summary_zh": summary_zh,
                 "summary_en": summary_en,
             }
+            if self._recovery_failure is not None:
+                summary.update(
+                    failure_class=self._recovery_failure["failure_class"],
+                    recovery_failure=self._recovery_failure,
+                    recovery_history=self._recovery_failure["history"],
+                )
             summary.update(getattr(self, "test_hook_metadata", {}))
             self.log.finish(
                 self._now,
                 summary,
             )
             self._finished = True
+            self._failure_summary_written = self._recovery_failure is not None
         if self.downlink is not None:
             self.downlink.notify()
 

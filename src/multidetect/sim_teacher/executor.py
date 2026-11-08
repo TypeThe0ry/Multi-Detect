@@ -371,7 +371,7 @@ class PymavlinkPrimitiveExecutor:
         return ExecutionResult(
             result,
             elapsed,
-            tuple(current[i] - start_pos[i] for i in range(3)),
+            tuple(current[i] - measured_start[i] for i in range(3)),
             float(self._yaw()) - start_yaw,
             ack,
         )

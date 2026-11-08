@@ -98,6 +98,12 @@ def _pose_values(pose: Mapping[str, Any]) -> tuple[float, float, float, float, f
 
 def _gimbal_pose_is_stale(pose: Mapping[str, Any]) -> bool:
     """Whether this frame explicitly says its gimbal orientation is stale."""
+    # A stale high-level status invalidates any composed pose that may have
+    # been retained by a legacy recorder.  The joint sidecar remains useful
+    # metadata, but it must not silently bless that older camera pose.
+    state = pose.get("gimbal_state")
+    if isinstance(state, Mapping) and state.get("fresh") is False:
+        return True
     camera = pose.get("camera_pose")
     if isinstance(camera, Mapping):
         if camera.get("gimbal_feedback_fresh") is False:
@@ -112,9 +118,6 @@ def _gimbal_pose_is_stale(pose: Mapping[str, Any]) -> bool:
             and len(rotation) == 9
         ):
             return False
-    state = pose.get("gimbal_state")
-    if isinstance(state, Mapping) and state.get("fresh") is False:
-        return True
     joint = pose.get("gimbal_joint_state")
     return (
         isinstance(joint, Mapping)

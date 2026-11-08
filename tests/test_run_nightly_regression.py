@@ -86,6 +86,12 @@ def test_keep_px4_ulog_reaches_mission_suite(tmp_path, capsys):
     assert "--keep-px4-ulog" in rows[1]["command"]
 
 
+def test_nightly_resume_requests_campaign_retry(tmp_path, capsys):
+    assert run(["--suites", "main", "--dry-run", "--out", str(tmp_path)]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert "--retry-failed-episodes" in rows[1]["command"]
+
+
 def test_model_set_can_be_selected_from_environment(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("MULTIDETECT_MODEL_SET", "r21idr3-r24plan")
     assert run(["--dry-run", "--suites", "main", "--out", str(tmp_path)]) == 0
@@ -94,6 +100,29 @@ def test_model_set_can_be_selected_from_environment(tmp_path, capsys, monkeypatc
     assert Path(rows[1]["command"][rows[1]["command"].index("--suite") + 1]).name == (
         "suite-main-r21idr3-r24plan.json"
     )
+
+
+def test_custom_suite_uses_nightly_model_set_and_child_harness(tmp_path, capsys):
+    config = tmp_path / "follow-track.json"
+    config.write_text('{"defaults": {}, "missions": []}\n', encoding="utf-8")
+    assert run([
+        "--model-set", "r21idr3-r24plan", "--custom-suite",
+        f"follow-track={config}", "--suites", "follow-track", "--dry-run",
+        "--out", str(tmp_path / "out"),
+    ]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert rows[0]["model_set"] == "r21idr3-r24plan"
+    assert len(rows) == 2
+    assert rows[1]["suite"] == "follow-track"
+    assert Path(rows[1]["command"][rows[1]["command"].index("--suite") + 1]) == config
+
+
+def test_custom_suite_rejects_missing_config(tmp_path):
+    with pytest.raises(SystemExit):
+        run([
+            "--custom-suite", f"follow-track={tmp_path / 'missing.json'}",
+            "--suites", "follow-track", "--dry-run", "--out", str(tmp_path / "out"),
+        ])
 
 
 def test_nightly_e2e_child_receives_held_lock_marker(tmp_path, monkeypatch):

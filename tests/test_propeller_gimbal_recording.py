@@ -15,7 +15,9 @@ from multidetect.sim_teacher.streams import (
     SensorSample,
     _propeller_joint_state,
     build_observation,
+    validate_gimbal_recording_observation,
 )
+from scripts.gazebo_sensor_stream import _frame_joint_state
 from multidetect.simulator.camera_projection import _pixel_camera_ray_raw
 from scripts.render_onboard_sdf_blender_dataset import apply_propeller_state, camera_samples
 
@@ -75,11 +77,201 @@ def test_sidecar_joint_state_survives_episode_recording(tmp_path: Path) -> None:
         "propeller_joint_state": {"timestamp_ns": 10, "angles_rad": [1.0], "spin_rad_s": [12.0]},
         "camera_pose": {"center_ned": [1.0, 2.0, 3.0]},
     }
-    recorder.record_step(obs, {})
+    after = {
+        **obs,
+        "gimbal_joint_state": {
+            "timestamp_ns": 20,
+            "position_rad": {"pitch": 0.4, "yaw": 0.5, "roll": 0.6},
+        },
+        "propeller_joint_state": {
+            "timestamp_ns": 20,
+            "angles_rad": [1.1, 2.1, 3.1, 4.1],
+            "spin_rad_s": [12.0, 13.0, 14.0, 15.0],
+        },
+    }
+    recorder.record_step(obs, {}, obs_after=after)
     row = json.loads((recorder.episode_dir / "steps.jsonl").read_text().strip())
     assert row["obs_before"]["gimbal_joint_state"]["position_rad"]["pitch"] == 0.2
     assert row["obs_before"]["propeller_joint_state"]["spin_rad_s"] == [12.0]
     assert row["obs_before"]["camera_pose"]["center_ned"] == [1.0, 2.0, 3.0]
+    assert row["obs_after"]["gimbal_joint_state"]["position_rad"]["yaw"] == 0.5
+    assert row["obs_after"]["propeller_joint_state"]["angles_rad"] == [1.1, 2.1, 3.1, 4.1]
+
+
+def _valid_gimbal_recording_observation() -> dict[str, object]:
+    return {
+        "frame_sensor_stamp_ns": 100,
+        "gimbal_joint_state": {
+            "timestamp_ns": 100,
+            "position_rad": {"pitch": 0.1, "yaw": -0.2, "roll": 0.3},
+            "velocity_rad_s": {"pitch": 0.01, "yaw": -0.02, "roll": 0.03},
+            "source": "gazebo_joint_state",
+        },
+        "propeller_joint_state": {
+            "timestamp_ns": 100,
+            "angles_rad": [0.0, 0.1, 0.2, 0.3],
+            "spin_rad_s": [120.0, -121.0, 122.0, -123.0],
+            "source": "gazebo_joint_state",
+        },
+    }
+
+
+def test_gimbal_recording_contract_accepts_finite_three_axis_four_rotor_sample() -> None:
+    sample = _valid_gimbal_recording_observation()
+    validate_gimbal_recording_observation(sample)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda sample: sample["gimbal_joint_state"].pop("position_rad").pop("yaw"),
+        lambda sample: sample["propeller_joint_state"].update({"angles_rad": [0.0] * 3}),
+        lambda sample: sample["gimbal_joint_state"]["position_rad"].update({"roll": float("nan")}),
+        lambda sample: sample["propeller_joint_state"].update({"spin_rad_s": [0.0] * 4}),
+        lambda sample: sample["propeller_joint_state"].update({"timestamp_ns": 101}),
+    ],
+)
+def test_gimbal_recording_contract_fails_closed_for_missing_invalid_or_misaligned_state(mutate) -> None:
+    sample = _valid_gimbal_recording_observation()
+    mutate(sample)
+    with pytest.raises(ValueError):
+        validate_gimbal_recording_observation(sample)
+
+
+def test_collector_rejects_gimbal_frame_before_recorder_writes_step(tmp_path: Path) -> None:
+    from scripts import collect_sim_teacher_episodes as collector
+
+    recorder = EpisodeRecorder(tmp_path, "gimbal-rejected")
+    before = _valid_gimbal_recording_observation()
+    after = _valid_gimbal_recording_observation()
+    after["propeller_joint_state"]["timestamp_ns"] = 101
+
+    with pytest.raises(ValueError, match="propeller joint timestamp"):
+        collector._record_policy_step(
+            recorder,
+            before,
+            {},
+            camera_mount=CameraMount.gimbal(),
+            ack={},
+            outcome={},
+            obs_after=after,
+            labels={},
+        )
+
+    assert recorder.index == 0
+    assert not recorder.steps_path.exists()
+    assert list(recorder.rgb_dir.iterdir()) == []
+    assert list(recorder.depth_dir.iterdir()) == []
+
+
+def test_collector_records_fixed_camera_without_gimbal_sidecar(tmp_path: Path) -> None:
+    from scripts import collect_sim_teacher_episodes as collector
+    from multidetect.sim_teacher import ActionPrimitive
+
+    recorder = EpisodeRecorder(tmp_path, "fixed-camera")
+    observation = {
+        "rgb": b"fixed-camera-frame",
+        "depth": np.ones((1, 1), dtype=np.float32),
+        "frame_sensor_stamp_ns": 100,
+    }
+
+    assert collector._record_policy_step(
+        recorder,
+        observation,
+        ActionPrimitive.stop(),
+        camera_mount=CameraMount.fixed(),
+        ack={},
+        outcome={},
+        obs_after=observation,
+        labels={},
+    ) is False
+
+    rows = [json.loads(line) for line in recorder.steps_path.read_text().splitlines()]
+    assert len(rows) == 1
+    assert recorder.index == 1
+    assert rows[0]["obs_before"]["rgb_path"]
+    assert rows[0]["obs_before"]["depth_path"]
+
+
+def test_fixed_camera_observation_does_not_require_gimbal_contract() -> None:
+    sensor = SensorSample(
+        rgb=b"rgb",
+        width=1,
+        height=1,
+        depth=None,
+        camera_info={"width": 1, "height": 1},
+        pose={},
+        velocity=[0.0, 0.0, 0.0],
+        sensor_stamp_ns=100,
+        received_monotonic_ns=100,
+        received_wall_time=1.0,
+    )
+    result = build_observation(sensor, _mavlink(), camera_mount=CameraMount.fixed())
+    assert result["gimbal_joint_state"]["source"] == "fixed_mount"
+    assert result["propeller_joint_state"]["source"] == "unavailable"
+
+
+def test_airframe_matrix_keeps_fixed_camera_optional_and_gimbal_explicit() -> None:
+    fixed = json.loads((ROOT / "configs/airframes/x500_mono_cam.json").read_text())
+    gimbal = json.loads((ROOT / "configs/airframes/x500_gimbal.json").read_text())
+    assert "camera_mount" not in fixed
+    assert fixed["camera"]["mount"] == "downward"
+    assert gimbal["camera_mount"]["axes"] == ["roll", "pitch", "yaw"]
+    assert set(gimbal["camera_mount"]["limits"]) == {"roll", "pitch", "yaw"}
+
+
+def test_gimbal_model_publishes_three_axes_and_four_rotors() -> None:
+    sdf = ET.parse(ROOT / "simulation/gazebo/model-overlays/x500_gimbal_seg/model.sdf").getroot()
+    publisher = next(
+        plugin for plugin in sdf.findall(".//plugin")
+        if plugin.get("filename") == "gz-sim-joint-state-publisher-system"
+    )
+    names = [node.text for node in publisher.findall("joint_name")]
+    assert names == [
+        "rotor_0_joint",
+        "rotor_1_joint",
+        "rotor_2_joint",
+        "rotor_3_joint",
+        "cgo3_vertical_arm_joint",
+        "cgo3_horizontal_arm_joint",
+        "cgo3_camera_joint",
+    ]
+    gimbal_sdf = ET.parse(ROOT / "simulation/gazebo/source-assets/x500_gimbal/gimbal_model.sdf").getroot()
+    commands = {
+        plugin.findtext("joint_name"): plugin.findtext("sub_topic")
+        for plugin in gimbal_sdf.findall(".//plugin")
+        if plugin.get("filename") == "gz-sim-joint-position-controller-system"
+    }
+    assert commands == {
+        "cgo3_horizontal_arm_joint": "command/gimbal_roll",
+        "cgo3_camera_joint": "command/gimbal_pitch",
+        "cgo3_vertical_arm_joint": "command/gimbal_yaw",
+    }
+
+
+def test_controlled_joint_input_produces_explainable_three_axis_state_delta() -> None:
+    def sample(pitch: float, yaw: float, roll: float) -> dict[str, object]:
+        joints = {
+            f"rotor_{index}_joint": {"position_rad": float(index), "velocity_rad_s": 10.0}
+            for index in range(4)
+        }
+        joints.update(
+            {
+                "cgo3_camera_joint": {"position_rad": pitch, "velocity_rad_s": 0.2},
+                "cgo3_vertical_arm_joint": {"position_rad": yaw, "velocity_rad_s": 0.3},
+                "cgo3_horizontal_arm_joint": {"position_rad": roll, "velocity_rad_s": 0.4},
+            }
+        )
+        return {"stamp_ns": 100, "joints": joints}
+
+    before = _frame_joint_state(sample(0.0, 0.0, 0.0), 100, require_complete=True)
+    after = _frame_joint_state(sample(0.2, -0.3, 0.1), 100, require_complete=True)
+    assert before is not None and after is not None
+    assert {
+        axis: after["gimbal_joint_state"]["position_rad"][axis]
+        - before["gimbal_joint_state"]["position_rad"][axis]
+        for axis in ("pitch", "yaw", "roll")
+    } == {"pitch": 0.2, "yaw": -0.3, "roll": 0.1}
 
 
 def test_esc_rpm_is_used_for_spin_but_actuator_output_is_not() -> None:

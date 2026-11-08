@@ -1553,6 +1553,41 @@ def test_count_dedupe_widens_with_the_position_uncertainty_of_both_estimates():
     assert count_twice(0.3, 0.3) == 2
 
 
+def test_count_dedupe_allows_small_calibration_margin_for_fused_estimates():
+    from multidetect.autonomy.onboard_loop import AppearanceSignature
+
+    hydrant = AppearanceSignature(size_range=0.02, aspect_ratio=0.5, footprint_m=0.8)
+    loop = _loop(stop_on_confirm=False)
+    (first,) = _observe(loop, 0, {_box(400, 700, 13): (39.167, -20.818)})
+    first.appearance = hydrant
+    loop._count_confirmation(
+        first,
+        {
+            "track_id": first.track_id,
+            "position_estimate_ne": [39.167, -20.818],
+            "position_sigma_m": 1.233,
+        },
+        (0.0, 0.0, -8.0),
+        0.0,
+        {},
+    )
+    (second,) = _observe(loop, 90, {_box(900, 300, 13): (37.936, -19.307)})
+    second.appearance = hydrant
+    _, info = loop._count_confirmation(
+        second,
+        {
+            "track_id": second.track_id,
+            "position_estimate_ne": [37.936, -19.307],
+            "position_sigma_m": 1.229,
+        },
+        (0.0, 0.0, -8.0),
+        0.0,
+        {},
+    )
+    assert info["duplicate_of_counted"] == second.track_id
+    assert len(loop.confirmations) == 1
+
+
 def test_count_does_not_approach_a_new_track_id_on_a_counted_object() -> None:
     # SITL 2026-10-20: each frame re-detected a counted cone under a new id; every
     # one was approached, confirmed and de-duplicated in turn until the budget ran out.

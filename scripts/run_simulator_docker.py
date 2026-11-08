@@ -55,7 +55,7 @@ PX4_DAEMON_MODE_ENV = "MULTIDETECT_PX4_DAEMON"
 
 def resolve_px4_logger_mode(value: str | None = None) -> str:
     """Resolve and validate the logger setting used by every simulator plan."""
-    mode = os.environ.get(PX4_LOGGER_MODE_ENV, "default") if value is None else value
+    mode = os.environ.get(PX4_LOGGER_MODE_ENV, "off") if value is None else value
     mode = str(mode).strip().lower()
     if mode not in {"default", "off"}:
         raise DockerSimulatorPlanError(f"{PX4_LOGGER_MODE_ENV} must be default or off")
@@ -419,7 +419,7 @@ class DockerSimulatorPlan:
                 "airframe_profile_id": self.airframe_profile_id,
             },
             "environment": dict(self.environment),
-            "px4_logger_mode": dict(self.environment).get(PX4_LOGGER_MODE_ENV, "default"),
+            "px4_logger_mode": dict(self.environment).get(PX4_LOGGER_MODE_ENV, "off"),
             "px4_daemon_mode": dict(self.environment).get(PX4_DAEMON_MODE_ENV, "1") == "1",
             "gpu_render": self.gpu_render,
             "gpu_device": self.gpu_device,
