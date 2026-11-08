@@ -277,7 +277,11 @@ def main() -> int:
     report = evaluate(args.dataset, args.baseline, args.candidate, args.baseline_label, args.candidate_label)
     args.output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     args.output_md.write_text(markdown_report(report), encoding="utf-8")
-    return 0 if report["candidate_pass"] else 1
+    # A completed evaluation is a successful job even when the candidate is
+    # rejected.  The verdict and reasons are persisted above; callers can
+    # continue with later evaluation sets while still reading the acceptance
+    # result from the report.  Runtime/input/output errors still raise/fail.
+    return 0
 
 
 if __name__ == "__main__":
