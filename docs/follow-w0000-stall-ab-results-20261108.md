@@ -1,5 +1,7 @@
 # gen_mov_w0000 停滞复现 A/B 结果（2026-11-08）
 
+后续[只读时序复核](clock-stall-lifetime-attribution-20261108.md)更正：旧五次失败并非位置消息一直不恢复；watchdog 后存在恢复，且静默窗口覆盖全部原始 MAVLink。恢复阶段的 Gazebo/IMU 采样不能证明此前全程健康。以下保留本次 A/B 的实测结果，旧故障的解释以复核报告为准。
+
 ## 结论
 
 本次 moving-target 与 stationary-target episode 都以 collector `complete` 结束，MAVLink 位置时钟在各自记录内连续前进，没有重现 45 秒停滞。但两组都在 `area_search` 用尽 step budget，随后返航；mission summary 将 `follow` 记为未完成/未知。因此该配对说明本次没有复现早先的 `clock_stalled_alive`，不能说明两分钟跟踪任务成功，也不能凭一对 clean run 排除间歇性停滞。
@@ -22,7 +24,7 @@ RTF 按 `LOCAL_POSITION_NED.time_boot_ms` 首末进展除以接收 monotonic spa
 | A/B moving | `episode-0000-9389323f` | 2 / 86–95 | 0.1999 | 0.790 s | 32.34 / 44.79% | 0.12 / 21.04% | 0 / 3.67% |
 | A/B stationary | `episode-0000-30b927c6` | 2 / 86–95 | 0.2458 | 0.704 s | 19.88 / 37.44% | 0.40 / 12.72% | 0 / 3.82% |
 
-旧失败的 CPU PSI 区间覆盖了 clean A/B 两边；其中几次停滞发生在 CPU PSI 中位约 19–26% 的窗口。反过来，moving clean 的 CPU PSI 中位数高于其中几次失败记录。因此这些 host load 值不能作为可靠停滞分类阈值。旧五次中每次 PX4 位置消息最后进展后都没有下一条位置消息，episode 的 watcher/capture 记录约 45 秒无进展；这与 A/B clean 记录里最高不到 0.8 秒的相邻消息间隔相异。
+旧失败的 CPU PSI 区间覆盖了 clean A/B 两边；其中几次停滞发生在 CPU PSI 中位约 19–26% 的窗口。反过来，moving clean 的 CPU PSI 中位数高于其中几次失败记录。因此这些 host load 值不能作为可靠停滞分类阈值。旧五次均触发约 45 秒无进展 watchdog，但随后确有下一条位置消息，相邻位置接收空窗为 50.102–58.525 秒；全部原始 MAVLink 接收也有 50.100–58.521 秒空窗。这与 A/B clean 记录里最高不到 0.8 秒的位置消息间隔相异，不能将事后恢复解释为此前没有故障。
 
 ## 帧等待时间线与任务阶段
 
