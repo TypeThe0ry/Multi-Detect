@@ -57,3 +57,13 @@
 - main 合并、push 与 PR #1 转正式须由主任务在最终基线和发布审查通过后执行。本子任务没有执行这些动作。
 - 发布审查发现 6 个 CAD 派生 STL，已存在远程 `wt/cx-delta-fw`，本轮未新增、未删除、未改写历史；精确 blob 对照在项目父目录 `runs/delta-publish-asset-audit-20261108.json`。传播到 main 前仍须核对公开范围。
 - 真机保护与未实测项见 [真机前检查清单](delta-real-flight-precheck-20261108.md)。`FD_FAIL_P=60°`、`FD_FAIL_R=70°`、0.3 s 持续时间以及 `CBRK_FLIGHTTERM=121212` 已从本轮固定版实例实读；真机仍须重新导出和验证。
+
+## 2026-11-09：630918 transport候选复验及证据边界
+
+另一次独立复验使用冻结 `6f05947031df137904010fba8f691824c59b6811` 和不可变镜像 `sha256:630918d335967a9ac130cde821080e7b45193bc1a876d10f9508d657ece2bcb0`。固定 `fa0527b2`、云台 `1d83eda7` 各一个原始episode、无retry，collector均0/complete。独立从原始帧/depth、steps、MAVLink重算原评价器，固定15项/云台16项required fields及各8项严格字段全部true，重算与原判定差异为空；未改阈值或原输出。
+
+这一通过范围须保留：`rtl_success`仅代表进入RTL；最终落地距起飞原点分别48.611m/24.607m，末条HEARTBEAT仍armed=true，没有精准回家落地或自动disarm证据。logger明确off；fixed的普通短时重定位参考量仍为false，不能与已通过的严格FW环形重定位混用。只有fixed留存独立docker inspect，云台依据同一冻结launcher和不可变镜像launch事件，不声称两份独立inspect齐全。
+
+原始资料在项目父目录 `runs/delta-transport-recheck-20261109/output/`；独立复算目录 `runs/delta-transport-independent-audit-20261109/` 的 `audit.json` SHA256为 `f0bf3a8665059fa883b1de289e18d9af0f12dd9feadeae26846ee4ffefe86621`。原 `run-manifest.json` 中残留的中间overall=false/active_child_pid没有被修饰，最终authority为acceptance、collector原终态与原Invocation journal。
+
+[真机前清单的630范围补充](delta-real-flight-precheck-20261108.md#scope-630918-20261109)列明组件版本、旧445实例参数实读与当前候选未重新实读的区别，以及签名、实装标定、三角翼空中重启和自动disarm的未验收项。两次6f/630 smoke不能直接写成最终8c整套源码、原21×2或真机保护已通过；main/push/PR放行仍由最终真实门禁决定。
