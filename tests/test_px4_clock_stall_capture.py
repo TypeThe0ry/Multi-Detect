@@ -1,26 +1,35 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import struct
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import scripts.procfs_futex_owner as futex_owner
+import scripts.px4_clock_stall_capture as stall_capture
 from scripts.px4_clock_stall_capture import (
     GDB_STDERR_LIMIT_CHARS,
     GDB_STDOUT_LIMIT_CHARS,
     _capture_gz_gdb,
     _capture_px4_gdb,
     _gdb_blocks,
-    _parse_world_stats,
     _parse_gz_topic_info,
     _parse_transport_sockets,
+    _parse_world_stats,
     _read_host_threads,
     _run,
     analyze_capture,
     capture_stall,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_futex_proof_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(stall_capture.FUTEX_PROOF_ENV, raising=False)
 
 
 def _thread(
@@ -199,7 +208,7 @@ def test_host_proc_thread_reader_parses_fake_proc_tree_and_stat_comm_delimiter(
         (task.parent.parent / "cmdline").write_bytes(
             b"/opt/px4-gazebo/bin/px4 -i 0\0" if pid == 101 else b"gz sim -r\0"
         )
-        stat_fields = [state, *(["0"] * 10), "123", "45"]
+        stat_fields = [state, *(["0"] * 10), "123", "45", *(["0"] * 6), str(9000 + tid)]
         (task / "stat").write_text(f"{tid} ({comm}) " + " ".join(stat_fields))
         (task / "comm").write_text("wq:rate_ctrl")
         (task / "wchan").write_text("futex_wait")
@@ -230,6 +239,9 @@ def test_host_proc_thread_reader_parses_fake_proc_tree_and_stat_comm_delimiter(
     assert result["threads"]["px4"][0]["state"] == "S"
     assert result["threads"]["px4"][0]["utime_ticks"] == 123
     assert result["threads"]["px4"][0]["stime_ticks"] == 45
+    assert result["threads"]["px4"][0]["starttime_ticks"] == 9101
+    assert result["threads"]["px4"][1]["starttime_ticks"] == 9102
+    assert result["threads"]["gz"][0]["starttime_ticks"] == 9202
     assert result["threads"]["px4"][0]["read_wall_time"] >= result["sample_wall_time"]
 
 
@@ -740,3 +752,269 @@ def test_sensor_progress_unknown_when_listener_has_no_timestamp() -> None:
     result = analyze_capture({"samples": samples})
     assert result["imu_progress"]["advanced"] == "unknown"
     assert result["camera_progress"]["advanced"] == "unknown"
+
+
+def _owner_sample() -> dict:
+    main = _thread(group="gz", pid=202, tid=202)
+    main.update(starttime_ticks=9202)
+    return {"process_threads": {"collection_path": "host_proc", "threads": {"gz": [main]}}}
+
+
+def test_host_sample_to_real_observer_roundtrip_uses_only_fake_proc_files(tmp_path) -> None:
+    proc_root = tmp_path / "fake-proc"
+    process = proc_root / "202"
+    process.mkdir(parents=True)
+    stat_fields = ["S", *(["0"] * 18), "9202"]
+    (process / "stat").write_text("202 (fake) " + " ".join(stat_fields))
+    (process / "cmdline").write_bytes(b"gz sim --fixture-only\0")
+    elf = bytearray(64)
+    elf[:6], elf[18:20] = b"\x7fELF\x02\x01", (62).to_bytes(2, "little")
+    (process / "exe").write_bytes(elf)
+    library = process / "root/usr/lib/libc.so.6"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(elf)
+    (process / "maps").write_text(
+        "1000-2000 rw-p 0000 00:00 0\n3000-4000 r-xp 0000 00:00 0 /usr/lib/libc.so.6\n"
+    )
+    memory = bytearray(0x1000 + 20)
+    memory[0x1000:] = struct.pack("<iIiIi", 2, 2, 8, 1, 1)
+    (process / "mem").write_bytes(memory)
+    for tid, namespace_tid in ((202, 7), (203, 8)):
+        task = process / "task" / str(tid)
+        task.mkdir(parents=True)
+        (task / "stat").write_text(f"{tid} (fake) " + " ".join(stat_fields))
+        (task / "comm").write_text("fixture-only")
+        (task / "wchan").write_text("futex_do_wait")
+        (task / "schedstat").write_text("0 0 0")
+        (task / "status").write_text(
+            f"Tgid:\t202\nPid:\t{tid}\nNSpid:\t{tid}\t{namespace_tid}\nState:\tS (sleeping)\n"
+        )
+        (task / "syscall").write_text(
+            "202 0x1000 0x80 0x2 0x0 0x0 0x0 0x0 0x0" if tid == 202 else "running"
+        )
+    source = _read_host_threads(
+        "fake-docker",
+        "fake-container",
+        proc_root=proc_root,
+        runner=lambda *a, **k: SimpleNamespace(
+            returncode=0, stdout="PID COMMAND\n202 gz sim --fixture-only\n", stderr=""
+        ),
+    )
+    proof = {
+        "architecture": "x86_64",
+        "endian": "little",
+        "sizeof_mutex": 40,
+        "alignof_mutex": 8,
+        "offsets": futex_owner.OFFSETS,
+        "recursive_kind": 1,
+        "verification": "owned-pthread-child-raw-owner-roundtrip",
+        "libc_sha256": hashlib.sha256(elf).hexdigest(),
+        "proof_id": "synthetic-only",
+    }
+    path = tmp_path / "proof.json"
+    path.write_text(json.dumps(proof))
+    config, proofs = stall_capture._futex_owner_configuration(path)
+    sample = {"process_threads": source}
+    stall_capture._add_futex_owner_observation(sample, config, proofs, proc_root=proc_root)
+    result = sample["procfs_futex_owner_candidate"]
+    assert result["status"] == "stable_recursive_mutex_candidate"
+    observed = result["observation"]
+    assert observed["counters"] == {"process_memory_reads": 2, "process_memory_bytes": 40}
+    candidate = observed["processes"][0]["mutex_owner_candidate"]
+    assert candidate["owner_host_lwp_candidate"] == 203
+    assert candidate["owner_namespace_tid_candidate"] == 8
+    assert candidate["node_shared_mutex_verified"] is False
+    assert candidate["deadlock_cycle_proven"] is False
+
+
+def test_futex_proof_opt_in_argument_precedes_environment_and_binds_exact_bytes(
+    tmp_path, monkeypatch
+) -> None:
+    proof_path = tmp_path / "layout.json"
+    raw = b'{"libc_sha256": "' + b"a" * 64 + b'", "proof_id": "reviewed"}\n'
+    proof_path.write_bytes(raw)
+    monkeypatch.setenv(stall_capture.FUTEX_PROOF_ENV, str(tmp_path / "missing.json"))
+    config, proofs = stall_capture._futex_owner_configuration(proof_path)
+    assert config["status"] == "configured"
+    assert config["source"] == "argument"
+    assert config["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert config["hash_scope"] == "full_file"
+    assert config["read_bytes"] == len(raw)
+    assert proofs == [json.loads(raw)]
+    assert stall_capture._futex_owner_configuration(None)[0]["status"] == "observation_error"
+    assert stall_capture._futex_owner_configuration("")[0]["status"] == "disabled"
+    monkeypatch.setenv(stall_capture.FUTEX_PROOF_ENV, str(proof_path))
+    assert (
+        stall_capture._futex_owner_configuration(None)[0]["source"] == stall_capture.FUTEX_PROOF_ENV
+    )
+
+
+@pytest.mark.parametrize("payload", [b"not json", b"[]", b"{}", b"x" * (64 * 1024 + 1)])
+def test_bad_futex_proof_is_observation_error_without_calling_observer(
+    tmp_path, monkeypatch, payload
+) -> None:
+    path = tmp_path / "proof.json"
+    path.write_bytes(payload)
+    config, proofs = stall_capture._futex_owner_configuration(path)
+    assert config["status"] == "observation_error" and not proofs
+    calls = []
+    monkeypatch.setattr(
+        futex_owner, "observe_known_tasks", lambda *a, **k: calls.append((a, k))
+    )
+    sample = _owner_sample()
+    stall_capture._add_futex_owner_observation(sample, config, proofs, proc_root=tmp_path)
+    assert sample["procfs_futex_owner_candidate"]["status"] == "observation_error"
+    assert calls == []
+    if len(payload) > 64 * 1024:
+        assert config["hash_scope"] == "bounded_prefix"
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    ["fallback", "two_pids", "duplicate_main", "missing_start", "bool_start", "unknown_command"],
+)
+def test_futex_owner_requires_one_identified_host_gz_main(tmp_path, monkeypatch, invalid) -> None:
+    sample = _owner_sample()
+    source = sample["process_threads"]
+    main = source["threads"]["gz"][0]
+    if invalid == "fallback":
+        source["collection_path"] = "in_container_fallback"
+    elif invalid == "two_pids":
+        source["threads"]["gz"].append({**main, "pid": 203, "tid": 203})
+    elif invalid == "duplicate_main":
+        source["threads"]["gz"].append(dict(main))
+    elif invalid == "missing_start":
+        main.pop("starttime_ticks")
+    elif invalid == "bool_start":
+        main["starttime_ticks"] = True
+    else:
+        main["process_cmdline"] = "gz simulator-unknown"
+    calls = []
+    monkeypatch.setattr(
+        futex_owner, "observe_known_tasks", lambda *a, **k: calls.append((a, k))
+    )
+    stall_capture._add_futex_owner_observation(
+        sample, {"status": "configured"}, [{}], proc_root=tmp_path
+    )
+    assert sample["procfs_futex_owner_candidate"]["status"] == "observation_error"
+    assert calls == []
+
+
+@pytest.mark.parametrize("outcome", ["denied", "unsupported"])
+def test_futex_owner_errors_remain_explicit_observation_data(
+    tmp_path, monkeypatch, outcome
+) -> None:
+    sample = _owner_sample()
+
+    def observe(*args, **kwargs):
+        if outcome == "denied":
+            raise PermissionError("fixture denied")
+        return {
+            "processes": [
+                {
+                    "host_pid": 202,
+                    "errors": [],
+                    "mutex_owner_candidate": {
+                        "status": "observation_error",
+                        "error": "unsupported libc SHA",
+                        "candidate_only": True,
+                    },
+                }
+            ],
+            "errors": [],
+            "counters": {"process_memory_bytes": 0},
+        }
+
+    monkeypatch.setattr(futex_owner, "observe_known_tasks", observe)
+    stall_capture._add_futex_owner_observation(
+        sample, {"status": "configured"}, [{}], proc_root=tmp_path
+    )
+    assert sample["procfs_futex_owner_candidate"]["status"] == "observation_error"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_capture_owner_observation_once_before_first_gdb_preserves_budget_and_order(
+    tmp_path, monkeypatch, enabled
+) -> None:
+    events = []
+    proof_path = tmp_path / "proof.json"
+    proof_path.write_text(json.dumps({"libc_sha256": "a" * 64}))
+    if enabled:
+        monkeypatch.setenv(stall_capture.FUTEX_PROOF_ENV, str(proof_path))
+
+    def sample(*args, **kwargs):
+        assert kwargs["collect_gz_topics"] is False
+        events.append("procfs:" + kwargs["label"])
+        return {**_owner_sample(), "label": kwargs["label"]}
+
+    def observe(known, proofs, **kwargs):
+        assert enabled, "default must not call owner observer"
+        assert kwargs == {"candidate_pid": 202, "proc_root": tmp_path / "fake-proc"}
+        assert known["process_threads"]["threads"]["gz"][0]["starttime_ticks"] == 9202
+        assert proofs == [{"libc_sha256": "a" * 64}]
+        events.append("owner")
+        return {
+            "errors": [],
+            "processes": [
+                {
+                    "host_pid": 202,
+                    "errors": [],
+                    "mutex_owner_candidate": {
+                        "status": "stable_recursive_mutex_candidate",
+                        "candidate_only": True,
+                        "node_shared_mutex_verified": False,
+                        "deadlock_cycle_proven": False,
+                    },
+                }
+            ],
+        }
+
+    def gdb(group):
+        def capture(document, **kwargs):
+            assert kwargs["timeout_s"] == 7.5
+            events.append(group + ":" + kwargs["snapshot_label"])
+
+        return capture
+
+    monkeypatch.setattr(stall_capture, "_sample", sample)
+    monkeypatch.setattr(futex_owner, "observe_known_tasks", observe)
+    monkeypatch.setattr(stall_capture, "_capture_px4_gdb", gdb("px4"))
+    monkeypatch.setattr(stall_capture, "_capture_gz_gdb", gdb("gz"))
+    monkeypatch.setattr(
+        stall_capture,
+        "_collect_gz_topic_probes",
+        lambda s, *a, **k: events.append("topics:" + s["label"]),
+    )
+    document = capture_stall(
+        "fake",
+        tmp_path,
+        proc_root=tmp_path / "fake-proc",
+        sleep=lambda seconds: events.append(f"sleep:{seconds}"),
+    )
+    assert events == (
+        ["procfs:deadline"]
+        + (["owner"] if enabled else [])
+        + [
+            "px4:before_delay",
+            "gz:before_delay",
+            "topics:deadline",
+            "sleep:3.0",
+            "procfs:after_3s",
+            "px4:after_delay",
+            "gz:after_delay",
+            "topics:after_3s",
+        ]
+    )
+    assert document["capture_budget"]["gdb_total_timeout_s"] == 30.0
+    assert len(document["samples"]) == 2
+    assert "procfs_futex_owner_candidate" not in document["samples"][1]
+    if enabled:
+        first = document["samples"][0]["procfs_futex_owner_candidate"]
+        assert first["status"] == "stable_recursive_mutex_candidate"
+        assert first["proof"]["sha256"] == hashlib.sha256(proof_path.read_bytes()).hexdigest()
+        assert (
+            first["observation"]["processes"][0]["mutex_owner_candidate"]["deadlock_cycle_proven"]
+            is False
+        )
+    else:
+        assert "procfs_futex_owner_candidate" not in document["samples"][0]

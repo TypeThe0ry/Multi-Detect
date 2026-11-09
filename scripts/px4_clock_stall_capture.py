@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -22,6 +23,8 @@ CLOCK_TOPIC = "/world/default/clock"
 WORLD_STATS_TOPIC = "/world/default/stats"
 GDB_STDOUT_LIMIT_CHARS = 1024 * 1024
 GDB_STDERR_LIMIT_CHARS = 64 * 1024
+FUTEX_PROOF_ENV = "MD_PX4_STALL_FUTEX_LAYOUT_PROOF"
+FUTEX_PROOF_MAX_BYTES = 64 * 1024
 
 
 def _retain_output(value: str, limit: int, *, head_tail: bool) -> tuple[str, dict[str, Any]]:
@@ -421,6 +424,7 @@ def _read_host_threads(
                 tid = int(task_dir.name)
                 utime = int(rest[11])
                 stime = int(rest[12])
+                starttime_ticks = int(rest[19]) if len(rest) > 19 else None
                 name = (task_dir / "comm").read_text(encoding="utf-8", errors="replace").strip() or "?"
                 wchan = (task_dir / "wchan").read_text(encoding="utf-8", errors="replace").strip() or "?"
                 sched_fields = (task_dir / "schedstat").read_text(
@@ -447,6 +451,8 @@ def _read_host_threads(
                     "wchan": wchan,
                     "utime_ticks": utime,
                     "stime_ticks": stime,
+                    # stat field 22, read with this task's original identity.
+                    "starttime_ticks": starttime_ticks,
                     "cpu_time_ticks": utime + stime,
                     "cpu_time_s": round((utime + stime) / max(1, HZ), 6),
                     "on_cpu_ns": on_cpu_ns,
@@ -665,6 +671,103 @@ def _collect_gz_topic_probes(
     )
 
 
+def _futex_owner_configuration(
+    explicit_path: str | Path | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Load only an explicit diagnostic proof, never a workstation default."""
+    source = "argument" if explicit_path is not None else FUTEX_PROOF_ENV
+    configured = explicit_path if explicit_path is not None else os.environ.get(FUTEX_PROOF_ENV)
+    if not configured:
+        return {"status": "disabled", "source": source, "reason": "no layout proof configured"}, []
+    config: dict[str, Any] = {
+        "status": "observation_error",
+        "source": source,
+        "path": str(configured),
+    }
+    try:
+        path = Path(configured).expanduser()
+        if not path.is_file():
+            raise ValueError("layout proof is not a regular file")
+        with path.open("rb") as stream:
+            data = stream.read(FUTEX_PROOF_MAX_BYTES + 1)
+        config.update(
+            {
+                "read_bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "hash_scope": "full_file"
+                if len(data) <= FUTEX_PROOF_MAX_BYTES
+                else "bounded_prefix",
+            }
+        )
+        if len(data) > FUTEX_PROOF_MAX_BYTES:
+            raise ValueError("layout proof exceeds 64KiB; hash covers bounded prefix only")
+        proof = json.loads(data)
+        if not isinstance(proof, dict):
+            raise ValueError("layout proof must be one JSON object")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(proof.get("libc_sha256", ""))):
+            raise ValueError("layout proof has no exact libc SHA256")
+        config.update({"status": "configured", "libc_sha256": proof["libc_sha256"]})
+        return config, [proof]
+    except BaseException as error:
+        config["error"] = f"{type(error).__name__}: {error}"
+        return config, []
+
+
+def _add_futex_owner_observation(
+    sample: dict[str, Any],
+    config: dict[str, Any],
+    proofs: list[dict[str, Any]],
+    *,
+    proc_root: str | Path,
+) -> None:
+    """One opt-in observation before GDB; uncertainty never changes the mission."""
+    if config["status"] == "disabled":
+        return
+    row: dict[str, Any] = {"status": "observation_error", "candidate_only": True, "proof": config}
+    sample["procfs_futex_owner_candidate"] = row
+    try:
+        if config["status"] != "configured":
+            raise ValueError(config.get("error", "layout proof unavailable"))
+        source = sample.get("process_threads") or {}
+        if source.get("collection_path") != "host_proc":
+            raise ValueError("owner observation requires identified host-proc tasks")
+        tasks = (source.get("threads") or {}).get("gz") or []
+        pids = {task.get("pid") for task in tasks}
+        mains = [task for task in tasks if task.get("pid") == task.get("tid")]
+        if len(pids) != 1 or len(mains) != 1:
+            raise ValueError("Gazebo main PID is missing or ambiguous")
+        main = mains[0]
+        pid = main.get("pid")
+        if (
+            type(pid) is not int
+            or pid <= 0
+            or type(main.get("starttime_ticks")) is not int
+            or main["starttime_ticks"] <= 0
+            or not re.match(r"^gz sim(?:\s|$)", str(main.get("process_cmdline", "")))
+        ):
+            raise ValueError("Gazebo main lacks a valid identified command/starttime")
+        # With exactly one identified GZ PID this is also the subsequent GDB PID.
+        from scripts.procfs_futex_owner import observe_known_tasks
+
+        row["candidate_pid"] = pid
+        observation = observe_known_tasks(sample, proofs, candidate_pid=pid, proc_root=proc_root)
+        row["observation"] = observation
+        processes = observation.get("processes") or []
+        selected = [process for process in processes if process.get("host_pid") == pid]
+        candidate = selected[0].get("mutex_owner_candidate") if len(selected) == 1 else None
+        if (
+            observation.get("errors")
+            or any(process.get("errors") for process in processes)
+            or not candidate
+        ):
+            row["error"] = "owner observer reported errors or no candidate; inspect raw observation"
+        else:
+            # Preserve unsupported/changed/error states; never label them pass.
+            row["status"] = candidate.get("status", "observation_error")
+    except BaseException as error:
+        row["error"] = f"{type(error).__name__}: {error}"
+
+
 def capture_stall(
     container: str,
     episode_dir: str | Path,
@@ -680,6 +783,7 @@ def capture_stall(
     reason: str = "PX4 simulation clock stalled",
     gdb_path: str = "/usr/bin/gdb",
     gdb_timeout_s: float = 30.0,
+    futex_layout_proof_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Capture two samples and persist them; every failure becomes data."""
     document: dict[str, Any] = {
@@ -706,6 +810,10 @@ def capture_stall(
         },
         "samples": [],
     }
+    owner_config, owner_proofs = _futex_owner_configuration(futex_layout_proof_path)
+    document["futex_owner_configuration"] = owner_config
+    if owner_config["status"] != "disabled":
+        document["capture_budget"]["ordering"].insert(1, "optional_procfs_futex_owner_candidate")
     try:
         first_sample = _sample(
             docker,
@@ -718,6 +826,7 @@ def capture_stall(
             collect_gz_topics=False,
         )
         document["samples"].append(first_sample)
+        _add_futex_owner_observation(first_sample, owner_config, owner_proofs, proc_root=proc_root)
         # Split the existing gdb time budget across PX4 and Gazebo snapshots.
         gdb_output_path = Path(episode_dir) / "px4-clock-stall-gdb.txt"
         gdb_enabled = gdb_output_path.parent.is_dir()
