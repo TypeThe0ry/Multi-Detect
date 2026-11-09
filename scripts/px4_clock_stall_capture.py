@@ -20,6 +20,36 @@ DEFAULT_DELAY_S = 3.0
 HZ = 100
 CLOCK_TOPIC = "/world/default/clock"
 WORLD_STATS_TOPIC = "/world/default/stats"
+GDB_STDOUT_LIMIT_CHARS = 1024 * 1024
+GDB_STDERR_LIMIT_CHARS = 64 * 1024
+
+
+def _retain_output(value: str, limit: int, *, head_tail: bool) -> tuple[str, dict[str, Any]]:
+    """Bound stored text; GDB keeps both endpoint threads if truncation is needed.
+
+    Limits count decoded characters, as did the original command-output limits.
+    This bounds persisted evidence, not subprocess.run's transient capture buffer.
+    """
+    original_chars = len(value)
+    truncated = original_chars > limit
+    retained_chars = min(original_chars, limit)
+    if truncated and head_tail:
+        marker = "\n[... output truncated: middle omitted; see retention metadata ...]\n"
+        retained_chars = limit - len(marker)
+        head_chars = (retained_chars + 1) // 2
+        tail_chars = retained_chars // 2
+        value = value[:head_chars] + marker + value[-tail_chars:]
+    elif truncated:
+        value = value[-limit:]
+    return value, {
+        "original_chars": original_chars,
+        "retained_chars": retained_chars,
+        "omitted_chars": original_chars - retained_chars,
+        "stored_chars": len(value),
+        "limit_chars": limit,
+        "truncated": truncated,
+        "mode": "head_tail" if head_tail else "tail",
+    }
 
 
 def _run(
@@ -28,6 +58,9 @@ def _run(
     timeout_s: float,
     runner: Callable[..., Any] | None = None,
     input_text: str | None = None,
+    stdout_limit_chars: int = 20000,
+    stderr_limit_chars: int = 4000,
+    retain_head_tail: bool = False,
 ) -> dict[str, Any]:
     runner = subprocess.run if runner is None else runner
     row: dict[str, Any] = {"command": command, "timeout_s": timeout_s}
@@ -43,17 +76,19 @@ def _run(
         row.update(
             {
                 "returncode": int(getattr(result, "returncode", 1)),
-                "stdout": (getattr(result, "stdout", "") or "")[-20000:],
-                "stderr": (getattr(result, "stderr", "") or "")[-4000:],
                 "timed_out": int(getattr(result, "returncode", 1)) == 124,
             }
         )
+        for name, limit in (("stdout", stdout_limit_chars), ("stderr", stderr_limit_chars)):
+            row[name], row[f"{name}_retention"] = _retain_output(
+                getattr(result, name, "") or "", limit, head_tail=retain_head_tail
+            )
     except BaseException as error:
         row["error"] = f"{type(error).__name__}: {error}"
         row["timed_out"] = isinstance(error, subprocess.TimeoutExpired)
         for name, fallback_name, limit in (
-            ("stdout", "output", 20000),
-            ("stderr", "stderr_output", 4000),
+            ("stdout", "output", stdout_limit_chars),
+            ("stderr", "stderr_output", stderr_limit_chars),
         ):
             value = getattr(error, name, None)
             if not value:
@@ -61,7 +96,9 @@ def _run(
             if value:
                 if isinstance(value, bytes):
                     value = value.decode("utf-8", errors="replace")
-                row[name] = str(value)[-limit:]
+                row[name], row[f"{name}_retention"] = _retain_output(
+                    str(value), limit, head_tail=retain_head_tail
+                )
     return row
 
 
@@ -900,7 +937,12 @@ def _capture_process_gdb(
             "-ex", "set pagination off",
             "-ex", "thread apply all bt 16",
         ]
-        result = _run(command, timeout_s=timeout_s, runner=runner)
+        result = _run(
+            command, timeout_s=timeout_s, runner=runner,
+            stdout_limit_chars=GDB_STDOUT_LIMIT_CHARS,
+            stderr_limit_chars=GDB_STDERR_LIMIT_CHARS,
+            retain_head_tail=True,
+        )
         content = str(result.get("stdout", ""))
         stderr = str(result.get("stderr", ""))
         snapshot.update({
@@ -909,8 +951,15 @@ def _capture_process_gdb(
             "returncode": result.get("returncode"),
             "timed_out": bool(result.get("timed_out")),
             "error": result.get("error"),
+            "stdout_retention": result.get("stdout_retention"),
+            "stderr_retention": result.get("stderr_retention"),
         })
         content += ("\n" if content and stderr else "") + stderr
+        content = (
+            "=== Output retention "
+            + json.dumps({name: snapshot[name] for name in ("stdout_retention", "stderr_retention")})
+            + " ===\n" + content
+        )
     prefix = f"=== GDB {snapshot_label} ===\n"
     mode = "a" if append else "w"
     with output_path.open(mode, encoding="utf-8") as stream:

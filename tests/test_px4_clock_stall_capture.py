@@ -8,11 +8,16 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.px4_clock_stall_capture import (
+    GDB_STDERR_LIMIT_CHARS,
+    GDB_STDOUT_LIMIT_CHARS,
+    _capture_gz_gdb,
     _capture_px4_gdb,
+    _gdb_blocks,
     _parse_world_stats,
     _parse_gz_topic_info,
     _parse_transport_sockets,
     _read_host_threads,
+    _run,
     analyze_capture,
     capture_stall,
 )
@@ -457,6 +462,106 @@ def test_gdb_timeout_keeps_partial_output_and_records_failure(tmp_path: Path) ->
 
     assert document["gdb"]["status"] == "timeout"
     assert "partial backtrace" in output.read_text()
+
+
+@pytest.fixture
+def large_thread_backtrace() -> str:
+    # A 129-thread Gazebo capture exceeded the old 20k tail, losing the owner.
+    return "".join(
+        f"Thread {index} (LWP {1000 + index}):\n"
+        f"#0 {'mutex_owner' if index == 129 else 'waiter'}_{index} "
+        + "frame_detail " * 30 + "\n"
+        for index in range(129, 0, -1)
+    )
+
+
+@pytest.mark.parametrize("group,capture", [("px4", _capture_px4_gdb), ("gz", _capture_gz_gdb)])
+def test_gdb_keeps_every_thread_above_old_tail_limit(
+    tmp_path: Path, large_thread_backtrace: str, group: str, capture
+) -> None:
+    assert 20000 < len(large_thread_backtrace) < GDB_STDOUT_LIMIT_CHARS
+    document = {"samples": [{"process_threads": {
+        "collection_path": "host_proc", "host_pids": [321],
+        "threads": {group: [_thread(group=group, pid=321, tid=321)]},
+    }}]}
+    executable = tmp_path / "fake-gdb"
+    executable.touch()
+    output = tmp_path / "gdb.txt"
+
+    def runner(command, **kwargs):
+        assert kwargs["timeout"] == 7.5
+        return SimpleNamespace(returncode=0, stdout=large_thread_backtrace, stderr="warning")
+
+    capture(document, output_path=output, gdb_path=str(executable), timeout_s=7.5, runner=runner)
+    key = "gdb" if group == "px4" else "gz_gdb"
+    snapshot = document[key]["snapshots"][0]
+    assert document[key]["status"] == "ok"
+    assert snapshot["stdout_retention"]["original_chars"] == len(large_thread_backtrace)
+    assert snapshot["stdout_retention"]["truncated"] is False
+    saved = output.read_text()
+    assert large_thread_backtrace in saved
+    assert "mutex_owner_129" in saved and "waiter_1 " in saved
+    assert '"truncated": false' in saved
+    # Retention headers must not become spurious GDB snapshot delimiters.
+    blocks = _gdb_blocks({"gdb": {"output_path": str(output)}})
+    assert [label for label, _ in blocks] == ["snapshot"]
+    assert large_thread_backtrace in blocks[0][1]
+
+
+@pytest.mark.parametrize("outcome", ["success", "timeout_exception", "timeout_returncode"])
+def test_gdb_oversize_output_has_bounded_endpoints_and_exact_truncation(
+    tmp_path: Path, outcome: str
+) -> None:
+    stdout = "Thread 999 mutex_owner FIRST\n" + "x" * GDB_STDOUT_LIMIT_CHARS + "\nThread 1 LAST"
+    stderr = "FIRST_WARNING\n" + "w" * GDB_STDERR_LIMIT_CHARS + "\nLAST_WARNING"
+    document = {"samples": [{"process_threads": {
+        "collection_path": "host_proc", "host_pids": [321],
+        "threads": {"px4": [_thread(pid=321, tid=321)]},
+    }}]}
+    executable = tmp_path / "fake-gdb"
+    executable.touch()
+    output = tmp_path / "gdb.txt"
+
+    def runner(command, **kwargs):
+        if outcome == "timeout_exception":
+            # subprocess.TimeoutExpired can expose bytes even with text=True.
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=stdout.encode(), stderr=stderr.encode())
+        return SimpleNamespace(returncode=124 if outcome == "timeout_returncode" else 0, stdout=stdout, stderr=stderr)
+
+    _capture_px4_gdb(document, output_path=output, gdb_path=str(executable), timeout_s=7.5, runner=runner)
+    snapshot = document["gdb"]["snapshots"][0]
+    assert snapshot["status"] == ("ok" if outcome == "success" else "timeout")
+    saved = output.read_text()
+    for name, value, limit, first, last in (
+        ("stdout", stdout, GDB_STDOUT_LIMIT_CHARS, "Thread 999 mutex_owner FIRST", "Thread 1 LAST"),
+        ("stderr", stderr, GDB_STDERR_LIMIT_CHARS, "FIRST_WARNING", "LAST_WARNING"),
+    ):
+        retention = snapshot[f"{name}_retention"]
+        assert retention["original_chars"] == len(value)
+        assert retention["stored_chars"] == retention["limit_chars"] == limit
+        assert retention["truncated"] is True
+        assert retention["mode"] == "head_tail"
+        assert retention["omitted_chars"] == len(value) - retention["retained_chars"] > 0
+        assert first in saved and last in saved
+    assert saved.count("[... output truncated: middle omitted;") == 2
+    assert '"truncated": true' in saved
+
+
+@pytest.mark.parametrize("timed_out", [False, True])
+def test_non_gdb_command_keeps_original_default_tail_limits(timed_out: bool) -> None:
+    stdout, stderr = "FIRST" + "x" * 25000, "FIRST" + "w" * 5000
+
+    def runner(command, **kwargs):
+        if timed_out:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=stdout, stderr=stderr)
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+
+    row = _run(["fake-topic-probe"], timeout_s=5, runner=runner)
+    assert row["stdout"] == stdout[-20000:]
+    assert row["stderr"] == stderr[-4000:]
+    assert row["stdout_retention"]["mode"] == "tail"
+    assert row["stdout_retention"]["original_chars"] == len(stdout)
+    assert row["timed_out"] is timed_out
 
 
 def test_capture_records_timeout_as_unknown_and_persists_to_fallback(tmp_path: Path) -> None:
