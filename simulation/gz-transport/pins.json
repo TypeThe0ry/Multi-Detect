@@ -1,0 +1,27 @@
+{
+  "upstream_repository": "https://github.com/gazebosim/gz-transport.git",
+  "upstream_commit": "7232d0b163b08f79dd390ad9913d6ea72efaf209",
+  "frozen_fix_commit": "09266eb0eb381d090b9fa7f784636ef6eb0335a3",
+  "patched_source_tree": "077fa3ca3dbafae34ad92d42669593c52c05d78a",
+  "patch": "patches/recv-message-boundaries-13.5.0.patch",
+  "patch_sha256": "5ccf19125b46baf8857b38a07713358eef892c5425ac2572eb9b3fa4839bf6ef",
+  "patched_files": {
+    "src/NodeShared.cc": "b0c1d90e418c496faeec130349d92c5c2d0d610462ac9c67f39048fd68c873a7",
+    "src/NodeSharedPrivate.hh": "530b08739b5027222b9ea5929ca0a826dc727dca9cb9dadacf6245a11f50def7"
+  },
+  "toolchain_image_id": "sha256:90c9627f3810dad72a73d40ba462e9c044d1c5e59b12b819a759da6b59e47d60",
+  "runtime_base_image_id": "sha256:b5c576ce15b8a75935313bc3e8dc4cf9940778226b28e835064d7581c3fe72c6",
+  "runtime_base_tag": "multidetect/px4-sitl-gazebo:lockstep-lifetime-r1",
+  "px4_sha256": "9c2280e005ad426f01cdffddf2114e1e4b13e26aa9f5996c4b52cdfa9e722d99",
+  "px4_patch_sha256": "43bfe32d5d7572b866b3d411c2394d941b6bcc8e19ace5bdd6e230845cdf0559",
+  "reference_library_sha256": "2b6de4e791e5d71ffe0560c486a91d4ed7bb6a5f63431d91ec781b85f431cbf6",
+  "validated_library_sha256": "aff44fe0ab4e1452c78b65e97c76a3f99f9d132777e96840666186f3d8cc82fe",
+  "build_type": "RelWithDebInfo",
+  "build_generator": "Ninja",
+  "version": "13.5.0",
+  "validation_assets": {
+    "framing_matrix.cc": "3d7e6a74083546f786a77a5c386e16d0c26c9856c0093fd51fc44d136dad9760",
+    "normal_pair.cc": "8a393fb62253c951cb37151d9764c848937a0b5e471681b397f1711ba0b90b2b",
+    "recv_fault.cc": "904436e24349a1875f3d70c9ab7c7091901c1a91e8e98ac409ed84e88e5d17fc"
+  }
+}
