@@ -37,7 +37,10 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(ROOT / "src"))
 
-from multidetect.autonomy.airframe_profile import AirframeProfile  # noqa: E402
+from multidetect.autonomy.airframe_profile import (  # noqa: E402
+    AirframeProfile,
+    airframe_uses_multirotor_executor,
+)
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.gimbal_controller import Px4GimbalController  # noqa: E402
@@ -5596,6 +5599,9 @@ def run_episode(
         _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=initial_reason)
         return recorder.episode_dir
     airframe_profile = _airframe_profile(plan.airframe, plan.takeoff_method)
+    use_multirotor_executor = airframe_uses_multirotor_executor(
+        airframe_profile or plan.airframe, plan.takeoff_method, base_dir=ROOT
+    )
     camera_mount = (
         airframe_profile.camera_mount.to_camera_mount()
         if airframe_profile is not None and airframe_profile.camera_mount is not None
@@ -6142,7 +6148,7 @@ def run_episode(
             vehicle = telemetry_connection
             primitive_sim_clock = _SimClock(mav_reader)
             start_pos = _state_position(mav_reader.state)
-            if plan.airframe == "x500_mono_cam":
+            if use_multirotor_executor:
                 setpoint_streamer = SetpointStreamer(vehicle, rate_hz=20.0)
                 setpoint_streamer.set_target(
                     start_pos[0], start_pos[1], -altitude_m, _state_yaw(mav_reader.state)
@@ -6157,6 +6163,9 @@ def run_episode(
                     speed_mps=lambda: _state_speed(mav_reader.state),
                     criterion=None,
                     streamer=setpoint_streamer,
+                    airframe_profile=airframe_profile,
+                    telemetry_reader=mav_reader,
+                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
                     # Time primitives on PX4's lockstep clock: on a loaded host the
                     # simulation ran at 0.22x real time and a third of the 15 m legs
                     # hit the 20 s wall-clock timeout before settling.
@@ -6176,9 +6185,9 @@ def run_episode(
             )
             recorder.meta["prearm_health"] = prearm_health
             recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
-            if plan.airframe == "x500_mono_cam":
-                # This is the original x500 sequence. Keep it byte-for-byte
-                # equivalent: setpoints -> arm -> OFFBOARD -> climb.
+            if use_multirotor_executor:
+                # All multirotors use the original x500 lifecycle:
+                # setpoints -> arm -> OFFBOARD -> climb.
                 arm_ack = _arm(
                     telemetry_connection,
                     mav_reader,
@@ -7377,7 +7386,7 @@ def run_episode(
             # make a fixed wall-clock wait expire before PX4 reaches the ground.
             mav_reader.raise_if_failed()
             _progress("land")
-            if plan.airframe != "x500_mono_cam":
+            if not use_multirotor_executor:
                 rtl_started_ns = time.monotonic_ns()
                 executor.rtl()
                 # Confirm PX4 is really in AUTO.RTL before anything else is sent:
@@ -7416,7 +7425,7 @@ def run_episode(
             # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
             if strict_delta_smoke and _delta_native_rtl_requested():
                 land_result = _wait_native_rtl_landing(mav_reader)
-            elif plan.airframe == "x500_mono_cam":
+            elif use_multirotor_executor:
                 land_result = _land_and_wait(
                     executor,
                     mav_reader,

@@ -95,7 +95,7 @@ def test_collector_airframe_ids_share_one_resolution(
         assert profile is not None and profile.id == expected_profile
     category = airframe_profile_category(airframe, takeoff, base_dir=ROOT)
     assert category == expected_branch
-    expected_multirotor_branch = airframe in {"x500_mono_cam", "x500_gimbal"}
+    expected_multirotor_branch = expected_branch == "multirotor"
     assert airframe_uses_multirotor_executor(airframe, takeoff, base_dir=ROOT) == (
         expected_multirotor_branch
     )
@@ -235,3 +235,38 @@ def test_unknown_parameter_must_be_marked_unverified() -> None:
         AirframeProfile.from_mapping(raw)
     raw["takeoff"]["parameters"]["unknown"]["unverified"] = True
     assert AirframeProfile.from_mapping(raw).takeoff.parameters["unknown"].unverified
+
+
+def test_executor_category_does_not_depend_on_registered_model_id():
+    from dataclasses import replace
+    profile = resolve_airframe_profile("x500_gimbal", base_dir=ROOT)
+    assert profile is not None
+    renamed = replace(profile, id="inspection_hexacopter")
+    assert airframe_uses_multirotor_executor(renamed)
+    vtol = resolve_airframe_profile("standard_vtol", base_dir=ROOT)
+    assert vtol is not None and vtol.can_hover
+    assert not airframe_uses_multirotor_executor(vtol)
+
+
+@pytest.mark.parametrize(
+    ('airframe', 'expected_multirotor'),
+    [
+        ('x500_mono_cam', True),
+        ('x500_gimbal', True),
+        ('rc_cessna_runway', False),
+        ('standard_vtol_mono_cam', False),
+        ('quadtailsitter_mono_cam', False),
+        ('delta_tailsitter_mono_cam', False),
+        ('delta_tailsitter_gimbal_cam', False),
+        ('tiltrotor_mono_cam', False),
+    ],
+)
+def test_collector_loaded_profiles_select_executor_family(airframe, expected_multirotor):
+    profile = _airframe_profile(airframe)
+    assert airframe_uses_multirotor_executor(profile or airframe, base_dir=ROOT) is expected_multirotor
+
+
+def test_multirotor_is_still_rejected_by_fixed_wing_executor():
+    from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
+    with pytest.raises(ValueError, match='fixed-wing or VTOL'):
+        FixedWingVtolExecutor(None, airframe='x500_gimbal')

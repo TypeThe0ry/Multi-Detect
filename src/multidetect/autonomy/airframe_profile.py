@@ -1000,12 +1000,12 @@ def airframe_uses_multirotor_executor(
     *,
     base_dir: str | Path | None = None,
 ) -> bool:
-    """Return the collector's historical multirotor executor selection."""
-    if isinstance(value, AirframeProfile):
-        return value.id in {"x500_mono_cam", "x500_gimbal"}
-    normalized = "" if value is None else str(value).strip().lower().replace("-", "_")
-    profile = resolve_airframe_profile(value, takeoff_method, base_dir=base_dir)
-    return normalized == "x500_mono_cam" or bool(profile and profile.id == "x500_gimbal")
+    """Choose the hover executor by declared aircraft category, not model id.
+
+    VTOL can hover too, but requires its own transition/landing lifecycle.
+    """
+    return airframe_profile_category(value, takeoff_method, base_dir=base_dir) == "multirotor"
+
 
 
 def save_airframe_profile(profile: AirframeProfile, path: str | Path) -> None:
