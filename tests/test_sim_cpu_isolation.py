@@ -175,7 +175,7 @@ def test_cpu_flags_coexist_with_gpu_network_and_hash_bound_plan(tmp_path, monkey
     if network == "host" and not sys.platform.startswith("linux"):
         pytest.skip("host networking is Linux-only")
     kwargs = dict(
-        job_dir=tmp_path, gpu_render=True, gpu_device=2, sim_network=network, sim_instance=2
+        job_dir=tmp_path, gpu_render=True, gpu_device=0, sim_network=network, sim_instance=2
     )
     baseline = build_docker_simulator_plan(SCENARIO, **kwargs)
     _auto(monkeypatch)

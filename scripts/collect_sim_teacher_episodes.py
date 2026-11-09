@@ -774,9 +774,16 @@ class CollectionPlan:
 def freeze_collection_runtime(plan: CollectionPlan) -> CollectionPlan:
     if plan.attach_container or plan.image != DEFAULT_GPU_IMAGE:
         return plan
+    enabled, device, devices = _resolve_gpu_selection(
+        gpu_render=plan.gpu_render, gpu_device=plan.gpu_device,
+        gpu_devices=plan.gpu_devices, worker_index=plan.worker_index,
+    )
+    if not enabled:
+        raise ValueError("Qualified GPU runtime cannot launch after GPU rendering was disabled")
     receipt = verify_gpu_runtime_image(plan.image, docker=_docker_executable(plan))
     return replace(plan, image=receipt["image_id"], requested_image=plan.image,
-                   runtime_image_verification=receipt)
+                   runtime_image_verification=receipt, gpu_render=True,
+                   gpu_device=device, gpu_devices=devices)
 
 
 def _scenario_channels(scenario_path: Path) -> tuple[Path, Path]:

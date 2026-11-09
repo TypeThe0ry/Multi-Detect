@@ -17,17 +17,17 @@ def test_gpu_render_plan_adds_nvidia_egl_and_ogre2_options(tmp_path: Path) -> No
         repository_root=ROOT,
         job_dir=tmp_path / "gpu",
         gpu_render=True,
-        gpu_device=2,
+        gpu_device=0,
     )
     assert plan.gpu_render is True
-    assert plan.gpu_device == "2"
+    assert plan.gpu_device == "0"
     assert plan.command[plan.command.index("--gpus") : plan.command.index("--gpus") + 2] == (
         "--gpus",
-        "device=2",
+        "device=0",
     )
     environment = dict(plan.environment)
     assert environment["NVIDIA_DRIVER_CAPABILITIES"] == "graphics,utility,compute"
-    assert environment["NVIDIA_VISIBLE_DEVICES"] == "2"
+    assert environment["NVIDIA_VISIBLE_DEVICES"] == "0"
     assert environment["EGL_PLATFORM"] == "surfaceless"
     assert environment["GZ_SIM_RENDER_ENGINE"] == "ogre2"
     assert environment["GZ_SIM_HEADLESS_RENDERING"] == "1"
@@ -71,12 +71,12 @@ def test_gpu_worker_round_robin_skips_default_avoid_list(tmp_path: Path) -> None
         gpu_render=True,
         worker_index=2,
     )
-    assert (first.gpu_device, second.gpu_device, third.gpu_device) == ("1", "2", "1")
+    assert (first.gpu_device, second.gpu_device, third.gpu_device) == ("0", "1", "0")
 
 
 def test_gpu_env_pool_round_robins_four_worker_slots(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("MULTIDETECT_SIM_GPU", "1")
-    monkeypatch.setenv("MULTIDETECT_SIM_GPU_DEVICES", "1,2")
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU_DEVICES", "0,1")
     plans = [
         build_docker_simulator_plan(
             SCENARIO,
@@ -87,13 +87,13 @@ def test_gpu_env_pool_round_robins_four_worker_slots(tmp_path: Path, monkeypatch
         )
         for worker in range(4)
     ]
-    assert [plan.gpu_device for plan in plans] == ["1", "2", "1", "2"]
+    assert [plan.gpu_device for plan in plans] == ["0", "1", "0", "1"]
 
 
 def test_gpu_render_env_can_enable_and_explicit_false_disables(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setenv("MULTIDETECT_SIM_GPU", "2")
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU", "1")
     enabled = build_docker_simulator_plan(
         SCENARIO, repository_root=ROOT, job_dir=tmp_path / "enabled"
     )
@@ -103,7 +103,7 @@ def test_gpu_render_env_can_enable_and_explicit_false_disables(
         job_dir=tmp_path / "disabled",
         gpu_render=False,
     )
-    assert enabled.gpu_render is True and enabled.gpu_device == "2"
+    assert enabled.gpu_render is True and enabled.gpu_device == "1"
     assert "--gpus" not in disabled.command
     assert disabled.gpu_render is False and disabled.gpu_device is None
 
@@ -113,6 +113,11 @@ def test_check_main_uses_mocked_subprocess_and_gpu_command(tmp_path: Path, monke
 
     def fake_run(command, **kwargs):
         calls.append(list(command))
+        if command[1:3] == ["image", "inspect"]:
+            import json
+            from multidetect.simulator.runtime_image import load_contract
+            c = load_contract()
+            return SimpleNamespace(returncode=0, stdout=json.dumps([{'Id': 'sha256:'+'7'*64, 'RootFS': c['rootfs'], 'Config': c['config'], **c['platform']}]), stderr='')
         if command[1:3] == ["inspect", "--format"]:
             return SimpleNamespace(returncode=0, stdout="true", stderr="")
         if command[1] == "exec" and any("eglinfo" in token for token in command):

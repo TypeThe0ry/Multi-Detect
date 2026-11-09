@@ -48,8 +48,8 @@ CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"
 CONTAINER_IMAGE_MODEL_ROOT = "/opt/px4-gazebo/share/gz/models"
 CONTAINER_IMAGE_WORLD_ROOT = CONTAINER_WORLD_ROOT
 CONTAINER_SCRIPT_ROOT = "/workspace/scripts"
-DEFAULT_GPU_DEVICES = ("1", "2")
-DEFAULT_GPU_AVOID = ("0", "3")
+DEFAULT_GPU_DEVICES = ("0", "1")
+DEFAULT_GPU_AVOID = ("2", "3")
 NVIDIA_EGL_VENDOR_FILE = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 PX4_LOGGER_MODE_ENV = "MULTIDETECT_PX4_LOGGER_MODE"
@@ -280,6 +280,11 @@ def _resolve_gpu_selection(
     )
     if not configured:
         raise DockerSimulatorPlanError("gpu_devices must contain at least one GPU")
+    if enabled and (
+        any(device not in {"0", "1"} for device in configured)
+        or (explicit_device is not None and explicit_device not in {"0", "1"})
+    ):
+        raise DockerSimulatorPlanError("Workstation SITL permits only GPU0/1; GPU2/3 and other devices are forbidden")
     if explicit_device is None:
         candidates = tuple(device for device in configured if device not in avoid)
         if not candidates:

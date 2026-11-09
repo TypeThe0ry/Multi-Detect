@@ -165,3 +165,32 @@ def test_teacher_resolved_plan_rechecks_content_before_accepting_receipt(tmp_pat
     monkeypatch.setattr(runtime, 'verify_gpu_runtime_image', deny)
     with pytest.raises(ValueError, match='actual content mismatch'):
         replace(session, docker_plan=frozen)
+
+
+@pytest.mark.parametrize('device', ['2', '3'])
+@pytest.mark.parametrize('source', ['api-device', 'env-device', 'api-pool', 'env-pool'])
+def test_forbidden_gpus_cannot_be_reenabled_by_explicit_options(device, source, tmp_path, monkeypatch):
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU_AVOID', '')
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU_DEVICES', '0,1')
+    monkeypatch.delenv('MULTIDETECT_SIM_GPU', raising=False)
+    options = {'gpu_render': True}
+    if source == 'api-device': options['gpu_device'] = device
+    elif source == 'env-device': monkeypatch.setenv('MULTIDETECT_SIM_GPU', device);monkeypatch.delenv('MULTIDETECT_SIM_GPU_DEVICES')
+    elif source == 'api-pool': options['gpu_devices'] = ('0', device)
+    else: monkeypatch.setenv('MULTIDETECT_SIM_GPU_DEVICES', '0,'+device)
+    with pytest.raises(planner.DockerSimulatorPlanError, match='GPU0/1'):
+        planner.build_docker_simulator_plan(SCENARIO, job_dir=tmp_path, **options)
+
+
+def test_qualified_collector_freezes_gpu_selection_and_refuses_mode_change(tmp_path, monkeypatch):
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU', '1')
+    monkeypatch.delenv('MULTIDETECT_SIM_IMAGE', raising=False)
+    plan = collector.CollectionPlan(str(SCENARIO), 'runtime', 'truth', 'explore', 1, 1, 0, str(tmp_path))
+    receipt = runtime.verify_gpu_runtime_image(runner=fake_runner(inspected(), []))
+    monkeypatch.setattr(collector, 'verify_gpu_runtime_image', lambda *a, **kw: receipt)
+    frozen = collector.freeze_collection_runtime(plan)
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU', '0')
+    assert frozen.gpu_render is True and frozen.gpu_device == '0'
+    assert '--gpus' in collector.docker_command(frozen)
+    with pytest.raises(ValueError, match='rendering was disabled'):
+        collector.freeze_collection_runtime(plan)

@@ -11,6 +11,13 @@ The GPU default is resolved only after actual GPU/device selection. Explicit
 API/CLI image, then `MULTIDETECT_SIM_IMAGE`, override that default. Original
 `PINNED_IMAGE` remains bcf as the asset-source contract. CPU still uses bcf:
 **CPU defaults have not received these repairs or this flight qualification.**
+The default worker pool is GPU0/1 with GPU2/3 avoided. API device/pool and
+GPU-enabling environment selectors cannot re-enable GPU2/3 or other devices;
+invalid selections fail before Docker inspection/launch. The qualified collector
+also freezes its resolved GPU mode/device/pool with the image ID. If an ambient
+GPU mode changes to CPU before this boundary, it rejects the incompatible plan
+instead of silently running an unvalidated CPU path.
+
 Real-aircraft serial/parameter paths and the active r21id-r3/r24/pregate config are
 unchanged. Explicit old image overrides remain available for A/B and do not
 acquire candidate qualification.

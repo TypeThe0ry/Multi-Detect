@@ -248,11 +248,11 @@ def test_host_network_gpu_render_plan_keeps_both_runtime_controls(
         sim_network="host",
         sim_instance=1,
         gpu_render=True,
-        gpu_device=2,
+        gpu_device=0,
     )
     assert plan.command[plan.command.index("--gpus") : plan.command.index("--gpus") + 2] == (
         "--gpus",
-        "device=2",
+        "device=0",
     )
     assert plan.command[plan.command.index("--network") : plan.command.index("--network") + 2] == (
         "--network",
@@ -261,7 +261,7 @@ def test_host_network_gpu_render_plan_keeps_both_runtime_controls(
     assert "--publish" not in plan.command
     assert "--add-host" not in plan.command
     environment = dict(plan.environment)
-    assert environment["NVIDIA_VISIBLE_DEVICES"] == "2"
+    assert environment["NVIDIA_VISIBLE_DEVICES"] == "0"
     assert environment["EGL_PLATFORM"] == "surfaceless"
     assert environment["PX4_SIM_HOST"] == "127.0.0.1"
     assert environment["GZ_PARTITION"] == "r15-worker-1"
