@@ -21,11 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 V1_PINS = {
     "scripts/onboard_teacher_sim_operator.py": (
         26803,
-        "683b293be805306b7392519b922e78890c0baf3120d8451aa8c0fbe9e19539f8",
+        "9efc0b72125e413755ef9ec022c470be73355044de697271c002889a32fc064d",
     ),
     "tests/test_onboard_teacher_sim_operator.py": (
         23498,
-        "7ae72c133f9da1dda53896e529fd7fbc60662f8559c55c39e3abc1752daa65c4",
+        "b7ef2a0e15a296fb17d734af4fc690ce93d5619e3c715a74870018b03c4fd28b",
     ),
 }
 

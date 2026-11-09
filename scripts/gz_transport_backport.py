@@ -7,6 +7,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -162,13 +163,31 @@ def check_base(output: Path, pins: dict, cpuset: str | None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["prepare", "build", "validate"])
-    parser.add_argument("--source", required=True, type=Path, help="Read-only local Git cache containing the pinned upstream commit")
+    parser.add_argument("mode", choices=["prepare", "build", "validate", "verify-runtime"])
+    parser.add_argument("--source", type=Path, help="Read-only local Git cache containing the pinned upstream commit")
     parser.add_argument("--output", required=True, type=Path, help="Fresh directory under /data; never reused")
+    parser.add_argument("--image", help="Existing imported/rebuilt runtime reference to verify; never pulls or tags")
     parser.add_argument("--library", type=Path, help="Validated Release SO (required for validate, optional staging input for prepare)")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--cpuset", help="Optional CPU set; workstation example: 56,62")
     args = parser.parse_args(argv)
+    if args.mode == "verify-runtime":
+        sys.path.insert(0, str(ROOT / "src"))
+        from multidetect.simulator.runtime_image import verify_gpu_runtime_image
+        from multidetect.simulator.px4_image import DEFAULT_GPU_IMAGE
+        output = new_output(args.output)
+        try:
+            receipt = verify_gpu_runtime_image(args.image or DEFAULT_GPU_IMAGE)
+        except (OSError, ValueError) as exc:
+            receipt = {"status": "failed", "error": str(exc), "image_reference": args.image or DEFAULT_GPU_IMAGE}
+            write_json(output / "runtime-verification.json", receipt)
+            print(json.dumps(receipt, indent=2))
+            return 2
+        write_json(output / "runtime-verification.json", receipt)
+        print(json.dumps(receipt, indent=2))
+        return 0
+    if args.source is None:
+        parser.error("--source is required for prepare/build/validate")
     if not 1 <= args.jobs <= 8:
         parser.error("--jobs must be 1..8")
     if args.mode == "validate" and args.library is None:

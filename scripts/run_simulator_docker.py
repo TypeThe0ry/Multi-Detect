@@ -18,7 +18,7 @@ import re
 import shlex
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -32,7 +32,8 @@ from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_net
 from multidetect.simulation import load_runtime_scenario
 from multidetect.simulator.cpu import SimulatorCpuIsolation, resolve_cpu_isolation
 from multidetect.simulator.delta_tailsitter import select_visual_mesh
-from multidetect.simulator.px4_image import PINNED_IMAGE, resolve_runtime_image
+from multidetect.simulator.px4_image import DEFAULT_GPU_IMAGE, PINNED_IMAGE, resolve_runtime_image
+from multidetect.simulator.runtime_image import verify_gpu_runtime_image
 from multidetect.simulator.stack import (
     SimulatorStackError,
     SimulatorStackPorts,
@@ -351,6 +352,8 @@ class DockerSimulatorPlan:
     custom_airframe_sha256: str = ""
     staged_model_sdf: Path | None = None
     staged_model_sha256: str = ""
+    requested_image: str | None = None
+    runtime_image_verification: dict | None = None
 
     @property
     def command_text(self) -> str:
@@ -427,6 +430,9 @@ class DockerSimulatorPlan:
             "environment": dict(self.environment),
             "px4_logger_mode": dict(self.environment).get(PX4_LOGGER_MODE_ENV, "off"),
             "px4_daemon_mode": dict(self.environment).get(PX4_DAEMON_MODE_ENV, "1") == "1",
+            "requested_image": self.requested_image or self.image,
+            "image_identity_status": "content_verified" if self.runtime_image_verification else "planned_reference",
+            "runtime_image_verification": self.runtime_image_verification,
             "gpu_render": self.gpu_render,
             "gpu_device": self.gpu_device,
             "gpu_devices": list(self.gpu_devices),
@@ -538,6 +544,23 @@ class DockerSimulatorPlan:
         )
         temporary.replace(target)
         return target
+
+
+def freeze_runtime_plan(plan: DockerSimulatorPlan, *, docker: str | None = None, runner=None) -> DockerSimulatorPlan:
+    """Launch boundary: validate the default's content and eliminate tag races.
+
+    Pure build_docker_simulator_plan stays offline. Every repository execution
+    seam calls this before docker run. Explicit A/B overrides remain explicit.
+    """
+    if plan.image != DEFAULT_GPU_IMAGE:
+        return plan
+    receipt = verify_gpu_runtime_image(plan.image, docker=docker or plan.docker_executable or "docker", runner=runner)
+    command = list(plan.command)
+    if command.count(plan.image) != 1:
+        raise DockerSimulatorPlanError("Runtime image is ambiguous in Docker argv")
+    command[command.index(plan.image)] = receipt["image_id"]
+    return replace(plan, image=receipt["image_id"], command=tuple(command),
+                   requested_image=plan.image, runtime_image_verification=receipt)
 
 
 def _is_pinned_image(image: str) -> bool:

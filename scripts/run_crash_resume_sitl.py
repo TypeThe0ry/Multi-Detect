@@ -212,6 +212,8 @@ def run_case(name: str, args) -> dict[str, Any]:
     try:
         if subprocess.run([docker, "container", "inspect", container], capture_output=True).returncode == 0:
             raise RuntimeError(f"refusing pre-existing container {container}")
+        from scripts.run_simulator_docker import freeze_runtime_plan
+        plan = freeze_runtime_plan(plan, docker=docker)
         subprocess.run([docker, *plan.command[1:]], check=True, capture_output=True, text=True)
         container_claimed = True
         if not wait_for(lambda: subprocess.run([docker, "inspect", "-f", "{{.State.Running}}", container], capture_output=True, text=True).stdout.strip() == "true", args.startup_timeout):

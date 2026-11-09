@@ -144,6 +144,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     container = plan.container_name
     started = False
     try:
+        from scripts.run_simulator_docker import freeze_runtime_plan
+        plan = freeze_runtime_plan(plan)
         launch = subprocess.run(plan.command, capture_output=True, text=True, check=False, timeout=30)
         if launch.returncode != 0:
             raise RuntimeError((launch.stderr or launch.stdout or "Docker launch failed").strip())

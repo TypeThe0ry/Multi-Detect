@@ -2286,6 +2286,9 @@ def run_acceptance(
                     raise DockerSimulatorAcceptanceError(
                         f"container already exists: {container_name}"
                     )
+                from scripts.run_simulator_docker import freeze_runtime_plan
+                plan = freeze_runtime_plan(plan, docker=docker_executable,
+                    runner=lambda argv, **kw: _run(docker_executable, argv[1:], timeout_s=kw["timeout"], runner=runner))
                 container_claimed = True
                 image_check = _run(
                     docker_executable,

@@ -57,6 +57,10 @@ def test_gpu_check_cli_uses_resolver_without_any_real_run(tmp_path, monkeypatch,
     calls = []
     def fake(command, **kwargs):
         calls.append(list(command))
+        if command[1:3] == ['image', 'inspect']:
+            from multidetect.simulator.runtime_image import load_contract
+            c = load_contract()
+            return SimpleNamespace(returncode=0, stdout=json.dumps([{'Id': ACTUAL_IMAGE, 'RootFS': c['rootfs'], 'Config': c['config'], **c['platform']}]), stderr='')
         if command[1:3] == ['inspect', '--format']:
             return SimpleNamespace(returncode=0, stdout='true', stderr='')
         if command[1] == 'exec' and any('eglinfo' in item for item in command):
@@ -68,7 +72,7 @@ def test_gpu_check_cli_uses_resolver_without_any_real_run(tmp_path, monkeypatch,
         args += ['--image', explicit]
     assert check.main(args) == 1  # fake stream has no frame; never claim flight PASS
     launch = next(c for c in calls if c[1:3] == ['run', '-d'])
-    assert (explicit or DEFAULT_GPU_IMAGE) in launch
+    assert (explicit or ACTUAL_IMAGE) in launch
 
 
 def test_teacher_session_accepts_only_qualified_gpu_runtime(tmp_path):

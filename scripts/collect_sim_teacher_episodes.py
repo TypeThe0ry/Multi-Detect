@@ -27,7 +27,7 @@ import types
 import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -95,7 +95,8 @@ from multidetect.simulator.fixed_wing_reposition import (  # noqa: E402
     DEFAULT_NAV_LOITER_RAD_M,
     reposition_ring_metrics,
 )
-from multidetect.simulator.px4_image import PINNED_IMAGE, resolve_runtime_image  # noqa: E402
+from multidetect.simulator.px4_image import DEFAULT_GPU_IMAGE, PINNED_IMAGE, resolve_runtime_image  # noqa: E402
+from multidetect.simulator.runtime_image import verify_gpu_runtime_image  # noqa: E402
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402
 from scripts.analyze_sensor_timeouts import build_failure_snapshot  # noqa: E402
@@ -733,6 +734,8 @@ class CollectionPlan:
     gpu_devices: tuple[str, ...] | None = None
     worker_index: int = 0
     operator_port: int = 14580
+    requested_image: str | None = None
+    runtime_image_verification: dict | None = None
 
     def __post_init__(self) -> None:
         # Bind the selected image before metadata, progress headers or Docker argv
@@ -749,6 +752,8 @@ class CollectionPlan:
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
+        result["requested_image"] = self.requested_image or self.image
+        result["image_identity_status"] = "content_verified" if self.runtime_image_verification else "planned_reference"
         altitude, source = _takeoff_altitude_for_plan(self)
         result["takeoff_altitude_m"] = altitude
         result["takeoff_altitude_source"] = source
@@ -764,6 +769,14 @@ class CollectionPlan:
         if cpu_isolation is not None:
             result["cpu_isolation"] = cpu_isolation.to_mapping()
         return result
+
+
+def freeze_collection_runtime(plan: CollectionPlan) -> CollectionPlan:
+    if plan.attach_container or plan.image != DEFAULT_GPU_IMAGE:
+        return plan
+    receipt = verify_gpu_runtime_image(plan.image, docker=_docker_executable(plan))
+    return replace(plan, image=receipt["image_id"], requested_image=plan.image,
+                   runtime_image_verification=receipt)
 
 
 def _scenario_channels(scenario_path: Path) -> tuple[Path, Path]:
@@ -1577,6 +1590,12 @@ class DockerSimEnvironment:
 
     def remember_px4_process(self) -> dict[str, Any]:
         snapshot = self._container_snapshot()
+        if self.plan.runtime_image_verification and not self.attached and (
+            snapshot.get("image") != self.runtime_image
+            or re.fullmatch(r"[0-9a-f]{64}", str(snapshot.get("container_id", ""))) is None
+            or (snapshot.get("state") or {}).get("running") is not True
+        ):
+            raise RuntimeError("Qualified runtime container identity is missing or changed")
         if self.attached and (
             snapshot.get("container_id") != self._attached_container_id
             or snapshot.get("image") != self.runtime_image
@@ -1586,8 +1605,9 @@ class DockerSimEnvironment:
             "container_name": self.name,
             "container_id": snapshot.get("container_id"),
             "image": self.runtime_image,
-            "requested_image": self.plan.image,
-            "image_identity_source": "container_inspect" if self.attached else "launch_plan",
+            "requested_image": self.plan.requested_image or self.plan.image,
+            "runtime_image_verification": self.plan.runtime_image_verification,
+            "image_identity_source": "container_inspect" if self.attached or self.plan.runtime_image_verification else "launch_plan",
             "px4_host_pids": snapshot.get("px4_host_pids", []),
         }
 
@@ -1639,6 +1659,9 @@ class DockerSimEnvironment:
         return self.stall_capture
 
     def __enter__(self) -> DockerSimEnvironment:
+        if not self.attached:
+            self.plan = freeze_collection_runtime(self.plan)
+            self.runtime_image = self.plan.image
         if self.attached:
             self.wait(self.plan.max_episode_s)
             snapshot = self._container_snapshot()
@@ -5645,6 +5668,7 @@ def run_episode(
     *,
     free_space_fn: Any = free_space_bytes,
 ) -> Path:
+    plan = freeze_collection_runtime(plan)
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
     initial_reason = disk_space_abort_reason(
         plan.out, plan.min_free_gb, free_space_fn=free_space_fn

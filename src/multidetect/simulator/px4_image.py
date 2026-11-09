@@ -10,11 +10,9 @@ PINNED_IMAGE = (
     "bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
 )
 
-# Local immutable image, promoted only after the project flight acceptance gates.
-# It inherits the GPU runtime and changes only /opt/px4-gazebo/bin/px4.
-DEFAULT_GPU_IMAGE = (
-    "sha256:b5c576ce15b8a75935313bc3e8dc4cf9940778226b28e835064d7581c3fe72c6"
-)
+# Versioned lookup reference, not a machine-specific Docker image/config ID.
+# Actual launch must verify the full rootfs/config contract and freeze its local ID.
+DEFAULT_GPU_IMAGE = "multidetect/px4-sitl-gazebo:transport-frame-09266eb0eb38"
 
 
 def resolve_runtime_image(image: str | None, *, gpu_render: bool) -> str:

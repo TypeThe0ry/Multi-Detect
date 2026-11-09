@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _V4 = ROOT / "scripts/onboard_teacher_gazebo_session_v4.py"
 _raw = _V4.read_bytes()
 if len(_raw) != 12186 or hashlib.sha256(_raw).hexdigest() != (
-    "035e10a9d4c7a6b0735671cd37ba86b181decab1e5bb36a25bf85dcf6d339300"
+    "dd696b9ba0ef905d2e2fd2b49986bdbe16c156380fab2543258201763ed8015d"
 ):
     raise RuntimeError("Frozen teacher session V4 differs")
 

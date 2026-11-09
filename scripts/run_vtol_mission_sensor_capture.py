@@ -2910,6 +2910,9 @@ def run_vtol_mission_sensor_capture(
                 raise VtolMissionSensorCaptureError(
                     f"container already exists; refusing replacement: {container_name}"
                 )
+            from scripts.run_simulator_docker import freeze_runtime_plan
+            plan = freeze_runtime_plan(plan, docker=docker_executable,
+                runner=lambda argv, **kw: _run(docker_executable, argv[1:], timeout_s=kw["timeout"], runner=command_runner))
             _run(
                 docker_executable,
                 ["image", "inspect", plan.image],

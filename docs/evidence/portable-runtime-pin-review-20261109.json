@@ -1,0 +1,58 @@
+{
+  "purpose": "Mechanical source pin update for verified launch; no guard or receipt relaxation",
+  "rows": [
+    {
+      "source": "scripts/onboard_teacher_gazebo_session.py",
+      "old_size": 31076,
+      "new_size": 32077,
+      "old_sha256": "80d6a00c817c1654d62d9d3ffb0ddd35ccdce9a4bc8c1e884ea924f947793b42",
+      "new_sha256": "52c42ef0629e107a5e25ba48445bfc19ff362c6c7d07aef83b3b3e80ae0d545e",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_gazebo_session_v3.py"
+      ]
+    },
+    {
+      "source": "scripts/onboard_teacher_gazebo_session_v3.py",
+      "old_size": 19604,
+      "new_size": 19604,
+      "old_sha256": "dcd88c2aa5391e99c7e3d7eddd3c13d0ce619a5fdc8a5bddc848496dc2413ded",
+      "new_sha256": "561bc62b8f9c8ab5a419c1fa63b6feb8ab5189692ff78991fa754a6f16bb88ae",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_gazebo_session_v4.py",
+        "tests/test_onboard_teacher_gazebo_session_v4.py"
+      ]
+    },
+    {
+      "source": "scripts/onboard_teacher_gazebo_session_v4.py",
+      "old_size": 12186,
+      "new_size": 12186,
+      "old_sha256": "035e10a9d4c7a6b0735671cd37ba86b181decab1e5bb36a25bf85dcf6d339300",
+      "new_sha256": "dd696b9ba0ef905d2e2fd2b49986bdbe16c156380fab2543258201763ed8015d",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_sim_operator.py",
+        "tests/test_onboard_teacher_sim_operator.py"
+      ]
+    },
+    {
+      "source": "scripts/onboard_teacher_sim_operator.py",
+      "old_size": 26803,
+      "new_size": 26803,
+      "old_sha256": "683b293be805306b7392519b922e78890c0baf3120d8451aa8c0fbe9e19539f8",
+      "new_sha256": "9efc0b72125e413755ef9ec022c470be73355044de697271c002889a32fc064d",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_sim_operator_v2.py"
+      ]
+    },
+    {
+      "source": "tests/test_onboard_teacher_sim_operator.py",
+      "old_size": 23498,
+      "new_size": 23498,
+      "old_sha256": "7ae72c133f9da1dda53896e529fd7fbc60662f8559c55c39e3abc1752daa65c4",
+      "new_sha256": "b7ef2a0e15a296fb17d734af4fc690ce93d5619e3c715a74870018b03c4fd28b",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_sim_operator_v2.py"
+      ]
+    }
+  ],
+  "flight_receipt": false
+}

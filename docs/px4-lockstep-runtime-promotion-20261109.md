@@ -1,3 +1,5 @@
+> 本文保留早期b5推广设计及证据。当前隔离候选的GPU运行引用与严格内容核验由 [portable-gpu-runtime-default-20261109.md](portable-gpu-runtime-default-20261109.md) 取代；不能据本文将b5或新候选提前推广。
+
 # PX4 lockstep GPU 默认运行镜像推广
 
 本变更只在隔离分支准备。合入前必须由维护者核对同一候选内容的 w0000 原始 10 次、21 任务各 2 次，以及三角翼 fixed/gimbal 两个严格门禁全部通过。组件测试或部分实景通过不授权提前推广。本次没有修改现役 env/main、运行快照、Docker 标签或已有作业。
