@@ -11,6 +11,7 @@ import random
 import re
 import shutil
 import sys
+import warnings
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -358,6 +359,19 @@ def obstacle_boxes(scene: dict, site: str, radius: float = 350.0, limit: int = 8
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
         if math.hypot(cx, cy) > radius:
             break
+        dimensions = (x1 - x0, y1 - y0, h)
+        if not all(math.isfinite(value) for value in (*dimensions, cx, cy)):
+            raise ValueError(f"{site}: non-finite auxiliary building bounds {i}")
+        # These are auxiliary AABBs, not the source building collision mesh.
+        # OSM includes zero-height footprints; DART rejects a zero-volume box.
+        # Check the serialized precision too, without inventing building height.
+        if any(round(value, 2) <= 0 for value in dimensions):
+            warnings.warn(
+                f"{site}: skipped non-volumetric auxiliary building bounds {i}: {dimensions}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            continue
         # An AABB can cover the clear courtyard of an L-shaped building.
         # Exact building collisions remain in the merged terrain; never seal
         # the launch pad with these auxiliary teacher bounds.
