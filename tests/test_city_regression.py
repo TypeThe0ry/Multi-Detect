@@ -64,6 +64,9 @@ def test_city_suite_uses_active_models_pregate_and_distinct_geographic_sites() -
         f"{site}__{cities.WEATHER}" for site in cities.SITES
     }
     for mission in suite["missions"]:
+        # The collector dispatches multirotor takeoff by this canonical name;
+        # x500 aliases otherwise enter the profile-only takeoff branch.
+        assert mission["airframe"] == "x500_mono_cam"
         assert mission["expect"]["skills"] == ["survey", "return_home"]
         assert mission["expect"]["min_survey_coverage"] == 0.7
     for site in cities.SITES[:2]:

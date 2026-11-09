@@ -100,6 +100,39 @@ def test_obstacle_boxes_use_native_dem_spacing_and_do_not_fill_takeoff_pad(monke
     assert pose[:3] == [100.0, 0.0, 8.0]
 
 
+@pytest.mark.parametrize("footprint", [
+    [-110.4, 244.5, -42.9, 268.1, 0.0],
+    [-118.7, 239.1, -30.2, 283.0, 0.0],
+    [90, -10, 110, 10, 0.004],
+    [90, -10, 90, 10, 12],
+    [90, -10, 110, 10, -1],
+])
+def test_auxiliary_bounds_skip_zero_volume_without_changing_source_footprints(tmp_path, footprint) -> None:
+    import copy
+    import xml.etree.ElementTree as ET
+    from scripts.realworld.make_world import obstacle_boxes
+
+    np.save(tmp_path / "dem.npy", np.zeros((9, 9)))
+    scene = {"raw_dir": str(tmp_path), "size_m": 1000, "elevation": 0,
+             "footprints": [footprint, [140, -10, 160, 10, 12]]}
+    original = copy.deepcopy(scene)
+    with pytest.warns(RuntimeWarning, match="non-volumetric auxiliary"):
+        root = ET.fromstring("<root>" + obstacle_boxes(scene, "test") + "</root>")
+    assert scene == original
+    assert len(root) == 1
+    assert root[0].findtext("link/collision/geometry/box/size") == "20.00 20.00 12.00"
+
+
+def test_auxiliary_bounds_reject_nonfinite_height(tmp_path) -> None:
+    from scripts.realworld.make_world import obstacle_boxes
+
+    np.save(tmp_path / "dem.npy", np.zeros((9, 9)))
+    scene = {"raw_dir": str(tmp_path), "size_m": 1000, "elevation": 0,
+             "footprints": [[90, -10, 110, 10, float("nan")]]}
+    with pytest.raises(ValueError, match="non-finite auxiliary"):
+        obstacle_boxes(scene, "test")
+
+
 def test_merged_asset_is_centered_and_grounded_once() -> None:
     from scripts.realworld.instancing import Merger, _normalize_parts
     vertices = np.array([[-2., -1., -3.], [2., -1., 1.], [0., 1., -3.]])
