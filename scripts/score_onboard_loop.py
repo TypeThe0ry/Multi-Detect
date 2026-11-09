@@ -865,7 +865,9 @@ def score_episode(
         for line in (episode / "steps.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    target = _true_target(truth)
+    # Geographic missions may intentionally have no identity ground truth.
+    # Keep malformed / untagged target sets on the existing strict path.
+    target = None if truth["targets"] == [] else _true_target(truth)
     confirmed_row = None
     slow_calls, remembered_verdicts, slow_latency, fast_latency, flown = 0, 0, [], [], 0.0
     previous = None
@@ -939,6 +941,34 @@ def score_episode(
             result["mission_plan_skills"] = evidence["mission_plan_skills"]
         if evidence["original_mission_completed"] is not None:
             result["mission_completed"] = evidence["original_mission_completed"]
+    if target is None:
+        skills = result.get("mission_plan_skills")
+        expected_skills = expect.get("skills")
+        configured_mission = (mission_config or {}).get("mission")
+        def target_free_skills(value: Any) -> bool:
+            return (
+                isinstance(value, list) and bool(value)
+                and all(skill in ("survey", "return_home") for skill in value)
+            )
+        if (
+            negative
+            or not target_free_skills(skills)
+            or (expected_skills is not None and not target_free_skills(expected_skills))
+            or configured_mission not in (None, "from_text", "survey", "return_home")
+        ):
+            _true_target(truth)  # Preserve rejection for target-required missions.
+        result["target_scoring_applicable"] = False
+        # ``success`` retains its legacy identity-confirmation meaning. Mission
+        # completion, coverage, safety and supervisor expectations stay separate.
+        # A target-free plan has no legitimate identity to carry into returning.
+        # Do not let the legacy returning-state filter hide an unexpected claim.
+        unexpected_confirmation = any(
+            ((row.get("labels") or {}).get("onboard") or {}).get("confirmed")
+            for row in rows
+        )
+        result["confirmed"] = unexpected_confirmation
+        result["false_confirm"] = unexpected_confirmation
+        return result
     if confirmed_row is None:
         return result
     confirmed = confirmed_row["labels"]["onboard"]["confirmed"]

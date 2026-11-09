@@ -478,6 +478,100 @@ def test_low_disk_score_checks_metadata_before_missing_or_truncated_steps(tmp_pa
     assert result["excluded_from_model_failure_metrics"] is True
 
 
+def _target_free_fixture(tmp_path: Path):
+    fixture = json.loads((Path(__file__).parent / "fixtures/cities/lujiazui-target-free-score-20261109.json").read_text())
+    (tmp_path / "episode.json").write_text(json.dumps(fixture["metadata"]))
+    (tmp_path / "steps.jsonl").write_text("".join(json.dumps(row) + "\n" for row in fixture["rows"]))
+    return fixture
+
+
+def test_recorded_city_survey_scores_with_no_fabricated_identity_target(tmp_path: Path) -> None:
+    from scripts.score_onboard_loop import score_episode
+    from scripts.run_mission_suite import build_table
+
+    fixture = _target_free_fixture(tmp_path)
+    result = score_episode(tmp_path, fixture["truth"], mission_config=fixture["mission_config"])
+    assert result["status"] == "complete" and result["steps"] == 31
+    assert result["mission_plan_skills"] == ["survey", "return_home"]
+    assert result["mission_completed"] is True and result["safety_pass"] is True
+    assert result["mission_survey_coverage"] == {"s1": 1.0}
+    assert result["target_scoring_applicable"] is False
+    assert result["confirmed"] is False and result["success"] is False
+    assert result["false_confirm"] is False and "position_error_m" not in result
+    mission = {"id": "city", "world": "city", "expect": {
+        "skills": ["survey", "return_home"], "min_survey_coverage": 0.7,
+    }}
+    result["world"] = "city"
+    table = build_table([mission], {"city": {"episodes": [result]}})
+    assert table["missions"][0]["expectations_passed"] is True
+    result["mission_survey_coverage"] = {"s1": 0.69}
+    assert build_table([mission], {"city": {"episodes": [result]}})["missions"][0]["expectations_passed"] is False
+
+
+@pytest.mark.parametrize("skill", ["search", "count", "inspect", "patrol", "monitor", "follow", "land"])
+def test_target_required_plans_still_reject_empty_truth(tmp_path: Path, skill: str) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    fixture = _target_free_fixture(tmp_path)
+    fixture["rows"][0]["labels"]["onboard"]["mission"]["plan"] = {"skills": [skill, "return_home"]}
+    (tmp_path / "steps.jsonl").write_text("".join(json.dumps(row) + "\n" for row in fixture["rows"]))
+    with pytest.raises(StopIteration):
+        score_episode(tmp_path, fixture["truth"], mission_config=fixture["mission_config"])
+
+
+@pytest.mark.parametrize("extra", [{"mission": "count"}, {"expect": {"skills": ["inspect", "return_home"]}}, {"expect": {"not_found": True}}])
+def test_target_required_config_cannot_hide_behind_a_geographic_plan(tmp_path: Path, extra: dict) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    fixture = _target_free_fixture(tmp_path)
+    with pytest.raises(StopIteration):
+        score_episode(tmp_path, fixture["truth"], mission_config={**fixture["mission_config"], **extra})
+
+
+@pytest.mark.parametrize("state_before", ["survey", "returning"])
+def test_target_free_unexpected_confirmation_remains_false_and_supervisor_is_not_skipped(tmp_path: Path, monkeypatch, state_before: str) -> None:
+    from scripts import score_onboard_loop as scorer
+
+    fixture = _target_free_fixture(tmp_path)
+    fixture["rows"][-1]["labels"]["onboard"]["confirmed"] = {"position_estimate_ne": [0, 0]}
+    fixture["rows"][-1]["labels"]["onboard"]["state_before"] = state_before
+    (tmp_path / "steps.jsonl").write_text("".join(json.dumps(row) + "\n" for row in fixture["rows"]))
+    result = scorer.score_episode(tmp_path, fixture["truth"], mission_config=fixture["mission_config"])
+    assert result["confirmed"] is True and result["false_confirm"] is True and result["success"] is False
+    monkeypatch.setattr(scorer, "_supervisor_evidence", lambda _: {"mission_plan_skills": ["inspect", "return_home"], "original_mission_completed": False})
+    with pytest.raises(StopIteration):
+        scorer.score_episode(tmp_path, fixture["truth"], mission_config={**fixture["mission_config"], "mission_package": {}})
+
+
+def test_target_free_incomplete_return_is_not_relabelled_completed(tmp_path: Path) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    fixture = _target_free_fixture(tmp_path)
+    fixture["rows"][-1]["labels"]["onboard"]["mission"]["history"][-1]["state"] = "failed"
+    (tmp_path / "steps.jsonl").write_text("".join(json.dumps(row) + "\n" for row in fixture["rows"]))
+    result = score_episode(tmp_path, fixture["truth"], mission_config=fixture["mission_config"])
+    assert result["mission_completed"] is False and result["success"] is False
+
+
+def test_targetful_geographic_episode_keeps_identical_legacy_metrics(tmp_path: Path) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    fixture = _target_free_fixture(tmp_path)
+    geographic = score_episode(tmp_path, fixture["truth"], mission_config=fixture["mission_config"])
+    targetful = score_episode(tmp_path, {"targets": [{"true_target": True, "target_id": "legacy-control"}]}, mission_config=fixture["mission_config"])
+    geographic.pop("target_scoring_applicable")
+    assert geographic == targetful
+
+
+@pytest.mark.parametrize("truth", [{}, {"targets": None}, {"targets": [{}]}])
+def test_target_free_plan_does_not_accept_missing_or_malformed_truth(tmp_path: Path, truth: dict) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    fixture = _target_free_fixture(tmp_path)
+    with pytest.raises((KeyError, TypeError, StopIteration)):
+        score_episode(tmp_path, truth, mission_config=fixture["mission_config"])
+
+
 def test_mover_trajectory_ids_are_integers_for_gazebo():
     # SDF requires <trajectory id> to be an integer; `id="move"` made Gazebo reject
     # the whole world (found by loading it in the real Gazebo Harmonic image).
