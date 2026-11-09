@@ -841,6 +841,82 @@ def _true_box(
     return (list(box) if box else None), "projection"
 
 
+def _geographic_skills(value: Any) -> bool:
+    return (
+        isinstance(value, list) and bool(value)
+        and all(skill in ("survey", "return_home") for skill in value)
+    )
+
+
+def _geographic_plan_skills(raw: Any) -> list[str]:
+    """Check the recorded diagnostic summary or the existing full plan DSL."""
+    from multidetect.autonomy.mission_plan import validate_mission_plan
+
+    if not isinstance(raw, dict):
+        raise ValueError("target-free mission needs a declared plan")
+    summary_keys = {"skills", "repairs", "error", "latency_s"}
+    if raw.get("error") is not None:
+        raise ValueError("target-free mission plan records an error")
+    if "repairs" in raw and (
+        not isinstance(raw["repairs"], list) or any(not isinstance(value, str) for value in raw["repairs"])
+    ):
+        raise ValueError("invalid target-free plan repair summary")
+    if "latency_s" in raw and (
+        isinstance(raw["latency_s"], bool) or not isinstance(raw["latency_s"], (int, float))
+        or not math.isfinite(raw["latency_s"]) or raw["latency_s"] < 0
+    ):
+        raise ValueError("invalid target-free plan latency summary")
+    if "steps" in raw:
+        plan = validate_mission_plan({k: v for k, v in raw.items() if k not in summary_keys})
+        skills = [step.skill for step in plan.steps]
+        if "skills" in raw and raw["skills"] != skills:
+            raise ValueError("plan skills disagree with actual steps")
+    else:
+        if set(raw) - summary_keys:
+            raise ValueError("unknown target-free plan summary fields")
+        skills = raw.get("skills")
+    if not _geographic_skills(skills):
+        raise ValueError("declared plan requires target ground truth")
+    return skills
+
+
+def _validate_target_free_declarations(
+    episode: Path, rows: list[dict[str, Any]], mission_config: dict[str, Any] | None,
+    skills: list[str], evidence: dict[str, Any] | None,
+) -> None:
+    plans = [mission["plan"] for row in rows
+             if isinstance(mission := ((row.get("labels") or {}).get("onboard") or {}).get("mission"), dict)
+             and "plan" in mission]
+    if not plans or any(_geographic_plan_skills(plan) != skills for plan in plans):
+        raise ValueError("target-free mission plan declarations disagree")
+    package_raw = (mission_config or {}).get("mission_package")
+    if package_raw is None:
+        return
+    from multidetect.autonomy.mission_package import load_mission_package
+    from multidetect.autonomy.mission_plan import validate_mission_plan
+
+    if isinstance(package_raw, (str, Path)):
+        package_raw = Path(package_raw)
+        if not package_raw.is_absolute():
+            package_raw = ROOT / package_raw
+    package = load_mission_package(package_raw)
+    package_skills = [step.skill for step in package.plan.steps] if package.plan else []
+    if not _geographic_skills(package_skills) or package_skills != skills:
+        raise ValueError("uploaded package requires a different or target-required plan")
+    if not evidence or evidence.get("onboard_log_exists") is not True or evidence.get("mission_plan_skills") != skills:
+        raise ValueError("target-free package needs valid durable plan evidence")
+    path = episode.parent.parent / f"{episode.name}-onboard-frames" / "mission_log/mission.jsonl"
+    starts = [record["plan"] for line in path.read_text(encoding="utf-8").splitlines()
+              if (record := json.loads(line)).get("kind") == "mission_started"]
+    if not starts:
+        raise ValueError("target-free package has no durable started plan")
+    for raw in starts:
+        plan = validate_mission_plan(raw)
+        package.validate_plan(plan)
+        if [step.skill for step in plan.steps] != skills:
+            raise ValueError("durable package steps disagree with target-free plan")
+
+
 def score_episode(
     episode: Path,
     truth: dict[str, Any],
@@ -934,6 +1010,7 @@ def score_episode(
             and result.get("safety_pass") is True
         )
         result["success"] = result["negative_task_passed"]
+    evidence = None
     if mission_config and mission_config.get("mission_package") is not None:
         evidence = _supervisor_evidence(episode)
         result["mission_supervisor"] = evidence
@@ -945,18 +1022,15 @@ def score_episode(
         skills = result.get("mission_plan_skills")
         expected_skills = expect.get("skills")
         configured_mission = (mission_config or {}).get("mission")
-        def target_free_skills(value: Any) -> bool:
-            return (
-                isinstance(value, list) and bool(value)
-                and all(skill in ("survey", "return_home") for skill in value)
-            )
         if (
             negative
-            or not target_free_skills(skills)
-            or (expected_skills is not None and not target_free_skills(expected_skills))
-            or configured_mission not in (None, "from_text", "survey", "return_home")
+            or not _geographic_skills(skills)
+            or (expected_skills is not None and not _geographic_skills(expected_skills))
+            or configured_mission not in (None, "from_text", "survey", "return_home", "package")
+            or (configured_mission == "package" and (mission_config or {}).get("mission_package") is None)
         ):
             _true_target(truth)  # Preserve rejection for target-required missions.
+        _validate_target_free_declarations(episode, rows, mission_config, skills, evidence)
         result["target_scoring_applicable"] = False
         # ``success`` retains its legacy identity-confirmation meaning. Mission
         # completion, coverage, safety and supervisor expectations stay separate.

@@ -479,6 +479,7 @@ def test_low_disk_score_checks_metadata_before_missing_or_truncated_steps(tmp_pa
 
 
 def _target_free_fixture(tmp_path: Path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     fixture = json.loads((Path(__file__).parent / "fixtures/cities/lujiazui-target-free-score-20261109.json").read_text())
     (tmp_path / "episode.json").write_text(json.dumps(fixture["metadata"]))
     (tmp_path / "steps.jsonl").write_text("".join(json.dumps(row) + "\n" for row in fixture["rows"]))
@@ -570,6 +571,96 @@ def test_target_free_plan_does_not_accept_missing_or_malformed_truth(tmp_path: P
     fixture = _target_free_fixture(tmp_path)
     with pytest.raises((KeyError, TypeError, StopIteration)):
         score_episode(tmp_path, truth, mission_config=fixture["mission_config"])
+
+
+@pytest.mark.parametrize("identifier", ["comms-free-count", "comms-free-patrol-timeout"])
+def test_real_merged_target_required_packages_cannot_use_geographic_labels(tmp_path: Path, identifier: str) -> None:
+    from scripts.score_onboard_loop import score_episode
+    from scripts.run_mission_suite import merge_config
+
+    root = Path(__file__).resolve().parents[1]
+    suite = json.loads((root / "configs/onboard/suite-main-r21idr3-r24plan.json").read_text())
+    mission = next(row for row in suite["missions"] if row["id"] == identifier)
+    config = merge_config(suite["defaults"], mission)
+    assert config["mission"] == "from_text"  # Runtime package resolution supersedes this.
+    fixture = _target_free_fixture(tmp_path)
+    with pytest.raises(ValueError, match="package"):
+        score_episode(tmp_path, fixture["truth"], mission_config=config)
+
+
+@pytest.mark.parametrize("plan_change", [
+    {"steps": [{"id": "hidden", "skill": "inspect", "params": {"target": "postbox"}, "on_success": "end"}]},
+    {"unknown_declaration": True},
+    {"skills": ["return_home"]},
+])
+def test_all_recorded_plan_declarations_must_be_geographic_and_consistent(tmp_path: Path, plan_change: dict) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    fixture = _target_free_fixture(tmp_path)
+    # A later contradictory declaration cannot hide behind the first summary.
+    fixture["rows"][-1]["labels"]["onboard"]["mission"]["plan"] = {
+        "skills": ["survey", "return_home"], **plan_change,
+    }
+    (tmp_path / "steps.jsonl").write_text("".join(json.dumps(row) + "\n" for row in fixture["rows"]))
+    with pytest.raises(ValueError):
+        score_episode(tmp_path, fixture["truth"], mission_config=fixture["mission_config"])
+
+
+def _geographic_package():
+    import copy
+
+    root = Path(__file__).resolve().parents[1]
+    suite = json.loads((root / "configs/onboard/suite-main-r21idr3-r24plan.json").read_text())
+    package = copy.deepcopy(next(row for row in suite["missions"] if row["id"] == "comms-free-count")["mission_package"])
+    package["plan"]["goal"] = "Survey the site then return home"
+    package["plan"]["steps"][0].update(skill="survey", params={"region": "zone:site", "overlap": 0.7})
+    return package
+
+
+def _write_geographic_package_log(episode: Path, package: dict) -> None:
+    directory = episode.parent.parent / f"{episode.name}-onboard-frames" / "mission_log"
+    directory.mkdir(parents=True)
+    rows = [
+        {"kind": "mission_started", "plan": package["plan"]},
+        {"kind": "execution", "state": {"skill": "return_home"}, "action": {}},
+        {"kind": "final_summary", "summary": {"action": "continue", "history": [
+            {"skill": "survey", "state": "succeeded"},
+            {"skill": "return_home", "state": "succeeded", "reason": "arrived"},
+        ]}},
+    ]
+    (directory / "mission.jsonl").write_text("".join(json.dumps({"sequence": index, "mission_id": package["mission_id"], **row}) + "\n" for index, row in enumerate(rows, 1)))
+
+
+@pytest.mark.parametrize("declared_mode", ["from_text", "package"])
+def test_valid_geographic_package_requires_its_durable_plan_evidence(tmp_path: Path, declared_mode: str) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    episode = tmp_path / "world/episodes/episode"
+    fixture = _target_free_fixture(episode)
+    package = _geographic_package()
+    config = {**fixture["mission_config"], "mission": declared_mode, "mission_package": package}
+    with pytest.raises(ValueError, match="durable"):
+        score_episode(episode, fixture["truth"], mission_config=config)
+    _write_geographic_package_log(episode, package)
+    result = score_episode(episode, fixture["truth"], mission_config=config)
+    assert result["target_scoring_applicable"] is False and result["mission_completed"] is True
+    assert result["mission_supervisor"]["onboard_log_exists"] is True
+
+
+@pytest.mark.parametrize("change", ["missing_plan", "unknown_package_field", "target_param_on_survey"])
+def test_geographic_package_missing_or_unknown_schema_stays_rejected(tmp_path: Path, change: str) -> None:
+    from scripts.score_onboard_loop import score_episode
+
+    fixture = _target_free_fixture(tmp_path)
+    package = _geographic_package()
+    if change == "missing_plan":
+        package.pop("plan")
+    elif change == "unknown_package_field":
+        package["unknown"] = True
+    else:
+        package["plan"]["steps"][0]["params"]["query"] = "a person"
+    with pytest.raises(ValueError):
+        score_episode(tmp_path, fixture["truth"], mission_config={**fixture["mission_config"], "mission_package": package})
 
 
 def test_mover_trajectory_ids_are_integers_for_gazebo():
