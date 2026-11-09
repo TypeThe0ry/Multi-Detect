@@ -192,5 +192,44 @@ def test_qualified_collector_freezes_gpu_selection_and_refuses_mode_change(tmp_p
     monkeypatch.setenv('MULTIDETECT_SIM_GPU', '0')
     assert frozen.gpu_render is True and frozen.gpu_device == '0'
     assert '--gpus' in collector.docker_command(frozen)
-    with pytest.raises(ValueError, match='rendering was disabled'):
-        collector.freeze_collection_runtime(plan)
+    # Automatic default selected GPU at construction and retains that mode.
+    retained = collector.freeze_collection_runtime(plan)
+    assert retained.gpu_render is True and retained.image == LOCAL_ID
+
+
+@pytest.mark.parametrize('start_gpu', [False, True])
+def test_automatic_collection_default_cannot_drift_between_cpu_and_gpu(start_gpu, tmp_path, monkeypatch):
+    monkeypatch.delenv('MULTIDETECT_SIM_IMAGE', raising=False)
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU', '1' if start_gpu else '0')
+    plan = collector.CollectionPlan(str(SCENARIO), 'runtime', 'truth', 'explore', 1, 1, 0, str(tmp_path))
+    assert plan.gpu_render is start_gpu
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU', '0' if start_gpu else '1')
+    # Also mutate the ambient pool: the original automatic device/pool is frozen.
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU_DEVICES', '1')
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU_AVOID', '0,2,3')
+    receipt = runtime.verify_gpu_runtime_image(runner=fake_runner(inspected(), []))
+    called = []
+    monkeypatch.setattr(collector, 'verify_gpu_runtime_image', lambda *a, **kw: called.append(a) or receipt)
+    frozen = collector.freeze_collection_runtime(plan)
+    command = collector.docker_command(frozen)
+    if start_gpu:
+        assert frozen.image == LOCAL_ID and frozen.gpu_device == '0'
+        assert command[command.index('--gpus')+1] == 'device=0' and len(called) == 1
+    else:
+        assert frozen.image == PINNED_IMAGE and frozen.gpu_device is None
+        assert '--gpus' not in command and called == []
+
+
+@pytest.mark.parametrize('source', ['api', 'environment'])
+def test_explicit_old_image_override_keeps_intended_ab_semantics(source, tmp_path, monkeypatch):
+    monkeypatch.delenv('MULTIDETECT_SIM_IMAGE', raising=False)
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU', '0')
+    options = {'image': PINNED_IMAGE} if source == 'api' else {}
+    if source == 'environment': monkeypatch.setenv('MULTIDETECT_SIM_IMAGE', PINNED_IMAGE)
+    plan = collector.CollectionPlan(str(SCENARIO), 'runtime', 'truth', 'explore', 1, 1, 0, str(tmp_path), **options)
+    monkeypatch.setenv('MULTIDETECT_SIM_GPU', '1')
+    # Explicit old override remains old; it is not mistaken for auto-default.
+    command = collector.docker_command(plan)
+    assert PINNED_IMAGE in command and '--gpus' in command
+    assert collector.freeze_collection_runtime(plan) is plan
+    assert plan.runtime_image_verification is None

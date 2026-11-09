@@ -285,6 +285,9 @@ def _resolve_gpu_selection(
         or (explicit_device is not None and explicit_device not in {"0", "1"})
     ):
         raise DockerSimulatorPlanError("Workstation SITL permits only GPU0/1; GPU2/3 and other devices are forbidden")
+    if not enabled:
+        # CPU execution must not depend on a later ambient GPU avoidance policy.
+        return False, None, configured
     if explicit_device is None:
         candidates = tuple(device for device in configured if device not in avoid)
         if not candidates:

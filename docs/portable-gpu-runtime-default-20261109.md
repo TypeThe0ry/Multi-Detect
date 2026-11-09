@@ -13,10 +13,12 @@ API/CLI image, then `MULTIDETECT_SIM_IMAGE`, override that default. Original
 **CPU defaults have not received these repairs or this flight qualification.**
 The default worker pool is GPU0/1 with GPU2/3 avoided. API device/pool and
 GPU-enabling environment selectors cannot re-enable GPU2/3 or other devices;
-invalid selections fail before Docker inspection/launch. The qualified collector
-also freezes its resolved GPU mode/device/pool with the image ID. If an ambient
-GPU mode changes to CPU before this boundary, it rejects the incompatible plan
-instead of silently running an unvalidated CPU path.
+invalid selections fail before Docker inspection/launch. Automatic collector defaults freeze their image and resolved GPU mode/device/pool
+together at construction, in both CPU-to-GPU and GPU-to-CPU directions. Later
+ambient settings cannot pair the automatic old CPU image with a GPU execution.
+Explicit API/environment old-image overrides keep their deliberate A/B semantics.
+The qualified launch also freezes resolved execution settings with its image ID;
+an incompatible explicitly configured GPU-runtime plan fails closed.
 
 Real-aircraft serial/parameter paths and the active r21id-r3/r24/pregate config are
 unchanged. Explicit old image overrides remain available for A/B and do not

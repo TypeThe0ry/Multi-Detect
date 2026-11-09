@@ -740,7 +740,8 @@ class CollectionPlan:
     def __post_init__(self) -> None:
         # Bind the selected image before metadata, progress headers or Docker argv
         # are emitted. Later environment changes cannot silently change a plan.
-        enabled, _, _ = _resolve_gpu_selection(
+        automatic_image = self.image is None and "MULTIDETECT_SIM_IMAGE" not in os.environ
+        enabled, device, devices = _resolve_gpu_selection(
             gpu_render=self.gpu_render,
             gpu_device=self.gpu_device,
             gpu_devices=self.gpu_devices,
@@ -749,6 +750,13 @@ class CollectionPlan:
         object.__setattr__(
             self, "image", resolve_runtime_image(self.image, gpu_render=enabled)
         )
+        if automatic_image:
+            # Image and execution mode are one automatic-default decision.
+            # Freezing only image lets later ambient GPU settings run old CPU
+            # bcf on a GPU while bypassing the qualified-runtime guard.
+            object.__setattr__(self, "gpu_render", enabled)
+            object.__setattr__(self, "gpu_device", device)
+            object.__setattr__(self, "gpu_devices", devices)
 
     def to_mapping(self) -> dict[str, Any]:
         result = asdict(self)
