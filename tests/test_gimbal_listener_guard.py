@@ -91,6 +91,26 @@ class ListenerTests(unittest.TestCase):
   began=time.monotonic()
   with patch.dict(os.environ,{'MD_GIMBAL_INVOCATION':'a'*32}):self.assertFalse(runner.probe_health(timeout_s=.1))
   self.assertLess(time.monotonic()-began,.3);thread.join(timeout=2)
+ def test_truncated_response_health_and_completion(self):
+  from scripts.eval_slow_system import LlamaServerRunner
+  from http.server import BaseHTTPRequestHandler,HTTPServer
+  import threading,urllib.error
+  self.sock.close()
+  class Handler(BaseHTTPRequestHandler):
+   def respond(self):
+    self.send_response(200);self.send_header('Content-Length','50');self.end_headers();self.wfile.write(b'{');self.wfile.flush();self.close_connection=True
+   def do_GET(self):self.respond()
+   def do_POST(self):self.respond()
+   def log_message(self,*args):pass
+  server=HTTPServer(('127.0.0.1',0),Handler);server.timeout=2;self.addCleanup(server.server_close)
+  thread=threading.Thread(target=lambda:(server.handle_request(),server.handle_request()));thread.start()
+  runner=LlamaServerRunner.__new__(LlamaServerRunner);runner.port=server.server_port
+  runner.process=SimpleNamespace(pid=self.pid);runner._gimbal_startticks=self.start;runner._gimbal_cgroup=self.group;runner._command=[self.exe]
+  with patch.dict(os.environ,{'MD_GIMBAL_INVOCATION':'a'*32}),patch.object(runner,'_transport_failure',return_value=False) as failure:
+   self.assertFalse(runner.probe_health(timeout_s=2))
+   with self.assertRaises(urllib.error.URLError):runner._completion({'prompt':'test'})
+   failure.assert_called_once()
+  thread.join(timeout=3);self.assertFalse(thread.is_alive())
  def test_real_runner_preflight_precedes_spawn(self):
   from scripts.eval_slow_system import LlamaServerRunner
   runner=LlamaServerRunner.__new__(LlamaServerRunner);runner.port=self.port;runner._model=Path('/unused')

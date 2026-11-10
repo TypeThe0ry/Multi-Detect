@@ -72,7 +72,11 @@ def verify_connected_peer(sock,port,pid,ticks,executable,group,*,deadline):
   time.sleep(min(.01,remaining(deadline)))
 
 def direct_json(url,port,body=None,timeout=180,*,peer_check=None,deadline=None):
- """No environment proxies, redirects, DNS, credentials, or off-target URL."""
+ """Direct HTTP with a best-effort deadline, no proxy or redirect.
+
+ Socket operations are interrupted at the deadline, but synchronous /proc reads,
+ Python scheduling, and JSON encoding/decoding cannot be hard-interrupted.
+ """
  target=urllib.parse.urlsplit(url)
  if target.scheme!='http' or target.hostname!='127.0.0.1' or target.port!=port or target.username is not None or target.password is not None or target.fragment or not target.path.startswith('/'):
   raise ValueError('HTTP target mismatch')
@@ -98,7 +102,10 @@ def direct_json(url,port,body=None,timeout=180,*,peer_check=None,deadline=None):
   if response.status>=400:raise urllib.error.HTTPError(url,response.status,response.reason,response.headers,io.BytesIO(data))
   if not 200<=response.status<300:raise ValueError('HTTP status unexpected')
   return json.loads(data)
- except (OSError,http.client.HTTPException):
+ except http.client.HTTPException as exc:
+  remaining(deadline)
+  raise urllib.error.URLError('HTTP transport failure: '+type(exc).__name__) from exc
+ except OSError:
   remaining(deadline)
   raise
  finally:
