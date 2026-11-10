@@ -748,3 +748,65 @@ def test_truth_target_world_relative_altitude_is_not_treated_as_amsl(tmp_path):
     (north, east, down), _ = _truth_target(truth, origin=(1.352100, 103.819800, 18.0))
     assert abs(north) < 1e-6 and abs(east) < 1e-6
     assert down == -0.75
+
+
+def test_collector_current_step_routes_first_and_alternating_actions_without_prior_action():
+    """Execute the real collector policy/route block, with no simulator or subprocess."""
+    import pathlib
+    import textwrap
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    collector = _collector_module()
+    source = pathlib.Path(collector.__file__).read_text()
+    start = source.index('                if plan.teacher == "expert_search":', source.index('            for index in range(plan.steps_per_episode):'))
+    end = source.index('                # Non-multirotor onboard policies emit a MotionCommand', start)
+    block = textwrap.dedent(source[start:end])
+    function = 'def run_one():\n' + textwrap.indent(block, '    ') + '\n    return action, managed_gimbal_action\n'
+    actions = [ActionPrimitive.hold(1), ActionPrimitive.gimbal(pitch_deg=-30),
+               ActionPrimitive.hold(1), SimpleNamespace(kind='gimbal', rejected=False,
+                   action=None, gimbal_pitch_deg=-20, gimbal_yaw_deg=5, gimbal_roll_deg=0)]
+    dispatches, ensures = [], []
+    policy = SimpleNamespace(next_action=lambda **kwargs: actions.pop(0))
+    env = {'plan': SimpleNamespace(teacher='hover'), 'policy': policy,
+           'pose': (0, 0, -10), 'yaw': 0.0, 'before': {}, 'timing': {},
+           'camera_mount': CameraMount.gimbal(), 'gimbal_session': None,
+           'gimbal_controller': object(),
+           '_managed_teacher_gimbal_action': collector._managed_teacher_gimbal_action,
+           '_ensure_gimbal_session': lambda: ensures.append(True),
+           '_dispatch_teacher_gimbal_command': lambda *args, **kwargs: dispatches.append(True)}
+    exec(compile(function, str(collector.__file__), 'exec'), env)
+    first = env['run_one']()
+    second = env['run_one']()
+    third = env['run_one']()
+    fourth = env['run_one']()
+    assert [first[1], third[1]] == [None, None]
+    assert second[1] is second[0] and second[1].gimbal_pitch_deg == -30
+    assert fourth[1].kind == 'gimbal' and fourth[1].gimbal_pitch_deg == -20
+    assert len(dispatches) == 2 and len(ensures) == 2
+    actions.append(ActionPrimitive.gimbal(pitch_deg=-10))
+    first_gimbal = env['run_one']()
+    assert first_gimbal[1] is first_gimbal[0]
+
+
+def test_collector_gimbal_worker_does_not_call_mutable_watchdog():
+    import ast
+    import pathlib
+    import threading
+
+    collector = _collector_module()
+    tree = ast.parse(pathlib.Path(collector.__file__).read_text())
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == '_execute_managed_gimbal_action']
+    assert len(calls) == 1
+    check = next(keyword.value for keyword in calls[0].keywords if keyword.arg == 'check')
+    assert isinstance(check, ast.Lambda) and isinstance(check.body, ast.Constant) and check.body.value is None
+    main_id = threading.get_ident()
+    seen = []
+    done = threading.Event()
+    thread = threading.Thread(target=lambda: done.wait(0.5))
+    thread.start()
+    def watchdog_tick():
+        seen.append(threading.get_ident())
+        done.set()
+    collector._join_action_with_gimbal(thread, None, watchdog_tick)
+    assert seen and all(item == main_id for item in seen)

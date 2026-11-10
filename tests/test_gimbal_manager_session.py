@@ -355,10 +355,11 @@ def test_managed_primitive_serializes_previous_session_and_requires_fresh_pose()
             assert [x[0] for x in sent] == [1001, 1000, 1000]
             reader.add('COMMAND_ACK', stamp=stamp, command=1000, result=0,
                        target_system=255, target_component=190)
-            messages['GIMBAL_DEVICE_ATTITUDE_STATUS'] = {'q': [1, 0, 0, 0], 'flags': 0}
-            reader.state.received_monotonic_ns['GIMBAL_DEVICE_ATTITUDE_STATUS'] = session.started_ns - 1
+            reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=session.started_ns - 1,
+                       gimbal_device_id=1, q=[1, 0, 0, 0], flags=0)
         elif ticks[0] == 4:
-            reader.state.received_monotonic_ns['GIMBAL_DEVICE_ATTITUDE_STATUS'] = stamp
+            reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=stamp,
+                       gimbal_device_id=1, q=[1, 0, 0, 0], flags=0)
     result = _execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0),
         session=session, profile=profile, reader=reader, check=lambda: None,
         clock=lambda: clock[0] / 1e9, sleep=sleep)
@@ -415,10 +416,60 @@ def test_managed_primitive_from_idle_acquires_once_and_waits_for_feedback():
         elif ticks[0] == 2:
             reader.add('COMMAND_ACK', stamp=stamp, command=1000, result=0,
                        target_system=255, target_component=190)
-            messages['GIMBAL_DEVICE_ATTITUDE_STATUS'] = {'q': [1, 0, 0, 0], 'flags': 0}
-            reader.state.received_monotonic_ns['GIMBAL_DEVICE_ATTITUDE_STATUS'] = stamp
+            reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=stamp,
+                       gimbal_device_id=1, q=[1, 0, 0, 0], flags=0)
     result = _execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0),
         session=session, profile=profile, reader=reader, check=lambda: None,
         clock=lambda: clock[0] / 1e9, sleep=sleep)
     assert result.status == 'success' and [x[0] for x in sent] == [1001, 1000]
     assert result.ack['actual_deg']['pitch'] == 0
+
+
+def test_attitude_sample_is_atomic_and_filters_other_devices_and_sources():
+    session, reader, _, _ = setup()
+    session.command(1000, 1)
+    ack(reader); owner(reader); session.poll()
+    ack(reader, command=1000)
+    reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=100, gimbal_device_id=2,
+               q=[1, 0, 0, 0], system=1, component=1)
+    reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=101, gimbal_device_id=1,
+               q=[1, 0, 0, 0], system=9, component=1)
+    session.poll()
+    assert session.latest_attitude is None
+    reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=102, gimbal_device_id=1,
+               q=[1, 0, 0, 0], system=1, component=1)
+    session.poll()
+    sample, stamp = session.latest_attitude
+    assert stamp == 102 and sample.gimbal_device_id == 1 and sample.get_srcSystem() == 1
+    reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=103, gimbal_device_id=2,
+               q=[0, 1, 0, 0], system=1, component=1)
+    session.poll()
+    assert session.latest_attitude == (sample, 102)
+
+
+def test_managed_readback_ignores_disjoint_latest_state_and_untrusted_events():
+    from scripts.collect_sim_teacher_episodes import _execute_managed_gimbal_action
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    session, reader, _, clock = setup()
+    # This intentionally inconsistent latest-state pair used to fabricate success.
+    reader.state.get = lambda key: {'q': [1, 0, 0, 0], 'flags': 0} if key == 'GIMBAL_DEVICE_ATTITUDE_STATUS' else None
+    reader.state.received_monotonic_ns = {'GIMBAL_DEVICE_ATTITUDE_STATUS': 9999999999}
+    profile = SimpleNamespace(camera=SimpleNamespace(gimbal={
+        'enabled': True, 'angle_range_deg': {'pitch': [-135, 45], 'yaw': [-180, 180], 'roll': [-45, 45]}}))
+    ticks = [0]
+    def sleep(_):
+        ticks[0] += 1
+        clock[0] += 100_000_000
+        stamp = clock[0]
+        if ticks[0] == 1:
+            reader.add('COMMAND_ACK', stamp=stamp, command=1001, result=0, target_system=255, target_component=190)
+            reader.add('GIMBAL_MANAGER_STATUS', stamp=stamp, gimbal_device_id=1, primary_control_sysid=255, primary_control_compid=190)
+        elif ticks[0] == 2:
+            reader.add('COMMAND_ACK', stamp=stamp, command=1000, result=0, target_system=255, target_component=190)
+            reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=stamp, gimbal_device_id=2, q=[1, 0, 0, 0], flags=0)
+            reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=stamp, gimbal_device_id=1, q=[1, 0, 0, 0], flags=0, system=2)
+        elif ticks[0] == 3:
+            reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=stamp, gimbal_device_id=1, q=[1, 0, 0, 0], flags=0)
+    result = _execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0), session=session,
+        profile=profile, reader=reader, check=lambda: None, clock=lambda: clock[0] / 1e9, sleep=sleep)
+    assert result.status == 'success' and ticks[0] == 3

@@ -49,6 +49,7 @@ class GimbalManagerSession:
         self.owned = False
         self.started_ns = 0
         self.started_vehicle_ms = None
+        self.latest_attitude = None
 
     def _start(self, phase: str, command: int, params: tuple[float, ...]) -> None:
         self.started_ns = self.clock_ns()
@@ -97,6 +98,10 @@ class GimbalManagerSession:
             self.cursor, events = self.reader.gimbal_events_since(self.cursor)
             for name, msg, stamp, vehicle_ms in events:
                 if stamp < self.started_ns or not self._source_matches(msg):
+                    continue
+                if name == "GIMBAL_DEVICE_ATTITUDE_STATUS":
+                    if self._field(msg, "gimbal_device_id") == self.device_id:
+                        self.latest_attitude = (msg, stamp)
                     continue
                 if name == "COMMAND_ACK":
                     expected = 1001 if self.phase == "configure_ack" else 1000 if self.phase == "command_ack" else None

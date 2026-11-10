@@ -4076,6 +4076,20 @@ def _dispatch_teacher_gimbal_command(
     return True
 
 
+def _managed_teacher_gimbal_action(action: Any, camera_mount: Any, ensure_session: Any) -> ActionPrimitive | None:
+    """Route only the current step's explicit gimbal action to the shared session."""
+    if (camera_mount is None or camera_mount.kind != "gimbal" or
+        getattr(action, "kind", None) != "gimbal" or getattr(action, "rejected", False)):
+        return None
+    managed = (action if isinstance(action, ActionPrimitive) else
+               getattr(action, "action", None) or ActionPrimitive.gimbal(
+                   pitch_deg=float(action.gimbal_pitch_deg or 0.0),
+                   yaw_deg=float(action.gimbal_yaw_deg or 0.0),
+                   roll_deg=float(action.gimbal_roll_deg or 0.0)))
+    ensure_session()
+    return managed
+
+
 def _join_action_with_gimbal(thread: Any, session: Any, on_tick: Any) -> None:
     """Continue the session during a primitive without racing the MAVLink reader.
 
@@ -4150,8 +4164,7 @@ def _execute_managed_gimbal_action(
         if readback_started is not None and clock() - readback_started >= timeout_s:
             break
         state = reader.state
-        status = state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
-        stamp = getattr(state, "received_monotonic_ns", {}).get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1)
+        status, stamp = session.latest_attitude or (None, -1)
         attitude = state.get("ATTITUDE")
         vehicle_yaw = math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
         if phase == "ready" and command_ns is not None and status is not None and stamp >= command_ns:
@@ -7159,20 +7172,7 @@ def run_episode(
                     },
                 )
                 before = _png_observation(before)
-                managed_gimbal_action = None
-                if (camera_mount is not None and camera_mount.kind == "gimbal"
-                        and getattr(action, "kind", None) == "gimbal"
-                        and not getattr(action, "rejected", False)):
-                    managed_gimbal_action = (
-                        action if isinstance(action, ActionPrimitive) else
-                        getattr(action, "action", None) or ActionPrimitive.gimbal(
-                            pitch_deg=float(action.gimbal_pitch_deg or 0.0),
-                            yaw_deg=float(action.gimbal_yaw_deg or 0.0),
-                            roll_deg=float(action.gimbal_roll_deg or 0.0),
-                        )
-                    )
-                    _ensure_gimbal_session()
-                if camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None:
+                if camera_mount is not None and camera_mount.kind == "gimbal":
                     validate_gimbal_recording_observation(before)
                 timing["observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 pose = tuple(before["pose"]["local_ned_m"])
@@ -7214,7 +7214,11 @@ def run_episode(
                     action = policy.next_action()
                     labels = {}
                     timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
-                if camera_mount is not None and camera_mount.kind == "gimbal":
+                managed_gimbal_action = _managed_teacher_gimbal_action(
+                    action, camera_mount,
+                    _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,
+                )
+                if camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None:
                     if gimbal_session is not None:
                         gimbal_session.poll()
                     _dispatch_teacher_gimbal_command(
@@ -7289,7 +7293,7 @@ def run_episode(
                             _execute_managed_gimbal_action(
                                 managed_gimbal_action, session=gimbal_session,
                                 profile=executor.airframe_profile, reader=mav_reader,
-                                check=episode_watchdog.check,
+                                check=lambda: None,
                                 yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                                 timeout_s=executor.gimbal_timeout_s,
                                 tolerance_deg=executor.gimbal_tolerance_deg,

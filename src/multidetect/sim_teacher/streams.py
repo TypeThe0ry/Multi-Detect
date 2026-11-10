@@ -741,7 +741,7 @@ class MavlinkReader:
                 if name in self.TRACKED:
                     with self._pose_condition:
                         self.state.messages[name] = message
-                        if name in {"COMMAND_ACK", "GIMBAL_MANAGER_STATUS"}:
+                        if name in {"COMMAND_ACK", "GIMBAL_MANAGER_STATUS", "GIMBAL_DEVICE_ATTITUDE_STATUS"}:
                             self._gimbal_event_sequence += 1
                             self._gimbal_events.append((self._gimbal_event_sequence, name, message, mono, self.state.vehicle_time_boot_ms))
                         self.state.received_monotonic_ns[name] = mono
