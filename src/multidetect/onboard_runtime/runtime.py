@@ -985,6 +985,16 @@ class OnboardRuntime:
             if fault:
                 self._latch(fault, now)
                 return
+            poll_gimbal = getattr(self.vehicle, "poll_gimbal", None)
+            if callable(poll_gimbal):
+                try:
+                    phase = poll_gimbal()
+                    if phase is not None and phase != getattr(self, "_gimbal_session_phase", None):
+                        self._gimbal_session_phase = phase
+                        self._event("gimbal_session", state=phase)
+                except Exception as exc:
+                    self._latch(f"gimbal_command_error: {exc}", now)
+                    return
             if self._landing_requested and not self._landing_commanded:
                 self._send_landing_once(state)
             if self._worker and self._worker.is_alive():

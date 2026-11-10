@@ -4070,6 +4070,7 @@ def _dispatch_teacher_gimbal_command(
     )
     if isinstance(command_owner, dict):
         command_owner["gimbal_dispatched"] = True
+        command_owner["gimbal_dispatch_state"] = "queued"
     return True
 
 
@@ -5914,7 +5915,7 @@ def run_episode(
                                int(getattr(telemetry_connection, "target_component", 1) or 1),
                                int(cmd), 0, *values)
                     if gimbal_session is None:
-                        gimbal_session = GimbalManagerSession(telemetry_connection, mav_reader, send)
+                        gimbal_session = GimbalManagerSession(telemetry_connection, mav_reader, send, wall_timeout_s=30.0)
                     gimbal_session.command(command, *params)
 
                 gimbal_controller = Px4GimbalController(camera_mount, _send_gimbal_command)
@@ -7098,12 +7099,16 @@ def run_episode(
                     labels = {}
                     timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 if camera_mount is not None and camera_mount.kind == "gimbal":
+                    if gimbal_session is not None:
+                        gimbal_session.poll()
                     _dispatch_teacher_gimbal_command(
                         gimbal_controller,
                         labels,
                         vehicle_yaw_deg=yaw,
                         default_mode=camera_mount.stabilization,
                     )
+                    if gimbal_session is not None:
+                        labels.setdefault("onboard", {})["gimbal_session_state"] = gimbal_session.phase
                 # Non-multirotor onboard policies emit a MotionCommand (loiter,
                 # reposition, transition, ...).  The step record keeps the source
                 # primitive (stop detection, dataset format); the command itself is

@@ -569,3 +569,54 @@ def test_takeoff_target_is_only_clipped_above_the_envelope_ceiling():
     # A 150 m request is clipped to the 120 m ceiling.
     runtime._set_target_checked(PositionSetpoint(0.0, 0.0, -150.0, 0.0), "takeoff")
     assert runtime.pump.target.down_m == pytest.approx(-120.0)
+
+
+def test_pending_gimbal_does_not_block_motion_or_safety_fault_and_close():
+    class PendingGimbalVehicle(FakeVehicle):
+        def __init__(self):
+            super().__init__()
+            self.gimbal_queued = 0
+            self.gimbal_polls = 0
+        def send_gimbal_pitch_yaw(self, *args, **kwargs):
+            self.gimbal_queued += 1
+        def poll_gimbal(self):
+            self.gimbal_polls += 1
+            return 'configure_ack' if self.gimbal_queued else None
+
+    class GimbalPolicy(SlowPolicy):
+        def act(self, observation, *, pose_ned, yaw_deg):
+            return ActionPrimitive.translate(1.0, 0.0), {'gimbal_command': {
+                'pitch_down_rad': 1.0, 'yaw_world_rad': 0.0, 'mode': 'lock-horizon'}}
+
+    vehicle, camera = PendingGimbalVehicle(), FakeCamera()
+    runtime = OnboardRuntime(vehicle, camera, GimbalPolicy(0), config=RuntimeConfig(camera_timeout_s=3.0))
+    runtime.start()
+    try:
+        runtime.poll()
+        wait_for(lambda: runtime._worker is not None and not runtime._worker.is_alive())
+        runtime.poll()
+        assert vehicle.gimbal_queued == 1
+        assert runtime.steps == 1
+        runtime.poll()
+        assert vehicle.gimbal_polls >= 2
+        assert any(event['event'] == 'gimbal_session' and event['state'] == 'configure_ack' for event in runtime.events)
+        vehicle.snapshot_error = True
+        runtime.poll()
+        assert 'receiver stopped' in runtime.hazard
+    finally:
+        vehicle.snapshot_error = False
+        runtime.close()
+    assert vehicle.closed
+
+
+def test_gimbal_session_failure_is_latched_by_runtime():
+    class FailedGimbalVehicle(FakeVehicle):
+        def poll_gimbal(self):
+            raise RuntimeError('manager rejected')
+    runtime = OnboardRuntime(FailedGimbalVehicle(), FakeCamera(), SlowPolicy(0))
+    runtime.start()
+    try:
+        runtime.poll()
+        assert 'gimbal_command_error: manager rejected' == runtime.hazard
+    finally:
+        runtime.close()

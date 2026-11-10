@@ -19,65 +19,119 @@ GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME = 2
 
 
 class GimbalManagerSession:
-    """Acquire manager ownership and check fresh ACKs on the reader-owned link."""
+    """Nonblocking, serialized gimbal manager transaction on the telemetry reader.
+
+    ACKs have no transaction identifier: after a timeout the session fails
+    permanently instead of retrying and mistaking a late ACK for a new command.
+    """
 
     def __init__(self, connection: Any, reader: Any, send: Callable[..., None], *,
-                 device_id: int = 1, timeout_s: float = 5.0,
-                 clock_ns: Callable[[], int] = time.monotonic_ns,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+                 device_id: int = 1, wall_timeout_s: float = 5.0,
+                 vehicle_timeout_s: float = 2.0,
+                 target: tuple[int, int] | None = None,
+                 clock_ns: Callable[[], int] = time.monotonic_ns) -> None:
         mav = getattr(connection, "mav", None)
         self.identity = (getattr(mav, "srcSystem", None), getattr(mav, "srcComponent", None))
         if any(type(value) is not int or not 1 <= value <= 255 for value in self.identity):
             raise RuntimeError("MAVLink connection has no valid source identity")
+        self.target = target or (int(getattr(connection, "target_system", 0) or 0),
+                                 int(getattr(connection, "target_component", 0) or 0))
+        if not all(self.target):
+            raise RuntimeError("MAVLink manager target is unknown")
         self.reader, self.send = reader, send
-        self.device_id, self.timeout_s = device_id, timeout_s
-        self.clock_ns, self.sleep = clock_ns, sleep
+        self.device_id, self.wall_timeout_s = device_id, wall_timeout_s
+        self.vehicle_timeout_s, self.clock_ns = vehicle_timeout_s, clock_ns
+        self.cursor = reader.gimbal_events_cursor()
+        self.phase = "idle"
+        self.pending = None
+        self.error = None
         self.owned = False
+        self.started_ns = 0
+        self.started_vehicle_ms = None
 
-    def _ack(self, command: int, after_ns: int) -> int:
-        deadline = self.clock_ns() + int(self.timeout_s * 1e9)
-        while self.clock_ns() < deadline:
-            self.reader.raise_if_failed()
-            entry = getattr(self.reader.state, "command_acks", {}).get(command)
-            if entry is not None and entry[1] >= after_ns:
-                msg = entry[0]
-                result = msg.get("result", -1) if isinstance(msg, dict) else getattr(msg, "result", -1)
-                if int(result) == 0:
-                    return int(entry[1])
-                if int(result) != 5:
-                    raise RuntimeError(f"gimbal command {command} rejected: MAV_RESULT={result}")
-            self.sleep(0.02)
-        raise TimeoutError(f"gimbal command {command} ACK timeout")
-
-    def acquire(self) -> None:
-        start = self.clock_ns()
-        self.send(MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, *self.identity, -1.0, -1.0, 0.0, 0.0, float(self.device_id))
-        ack_ns = self._ack(MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, start)
-        deadline = self.clock_ns() + int(self.timeout_s * 1e9)
-        while self.clock_ns() < deadline:
-            self.reader.raise_if_failed()
-            state = self.reader.state
-            manager = state.get("GIMBAL_MANAGER_STATUS")
-            stamp = getattr(state, "received_monotonic_ns", {}).get("GIMBAL_MANAGER_STATUS", -1)
-            field = manager.get if isinstance(manager, dict) else lambda key, default=None: getattr(manager, key, default)
-            if (manager is not None and stamp >= ack_ns and
-                field("gimbal_device_id") == self.device_id and
-                (field("primary_control_sysid"), field("primary_control_compid")) == self.identity):
-                self.owned = True
-                return
-            self.sleep(0.02)
-        raise TimeoutError("gimbal manager ownership not confirmed")
+    def _start(self, phase: str, command: int, params: tuple[float, ...]) -> None:
+        self.started_ns = self.clock_ns()
+        self.started_vehicle_ms = self.reader.state.vehicle_time_boot_ms
+        self.send(command, *params)
+        self.phase = phase
 
     def command(self, command: int, *params: float) -> None:
-        if not self.owned:
-            self.acquire()
-        start = self.clock_ns()
-        self.send(command, *params)
+        if self.error:
+            raise RuntimeError(self.error)
+        if self.phase == "closed":
+            raise RuntimeError("gimbal session is closed")
+        if command != MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW:
+            raise ValueError("unsupported gimbal command")
+        self.pending = (command, params)
+        self.poll()
+
+    def _source_matches(self, message: Any) -> bool:
+        def value(name: str):
+            getter = getattr(message, name, None)
+            return getter() if callable(getter) else None
+        return (value("get_srcSystem"), value("get_srcComponent")) == self.target
+
+    @staticmethod
+    def _field(message: Any, name: str, default: Any = None) -> Any:
+        return message.get(name, default) if isinstance(message, dict) else getattr(message, name, default)
+
+    def poll(self) -> str:
+        if self.error:
+            raise RuntimeError(self.error)
+        if self.phase == "closed":
+            return self.phase
+        self.reader.raise_if_failed()
         try:
-            self._ack(command, start)
-        except (RuntimeError, TimeoutError):
-            self.owned = False
+            self.cursor, events = self.reader.gimbal_events_since(self.cursor)
+            for name, msg, stamp in events:
+                if stamp < self.started_ns or not self._source_matches(msg):
+                    continue
+                if name == "COMMAND_ACK":
+                    expected = 1001 if self.phase == "configure_ack" else 1000 if self.phase == "command_ack" else None
+                    if (expected is None or self._field(msg, "command") != expected or
+                        (self._field(msg, "target_system"), self._field(msg, "target_component")) != self.identity):
+                        continue
+                    result = self._field(msg, "result", -1)
+                    if result == 5:
+                        continue
+                    if result != 0:
+                        raise RuntimeError(f"gimbal command {expected} rejected: MAV_RESULT={result}")
+                    if expected == 1001:
+                        self.phase = "owner"
+                    else:
+                        self.phase = "ready"
+                elif name == "GIMBAL_MANAGER_STATUS" and self.phase == "owner":
+                    if (self._field(msg, "gimbal_device_id") == self.device_id and
+                        (self._field(msg, "primary_control_sysid"), self._field(msg, "primary_control_compid")) == self.identity):
+                        self.owned = True
+                        self.phase = "ready"
+                elif name == "GIMBAL_MANAGER_STATUS" and self.owned:
+                    if (self._field(msg, "gimbal_device_id") == self.device_id and
+                        (self._field(msg, "primary_control_sysid"), self._field(msg, "primary_control_compid")) != self.identity):
+                        raise RuntimeError("gimbal manager ownership lost")
+            if self.phase in {"configure_ack", "owner", "command_ack"}:
+                vehicle_ms = self.reader.state.vehicle_time_boot_ms
+                elapsed_vehicle = (vehicle_ms - self.started_vehicle_ms) / 1000 if (
+                    vehicle_ms is not None and self.started_vehicle_ms is not None and vehicle_ms >= self.started_vehicle_ms
+                ) else 0.0
+                if ((self.clock_ns() - self.started_ns) / 1e9 >= self.wall_timeout_s or
+                    elapsed_vehicle >= self.vehicle_timeout_s):
+                    raise TimeoutError(f"gimbal {self.phase} timeout")
+            if self.phase == "idle" and self.pending:
+                self._start("configure_ack", 1001, (*self.identity, -1.0, -1.0, 0.0, 0.0, float(self.device_id)))
+            elif self.phase == "ready" and self.pending:
+                command, params = self.pending
+                self.pending = None
+                self._start("command_ack", command, params)
+        except Exception as exc:
+            self.error = str(exc)
+            self.phase = "failed"
             raise
+        return self.phase
+
+    def close(self) -> None:
+        self.pending = None
+        self.phase = "closed"
 
 
 @dataclass(frozen=True, slots=True)

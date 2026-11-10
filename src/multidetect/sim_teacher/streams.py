@@ -486,8 +486,11 @@ class MavlinkReader:
         self._stop = threading.Event()
         self._thread = None
         self._vehicle_newest_ms: int | None = None
+        self._gimbal_events = deque(maxlen=4096)
+        self._gimbal_event_sequence = 0
         self.progress = progress
         self._health_check: Callable[[], None] | None = None
+
         self.message_counts: Counter[str] = Counter()
         self.last_message_type: str | None = None
         self.last_message_monotonic_ns: int | None = None
@@ -499,6 +502,17 @@ class MavlinkReader:
         self._pose_history: dict[str, list[tuple[int, dict[str, Any], int, float]]] = {
             name: [] for name in self.POSE_TYPES
         }
+
+    def gimbal_events_cursor(self) -> int:
+        with self._pose_condition:
+            return self._gimbal_event_sequence
+
+    def gimbal_events_since(self, cursor: int):
+        with self._pose_condition:
+            if self._gimbal_events and cursor < self._gimbal_events[0][0] - 1:
+                raise RuntimeError("gimbal telemetry event buffer overflow")
+            events = [(name, message, stamp) for seq, name, message, stamp in self._gimbal_events if seq > cursor]
+            return self._gimbal_event_sequence, events
 
     def _record_pose_message(self, name: str, message: Any, mono: int, wall: float) -> None:
         """Copy timestamped pose data while the receiver owns the message."""
@@ -727,6 +741,9 @@ class MavlinkReader:
                 if name in self.TRACKED:
                     with self._pose_condition:
                         self.state.messages[name] = message
+                        if name in {"COMMAND_ACK", "GIMBAL_MANAGER_STATUS"}:
+                            self._gimbal_event_sequence += 1
+                            self._gimbal_events.append((self._gimbal_event_sequence, name, message, mono))
                         self.state.received_monotonic_ns[name] = mono
                         self.state.received_wall_time[name] = wall
                         if self.state.vehicle_time_boot_ms is not None:

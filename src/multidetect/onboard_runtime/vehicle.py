@@ -301,6 +301,7 @@ class PymavlinkVehicle:
         self._send_lock = threading.Lock()
         self._reader: MavlinkReader | None = None
         self._gimbal_session: GimbalManagerSession | None = None
+        self._gimbal_control_lock = threading.Lock()
         self._closed = False
         self._streams_requested = False
         self._heartbeat_sent_at = float("-inf")
@@ -658,6 +659,15 @@ class PymavlinkVehicle:
         timeout_s: float = 1.0,
     ) -> CommandResult:
         """Command a MAVLink mount and wait for a fresh attitude readback."""
+        with self._gimbal_control_lock:
+            if self._gimbal_session is not None:
+                return CommandResult("failed", MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, detail="onboard gimbal session already active")
+            return self._gimbal_control_direct(pitch_deg=pitch_deg, yaw_deg=yaw_deg, roll_deg=roll_deg, timeout_s=timeout_s)
+
+    def _gimbal_control_direct(
+        self, *, pitch_deg: float, yaw_deg: float = 0.0, roll_deg: float = 0.0,
+        timeout_s: float = 1.0,
+    ) -> CommandResult:
         values = (float(pitch_deg), float(roll_deg), float(yaw_deg))
         if not all(math.isfinite(value) for value in values):
             raise ValueError("gimbal angles must be finite")
@@ -827,11 +837,20 @@ class PymavlinkVehicle:
         if self.connection is None or self._reader is None:
             raise RuntimeError("vehicle telemetry reader is not started")
         if self._gimbal_session is None:
-            self._gimbal_session = GimbalManagerSession(self.connection, self._reader, self._command)
+            if not self._gimbal_control_lock.acquire(blocking=False):
+                raise RuntimeError("direct gimbal control is already active")
+            try:
+                if self._gimbal_session is None:
+                    self._gimbal_session = GimbalManagerSession(self.connection, self._reader, self._command, target=self._target())
+            finally:
+                self._gimbal_control_lock.release()
         controller = Px4GimbalController(
             CameraMount.gimbal(), lambda command, params: self._gimbal_session.command(command, *params)
         )
         controller.command_pitch_yaw(pitch_down_rad, yaw_world_rad, mode=mode, vehicle_yaw_rad=vehicle_yaw_rad)
+
+    def poll_gimbal(self) -> str | None:
+        return self._gimbal_session.poll() if self._gimbal_session is not None else None
 
     def _request_streams(self) -> None:
         self._streams_requested = True
@@ -1022,6 +1041,8 @@ class PymavlinkVehicle:
         if self._closed:
             return
         self._closed = True
+        if self._gimbal_session is not None:
+            self._gimbal_session.close()
         if self._reader is not None:
             self._reader.stop()
         if self.connection is not None:

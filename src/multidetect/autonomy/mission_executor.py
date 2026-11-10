@@ -1370,6 +1370,7 @@ class MissionExecutor:
                 info["gimbal_command"] = gimbal_command
                 if self.gimbal_controller is not None:
                     info["gimbal_dispatched"] = True
+                    info["gimbal_dispatch_state"] = "queued"
             if action.kind == "translate" and self._translate_enters_no_fly(
                 pose_ned, yaw_deg, action
             ):
