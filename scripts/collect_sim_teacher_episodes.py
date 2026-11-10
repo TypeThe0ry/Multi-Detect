@@ -15,6 +15,7 @@ import io
 import json
 import math
 import os
+import queue
 import re
 import shutil
 import signal
@@ -4078,9 +4079,10 @@ def _dispatch_teacher_gimbal_command(
 
 def _managed_teacher_gimbal_action(action: Any, camera_mount: Any, ensure_session: Any) -> ActionPrimitive | None:
     """Route only the current step's explicit gimbal action to the shared session."""
-    if (camera_mount is None or camera_mount.kind != "gimbal" or
-        getattr(action, "kind", None) != "gimbal" or getattr(action, "rejected", False)):
+    if getattr(action, "kind", None) != "gimbal" or getattr(action, "rejected", False):
         return None
+    if camera_mount is None or camera_mount.kind != "gimbal" or not callable(ensure_session):
+        raise RuntimeError("gimbal primitive requires the managed gimbal session")
     managed = (action if isinstance(action, ActionPrimitive) else
                getattr(action, "action", None) or ActionPrimitive.gimbal(
                    pitch_deg=float(action.gimbal_pitch_deg or 0.0),
@@ -4090,14 +4092,37 @@ def _managed_teacher_gimbal_action(action: Any, camera_mount: Any, ensure_sessio
     return managed
 
 
+@dataclass
+class _GimbalSendTicket:
+    done: threading.Event = dataclasses.field(default_factory=threading.Event)
+    error: BaseException | None = None
+    started_ns: int | None = None
+    started_vehicle_ms: int | None = None
+
+
 class _GimbalSendGate:
-    """Serialize cancellation with the start of each collector gimbal send."""
+    """Single-owner I/O queue; connection teardown waits for sender termination."""
 
     def __init__(self) -> None:
         self._cancelled = threading.Event()
         self._admission_lock = threading.Lock()
-        self._transport_lock = threading.Lock()
+        self._queue: queue.Queue[Any] = queue.Queue()
         self._events: list[dict[str, Any]] = []
+        self._worker: threading.Thread | None = None
+        self._closed = False
+        self._vehicle_clock = lambda: None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is not None and self._worker is not None and self._worker.is_alive():
+            _progress("gimbal_io_fail_closed", reason=str(exc),
+                      cleanup="waiting_for_gimbal_sender_before_connection_teardown")
+        self.close()
+        if exc_type is not None and self._worker is not None:
+            _progress("gimbal_io_terminated", events=self.snapshot())
+        return False
 
     def _record(self, event: str, command: Any = None) -> None:
         self._events.append({"event": event, "command": command, "monotonic_ns": time.monotonic_ns()})
@@ -4107,21 +4132,73 @@ class _GimbalSendGate:
         if self._cancelled.is_set():
             raise RuntimeError("gimbal command cancelled")
 
-    def send(self, sender: Any, *args: Any) -> None:
-        # Waiting for another send never holds the admission lock, so cancel
-        # does not wait for a blocked transport.  Recheck after that wait.
-        with self._transport_lock:
+    def send(self, sender: Any, *args: Any) -> _GimbalSendTicket:
+        with self._admission_lock:
+            self.check()
+            if self._closed:
+                raise RuntimeError("gimbal I/O is closed")
+            if self._worker is None:
+                self._worker = threading.Thread(target=self._run, name="sim-gimbal-io", daemon=False)
+                self._worker.start()
+            ticket = _GimbalSendTicket()
+            self._record("queued", args[2] if len(args) > 2 else None)
+            self._queue.put_nowait((ticket, sender, args))
+            return ticket
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            ticket, sender, args = item
             with self._admission_lock:
+                if self._cancelled.is_set():
+                    ticket.error = RuntimeError("gimbal command cancelled")
+                    self._record("discarded", args[2] if len(args) > 2 else None)
+                    ticket.done.set()
+                    continue
+                ticket.started_ns = time.monotonic_ns()
+                try:
+                    ticket.started_vehicle_ms = self._vehicle_clock()
+                except BaseException as exc:
+                    ticket.error = exc
+                    self._record("failed", args[2] if len(args) > 2 else None)
+                    ticket.done.set()
+                    continue
+                self._record("in_flight", args[2] if len(args) > 2 else None)
+            try:
+                # Cancellation cannot undo a send already selected here.  The
+                # owner never closes/reuses the connection until this returns.
                 self.check()
-                self._record("admitted", args[2] if len(args) > 2 else None)
-            sender(*args)
+                sender(*args)
+            except BaseException as exc:
+                ticket.error = exc
+            finally:
+                with self._admission_lock:
+                    self._record("failed" if ticket.error is not None else "completed",
+                                 args[2] if len(args) > 2 else None)
+                ticket.done.set()
 
     def cancel(self) -> None:
-        # An admitted send is in flight and cannot be recalled.  The short
-        # admission lock never covers the potentially blocking transport.
         with self._admission_lock:
-            self._cancelled.set()
-            self._record("cancelled")
+            if not self._cancelled.is_set():
+                self._cancelled.set()
+                self._record("cancelled")
+
+    def close(self) -> None:
+        self.cancel()
+        with self._admission_lock:
+            if self._closed:
+                worker = self._worker
+            else:
+                self._closed = True
+                worker = self._worker
+                if worker is not None:
+                    self._queue.put_nowait(None)
+        if worker is not None:
+            # An uninterruptible transport deliberately holds teardown here:
+            # it would be unsafe to close or reuse its connection meanwhile.
+            worker.join()
 
     def snapshot(self) -> list[dict[str, Any]]:
         with self._admission_lock:
@@ -4147,10 +4224,10 @@ def _join_action_with_gimbal(thread: Any, session: Any, on_tick: Any, *, cancel:
                     cancel()
                 if abandon_on_cancel:
                     raise
-        if error is None:
-            try:
-                on_tick()
-            except Exception as exc:
+        try:
+            on_tick()
+        except Exception as exc:
+            if error is None:
                 error = exc
                 if cancel is not None:
                     cancel()
@@ -4205,14 +4282,14 @@ def _execute_managed_gimbal_action(
                     math.nan, math.nan, float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK |
                     GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
                     0.0, float(GIMBAL_MANAGER_DEVICE_ID))
-    command_ns = session.started_ns if session.phase == "command_ack" else None
+    command_ns = session.last_command_started_ns
     readback_started = clock() if command_ns is not None else None
     last_error = None
     while True:
         check()
         phase = session.poll()
-        if phase == "command_ack" and command_ns is None:
-            command_ns = session.started_ns
+        if session.last_command_started_ns is not None and command_ns is None:
+            command_ns = session.last_command_started_ns
             readback_started = clock()
         if readback_started is not None and clock() - readback_started >= timeout_s:
             break
@@ -6043,7 +6120,7 @@ def run_episode(
         # Host diagnostics are strictly best effort and must never abort SIM.
         pass
     try:
-        with environment:
+        with environment, gimbal_send_gate:
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
             _progress("gz_world_loaded", container=environment.name)
             _record_container_started(recorder, environment)
@@ -6077,8 +6154,8 @@ def run_episode(
                     )
                     if not callable(sender):
                         raise RuntimeError("MAVLink connection cannot send gimbal command")
-                    def send(cmd: int, *values: float) -> None:
-                        gimbal_send_gate.send(
+                    def send(cmd: int, *values: float) -> Any:
+                        return gimbal_send_gate.send(
                             sender, int(getattr(telemetry_connection, "target_system", 1) or 1),
                             int(getattr(telemetry_connection, "target_component", 1) or 1),
                             int(cmd), 0, *values)
@@ -6104,6 +6181,7 @@ def run_episode(
                 recorder.record_mavlink(row)
 
             mav_reader = MavlinkReader(telemetry_connection, on_message=_record_mavlink).start()
+            gimbal_send_gate._vehicle_clock = lambda: mav_reader.state.vehicle_time_boot_ms
             host_pressure_sampler.sim_clock_provider = (
                 lambda: mav_reader.state.vehicle_time_boot_ms
             )
@@ -7452,7 +7530,9 @@ def run_episode(
                     _join_action_with_gimbal(execute_thread, None if managed_gimbal_action is not None else gimbal_session, _action_tick,
                                              cancel=gimbal_send_gate.cancel,
                                              abandon_on_cancel=managed_gimbal_action is not None)
-                except Exception:
+                except Exception as exc:
+                    _progress("gimbal_action_failed", error=str(exc),
+                              cleanup="waiting_for_gimbal_sender_before_connection_teardown")
                     recorder.record_mavlink({"message_type": "collector_gimbal_send_gate",
                                              "events": gimbal_send_gate.snapshot()})
                     raise
@@ -7672,6 +7752,7 @@ def run_episode(
                     _progress("policy_stop", step=index)
                     break
             _finish_teacher_gimbal(gimbal_session, episode_watchdog.check)
+            gimbal_send_gate.close()
             if gimbal_session is not None:
                 recorder.record_mavlink({"message_type": "collector_gimbal_send_gate",
                                          "events": gimbal_send_gate.snapshot()})

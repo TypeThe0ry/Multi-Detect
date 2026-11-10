@@ -478,3 +478,35 @@ def test_managed_readback_ignores_disjoint_latest_state_and_untrusted_events():
     result = _execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0), session=session,
         profile=profile, reader=reader, check=lambda: None, clock=lambda: clock[0] / 1e9, sleep=sleep)
     assert result.status == 'success' and ticks[0] == 3
+
+
+def test_async_session_keeps_polling_and_preserves_ack_during_blocked_sender():
+    import threading
+    import time
+    from scripts.collect_sim_teacher_episodes import _GimbalSendGate
+    reader = Reader()
+    connection = SimpleNamespace(mav=SimpleNamespace(srcSystem=255, srcComponent=190), target_system=1, target_component=1)
+    gate = _GimbalSendGate()
+    entered, release = threading.Event(), threading.Event()
+    def transport(command, *params):
+        entered.set()
+        assert release.wait(1)
+    session = GimbalManagerSession(connection, reader, lambda cmd, *params: gate.send(transport, cmd, *params))
+    try:
+        session.command(1000, 1)
+        assert entered.wait(1) and session.phase == 'dispatch'
+        assert session.poll() == 'dispatch'
+        # ACK arrives while transport call has not returned; it must remain
+        # buffered until the dispatch ticket completes.
+        stamp = time.monotonic_ns()
+        reader.add('COMMAND_ACK', stamp=stamp, command=1001, result=0,
+                   target_system=255, target_component=190)
+        assert session.poll() == 'dispatch'
+        release.set()
+        deadline = time.monotonic() + 1
+        while not session._dispatch_ticket.done.is_set() and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert session.poll() == 'owner'
+    finally:
+        release.set()
+        gate.close()

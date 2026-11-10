@@ -50,12 +50,26 @@ class GimbalManagerSession:
         self.started_ns = 0
         self.started_vehicle_ms = None
         self.latest_attitude = None
+        self._dispatch_ticket = None
+        self._dispatch_phase = None
+        self._dispatch_command = None
+        self.last_command_started_ns = None
 
     def _start(self, phase: str, command: int, params: tuple[float, ...]) -> None:
         self.started_ns = self.clock_ns()
         self.started_vehicle_ms = self.reader.state.vehicle_time_boot_ms
-        self.send(command, *params)
-        self.phase = phase
+        if command == MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW:
+            self.last_command_started_ns = None
+        ticket = self.send(command, *params)
+        if ticket is not None and hasattr(ticket, "done"):
+            self._dispatch_ticket = ticket
+            self._dispatch_phase = phase
+            self._dispatch_command = command
+            self.phase = "dispatch"
+        else:
+            self.phase = phase
+            if command == MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW:
+                self.last_command_started_ns = self.started_ns
 
     def command(self, command: int, *params: float) -> None:
         if self.error:
@@ -78,7 +92,7 @@ class GimbalManagerSession:
         return message.get(name, default) if isinstance(message, dict) else getattr(message, name, default)
 
     def _check_deadline(self, stamp_ns: int, vehicle_ms: int | None) -> None:
-        if self.phase not in {"configure_ack", "owner", "command_ack"}:
+        if self.phase not in {"dispatch", "configure_ack", "owner", "command_ack"}:
             return
         elapsed_vehicle = (vehicle_ms - self.started_vehicle_ms) / 1000 if (
             vehicle_ms is not None and self.started_vehicle_ms is not None and vehicle_ms >= self.started_vehicle_ms
@@ -95,6 +109,23 @@ class GimbalManagerSession:
             return self.phase
         self.reader.raise_if_failed()
         try:
+            if self.phase == "dispatch":
+                ticket = self._dispatch_ticket
+                if not ticket.done.is_set():
+                    self._check_deadline(self.clock_ns(), self.reader.state.vehicle_time_boot_ms)
+                    return self.phase
+                if ticket.error is not None:
+                    raise RuntimeError(f"gimbal transport failed: {ticket.error}") from ticket.error
+                if ticket.started_ns is None:
+                    raise RuntimeError("gimbal transport completed without a send timestamp")
+                self.started_ns = ticket.started_ns
+                self.started_vehicle_ms = ticket.started_vehicle_ms
+                self.phase = self._dispatch_phase
+                if self._dispatch_command == MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW:
+                    self.last_command_started_ns = self.started_ns
+                self._dispatch_ticket = None
+                self._dispatch_phase = None
+                self._dispatch_command = None
             self.cursor, events = self.reader.gimbal_events_since(self.cursor)
             for name, msg, stamp, vehicle_ms in events:
                 if stamp < self.started_ns or not self._source_matches(msg):

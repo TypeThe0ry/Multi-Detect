@@ -851,61 +851,122 @@ def test_gimbal_send_gate_serializes_inflight_send_and_cancellation():
     import threading
     collector = _collector_module()
     gate = collector._GimbalSendGate()
-    entered, release, cancelled = threading.Event(), threading.Event(), threading.Event()
-    sent, second_errors = [], []
+    entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+    sent = []
     def sender():
         entered.set()
         assert release.wait(1)
         sent.append('in-flight')
-    sending = threading.Thread(target=lambda: gate.send(sender))
-    sending.start()
+    first = gate.send(sender)
     assert entered.wait(1)
-    def queued_send():
-        try:
-            gate.send(lambda: sent.append('queued'))
-        except Exception as exc:
-            second_errors.append(str(exc))
-    second = threading.Thread(target=queued_send)
-    second.start()
-    def cancel():
-        gate.cancel()
-        cancelled.set()
-    stopping = threading.Thread(target=cancel)
-    stopping.start()
-    assert gate._cancelled.wait(1)
-    assert cancelled.wait(1)  # cancellation never waits on the transport
-    release.set()
-    sending.join(1); stopping.join(1); second.join(1)
-    assert cancelled.is_set() and sent == ['in-flight']
-    assert second_errors == ['gimbal command cancelled']
-    with pytest.raises(RuntimeError, match='cancelled'):
-        gate.send(lambda: sent.append('new'))
+    second = gate.send(lambda: sent.append('queued'))
+    gate.cancel()
+    cleanup = threading.Thread(target=lambda: (gate.close(), closed.set()))
+    cleanup.start()
+    try:
+        assert not closed.wait(0.05)  # do not close or reuse the connection
+        with pytest.raises(RuntimeError, match='cancelled'):
+            gate.send(lambda: sent.append('new'))
+    finally:
+        release.set()
+        cleanup.join(1)
+    assert closed.is_set() and first.done.is_set() and second.done.is_set()
+    assert first.error is None and isinstance(second.error, RuntimeError)
     assert sent == ['in-flight']
-    assert [item['event'] for item in gate.snapshot()] == ['admitted', 'cancelled']
+    assert [item['event'] for item in gate.snapshot()] == ['queued', 'in_flight', 'queued', 'cancelled', 'completed', 'discarded']
 
 
 def test_watchdog_returns_without_waiting_for_blocked_gimbal_transport():
     import threading
     collector = _collector_module()
     gate = collector._GimbalSendGate()
-    entered, release = threading.Event(), threading.Event()
+    entered, release, worker_release = threading.Event(), threading.Event(), threading.Event()
     def blocked_sender():
         entered.set()
         assert release.wait(1)
-    thread = threading.Thread(target=lambda: gate.send(blocked_sender), daemon=True)
+    gate.send(blocked_sender)
+    assert entered.wait(1)
+    action_thread = threading.Thread(target=lambda: worker_release.wait(1), daemon=True)
+    action_thread.start()
+    try:
+        with pytest.raises(RuntimeError, match='watchdog expired'):
+            collector._join_action_with_gimbal(action_thread, None,
+                lambda: (_ for _ in ()).throw(RuntimeError('watchdog expired')),
+                cancel=gate.cancel, abandon_on_cancel=True)
+        assert action_thread.is_alive()
+        with pytest.raises(RuntimeError, match='cancelled'):
+            gate.send(lambda: None)
+    finally:
+        worker_release.set()
+        release.set()
+        action_thread.join(1)
+        gate.close()
+
+
+def test_cancellation_before_sender_entry_prevents_send_and_teardown_waits():
+    import threading
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    at_boundary, resume, closed = threading.Event(), threading.Event(), threading.Event()
+    sent, count = [], [0]
+    original_check = gate.check
+    def paused_check():
+        count[0] += 1
+        if count[0] == 2:  # I/O worker, after admission but before sender
+            at_boundary.set()
+            assert resume.wait(1)
+        original_check()
+    gate.check = paused_check
+    ticket = gate.send(lambda: sent.append('sent'))
+    assert at_boundary.wait(1)
+    gate.cancel()
+    cleanup = threading.Thread(target=lambda: (gate.close(), closed.set()))
+    cleanup.start()
+    try:
+        assert not closed.wait(0.05)
+    finally:
+        resume.set()
+        cleanup.join(1)
+    assert closed.is_set() and ticket.done.is_set()
+    assert isinstance(ticket.error, RuntimeError) and sent == []
+
+
+def test_collector_context_never_tears_down_connection_while_sender_is_alive():
+    import threading
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    entered, release, env_closed, reported = (threading.Event() for _ in range(4))
+    class Environment:
+        def __enter__(self): return self
+        def __exit__(self, *args):
+            env_closed.set()
+            return False
+    def sender():
+        entered.set()
+        assert release.wait(1)
+    def collect():
+        try:
+            with Environment(), gate:
+                gate.send(sender)
+                assert entered.wait(1)
+                raise RuntimeError('watchdog expired')
+        except RuntimeError:
+            reported.set()
+    thread = threading.Thread(target=collect)
     thread.start()
     assert entered.wait(1)
     try:
-        with pytest.raises(RuntimeError, match='watchdog expired'):
-            collector._join_action_with_gimbal(thread, None,
-                lambda: (_ for _ in ()).throw(RuntimeError('watchdog expired')),
-                cancel=gate.cancel, abandon_on_cancel=True)
-        assert thread.is_alive()  # watchdog returned while transport was blocked
-        with pytest.raises(RuntimeError, match='cancelled'):
-            # Do not wait for the occupied transport lock in this test; check
-            # the same admission barrier directly.
-            gate.check()
-        assert [item['event'] for item in gate.snapshot()] == ['admitted', 'cancelled']
+        assert gate._cancelled.wait(1)
+        assert not env_closed.wait(0.05)
+        assert not reported.is_set()
     finally:
         release.set()
         thread.join(1)
+    assert reported.is_set() and env_closed.is_set()
+
+
+def test_unmanaged_explicit_gimbal_primitive_cannot_bypass_io_owner():
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    collector = _collector_module()
+    with pytest.raises(RuntimeError, match='requires the managed gimbal session'):
+        collector._managed_teacher_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0), None, None)
