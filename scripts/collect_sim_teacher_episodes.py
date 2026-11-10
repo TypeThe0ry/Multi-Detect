@@ -4074,6 +4074,44 @@ def _dispatch_teacher_gimbal_command(
     return True
 
 
+def _join_action_with_gimbal(thread: Any, session: Any, on_tick: Any) -> None:
+    """Continue the session during a primitive without racing the MAVLink reader.
+
+    If the session fails, keep joining the already-issued primitive before
+    propagating the error; abandoning a live motion thread is unsafe.
+    """
+    error = None
+    while thread.is_alive():
+        if session is not None and error is None:
+            try:
+                session.poll()
+            except Exception as exc:
+                error = exc
+        if error is None:
+            try:
+                on_tick()
+            except Exception as exc:
+                error = exc
+        thread.join(timeout=0.02)
+    thread.join()
+    if session is not None and error is None:
+        try:
+            session.poll()
+        except Exception as exc:
+            error = exc
+    if error is not None:
+        raise error
+
+
+def _finish_teacher_gimbal(session: Any, check: Any, *, sleep: Any = time.sleep) -> None:
+    """Drain the final queued command before reporting the episode complete."""
+    if session is None:
+        return
+    while session.poll() != "ready" or session.pending is not None:
+        check()
+        sleep(0.02)
+
+
 def _gimbal_attitude_angles_deg(
     status: Any,
     *,
@@ -5812,6 +5850,7 @@ def run_episode(
     mover_driver = None
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
     gimbal_controller = None
+    gimbal_session = None
     try:
         sampler_cpus = (
             _parse_cpu_set(cpu_isolation.cpuset_cpus)
@@ -7215,7 +7254,9 @@ def run_episode(
 
                 execute_thread = threading.Thread(target=_execute, name="sim-teacher-action")
                 execute_thread.start()
-                while execute_thread.is_alive():
+                def _action_tick() -> None:
+                    nonlocal next_video_s
+                    episode_watchdog.check()
                     now = time.monotonic()
                     if video_writer is not None and now >= next_video_s:
                         try:
@@ -7261,8 +7302,8 @@ def run_episode(
                                 {"message_type": "video_capture_error", "error": str(exc)}
                             )
                         next_video_s += 1.0 / plan.video_hz
-                    execute_thread.join(timeout=max(0.001, min(0.02, next_video_s - now)))
-                execute_thread.join()
+
+                _join_action_with_gimbal(execute_thread, gimbal_session, _action_tick)
                 if execute_error:
                     raise execute_error[0]
                 result = result_box[0]
@@ -7478,6 +7519,7 @@ def run_episode(
                 if not continue_loop:
                     _progress("policy_stop", step=index)
                     break
+            _finish_teacher_gimbal(gimbal_session, episode_watchdog.check)
             mav_reader.raise_if_failed()
             # Teardown lands in place from the hover altitude. Slow SITL lockstep can
             # make a fixed wall-clock wait expire before PX4 reaches the ground.

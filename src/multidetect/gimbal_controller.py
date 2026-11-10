@@ -28,6 +28,7 @@ class GimbalManagerSession:
     def __init__(self, connection: Any, reader: Any, send: Callable[..., None], *,
                  device_id: int = 1, wall_timeout_s: float = 5.0,
                  vehicle_timeout_s: float = 2.0,
+                 owner_vehicle_timeout_s: float = 4.0,
                  target: tuple[int, int] | None = None,
                  clock_ns: Callable[[], int] = time.monotonic_ns) -> None:
         mav = getattr(connection, "mav", None)
@@ -40,7 +41,7 @@ class GimbalManagerSession:
             raise RuntimeError("MAVLink manager target is unknown")
         self.reader, self.send = reader, send
         self.device_id, self.wall_timeout_s = device_id, wall_timeout_s
-        self.vehicle_timeout_s, self.clock_ns = vehicle_timeout_s, clock_ns
+        self.vehicle_timeout_s, self.owner_vehicle_timeout_s, self.clock_ns = vehicle_timeout_s, owner_vehicle_timeout_s, clock_ns
         self.cursor = reader.gimbal_events_cursor()
         self.phase = "idle"
         self.pending = None
@@ -98,6 +99,10 @@ class GimbalManagerSession:
                         raise RuntimeError(f"gimbal command {expected} rejected: MAV_RESULT={result}")
                     if expected == 1001:
                         self.phase = "owner"
+                        # Manager status is periodic (2 s in PX4).  Its own
+                        # budget starts at the ACK, not the configure send.
+                        self.started_ns = stamp
+                        self.started_vehicle_ms = self.reader.state.vehicle_time_boot_ms
                     else:
                         self.phase = "ready"
                 elif name == "GIMBAL_MANAGER_STATUS" and self.phase == "owner":
@@ -115,7 +120,7 @@ class GimbalManagerSession:
                     vehicle_ms is not None and self.started_vehicle_ms is not None and vehicle_ms >= self.started_vehicle_ms
                 ) else 0.0
                 if ((self.clock_ns() - self.started_ns) / 1e9 >= self.wall_timeout_s or
-                    elapsed_vehicle >= self.vehicle_timeout_s):
+                    elapsed_vehicle >= (self.owner_vehicle_timeout_s if self.phase == "owner" else self.vehicle_timeout_s)):
                     raise TimeoutError(f"gimbal {self.phase} timeout")
             if self.phase == "idle" and self.pending:
                 self._start("configure_ack", 1001, (*self.identity, -1.0, -1.0, 0.0, 0.0, float(self.device_id)))

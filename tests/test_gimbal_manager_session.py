@@ -104,7 +104,7 @@ def test_rejection_fails_without_retry(phase):
         owner(reader); session.poll()
     if phase == 'owner':
         owner(reader, device=2)
-        reader.state.vehicle_time_boot_ms = 2001
+        reader.state.vehicle_time_boot_ms = 4001
     else:
         ack(reader, command=1000 if phase == 'command_ack' else 1001, result=2)
     with pytest.raises((RuntimeError, TimeoutError)):
@@ -197,3 +197,92 @@ def test_reader_retains_interleaved_manager_events_with_source_identity():
         assert all(item[1].get_srcSystem() == 1 for item in events)
     finally:
         reader.stop()
+
+
+def test_manager_status_gets_full_period_after_delayed_ack():
+    session, reader, sent, clock = setup()
+    session.command(1000, 1)
+    clock[0] = 1_500_000_000
+    reader.state.vehicle_time_boot_ms = 1500
+    reader.add('COMMAND_ACK', stamp=clock[0], command=1001, result=0,
+               target_system=255, target_component=190)
+    assert session.poll() == 'owner'
+    # The periodic status arrives more than two seconds after configure was
+    # sent, but within one full status period after ACK.
+    clock[0] = 3_400_000_000
+    reader.state.vehicle_time_boot_ms = 3400
+    reader.add('GIMBAL_MANAGER_STATUS', stamp=clock[0], gimbal_device_id=1,
+               primary_control_sysid=255, primary_control_compid=190)
+    assert session.poll() == 'command_ack'
+    assert sent[-1][0] == 1000
+
+
+def test_collector_advances_gimbal_during_action_and_surfaces_final_rejection():
+    from scripts.collect_sim_teacher_episodes import _join_action_with_gimbal
+    session, reader, sent, _ = setup()
+    session.command(1000, 1)
+    class Thread:
+        count = 0
+        def is_alive(self): return self.count < 4
+        def join(self, timeout=None): self.count += 1
+    thread = Thread()
+    def tick():
+        if thread.count == 0:
+            ack(reader); owner(reader)
+        if thread.count == 2:
+            assert sent[-1][0] == 1000
+        if thread.count == 3:
+            ack(reader, command=1000, result=2)
+    with pytest.raises(RuntimeError, match='rejected'):
+        _join_action_with_gimbal(thread, session, tick)
+    assert thread.count >= 4
+    assert sent[-1][0] == 1000
+
+
+def test_collector_drains_final_queued_command_and_propagates_failure():
+    from scripts.collect_sim_teacher_episodes import _finish_teacher_gimbal
+    session, reader, sent, _ = setup()
+    session.command(1000, 1)
+    ticks = [0]
+    def sleep(_):
+        ticks[0] += 1
+        if ticks[0] == 1:
+            ack(reader); owner(reader)
+        elif ticks[0] == 2:
+            ack(reader, command=1000, result=2)
+    with pytest.raises(RuntimeError, match='rejected'):
+        _finish_teacher_gimbal(session, lambda: None, sleep=sleep)
+    assert [x[0] for x in sent] == [1001, 1000]
+
+
+@pytest.mark.parametrize('wall_timeout', [5.0, 30.0])
+def test_manager_wait_has_fresh_bounded_wall_deadline(wall_timeout):
+    session, reader, sent, clock = setup(wall_timeout_s=wall_timeout)
+    session.command(1000, 1)
+    clock[0] = 1_000_000_000
+    reader.state.vehicle_time_boot_ms = 100
+    reader.add('COMMAND_ACK', stamp=clock[0], command=1001, result=0,
+               target_system=255, target_component=190)
+    assert session.poll() == 'owner'
+    clock[0] = int((1 + wall_timeout - 0.1) * 1e9)
+    assert session.poll() == 'owner'
+    clock[0] = int((1 + wall_timeout) * 1e9)
+    with pytest.raises(TimeoutError, match='owner'):
+        session.poll()
+    assert len(sent) == 1
+
+
+def test_collector_final_command_success_waits_for_ack():
+    from scripts.collect_sim_teacher_episodes import _finish_teacher_gimbal
+    session, reader, sent, _ = setup()
+    session.command(1000, 1)
+    ticks = [0]
+    def sleep(_):
+        ticks[0] += 1
+        if ticks[0] == 1:
+            ack(reader); owner(reader)
+        elif ticks[0] == 2:
+            ack(reader, command=1000)
+    _finish_teacher_gimbal(session, lambda: None, sleep=sleep)
+    assert session.phase == 'ready' and ticks[0] == 2
+    assert [x[0] for x in sent] == [1001, 1000]
