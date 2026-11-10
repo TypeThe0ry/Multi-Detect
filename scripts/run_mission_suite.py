@@ -99,6 +99,13 @@ def merge_config(defaults: dict[str, Any], mission: dict[str, Any]) -> dict[str,
             config[key] = {**config.get(key, {}), **copy.deepcopy(value)}
         else:
             config[key] = copy.deepcopy(value)
+    # Candidate-only deployment bindings are not edits to the frozen suite.
+    if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
+        for key, variable in (("llama_server", "MD_GIMBAL_LLAMA_SERVER"), ("mmproj", "MD_GIMBAL_MMPROJ")):
+            value = os.environ.get(variable, "")
+            if not value or not Path(value).is_absolute():
+                raise ValueError(f"{variable} must be an absolute, prevalidated path")
+            config[key] = value
     return config
 
 
