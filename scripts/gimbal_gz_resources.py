@@ -99,6 +99,23 @@ def preflight(world,fuel=FUEL,manifest=MANIFEST):
      tokens=shlex.split(stripped,comments=True)
      if len(tokens)<2:raise ValueError('invalid material texture')
      follow(relative_file(path,name,tokens[1]),name)
+  elif suffix=='.obj':
+   for line in path.read_text(encoding='utf-8').splitlines():
+    tokens=shlex.split(line.strip(),comments=True)
+    if tokens and tokens[0].lower()=='mtllib':
+     if len(tokens)<2:raise ValueError('empty OBJ material library')
+     for value in tokens[1:]:
+      if value.startswith('model://'):uri(value)
+      else:follow(relative_file(path,name,value),name)
+  elif suffix=='.mtl':
+   for line in path.read_text(encoding='utf-8').splitlines():
+    tokens=shlex.split(line.strip(),comments=True)
+    if not tokens:continue
+    key=tokens[0].lower()
+    if key.startswith('map_') or key in ('bump','norm','disp','decal','refl'):
+     if len(tokens)!=2 or tokens[1].startswith('-'):raise ValueError('unsupported MTL texture syntax')
+     if tokens[1].startswith('model://'):uri(tokens[1])
+     else:follow(relative_file(path,name,tokens[1]),name)
  tree=ET.parse(world)
  for e in tree.iter():
   values=[(e.text or '').strip(),*e.attrib.values()]

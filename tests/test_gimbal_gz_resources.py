@@ -44,5 +44,16 @@ class Tests(unittest.TestCase):
   self.assertEqual(len(data['worlds']),8)
   for name in data['worlds']:
    with self.subTest(world=name):g.preflight(docker.ROOT/'simulation/gazebo/worlds'/name)
+  result=g.preflight(docker.ROOT/'simulation/gazebo/worlds/gen_cnt2_w0002.sdf')
+  self.assertIn('bus',result['models']);self.assertIn('suv',result['models'])
+ def test_obj_mtl_cross_model_texture_missing_fails(self):
+  self.dae.unlink();obj=self.model/'meshes/a.obj';obj.write_text('mtllib a.mtl\n')
+  mtl=self.model/'meshes/a.mtl';mtl.write_text('map_Kd model://other/materials/textures/wheel.png\n')
+  other=self.fuel/'other';(other/'materials/textures').mkdir(parents=True);wheel=other/'materials/textures/wheel.png';wheel.write_bytes(b'wheel')
+  self.world.write_text('<sdf><world><uri>model://house/meshes/a.obj</uri></world></sdf>');self.write_manifest()
+  data=json.loads(self.manifest.read_text());data['models']['other']={'materials/textures/wheel.png':g.sha(wheel)};self.manifest.write_text(json.dumps(data))
+  self.assertIn('other',self.check()['models'])
+  wheel.unlink();data['models']['other']={};self.manifest.write_text(json.dumps(data))
+  with self.assertRaises(ValueError):self.check()
 
 if __name__=='__main__':unittest.main()
