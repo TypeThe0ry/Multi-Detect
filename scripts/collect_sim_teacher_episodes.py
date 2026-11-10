@@ -1491,6 +1491,7 @@ class DockerSimEnvironment:
         self.name = plan.attach_container or f"{plan.container_prefix}-{episode_id}"
         self.attached = bool(plan.attach_container)
         self.started = False
+        self._candidate_id: str | None = None
         self.runtime_image = None if self.attached else plan.image
         self._attached_container_id: str | None = None
         self.episode_dir = Path(episode_dir) if episode_dir is not None else None
@@ -1702,16 +1703,15 @@ class DockerSimEnvironment:
             self._attached_container_id = container_id
             self._progress("container_attached", container=self.name, image=image, requested_image=self.plan.image)
             return self
-        result = subprocess.run(
-            docker_command(self.plan, name=self.name),
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "Docker launch failed").strip()
-            raise RuntimeError(f"Docker launch failed ({result.returncode}): {detail[:500]}")
+        command = docker_command(self.plan, name=self.name)
+        if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
+            from scripts.gimbal_create_journal import run_recorded
+            self._candidate_id = run_recorded(command, name=self.name, run=subprocess.run)
+        else:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "Docker launch failed").strip()
+                raise RuntimeError(f"Docker launch failed ({result.returncode}): {detail[:500]}")
         self.started = True
         self._progress("container_up", container=self.name, image=self.plan.image)
         return self
@@ -1900,8 +1900,12 @@ class DockerSimEnvironment:
         )
         if self.started and not keep_running:
             try:
+                target = self.name
+                if self._candidate_id is not None:
+                    from scripts.gimbal_create_journal import verify_owned
+                    target = verify_owned(self._candidate_id, run=subprocess.run, executable=_docker_executable(self.plan))
                 stopped = subprocess.run(
-                    [_docker_executable(self.plan), "stop", "--timeout", "10", self.name],
+                    [_docker_executable(self.plan), "stop", "--timeout", "10", target],
                     capture_output=True,
                     text=True,
                     timeout=15,
@@ -1912,6 +1916,10 @@ class DockerSimEnvironment:
                     errors["docker_stop"] = (stopped.stderr or stopped.stdout).strip()[-1000:]
             except Exception as error:
                 errors["docker_stop"] = f"{type(error).__name__}: {error}"
+                if self._candidate_id is not None:
+                    raise
+            if self._candidate_id is not None and result.get("stop_returncode") != 0:
+                raise RuntimeError("Docker stop response uncertain; retain locks")
         state = self.inspect_state()
         result["state_after_cleanup_stop"] = state
         if isinstance(state, dict):
@@ -2029,6 +2037,8 @@ class DockerSimEnvironment:
                         errors=self.evidence_index.get("errors", {}),
                     )
                 except Exception as error:
+                    if self._candidate_id is not None:
+                        raise
                     self.evidence_index = {
                         "container": self.name,
                         "evidence_directory": str(self.evidence_dir.relative_to(self.episode_dir)),
@@ -2062,6 +2072,8 @@ class DockerSimEnvironment:
                         container=self.name,
                         error=f"{type(error).__name__}: {error}",
                     )
+                    if self._candidate_id is not None:
+                        raise
         finally:
             keep_running = bool(
                 exc_type is not None
@@ -2070,15 +2082,26 @@ class DockerSimEnvironment:
             )
             if self.started and not keep_running:
                 try:
-                    subprocess.run(
-                        [_docker_executable(self.plan), "rm", "--force", self.name],
+                    target = self.name
+                    if self._candidate_id is not None:
+                        from scripts.gimbal_create_journal import verify_owned
+                        target = verify_owned(self._candidate_id, run=subprocess.run, executable=_docker_executable(self.plan))
+                    removed = subprocess.run(
+                        [_docker_executable(self.plan), "rm", "--force", target],
                         capture_output=True,
                         text=True,
                         timeout=15,
                         check=False,
                     )
+                    if self._candidate_id is not None:
+                        if removed.returncode != 0 or removed.stdout.strip() != self._candidate_id:
+                            raise RuntimeError("Docker removal response uncertain; retain locks")
+                        from scripts.gimbal_create_journal import record_removed
+                        record_removed(self._candidate_id)
                 except Exception as error:
                     self._progress("container_remove_failed", container=self.name, error=str(error))
+                    if self._candidate_id is not None:
+                        raise
                 self.started = False
                 self._progress("cleanup", container=self.name, removed=True)
             elif self.started:
