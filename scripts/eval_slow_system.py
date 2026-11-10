@@ -690,11 +690,16 @@ class LlamaServerRunner:
         if os.environ.get("MD_GIMBAL_INVOCATION") is None:
             return _http_json(url, body, timeout)
         from scripts.gimbal_listener_guard import direct_json, guarded_http, verify_connected_peer
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("invalid HTTP timeout")
+        deadline = time.monotonic() + timeout
         return guarded_http(self.port, self.process.pid, self._gimbal_startticks,
                             self._command[0], self._gimbal_cgroup,
                             lambda: direct_json(url, self.port, body, timeout,
-                              peer_check=lambda sock: verify_connected_peer(sock,self.port,self.process.pid,
-                                  self._gimbal_startticks,self._command[0],self._gimbal_cgroup)))
+                              deadline=deadline,
+                              peer_check=lambda sock, until: verify_connected_peer(sock,self.port,self.process.pid,
+                                  self._gimbal_startticks,self._command[0],self._gimbal_cgroup,deadline=until)),
+                            deadline=deadline)
 
     def _start(self) -> None:
         self._closed = False

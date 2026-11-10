@@ -1,4 +1,4 @@
-import os,socket,sys,unittest
+import os,socket,sys,time,unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -51,7 +51,7 @@ class ListenerTests(unittest.TestCase):
   server=HTTPServer(('127.0.0.1',0),Handler);self.addCleanup(server.server_close)
   thread=threading.Thread(target=server.handle_request);thread.start()
   with self.assertRaisesRegex(ValueError,'redirect'):
-   g.direct_json(f'http://127.0.0.1:{server.server_port}/health',server.server_port,timeout=2,peer_check=lambda sock:g.verify_connected_peer(sock,server.server_port,self.pid,self.start,self.exe,self.group))
+   g.direct_json(f'http://127.0.0.1:{server.server_port}/health',server.server_port,timeout=2,peer_check=lambda sock,deadline:g.verify_connected_peer(sock,server.server_port,self.pid,self.start,self.exe,self.group,deadline=deadline))
   thread.join(timeout=2);self.assertFalse(thread.is_alive())
   with self.assertRaises(ValueError):g.direct_json('http://localhost:1/health',1,timeout=2)
  def test_peer_failure_precedes_http_send(self):
@@ -61,10 +61,36 @@ class ListenerTests(unittest.TestCase):
    conn,_=self.sock.accept()
    with conn:received.append(conn.recv(1024))
   thread=threading.Thread(target=accept);thread.start()
-  def reject(sock):raise ValueError('foreign peer')
+  def reject(sock,deadline):raise ValueError('foreign peer')
   with self.assertRaisesRegex(ValueError,'foreign peer'):
    g.direct_json(f'http://127.0.0.1:{self.port}/health',self.port,{'secret':'payload'},2,peer_check=reject)
   thread.join(timeout=2);self.assertEqual(received,[b''])
+ def test_nonaccepting_listener_obeys_shared_deadline(self):
+  from scripts.eval_slow_system import LlamaServerRunner
+  runner=LlamaServerRunner.__new__(LlamaServerRunner);runner.port=self.port
+  runner.process=SimpleNamespace(pid=self.pid);runner._gimbal_startticks=self.start;runner._gimbal_cgroup=self.group;runner._command=[self.exe]
+  began=time.monotonic()
+  with patch.dict(os.environ,{'MD_GIMBAL_INVOCATION':'a'*32}):self.assertFalse(runner.probe_health(timeout_s=.1))
+  self.assertLess(time.monotonic()-began,.35)
+ def test_slow_body_obeys_total_deadline(self):
+  from scripts.eval_slow_system import LlamaServerRunner
+  from http.server import BaseHTTPRequestHandler,HTTPServer
+  import threading
+  self.sock.close()
+  class Handler(BaseHTTPRequestHandler):
+   def do_GET(self):
+    self.send_response(200);self.send_header('Content-Length','8');self.end_headers()
+    self.wfile.write(b'{');self.wfile.flush();time.sleep(.35)
+    try:self.wfile.write(b'       ')
+    except OSError:pass
+   def log_message(self,*args):pass
+  server=HTTPServer(('127.0.0.1',0),Handler);self.addCleanup(server.server_close)
+  thread=threading.Thread(target=server.handle_request);thread.start()
+  runner=LlamaServerRunner.__new__(LlamaServerRunner);runner.port=server.server_port
+  runner.process=SimpleNamespace(pid=self.pid);runner._gimbal_startticks=self.start;runner._gimbal_cgroup=self.group;runner._command=[self.exe]
+  began=time.monotonic()
+  with patch.dict(os.environ,{'MD_GIMBAL_INVOCATION':'a'*32}):self.assertFalse(runner.probe_health(timeout_s=.1))
+  self.assertLess(time.monotonic()-began,.3);thread.join(timeout=2)
  def test_real_runner_preflight_precedes_spawn(self):
   from scripts.eval_slow_system import LlamaServerRunner
   runner=LlamaServerRunner.__new__(LlamaServerRunner);runner.port=self.port;runner._model=Path('/unused')

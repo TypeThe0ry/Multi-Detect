@@ -1,5 +1,5 @@
 """Verify a local HTTP listener belongs to the exact spawned child process."""
-import http.client,io,json,os,socket,time,urllib.error,urllib.parse
+import http.client,io,json,math,os,socket,threading,time,urllib.error,urllib.parse
 from pathlib import Path
 
 def preflight(port):
@@ -32,22 +32,32 @@ def listener_identity(port,pid,ticks,executable,worker_group):
  if startticks(pid)!=ticks:raise ValueError('listener PID changed')
  return (pid,ticks,worker_group,str(Path(executable).resolve()),inodes[0])
 
-def guarded_http(port,pid,ticks,executable,group,fetch):
+def remaining(deadline):
+ value=deadline-time.monotonic()
+ if value<=0:raise TimeoutError('HTTP request deadline exceeded')
+ return value
+
+def guarded_http(port,pid,ticks,executable,group,fetch,*,deadline=None):
+ if deadline is not None:remaining(deadline)
  before=listener_identity(port,pid,ticks,executable,group)
+ if deadline is not None:remaining(deadline)
  try:result=fetch()
  except BaseException:
+  if deadline is not None:remaining(deadline)
   if listener_identity(port,pid,ticks,executable,group)!=before:raise ValueError('listener changed during failed response')
   raise
+ if deadline is not None:remaining(deadline)
  if listener_identity(port,pid,ticks,executable,group)!=before:raise ValueError('listener changed during response')
+ if deadline is not None:remaining(deadline)
  return result
 
-def verify_connected_peer(sock,port,pid,ticks,executable,group,*,timeout=2):
+def verify_connected_peer(sock,port,pid,ticks,executable,group,*,deadline):
  """Before sending, locate the accepted reverse tuple in the spawned PID."""
  local=sock.getsockname();remote=sock.getpeername()
  if local[0]!='127.0.0.1' or remote[:2]!=('127.0.0.1',port):raise ValueError('HTTP peer mismatch')
  server=f'0100007F:{port:04X}';client=f'0100007F:{local[1]:04X}'
- deadline=time.monotonic()+timeout
  while True:
+  remaining(deadline)
   listener_identity(port,pid,ticks,executable,group)
   matches=[]
   for line in Path('/proc/net/tcp').read_text().splitlines()[1:]:
@@ -57,26 +67,40 @@ def verify_connected_peer(sock,port,pid,ticks,executable,group,*,timeout=2):
   for fd in (Path('/proc')/str(pid)/'fd').iterdir():
    try:targets.append(str(fd.readlink()))
    except FileNotFoundError:pass
+  remaining(deadline)
   if len(matches)==1 and 'socket:['+matches[0]+']' in targets:return True
-  if time.monotonic()>=deadline:raise ValueError('accepted peer ownership unknown')
-  time.sleep(.01)
+  time.sleep(min(.01,remaining(deadline)))
 
-def direct_json(url,port,body=None,timeout=180,*,peer_check=None):
+def direct_json(url,port,body=None,timeout=180,*,peer_check=None,deadline=None):
  """No environment proxies, redirects, DNS, credentials, or off-target URL."""
  target=urllib.parse.urlsplit(url)
  if target.scheme!='http' or target.hostname!='127.0.0.1' or target.port!=port or target.username is not None or target.password is not None or target.fragment or not target.path.startswith('/'):
   raise ValueError('HTTP target mismatch')
- conn=http.client.HTTPConnection('127.0.0.1',port,timeout=timeout)
+ if deadline is None:
+  if not math.isfinite(timeout) or timeout<=0:raise ValueError('invalid timeout')
+  deadline=time.monotonic()+timeout
+ conn=http.client.HTTPConnection('127.0.0.1',port,timeout=remaining(deadline));timer=None
  try:
   conn.connect()
   if conn.sock is None or conn.sock.getpeername()[:2]!=('127.0.0.1',port):raise ValueError('HTTP peer mismatch')
   if peer_check is None:raise ValueError('accepted peer check required')
-  peer_check(conn.sock)
+  peer_check(conn.sock,deadline)
+  conn.sock.settimeout(remaining(deadline))
+  sock=conn.sock
+  def interrupt():
+   try:sock.shutdown(socket.SHUT_RDWR)
+   except OSError:pass
+  timer=threading.Timer(remaining(deadline),interrupt);timer.daemon=True;timer.start()
   payload=json.dumps(body,ensure_ascii=False).encode() if body is not None else None
   conn.request('POST' if body is not None else 'GET',target.path+('?' + target.query if target.query else ''),body=payload,headers={'Content-Type':'application/json'})
-  response=conn.getresponse();data=response.read()
+  response=conn.getresponse();data=response.read();remaining(deadline)
   if 300<=response.status<400:raise ValueError('HTTP redirect forbidden')
   if response.status>=400:raise urllib.error.HTTPError(url,response.status,response.reason,response.headers,io.BytesIO(data))
   if not 200<=response.status<300:raise ValueError('HTTP status unexpected')
   return json.loads(data)
- finally:conn.close()
+ except (OSError,http.client.HTTPException):
+  remaining(deadline)
+  raise
+ finally:
+  if timer is not None:timer.cancel()
+  conn.close()
