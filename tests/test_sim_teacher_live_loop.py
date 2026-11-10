@@ -799,7 +799,8 @@ def test_collector_gimbal_worker_does_not_call_mutable_watchdog():
              and isinstance(node.func, ast.Name) and node.func.id == '_execute_managed_gimbal_action']
     assert len(calls) == 1
     check = next(keyword.value for keyword in calls[0].keywords if keyword.arg == 'check')
-    assert isinstance(check, ast.Lambda) and isinstance(check.body, ast.Constant) and check.body.value is None
+    assert isinstance(check, ast.Attribute) and check.attr == 'check'
+    assert isinstance(check.value, ast.Name) and check.value.id == 'gimbal_send_gate'
     main_id = threading.get_ident()
     seen = []
     done = threading.Event()
@@ -810,3 +811,101 @@ def test_collector_gimbal_worker_does_not_call_mutable_watchdog():
         done.set()
     collector._join_action_with_gimbal(thread, None, watchdog_tick)
     assert seen and all(item == main_id for item in seen)
+
+
+def test_watchdog_cancels_managed_worker_between_drain_and_new_command():
+    import threading
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    in_drain, release = threading.Event(), threading.Event()
+    sent, worker_errors = [], []
+    class Session:
+        pending = None
+        def poll(self):
+            in_drain.set()
+            assert release.wait(1)
+            return 'ready'
+        def command(self, *args): sent.append(args)
+    profile = SimpleNamespace(camera=SimpleNamespace(gimbal={
+        'enabled': True, 'angle_range_deg': {'pitch': [-135, 45], 'yaw': [-180, 180], 'roll': [-45, 45]}}))
+    def work():
+        try:
+            collector._execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0),
+                session=Session(), profile=profile, reader=None, check=gate.check)
+        except Exception as exc:
+            worker_errors.append(str(exc))
+    thread = threading.Thread(target=work)
+    thread.start()
+    assert in_drain.wait(1)
+    def watchdog(): raise RuntimeError('watchdog expired')
+    def cancel():
+        gate.cancel()
+        release.set()
+    with pytest.raises(RuntimeError, match='watchdog expired'):
+        collector._join_action_with_gimbal(thread, None, watchdog, cancel=cancel)
+    assert sent == [] and worker_errors == ['gimbal command cancelled']
+
+
+def test_gimbal_send_gate_serializes_inflight_send_and_cancellation():
+    import threading
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    entered, release, cancelled = threading.Event(), threading.Event(), threading.Event()
+    sent, second_errors = [], []
+    def sender():
+        entered.set()
+        assert release.wait(1)
+        sent.append('in-flight')
+    sending = threading.Thread(target=lambda: gate.send(sender))
+    sending.start()
+    assert entered.wait(1)
+    def queued_send():
+        try:
+            gate.send(lambda: sent.append('queued'))
+        except Exception as exc:
+            second_errors.append(str(exc))
+    second = threading.Thread(target=queued_send)
+    second.start()
+    def cancel():
+        gate.cancel()
+        cancelled.set()
+    stopping = threading.Thread(target=cancel)
+    stopping.start()
+    assert gate._cancelled.wait(1)
+    assert cancelled.wait(1)  # cancellation never waits on the transport
+    release.set()
+    sending.join(1); stopping.join(1); second.join(1)
+    assert cancelled.is_set() and sent == ['in-flight']
+    assert second_errors == ['gimbal command cancelled']
+    with pytest.raises(RuntimeError, match='cancelled'):
+        gate.send(lambda: sent.append('new'))
+    assert sent == ['in-flight']
+    assert [item['event'] for item in gate.snapshot()] == ['admitted', 'cancelled']
+
+
+def test_watchdog_returns_without_waiting_for_blocked_gimbal_transport():
+    import threading
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    entered, release = threading.Event(), threading.Event()
+    def blocked_sender():
+        entered.set()
+        assert release.wait(1)
+    thread = threading.Thread(target=lambda: gate.send(blocked_sender), daemon=True)
+    thread.start()
+    assert entered.wait(1)
+    try:
+        with pytest.raises(RuntimeError, match='watchdog expired'):
+            collector._join_action_with_gimbal(thread, None,
+                lambda: (_ for _ in ()).throw(RuntimeError('watchdog expired')),
+                cancel=gate.cancel, abandon_on_cancel=True)
+        assert thread.is_alive()  # watchdog returned while transport was blocked
+        with pytest.raises(RuntimeError, match='cancelled'):
+            # Do not wait for the occupied transport lock in this test; check
+            # the same admission barrier directly.
+            gate.check()
+        assert [item['event'] for item in gate.snapshot()] == ['admitted', 'cancelled']
+    finally:
+        release.set()
+        thread.join(1)

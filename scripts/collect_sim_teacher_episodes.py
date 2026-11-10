@@ -4090,11 +4090,51 @@ def _managed_teacher_gimbal_action(action: Any, camera_mount: Any, ensure_sessio
     return managed
 
 
-def _join_action_with_gimbal(thread: Any, session: Any, on_tick: Any) -> None:
+class _GimbalSendGate:
+    """Serialize cancellation with the start of each collector gimbal send."""
+
+    def __init__(self) -> None:
+        self._cancelled = threading.Event()
+        self._admission_lock = threading.Lock()
+        self._transport_lock = threading.Lock()
+        self._events: list[dict[str, Any]] = []
+
+    def _record(self, event: str, command: Any = None) -> None:
+        self._events.append({"event": event, "command": command, "monotonic_ns": time.monotonic_ns()})
+        del self._events[:-256]
+
+    def check(self) -> None:
+        if self._cancelled.is_set():
+            raise RuntimeError("gimbal command cancelled")
+
+    def send(self, sender: Any, *args: Any) -> None:
+        # Waiting for another send never holds the admission lock, so cancel
+        # does not wait for a blocked transport.  Recheck after that wait.
+        with self._transport_lock:
+            with self._admission_lock:
+                self.check()
+                self._record("admitted", args[2] if len(args) > 2 else None)
+            sender(*args)
+
+    def cancel(self) -> None:
+        # An admitted send is in flight and cannot be recalled.  The short
+        # admission lock never covers the potentially blocking transport.
+        with self._admission_lock:
+            self._cancelled.set()
+            self._record("cancelled")
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        with self._admission_lock:
+            return list(self._events)
+
+
+def _join_action_with_gimbal(thread: Any, session: Any, on_tick: Any, *, cancel: Any = None,
+                             abandon_on_cancel: bool = False) -> None:
     """Continue the session during a primitive without racing the MAVLink reader.
 
-    If the session fails, keep joining the already-issued primitive before
-    propagating the error; abandoning a live motion thread is unsafe.
+    Join an already-issued motion before propagating errors.  A managed
+    gimbal-only worker may be left to finish after cancellation: it is a
+    daemon, and the admission gate prevents it from starting another send.
     """
     error = None
     while thread.is_alive():
@@ -4103,11 +4143,19 @@ def _join_action_with_gimbal(thread: Any, session: Any, on_tick: Any) -> None:
                 session.poll()
             except Exception as exc:
                 error = exc
+                if cancel is not None:
+                    cancel()
+                if abandon_on_cancel:
+                    raise
         if error is None:
             try:
                 on_tick()
             except Exception as exc:
                 error = exc
+                if cancel is not None:
+                    cancel()
+                if abandon_on_cancel:
+                    raise
         thread.join(timeout=0.02)
     thread.join()
     if session is not None and error is None:
@@ -4115,6 +4163,8 @@ def _join_action_with_gimbal(thread: Any, session: Any, on_tick: Any) -> None:
             session.poll()
         except Exception as exc:
             error = exc
+            if cancel is not None:
+                cancel()
     if error is not None:
         raise error
 
@@ -4123,8 +4173,10 @@ def _finish_teacher_gimbal(session: Any, check: Any, *, sleep: Any = time.sleep)
     """Drain the final queued command before reporting the episode complete."""
     if session is None:
         return
-    while session.poll() not in {"idle", "ready"} or session.pending is not None:
+    while True:
         check()
+        if session.poll() in {"idle", "ready"} and session.pending is None:
+            return
         sleep(0.02)
 
 
@@ -4148,6 +4200,7 @@ def _execute_managed_gimbal_action(
         if not float(bounds[0]) <= value <= float(bounds[1]):
             return ExecutionResult("rejected", clock() - started, ack={"reason": "gimbal_angle_out_of_range", "axis": axis, "value_deg": value})
     _finish_teacher_gimbal(session, check, sleep=sleep)
+    check()
     session.command(MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, target["pitch"], target["yaw"],
                     math.nan, math.nan, float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK |
                     GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
@@ -5925,6 +5978,7 @@ def run_episode(
     gcs_heartbeat_stop = gcs_heartbeat_thread = None
     gimbal_controller = None
     gimbal_session = None
+    gimbal_send_gate = _GimbalSendGate()
     try:
         sampler_cpus = (
             _parse_cpu_set(cpu_isolation.cpuset_cpus)
@@ -6024,9 +6078,10 @@ def run_episode(
                     if not callable(sender):
                         raise RuntimeError("MAVLink connection cannot send gimbal command")
                     def send(cmd: int, *values: float) -> None:
-                        sender(int(getattr(telemetry_connection, "target_system", 1) or 1),
-                               int(getattr(telemetry_connection, "target_component", 1) or 1),
-                               int(cmd), 0, *values)
+                        gimbal_send_gate.send(
+                            sender, int(getattr(telemetry_connection, "target_system", 1) or 1),
+                            int(getattr(telemetry_connection, "target_component", 1) or 1),
+                            int(cmd), 0, *values)
                     if gimbal_session is None:
                         gimbal_session = GimbalManagerSession(telemetry_connection, mav_reader, send, wall_timeout_s=30.0)
                     return gimbal_session
@@ -7293,7 +7348,7 @@ def run_episode(
                             _execute_managed_gimbal_action(
                                 managed_gimbal_action, session=gimbal_session,
                                 profile=executor.airframe_profile, reader=mav_reader,
-                                check=lambda: None,
+                                check=gimbal_send_gate.check,
                                 yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
                                 timeout_s=executor.gimbal_timeout_s,
                                 tolerance_deg=executor.gimbal_tolerance_deg,
@@ -7341,7 +7396,8 @@ def run_episode(
                     except BaseException as exc:
                         execute_error.append(exc)  # noqa: B023
 
-                execute_thread = threading.Thread(target=_execute, name="sim-teacher-action")
+                execute_thread = threading.Thread(target=_execute, name="sim-teacher-action",
+                                                  daemon=managed_gimbal_action is not None)
                 execute_thread.start()
                 def _action_tick() -> None:
                     nonlocal next_video_s
@@ -7392,7 +7448,14 @@ def run_episode(
                             )
                         next_video_s += 1.0 / plan.video_hz
 
-                _join_action_with_gimbal(execute_thread, None if managed_gimbal_action is not None else gimbal_session, _action_tick)
+                try:
+                    _join_action_with_gimbal(execute_thread, None if managed_gimbal_action is not None else gimbal_session, _action_tick,
+                                             cancel=gimbal_send_gate.cancel,
+                                             abandon_on_cancel=managed_gimbal_action is not None)
+                except Exception:
+                    recorder.record_mavlink({"message_type": "collector_gimbal_send_gate",
+                                             "events": gimbal_send_gate.snapshot()})
+                    raise
                 if execute_error:
                     raise execute_error[0]
                 result = result_box[0]
@@ -7609,6 +7672,9 @@ def run_episode(
                     _progress("policy_stop", step=index)
                     break
             _finish_teacher_gimbal(gimbal_session, episode_watchdog.check)
+            if gimbal_session is not None:
+                recorder.record_mavlink({"message_type": "collector_gimbal_send_gate",
+                                         "events": gimbal_send_gate.snapshot()})
             mav_reader.raise_if_failed()
             # Teardown lands in place from the hover altitude. Slow SITL lockstep can
             # make a fixed wall-clock wait expire before PX4 reaches the ground.
