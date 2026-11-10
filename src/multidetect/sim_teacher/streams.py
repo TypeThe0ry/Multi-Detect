@@ -664,9 +664,15 @@ class MavlinkReader:
         if isinstance(message, Mapping):
             return dict(message)
         try:
-            return dict(message.to_dict())
+            result = dict(message.to_dict())
         except Exception:
-            return {"message": str(message)}
+            result = {"message": str(message)}
+        for key, getter in (("_source_system", "get_srcSystem"),
+                            ("_source_component", "get_srcComponent")):
+            method = getattr(message, getter, None)
+            if callable(method):
+                result[key] = method()
+        return result
 
     def _run(self) -> None:
         raw_receiver = getattr(self.connection, "recv_msg", None)

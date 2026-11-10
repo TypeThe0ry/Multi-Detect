@@ -182,7 +182,8 @@ def test_reader_retains_interleaved_manager_events_with_source_identity():
         def to_dict(self): return {}
 
     receiver = Receiver()
-    reader = MavlinkReader(receiver).start()
+    recorded = []
+    reader = MavlinkReader(receiver, on_message=recorded.append).start()
     try:
         cursor = reader.gimbal_events_cursor()
         receiver.messages.put(WireMessage('GIMBAL_MANAGER_STATUS', gimbal_device_id=1))
@@ -195,6 +196,10 @@ def test_reader_retains_interleaved_manager_events_with_source_identity():
         assert [item[0] for item in events] == ['GIMBAL_MANAGER_STATUS', 'GIMBAL_MANAGER_STATUS', 'COMMAND_ACK']
         assert [item[1].gimbal_device_id for item in events[:2]] == [1, 2]
         assert all(item[1].get_srcSystem() == 1 for item in events)
+        deadline = time.monotonic() + 1
+        while len(recorded) < 3 and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert all(row['_source_system'] == 1 and row['_source_component'] == 1 for row in recorded)
     finally:
         reader.stop()
 
