@@ -76,6 +76,17 @@ class GimbalManagerSession:
     def _field(message: Any, name: str, default: Any = None) -> Any:
         return message.get(name, default) if isinstance(message, dict) else getattr(message, name, default)
 
+    def _check_deadline(self, stamp_ns: int, vehicle_ms: int | None) -> None:
+        if self.phase not in {"configure_ack", "owner", "command_ack"}:
+            return
+        elapsed_vehicle = (vehicle_ms - self.started_vehicle_ms) / 1000 if (
+            vehicle_ms is not None and self.started_vehicle_ms is not None and vehicle_ms >= self.started_vehicle_ms
+        ) else 0.0
+        vehicle_limit = self.owner_vehicle_timeout_s if self.phase == "owner" else self.vehicle_timeout_s
+        if ((stamp_ns - self.started_ns) / 1e9 >= self.wall_timeout_s or
+            elapsed_vehicle >= vehicle_limit):
+            raise TimeoutError(f"gimbal {self.phase} timeout")
+
     def poll(self) -> str:
         if self.error:
             raise RuntimeError(self.error)
@@ -84,7 +95,7 @@ class GimbalManagerSession:
         self.reader.raise_if_failed()
         try:
             self.cursor, events = self.reader.gimbal_events_since(self.cursor)
-            for name, msg, stamp in events:
+            for name, msg, stamp, vehicle_ms in events:
                 if stamp < self.started_ns or not self._source_matches(msg):
                     continue
                 if name == "COMMAND_ACK":
@@ -92,6 +103,7 @@ class GimbalManagerSession:
                     if (expected is None or self._field(msg, "command") != expected or
                         (self._field(msg, "target_system"), self._field(msg, "target_component")) != self.identity):
                         continue
+                    self._check_deadline(stamp, vehicle_ms)
                     result = self._field(msg, "result", -1)
                     if result == 5:
                         continue
@@ -102,26 +114,20 @@ class GimbalManagerSession:
                         # Manager status is periodic (2 s in PX4).  Its own
                         # budget starts at the ACK, not the configure send.
                         self.started_ns = stamp
-                        self.started_vehicle_ms = self.reader.state.vehicle_time_boot_ms
+                        self.started_vehicle_ms = vehicle_ms
                     else:
                         self.phase = "ready"
                 elif name == "GIMBAL_MANAGER_STATUS" and self.phase == "owner":
                     if (self._field(msg, "gimbal_device_id") == self.device_id and
                         (self._field(msg, "primary_control_sysid"), self._field(msg, "primary_control_compid")) == self.identity):
+                        self._check_deadline(stamp, vehicle_ms)
                         self.owned = True
                         self.phase = "ready"
                 elif name == "GIMBAL_MANAGER_STATUS" and self.owned:
                     if (self._field(msg, "gimbal_device_id") == self.device_id and
                         (self._field(msg, "primary_control_sysid"), self._field(msg, "primary_control_compid")) != self.identity):
                         raise RuntimeError("gimbal manager ownership lost")
-            if self.phase in {"configure_ack", "owner", "command_ack"}:
-                vehicle_ms = self.reader.state.vehicle_time_boot_ms
-                elapsed_vehicle = (vehicle_ms - self.started_vehicle_ms) / 1000 if (
-                    vehicle_ms is not None and self.started_vehicle_ms is not None and vehicle_ms >= self.started_vehicle_ms
-                ) else 0.0
-                if ((self.clock_ns() - self.started_ns) / 1e9 >= self.wall_timeout_s or
-                    elapsed_vehicle >= (self.owner_vehicle_timeout_s if self.phase == "owner" else self.vehicle_timeout_s)):
-                    raise TimeoutError(f"gimbal {self.phase} timeout")
+            self._check_deadline(self.clock_ns(), self.reader.state.vehicle_time_boot_ms)
             if self.phase == "idle" and self.pending:
                 self._start("configure_ack", 1001, (*self.identity, -1.0, -1.0, 0.0, 0.0, float(self.device_id)))
             elif self.phase == "ready" and self.pending:

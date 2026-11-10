@@ -511,7 +511,7 @@ class MavlinkReader:
         with self._pose_condition:
             if self._gimbal_events and cursor < self._gimbal_events[0][0] - 1:
                 raise RuntimeError("gimbal telemetry event buffer overflow")
-            events = [(name, message, stamp) for seq, name, message, stamp in self._gimbal_events if seq > cursor]
+            events = [(name, message, stamp, vehicle_ms) for seq, name, message, stamp, vehicle_ms in self._gimbal_events if seq > cursor]
             return self._gimbal_event_sequence, events
 
     def _record_pose_message(self, name: str, message: Any, mono: int, wall: float) -> None:
@@ -743,7 +743,7 @@ class MavlinkReader:
                         self.state.messages[name] = message
                         if name in {"COMMAND_ACK", "GIMBAL_MANAGER_STATUS"}:
                             self._gimbal_event_sequence += 1
-                            self._gimbal_events.append((self._gimbal_event_sequence, name, message, mono))
+                            self._gimbal_events.append((self._gimbal_event_sequence, name, message, mono, self.state.vehicle_time_boot_ms))
                         self.state.received_monotonic_ns[name] = mono
                         self.state.received_wall_time[name] = wall
                         if self.state.vehicle_time_boot_ms is not None:

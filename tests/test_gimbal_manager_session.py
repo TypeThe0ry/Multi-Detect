@@ -21,7 +21,7 @@ class Reader:
     def raise_if_failed(self): pass
     def gimbal_events_cursor(self): return len(self.events)
     def gimbal_events_since(self, cursor): return len(self.events), self.events[cursor:]
-    def add(self, name, stamp=100, **kwargs): self.events.append((name, Message(**kwargs), stamp))
+    def add(self, name, stamp=100, **kwargs): self.events.append((name, Message(**kwargs), stamp, self.state.vehicle_time_boot_ms))
 
 
 def setup(identity=(255, 190), wall_timeout_s=30):
@@ -286,3 +286,139 @@ def test_collector_final_command_success_waits_for_ack():
     _finish_teacher_gimbal(session, lambda: None, sleep=sleep)
     assert session.phase == 'ready' and ticks[0] == 2
     assert [x[0] for x in sent] == [1001, 1000]
+
+
+@pytest.mark.parametrize('late_by', ['wall', 'vehicle'])
+def test_late_ack_cannot_transition_session(late_by):
+    session, reader, sent, clock = setup(wall_timeout_s=5)
+    session.command(1000, 1)
+    clock[0] = 6_000_000_000 if late_by == 'wall' else 1_000_000_000
+    reader.state.vehicle_time_boot_ms = 2001 if late_by == 'vehicle' else 100
+    reader.add('COMMAND_ACK', stamp=clock[0], command=1001, result=0,
+               target_system=255, target_component=190)
+    with pytest.raises(TimeoutError, match='configure_ack'):
+        session.poll()
+    assert [x[0] for x in sent] == [1001]
+
+
+def test_late_status_cannot_transition_session():
+    session, reader, sent, clock = setup(wall_timeout_s=5)
+    session.command(1000, 1)
+    clock[0] = 1_000_000_000
+    reader.state.vehicle_time_boot_ms = 100
+    reader.add('COMMAND_ACK', stamp=clock[0], command=1001, result=0,
+               target_system=255, target_component=190)
+    session.poll()
+    clock[0] = 6_000_000_000
+    reader.state.vehicle_time_boot_ms = 200
+    reader.add('GIMBAL_MANAGER_STATUS', stamp=clock[0], gimbal_device_id=1,
+               primary_control_sysid=255, primary_control_compid=190)
+    with pytest.raises(TimeoutError, match='owner'):
+        session.poll()
+    assert [x[0] for x in sent] == [1001]
+
+
+def test_timely_ack_processed_after_deadline_is_not_discarded():
+    session, reader, _, clock = setup(wall_timeout_s=5)
+    session.command(1000, 1)
+    reader.state.vehicle_time_boot_ms = 100
+    reader.add('COMMAND_ACK', stamp=4_000_000_000, command=1001, result=0,
+               target_system=255, target_component=190)
+    clock[0] = 6_000_000_000
+    assert session.poll() == 'owner'
+
+
+def test_managed_primitive_serializes_previous_session_and_requires_fresh_pose():
+    from scripts.collect_sim_teacher_episodes import _execute_managed_gimbal_action
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    session, reader, sent, clock = setup()
+    messages = {}
+    reader.state.get = lambda key: messages.get(key)
+    reader.state.received_monotonic_ns = {}
+    profile = SimpleNamespace(camera=SimpleNamespace(gimbal={
+        'enabled': True, 'angle_range_deg': {'pitch': [-135, 45], 'yaw': [-180, 180], 'roll': [-45, 45]}}))
+    session.command(1000, 99)  # An earlier automatic aim is still in flight.
+    ticks = [0]
+    def sleep(_):
+        ticks[0] += 1
+        clock[0] += 100_000_000
+        stamp = clock[0]
+        if ticks[0] == 1:
+            reader.add('COMMAND_ACK', stamp=stamp, command=1001, result=0,
+                       target_system=255, target_component=190)
+            reader.add('GIMBAL_MANAGER_STATUS', stamp=stamp, gimbal_device_id=1,
+                       primary_control_sysid=255, primary_control_compid=190)
+        elif ticks[0] == 2:
+            reader.add('COMMAND_ACK', stamp=stamp, command=1000, result=0,
+                       target_system=255, target_component=190)
+        elif ticks[0] == 3:
+            assert [x[0] for x in sent] == [1001, 1000, 1000]
+            reader.add('COMMAND_ACK', stamp=stamp, command=1000, result=0,
+                       target_system=255, target_component=190)
+            messages['GIMBAL_DEVICE_ATTITUDE_STATUS'] = {'q': [1, 0, 0, 0], 'flags': 0}
+            reader.state.received_monotonic_ns['GIMBAL_DEVICE_ATTITUDE_STATUS'] = session.started_ns - 1
+        elif ticks[0] == 4:
+            reader.state.received_monotonic_ns['GIMBAL_DEVICE_ATTITUDE_STATUS'] = stamp
+    result = _execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0),
+        session=session, profile=profile, reader=reader, check=lambda: None,
+        clock=lambda: clock[0] / 1e9, sleep=sleep)
+    assert result.status == 'success'
+    assert ticks[0] == 4  # ACK and stale feedback were insufficient.
+    assert sent[1][1] == (99,) and sent[2][1][0:2] == (0.0, 0.0)
+
+
+def test_managed_primitive_enforces_profile_limits_before_sending():
+    from scripts.collect_sim_teacher_episodes import _execute_managed_gimbal_action
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    session, reader, sent, clock = setup()
+    profile = SimpleNamespace(camera=SimpleNamespace(gimbal={
+        'enabled': True, 'angle_range_deg': {'pitch': [-45, 45], 'yaw': [-180, 180], 'roll': [-45, 45]}}))
+    result = _execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=-90),
+        session=session, profile=profile, reader=reader, check=lambda: None,
+        clock=lambda: clock[0] / 1e9, sleep=lambda _: None)
+    assert result.status == 'rejected' and result.ack['reason'] == 'gimbal_angle_out_of_range'
+    assert not sent
+
+
+def test_late_pitch_ack_is_rejected_even_when_already_buffered():
+    session, reader, _, clock = setup(wall_timeout_s=5)
+    session.command(1000, 1)
+    ack(reader); owner(reader); session.poll()
+    assert session.phase == 'command_ack'
+    clock[0] = 6_000_000_000
+    reader.state.vehicle_time_boot_ms = 100
+    reader.add('COMMAND_ACK', stamp=clock[0], command=1000, result=0,
+               target_system=255, target_component=190)
+    with pytest.raises(TimeoutError, match='command_ack'):
+        session.poll()
+
+
+def test_managed_primitive_from_idle_acquires_once_and_waits_for_feedback():
+    from scripts.collect_sim_teacher_episodes import _execute_managed_gimbal_action
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    session, reader, sent, clock = setup()
+    messages = {}
+    reader.state.get = lambda key: messages.get(key)
+    reader.state.received_monotonic_ns = {}
+    profile = SimpleNamespace(camera=SimpleNamespace(gimbal={
+        'enabled': True, 'angle_range_deg': {'pitch': [-135, 45], 'yaw': [-180, 180], 'roll': [-45, 45]}}))
+    ticks = [0]
+    def sleep(_):
+        ticks[0] += 1
+        clock[0] += 100_000_000
+        stamp = clock[0]
+        if ticks[0] == 1:
+            reader.add('COMMAND_ACK', stamp=stamp, command=1001, result=0,
+                       target_system=255, target_component=190)
+            reader.add('GIMBAL_MANAGER_STATUS', stamp=stamp, gimbal_device_id=1,
+                       primary_control_sysid=255, primary_control_compid=190)
+        elif ticks[0] == 2:
+            reader.add('COMMAND_ACK', stamp=stamp, command=1000, result=0,
+                       target_system=255, target_component=190)
+            messages['GIMBAL_DEVICE_ATTITUDE_STATUS'] = {'q': [1, 0, 0, 0], 'flags': 0}
+            reader.state.received_monotonic_ns['GIMBAL_DEVICE_ATTITUDE_STATUS'] = stamp
+    result = _execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0),
+        session=session, profile=profile, reader=reader, check=lambda: None,
+        clock=lambda: clock[0] / 1e9, sleep=sleep)
+    assert result.status == 'success' and [x[0] for x in sent] == [1001, 1000]
+    assert result.ack['actual_deg']['pitch'] == 0

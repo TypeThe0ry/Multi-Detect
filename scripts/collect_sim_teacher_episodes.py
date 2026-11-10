@@ -72,6 +72,8 @@ from multidetect.sim_teacher.executor import (  # noqa: E402
     GIMBAL_MANAGER_STATUS_WALL_TIMEOUT_S,
     MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
     MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+    ExecutionResult,
+    _gimbal_profile_limits,
 )
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
@@ -4107,9 +4109,68 @@ def _finish_teacher_gimbal(session: Any, check: Any, *, sleep: Any = time.sleep)
     """Drain the final queued command before reporting the episode complete."""
     if session is None:
         return
-    while session.poll() != "ready" or session.pending is not None:
+    while session.poll() not in {"idle", "ready"} or session.pending is not None:
         check()
         sleep(0.02)
+
+
+def _execute_managed_gimbal_action(
+    action: ActionPrimitive, *, session: Any, profile: Any, reader: Any,
+    check: Any, yaw_correction_deg: float = 0.0, timeout_s: float = 15.0,
+    tolerance_deg: float = 4.0, clock: Any = time.monotonic,
+    sleep: Any = time.sleep,
+) -> ExecutionResult:
+    """Serialize a gimbal primitive through the same manager session and verify pose."""
+    started = clock()
+    enabled, limits = _gimbal_profile_limits(profile)
+    if not enabled:
+        return ExecutionResult("rejected", clock() - started, ack={"reason": "gimbal_capability_required"})
+    target = {"pitch": float(action.gimbal_pitch_deg), "yaw": float(action.gimbal_yaw_deg),
+              "roll": float(action.gimbal_roll_deg)}
+    for axis, value in target.items():
+        bounds = limits.get(axis)
+        if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+            return ExecutionResult("failed", clock() - started, ack={"reason": "gimbal_axis_range_missing", "axis": axis})
+        if not float(bounds[0]) <= value <= float(bounds[1]):
+            return ExecutionResult("rejected", clock() - started, ack={"reason": "gimbal_angle_out_of_range", "axis": axis, "value_deg": value})
+    _finish_teacher_gimbal(session, check, sleep=sleep)
+    session.command(MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, target["pitch"], target["yaw"],
+                    math.nan, math.nan, float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK |
+                    GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+                    0.0, float(GIMBAL_MANAGER_DEVICE_ID))
+    command_ns = session.started_ns if session.phase == "command_ack" else None
+    readback_started = clock() if command_ns is not None else None
+    last_error = None
+    while True:
+        check()
+        phase = session.poll()
+        if phase == "command_ack" and command_ns is None:
+            command_ns = session.started_ns
+            readback_started = clock()
+        if readback_started is not None and clock() - readback_started >= timeout_s:
+            break
+        state = reader.state
+        status = state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+        stamp = getattr(state, "received_monotonic_ns", {}).get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1)
+        attitude = state.get("ATTITUDE")
+        vehicle_yaw = math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
+        if phase == "ready" and command_ns is not None and status is not None and stamp >= command_ns:
+            last_error = _gimbal_attitude_error_deg(status, target, vehicle_yaw_deg=vehicle_yaw,
+                                                    yaw_correction_deg=yaw_correction_deg)
+            if last_error is not None and max(last_error.values()) <= tolerance_deg:
+                return ExecutionResult("success", clock() - started,
+                                       ack={"command": "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
+                                            "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+                                            "configure_command_id": MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+                                            "target_deg": target,
+                                            "actual_deg": _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw,
+                                                                                     yaw_correction_deg=yaw_correction_deg),
+                                            "error_deg": last_error})
+        sleep(0.02)
+    # Do not resume normal use with an unobserved in-flight command.
+    session.error = "managed gimbal primitive readback timeout"
+    session.phase = "failed"
+    return ExecutionResult("timeout", clock() - started, ack={"reason": session.error, "error_deg": last_error})
 
 
 def _gimbal_attitude_angles_deg(
@@ -5942,7 +6003,7 @@ def run_episode(
 
                 gimbal_session = None
 
-                def _send_gimbal_command(command: int, params: tuple[float, ...]) -> None:
+                def _ensure_gimbal_session() -> GimbalManagerSession:
                     nonlocal gimbal_session
                     sender = getattr(
                         getattr(telemetry_connection, "mav", None), "command_long_send", None
@@ -5955,7 +6016,10 @@ def run_episode(
                                int(cmd), 0, *values)
                     if gimbal_session is None:
                         gimbal_session = GimbalManagerSession(telemetry_connection, mav_reader, send, wall_timeout_s=30.0)
-                    gimbal_session.command(command, *params)
+                    return gimbal_session
+
+                def _send_gimbal_command(command: int, params: tuple[float, ...]) -> None:
+                    _ensure_gimbal_session().command(command, *params)
 
                 gimbal_controller = Px4GimbalController(camera_mount, _send_gimbal_command)
                 for candidate in (
@@ -7095,7 +7159,20 @@ def run_episode(
                     },
                 )
                 before = _png_observation(before)
-                if camera_mount is not None and camera_mount.kind == "gimbal":
+                managed_gimbal_action = None
+                if (camera_mount is not None and camera_mount.kind == "gimbal"
+                        and getattr(action, "kind", None) == "gimbal"
+                        and not getattr(action, "rejected", False)):
+                    managed_gimbal_action = (
+                        action if isinstance(action, ActionPrimitive) else
+                        getattr(action, "action", None) or ActionPrimitive.gimbal(
+                            pitch_deg=float(action.gimbal_pitch_deg or 0.0),
+                            yaw_deg=float(action.gimbal_yaw_deg or 0.0),
+                            roll_deg=float(action.gimbal_roll_deg or 0.0),
+                        )
+                    )
+                    _ensure_gimbal_session()
+                if camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None:
                     validate_gimbal_recording_observation(before)
                 timing["observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 pose = tuple(before["pose"]["local_ned_m"])
@@ -7209,6 +7286,14 @@ def run_episode(
                             # preflight/takeoff position cached by the executor.
                             executor.sync_commanded_state()
                         executed = (
+                            _execute_managed_gimbal_action(
+                                managed_gimbal_action, session=gimbal_session,
+                                profile=executor.airframe_profile, reader=mav_reader,
+                                check=episode_watchdog.check,
+                                yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
+                                timeout_s=executor.gimbal_timeout_s,
+                                tolerance_deg=executor.gimbal_tolerance_deg,
+                            ) if managed_gimbal_action is not None else
                             climb_fault.execute(executor, step_action)  # noqa: B023
                             if inject_climb_timeout  # noqa: B023
                             else executor.execute(action)  # noqa: B023
@@ -7303,7 +7388,7 @@ def run_episode(
                             )
                         next_video_s += 1.0 / plan.video_hz
 
-                _join_action_with_gimbal(execute_thread, gimbal_session, _action_tick)
+                _join_action_with_gimbal(execute_thread, None if managed_gimbal_action is not None else gimbal_session, _action_tick)
                 if execute_error:
                     raise execute_error[0]
                 result = result_box[0]
