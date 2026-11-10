@@ -18,6 +18,7 @@ import re
 import shlex
 import shutil
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -663,6 +664,18 @@ def build_docker_simulator_plan(
     resolved_root = (root / "artifacts" / "cache" / "gz-fuel" / "resolved").resolve()
     has_resolved_root = resolved_root.is_dir()
     world_path = stack.world_path.resolve()
+    if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
+        from scripts.gimbal_gz_resources import FUEL, preflight
+
+        configured = os.environ.get("MD_GIMBAL_FUEL_ROOT", "")
+        if configured != str(FUEL) or not FUEL.is_dir() or FUEL.is_symlink():
+            raise DockerSimulatorPlanError("candidate fuel root missing or mismatched")
+        try:
+            preflight(world_path, FUEL)
+        except (OSError, ValueError, ET.ParseError) as exc:
+            raise DockerSimulatorPlanError(f"candidate Gazebo resources invalid: {exc}") from exc
+        resolved_root = FUEL
+        has_resolved_root = True
     scripts_root = (root / "scripts").resolve()
     dem_path = stack.dem_path.resolve()
     if not (scripts_root / "gazebo_sensor_stream.py").is_file():
