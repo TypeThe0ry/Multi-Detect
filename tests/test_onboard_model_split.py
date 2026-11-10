@@ -41,6 +41,7 @@ def _make(
     fail_planner: bool = False,
     report_error: bool = False,
     batch_config: dict | None = None,
+    invoke_post: bool = False,
 ):
     events: list[tuple[str, str]] = []
     active = {"count": 0}
@@ -49,7 +50,8 @@ def _make(
     cache_ram.clear()
     RUNNER_KWARGS.clear()
 
-    class FakeRunner:
+    from scripts.eval_slow_system import LlamaServerRunner as RealRunner
+    class FakeRunner(RealRunner):
         def __init__(self, model, mmproj=None, **kwargs):
             RUNNER_KWARGS.append(kwargs)
             role = "planner" if "r14" in str(model) else "identity"
@@ -58,6 +60,12 @@ def _make(
             events.append(("start", role))
             self.port = kwargs["port"]
             self.role = role
+            if invoke_post:
+                from types import SimpleNamespace
+                self.process = SimpleNamespace(pid=123)
+                self._gimbal_startticks = 456
+                self._gimbal_cgroup = '/system.slice/md-gimbal-worker-test.service'
+                self._command = ['/fake/llama-server']
             cache_ram.append(kwargs.get("cache_ram_mib"))
 
         def close(self):
@@ -66,6 +74,8 @@ def _make(
 
     def fake_build(task, refs, post, **kwargs):
         builds["count"] += 1
+        if invoke_post:
+            assert post('test prompt', {'type':'object'}) == 'guarded'
         if builds["count"] == 1 and fail_planner:
             raise ValueError("planner rejected plan")
         if builds["count"] == 1 and report_error:
@@ -96,6 +106,15 @@ def _make(
 
 CACHE_RAM: list = []
 RUNNER_KWARGS: list[dict] = []
+
+def test_candidate_from_text_uses_actual_runner_guard(monkeypatch, tmp_path):
+    monkeypatch.setenv('MD_GIMBAL_INVOCATION','a'*32)
+    calls=[]
+    monkeypatch.setattr('scripts.gimbal_listener_guard.guarded_http',lambda *a,**kw: calls.append((a,kw)) or {'choices':[{'message':{'content':'guarded'}}]})
+    monkeypatch.setattr('scripts.eval_slow_system._http_json',lambda *a,**kw: pytest.fail('legacy HTTP called'))
+    policy,_,_,_ = _make(monkeypatch,tmp_path,invoke_post=True)
+    try:assert len(calls)==1 and calls[0][0][:2]==(policy._identity_port,123)
+    finally:policy.close()
 
 
 def test_onboard_servers_run_without_the_host_prompt_cache(monkeypatch, tmp_path):

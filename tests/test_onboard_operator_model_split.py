@@ -24,12 +24,13 @@ def _prompt_package():
     return load_mission_package(document), onboard_policy.validate_mission_plan(plan)
 
 
-def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None):
+def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None, invoke_post=False):
     events = []
     active = {"count": 0, "maximum": 0}
     identity_plan = []
 
-    class FakeRunner:
+    from scripts.eval_slow_system import LlamaServerRunner as RealRunner
+    class FakeRunner(RealRunner):
         def __init__(self, model, mmproj=None, **kwargs):
             role = "planner" if "r14" in str(model) else "identity"
             if block_start is not None and role == "planner":
@@ -39,6 +40,12 @@ def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None):
             active["count"] += 1
             active["maximum"] = max(active["maximum"], active["count"])
             self.role, self.port = role, kwargs["port"]
+            if invoke_post:
+                from types import SimpleNamespace
+                self.process=SimpleNamespace(pid=123)
+                self._gimbal_startticks=456
+                self._gimbal_cgroup='/system.slice/md-gimbal-worker-test.service'
+                self._command=['/fake/llama-server']
             events.append(("start", role, kwargs.get("cache_ram_mib")))
 
         def close(self):
@@ -51,6 +58,8 @@ def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None):
         runner = policy.slow
         events.append(("plan", runner.role, None))
         assert policy._model_lock._is_owned()
+        if invoke_post:
+            assert args[2]('test prompt', {'type':'object'}) == 'guarded'
         if runner.role == "planner" and fail_planner:
             raise ValueError("planner failed")
         if runner.role == "identity":
@@ -70,6 +79,17 @@ def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None):
         slow_runner=None,
     )
     return policy, package, events, active, identity_plan
+
+def test_candidate_operator_package_uses_actual_runner_guard(monkeypatch,tmp_path):
+    monkeypatch.setenv('MD_GIMBAL_INVOCATION','a'*32)
+    calls=[]
+    monkeypatch.setattr('scripts.gimbal_listener_guard.guarded_http',lambda *a,**kw: calls.append((a,kw)) or {'choices':[{'message':{'content':'guarded'}}]})
+    monkeypatch.setattr('scripts.eval_slow_system._http_json',lambda *a,**kw: pytest.fail('legacy HTTP called'))
+    policy,package,_,_,_=_setup(monkeypatch,tmp_path,invoke_post=True)
+    try:
+        policy.prepare_operator_package(package)
+        assert len(calls)==1 and calls[0][0][:2]==(policy._identity_port,123)
+    finally:policy.close()
 
 
 def test_operator_prompt_swaps_models_serially_and_restores_identity(monkeypatch, tmp_path):

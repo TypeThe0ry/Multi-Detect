@@ -26,6 +26,7 @@ from multidetect.autonomy.mission_plan import PlanDecision
 from multidetect.autonomy.mission_supervisor import MissionSupervisor
 from multidetect.autonomy.onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from multidetect.autonomy.onboard_policy_parts.helpers import labelled_refs
+from multidetect.autonomy.onboard_policy_parts.planning_http import planning_http
 from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig
 
 
@@ -284,7 +285,7 @@ def prepare_runtime_operator_package(
             runner = planning_runner or self.slow
             if runner is None:
                 raise ConnectionRefusedError("慢模型不可用: planner runner unavailable")
-            response = _http_json(
+            response = planning_http(runner, _http_json,
                 f"http://127.0.0.1:{runner.port}/v1/chat/completions",
                 {
                     "model": "local",

@@ -28,6 +28,7 @@ from multidetect.autonomy.obstacle_source import CompositeSource, StaticMapSourc
 from multidetect.autonomy.onboard_loop import CameraModel, LoopConfig, OnboardLoop
 from multidetect.autonomy.onboard_mission_log import DownlinkQueue, OnboardMissionLog
 from multidetect.autonomy.onboard_policy_parts.helpers import labelled_refs
+from multidetect.autonomy.onboard_policy_parts.planning_http import planning_http
 from multidetect.autonomy.plan_validation import validate_plan_for_execution
 from multidetect.onboard_runtime.health import HealthConfig
 from multidetect.sim_teacher.policies import (
@@ -778,7 +779,7 @@ def assemble_runtime_executor(
                     }
                     started = time.perf_counter()
                     try:
-                        response = _http_json(
+                        response = planning_http(runner, _http_json,
                             f"http://127.0.0.1:{runner.port}/v1/chat/completions",
                             body,
                             timeout=self.slow_call_timeout_s,
