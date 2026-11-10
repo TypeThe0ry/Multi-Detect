@@ -16,7 +16,7 @@ class JournalTests(TestCase):
         self.env = patch.dict(os.environ, {'MD_GIMBAL_INVOCATION': 'a' * 32, 'MD_GIMBAL_JOURNAL': self.tmp.name})
         self.env.start()
         self.addCleanup(self.env.stop)
-        self.command = ['docker', 'run', '-d', '--name', 'md-sim-teacher-slot-0-test', '--label', 'md.gimbal.invocation=' + 'a' * 32]
+        self.command = ['docker', 'run', '-d', '--name', 'md-sim-teacher-slot-0-test', '--label', 'md.gimbal.invocation=' + 'a' * 32, '--memory=64g', '--memory-swap=64g']
 
     def test_request_precedes_success_and_response_contains_full_id(self):
         def run(*args, **kwargs):
@@ -68,6 +68,8 @@ class JournalTests(TestCase):
         self.assertIn('md.gimbal.invocation='+'a'*32, command)
         self.assertIn('127.0.0.1:14560:14560/udp', command)
         self.assertNotIn('--rm', command)
+        self.assertIn('--memory=64g', command)
+        self.assertIn('--memory-swap=64g', command)
         self.assertIn('sha256:'+'3'*64, command)
 
     def test_removal_failure_propagates_and_does_not_record(self):

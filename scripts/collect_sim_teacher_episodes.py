@@ -1111,7 +1111,10 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
         if invocation is not None:
             if re.fullmatch(r"[0-9a-f]{32}", invocation) is None:
                 raise ValueError("invalid MD_GIMBAL_INVOCATION")
-            command[at:at] = ["--label", f"md.gimbal.invocation={invocation}"]
+            # Docker containers live outside the worker systemd cgroup. Apply
+            # the candidate's own container bound independently of that unit.
+            command[at:at] = ["--label", f"md.gimbal.invocation={invocation}",
+                              "--memory=64g", "--memory-swap=64g"]
     return command
 
 

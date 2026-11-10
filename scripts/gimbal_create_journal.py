@@ -43,6 +43,8 @@ def run_recorded(command, *, name, run):
         raise ValueError('unexpected Docker command')
     if command.count('--name') != 1 or command[command.index('--name') + 1] != name:
         raise ValueError('container name mismatch')
+    if command.count('--memory=64g') != 1 or command.count('--memory-swap=64g') != 1:
+        raise ValueError('missing candidate Docker memory limit')
     if command.count('md.gimbal.invocation=' + invocation) != 1:
         raise ValueError('missing invocation label')
     request = uuid.uuid4().hex
