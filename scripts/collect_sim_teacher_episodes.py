@@ -1107,6 +1107,11 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
     if "run" in command:
         at = command.index("run") + 1
         command[at:at] = ["--log-opt", "max-size=5m", "--log-opt", "max-file=2"]
+        invocation = os.environ.get("MD_GIMBAL_INVOCATION")
+        if invocation is not None:
+            if re.fullmatch(r"[0-9a-f]{32}", invocation) is None:
+                raise ValueError("invalid MD_GIMBAL_INVOCATION")
+            command[at:at] = ["--label", f"md.gimbal.invocation={invocation}"]
     return command
 
 
