@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "default_reference": "multidetect/px4-sitl-gazebo:transport-frame-09266eb0eb38",
+  "default_reference": "sha256:348dfc46681c568c06b37d805fd99c7d7e99bc163022c22031b117e8ba041f34",
   "platform": {
     "Architecture": "amd64",
     "Os": "linux"
@@ -17,7 +17,8 @@
       "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
       "sha256:89c19165ec0cf7a2fa493c1f1963429092cd56a9086cc77b6e4796f7ebe9b713",
       "sha256:8878fc7e3f50222bea8dd87ed913044095eda90b88923e36962cfc2ed9a69ffc",
-      "sha256:c19aa4b460426f44620c77a00d31c720c1f9d7e5642a6f0a348b074389d034c9"
+      "sha256:c19aa4b460426f44620c77a00d31c720c1f9d7e5642a6f0a348b074389d034c9",
+      "sha256:1aeead114a46810d4454e0d0e5d3270cd60c6812d83ff58c9da73607063b35af"
     ],
     "Type": "layers"
   },
@@ -58,14 +59,15 @@
     "WorkingDir": "/root"
   },
   "components": {
-    "px4_sha256": "9c2280e005ad426f01cdffddf2114e1e4b13e26aa9f5996c4b52cdfa9e722d99",
+    "px4_sha256": "434a7bcbdd4d6d89326814e8355cb1236335680f52bebd64b5c7991f8584a6bb",
     "transport_sha256": "aff44fe0ab4e1452c78b65e97c76a3f99f9d132777e96840666186f3d8cc82fe"
   },
   "source": {
     "px4_commit": "83c4f4e580558816f0e398918f66358988004696",
     "px4_patch_sha256": "43bfe32d5d7572b866b3d411c2394d941b6bcc8e19ace5bdd6e230845cdf0559",
     "transport_commit": "7232d0b163b08f79dd390ad9913d6ea72efaf209",
-    "transport_patch_sha256": "5ccf19125b46baf8857b38a07713358eef892c5425ac2572eb9b3fa4839bf6ef"
+    "transport_patch_sha256": "5ccf19125b46baf8857b38a07713358eef892c5425ac2572eb9b3fa4839bf6ef",
+    "gimbal_patch_sha256": "f5c5d6caca92fd04f09e4cf2323b3ba2ab4859e545542a4a163e40721c9d5d13"
   },
-  "qualification": "runtime-content reference only; flight acceptance remains separately required; no automatic promotion"
+  "qualification": "isolated candidate only; content and flight acceptance pending independent review"
 }
