@@ -43,7 +43,7 @@ from multidetect.autonomy.airframe_profile import (  # noqa: E402
 )
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
-from multidetect.gimbal_controller import Px4GimbalController  # noqa: E402
+from multidetect.gimbal_controller import GimbalManagerSession, Px4GimbalController  # noqa: E402
 from multidetect.provenance import build_provenance, model_paths_from_config, snapshot_config  # noqa: E402
 from multidetect.px4_mission import (  # noqa: E402
     MAV_CMD_NAV_LAND,
@@ -5900,19 +5900,22 @@ def run_episode(
             )
             if camera_mount is not None and camera_mount.kind == "gimbal":
 
+                gimbal_session = None
+
                 def _send_gimbal_command(command: int, params: tuple[float, ...]) -> None:
+                    nonlocal gimbal_session
                     sender = getattr(
                         getattr(telemetry_connection, "mav", None), "command_long_send", None
                     )
                     if not callable(sender):
                         raise RuntimeError("MAVLink connection cannot send gimbal command")
-                    sender(
-                        int(getattr(telemetry_connection, "target_system", 1) or 1),
-                        int(getattr(telemetry_connection, "target_component", 1) or 1),
-                        int(command),
-                        0,
-                        *params,
-                    )
+                    def send(cmd: int, *values: float) -> None:
+                        sender(int(getattr(telemetry_connection, "target_system", 1) or 1),
+                               int(getattr(telemetry_connection, "target_component", 1) or 1),
+                               int(cmd), 0, *values)
+                    if gimbal_session is None:
+                        gimbal_session = GimbalManagerSession(telemetry_connection, mav_reader, send)
+                    gimbal_session.command(command, *params)
 
                 gimbal_controller = Px4GimbalController(camera_mount, _send_gimbal_command)
                 for candidate in (

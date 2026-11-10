@@ -131,10 +131,13 @@ def test_airframe_camera_mount_profile_is_optional_and_selectable() -> None:
 def test_px4_vehicle_exposes_gimbal_send_and_state_feedback() -> None:
     vehicle = PymavlinkVehicle("udp://127.0.0.1:14550")
     sent: list[tuple[int, tuple[float, ...]]] = []
-    vehicle._command = lambda command, *params: sent.append((command, tuple(params)))
+    vehicle.connection = object()
+    vehicle._reader = object()
+    vehicle._gimbal_session = type("Session", (), {"command": lambda self, command, *params: sent.append((command, tuple(params)))})()
     vehicle.send_gimbal_pitch_yaw(math.radians(15), math.radians(45))
     assert sent[0][0] == MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW
     assert sent[0][1][:2] == pytest.approx((-15.0, 45.0))
+    vehicle._reader = None
     vehicle.ingest(
         {
             "message_type": "GIMBAL_DEVICE_ATTITUDE_STATUS",

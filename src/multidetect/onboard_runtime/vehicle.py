@@ -19,8 +19,6 @@ from dataclasses import dataclass, replace
 from typing import Any, Protocol, runtime_checkable
 
 from multidetect.sim_teacher.executor import (
-    GCS_SOURCE_COMPONENT,
-    GCS_SOURCE_SYSTEM,
     GIMBAL_MANAGER_DEVICE_ID,
     GIMBAL_MANAGER_FLAGS_PITCH_LOCK,
     GIMBAL_MANAGER_FLAGS_ROLL_LOCK,
@@ -30,7 +28,8 @@ from multidetect.sim_teacher.executor import (
     SetpointStreamer,
 )
 from multidetect.sim_teacher.streams import MavlinkReader, gimbal_angles_from_status
-from multidetect.gimbal_controller import parse_gimbal_device_attitude_status
+from multidetect.gimbal_controller import GimbalManagerSession, Px4GimbalController, parse_gimbal_device_attitude_status
+from multidetect.camera_mount import CameraMount
 
 from .fw_vtol_commands import (
     CommandSpec,
@@ -301,6 +300,7 @@ class PymavlinkVehicle:
         self._state_lock = threading.Lock()
         self._send_lock = threading.Lock()
         self._reader: MavlinkReader | None = None
+        self._gimbal_session: GimbalManagerSession | None = None
         self._closed = False
         self._streams_requested = False
         self._heartbeat_sent_at = float("-inf")
@@ -661,11 +661,15 @@ class PymavlinkVehicle:
         values = (float(pitch_deg), float(roll_deg), float(yaw_deg))
         if not all(math.isfinite(value) for value in values):
             raise ValueError("gimbal angles must be finite")
+        mav = getattr(self.connection, "mav", None)
+        identity = (getattr(mav, "srcSystem", None), getattr(mav, "srcComponent", None))
+        if any(type(value) is not int or not 1 <= value <= 255 for value in identity):
+            return CommandResult("failed", MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, detail="MAVLink connection has no valid source identity")
         started = self._clock()
         configure = self._command_with_ack(
             CommandSpec(
                 MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
-                (float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT), -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID)),
+                (float(identity[0]), float(identity[1]), -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID)),
                 "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
             ), timeout_s=min(timeout_s, 5.0),
         )
@@ -683,8 +687,7 @@ class PymavlinkVehicle:
             primary = manager.get("primary_control_sysid", 0) if isinstance(manager, dict) else getattr(manager, "primary_control_sysid", 0)
             primary_component = manager.get("primary_control_compid", 0) if isinstance(manager, dict) else getattr(manager, "primary_control_compid", 0)
             if (manager is not None and manager_ns >= configure_started_ns
-                    and int(primary or 0) == GCS_SOURCE_SYSTEM
-                    and int(primary_component or 0) == GCS_SOURCE_COMPONENT):
+                    and (int(primary or 0), int(primary_component or 0)) == identity):
                 manager_owned = True
                 break
             time.sleep(0.02)
@@ -821,20 +824,14 @@ class PymavlinkVehicle:
             raise ValueError("gimbal angles must be finite")
         if mode not in {"follow-body", "lock-horizon", "follow-yaw"}:
             raise ValueError("unsupported gimbal mode")
-        yaw_command_rad = (
-            yaw_world_rad - vehicle_yaw_rad if mode == "follow-yaw" else yaw_world_rad
+        if self.connection is None or self._reader is None:
+            raise RuntimeError("vehicle telemetry reader is not started")
+        if self._gimbal_session is None:
+            self._gimbal_session = GimbalManagerSession(self.connection, self._reader, self._command)
+        controller = Px4GimbalController(
+            CameraMount.gimbal(), lambda command, params: self._gimbal_session.command(command, *params)
         )
-        flags = 24.0 if mode == "lock-horizon" else 8.0 if mode == "follow-yaw" else 0.0
-        self._command(
-            1000,
-            -math.degrees(pitch_down_rad),
-            math.degrees(yaw_command_rad),
-            math.nan,
-            math.nan,
-            flags,
-            0.0,
-            0.0,
-        )
+        controller.command_pitch_yaw(pitch_down_rad, yaw_world_rad, mode=mode, vehicle_yaw_rad=vehicle_yaw_rad)
 
     def _request_streams(self) -> None:
         self._streams_requested = True
