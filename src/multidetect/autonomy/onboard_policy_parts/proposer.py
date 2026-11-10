@@ -40,7 +40,7 @@ class YoloeProposer:
         os.environ.setdefault("YOLO_AUTOINSTALL", "false")
         if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
             from .runtime_assets import configure_candidate_clip
-            configure_candidate_clip()
+            configure_candidate_clip(weights)
         from ultralytics import YOLOE
 
         self.model = YOLOE(str(weights))
