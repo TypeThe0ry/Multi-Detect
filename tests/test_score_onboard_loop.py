@@ -740,3 +740,120 @@ def test_flight_safety_metrics_accepts_expect_safety_alias() -> None:
         [row], {"mission_completed": True}, {"expect": {"safety": {"min_relative_altitude_m": 5}}}
     )
     assert result["safety_min_altitude_pass"] is True
+
+
+def _land_rows(
+    *,
+    mid_contact: bool = False,
+    touchdown_vz: float = 0.7,
+    landed_state: int | None = 1,
+    land_label: bool = True,
+):
+    """Synthetic fly -> land episode: 20 m cruise, then land at ``touchdown_vz`` m/s."""
+
+    def obs(alt, vz, t, state):
+        flight = {} if state is None else {"landed_state": state}
+        return {
+            "pose": {"local_ned_m": [1.0, 2.0, -alt]},
+            "velocity": [0.0, 0.0, vz],
+            "pose_time_boot_ms": int(t * 1000),
+            "flight_state": flight,
+        }
+
+    def row(before, after, skill):
+        onboard = {"skill": skill, "home_ne": [0.0, 0.0]}
+        return {"obs_before": before, "obs_after": after, "labels": {"onboard": onboard}}
+
+    cruise_alt = 0.5 if mid_contact else 20.0
+    rows = [
+        row(obs(20.0, 0.0, 0, 2), obs(cruise_alt, 0.0, 1, 2), "area_search"),
+        row(obs(cruise_alt, 0.0, 1, 2), obs(20.0, 0.0, 2, 2), "area_search"),
+    ]
+    skill = "land" if land_label else "area_search"
+    rows.append(row(obs(20.0, 0.0, 2, 2), obs(19.9, 0.0, 3, 4), skill))
+    t2 = 3 + 17.9 / touchdown_vz
+    rows.append(row(obs(19.9, touchdown_vz, 3, 4), obs(2.0, touchdown_vz, t2, 4), skill))
+    final_alt = 0.0
+    t3 = t2 + 2.0 / touchdown_vz
+    rows.append(row(obs(2.0, touchdown_vz, t2, 4), obs(final_alt, touchdown_vz, t3, 4), skill))
+    rows.append(row(obs(final_alt, 0.0, t3 + 1, 4), obs(final_alt, 0.0, t3 + 2, landed_state), skill))
+    return rows
+
+
+_LAND_METRICS = {
+    "mission_completed": True,
+    "mission_plan_skills": ["area_search", "land"],
+    "mission_step_outcomes": [
+        {"step": "s1", "skill": "area_search", "state": "succeeded", "reason": "confirmed"},
+        {"step": "s9", "skill": "land", "state": "succeeded", "reason": "landed"},
+    ],
+}
+
+
+def test_terminal_land_good_landing_passes() -> None:
+    from scripts.score_onboard_loop import _flight_safety_metrics
+
+    result = _flight_safety_metrics(_land_rows(), _LAND_METRICS, {})
+    assert result["terminal_landing_assessed"] is True
+    assert result["ground_contact_detected"] is False
+    assert result["landing_pass"] is True
+    assert result["safety_pass"] is True
+    assert result["landing_touchdown_max_descent_mps"] <= 0.75
+
+
+def test_terminal_land_mid_mission_ground_contact_fails() -> None:
+    from scripts.score_onboard_loop import _flight_safety_metrics
+
+    result = _flight_safety_metrics(_land_rows(mid_contact=True), _LAND_METRICS, {})
+    assert result["ground_contact_detected"] is True
+    assert result["safety_pass"] is False
+
+
+def test_terminal_land_hard_touchdown_fails() -> None:
+    from scripts.score_onboard_loop import _flight_safety_metrics
+
+    result = _flight_safety_metrics(_land_rows(touchdown_vz=3.0), _LAND_METRICS, {})
+    assert result["landing_pass"] is False
+    assert result["safety_pass"] is False
+    # The limit is configurable through the existing safety config.
+    relaxed = _flight_safety_metrics(
+        _land_rows(touchdown_vz=3.0), _LAND_METRICS, {"safety": {"touchdown_max_descent_mps": 4.0}}
+    )
+    assert relaxed["safety_pass"] is True
+
+
+def test_terminal_land_without_on_ground_confirmation_fails() -> None:
+    from scripts.score_onboard_loop import _flight_safety_metrics
+
+    for state in (None, 4, 2):
+        result = _flight_safety_metrics(_land_rows(landed_state=state), _LAND_METRICS, {})
+        assert result["landing_on_ground_confirmed"] is False
+        assert result["safety_pass"] is False
+
+
+def test_land_step_not_completed_or_not_last_keeps_legacy_rule() -> None:
+    from scripts.score_onboard_loop import _flight_safety_metrics
+
+    failed = dict(_LAND_METRICS, mission_completed=False)
+    assert _flight_safety_metrics(_land_rows(), failed, {})["safety_pass"] is False
+    not_last = dict(_LAND_METRICS, mission_plan_skills=["land", "return_home"])
+    result = _flight_safety_metrics(_land_rows(), not_last, {})
+    assert "terminal_landing_assessed" not in result
+    assert result["ground_contact_detected"] is True and result["safety_pass"] is False
+    # No row labelled as the land skill: cannot separate touchdown, legacy rule.
+    unlabeled = _flight_safety_metrics(_land_rows(land_label=False), _LAND_METRICS, {})
+    assert unlabeled["safety_pass"] is False
+
+
+def test_non_land_mission_low_altitude_unchanged() -> None:
+    from scripts.score_onboard_loop import _flight_safety_metrics
+
+    metrics = {
+        "mission_completed": True,
+        "mission_plan_skills": ["area_search", "return_home"],
+        "mission_step_outcomes": [{"skill": "return_home", "state": "succeeded"}],
+    }
+    result = _flight_safety_metrics(_land_rows(), metrics, {})
+    assert "terminal_landing_assessed" not in result
+    assert result["ground_contact_detected"] is True
+    assert result["safety_pass"] is False

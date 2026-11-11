@@ -403,6 +403,121 @@ def _moving_track_metrics(
     }
 
 
+def _terminal_landing_assessment(
+    rows: list[dict[str, Any]],
+    mission_metrics: dict[str, Any] | None,
+    ground_limit: float,
+    safety_cfg: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Assess a mission whose last skill is a completed ``land`` step.
+
+    Returns ``None`` when the mission does not qualify (the caller then keeps
+    the legacy whole-flight ground-contact rule untouched).  Otherwise the
+    terminal touchdown is separated from earlier flight: poses up to the
+    moment ``land`` was commanded are the pre-landing flight, and everything
+    after is the landing.  The landing passes only with an ON_GROUND
+    (``landed_state == 1``) confirmation on the last row and a controlled
+    descent rate inside ``touchdown_window_m`` of the ground.  The default
+    limit 1.5 m/s is about twice the PX4 land speed observed in the evidence
+    (max 0.71 m/s below 3 m); override with ``touchdown_max_descent_mps``.
+    """
+    metrics = mission_metrics or {}
+    history = metrics.get("mission_step_outcomes")
+    skills = metrics.get("mission_plan_skills")
+    if not (
+        metrics.get("mission_completed") is True
+        and isinstance(history, list)
+        and history
+        and isinstance(history[-1], dict)
+        and history[-1].get("skill") == "land"
+        and history[-1].get("state") == "succeeded"
+        and isinstance(skills, list)
+        and skills
+        and skills[-1] == "land"
+    ):
+        return None
+    start = None
+    for index in range(len(rows) - 1, -1, -1):
+        if ((rows[index].get("labels") or {}).get("onboard") or {}).get("skill") == "land":
+            start = index
+        else:
+            break
+    if start is None:
+        return None
+
+    def sample(obs: Any) -> tuple[float, float | None, float | None] | None:
+        obs = obs or {}
+        ned = (obs.get("pose") or {}).get("local_ned_m")
+        if not (isinstance(ned, (list, tuple)) and len(ned) >= 3):
+            return None
+        try:
+            down = float(ned[2])
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(down):
+            return None
+        vz = None
+        velocity = obs.get("velocity")
+        if isinstance(velocity, (list, tuple)) and len(velocity) >= 3:
+            try:
+                vz = float(velocity[2])
+            except (TypeError, ValueError):
+                vz = None
+            if vz is not None and not math.isfinite(vz):
+                vz = None
+        t_ms = obs.get("pose_time_boot_ms")
+        t_s = float(t_ms) / 1000.0 if isinstance(t_ms, (int, float)) else None
+        return (-down, vz, t_s)
+
+    pre = []
+    for row in rows[:start]:
+        for key in ("obs_before", "obs_after"):
+            item = sample(row.get(key))
+            if item is not None:
+                pre.append(item[0])
+    first = sample(rows[start].get("obs_before"))
+    if first is not None:
+        pre.append(first[0])
+    landing = []
+    for offset, row in enumerate(rows[start:]):
+        for key in ("obs_before", "obs_after"):
+            if key == "obs_before" and offset == 0:
+                continue
+            item = sample(row.get(key))
+            if item is not None:
+                landing.append(item)
+    last_obs = rows[-1].get("obs_after") or rows[-1].get("obs_before") or {}
+    landed_state = (last_obs.get("flight_state") or {}).get("landed_state")
+    on_ground = landed_state == 1 and not isinstance(landed_state, bool)
+
+    window = float(safety_cfg.get("touchdown_window_m", 3.0))
+    limit = float(safety_cfg.get("touchdown_max_descent_mps", 1.5))
+    rates: list[float] = []
+    for index, (alt, vz, t) in enumerate(landing):
+        if alt <= window and vz is not None:
+            rates.append(vz)
+        if index:
+            prev_alt, _pv, prev_t = landing[index - 1]
+            if (
+                min(alt, prev_alt) <= window
+                and prev_t is not None
+                and t is not None
+                and t - prev_t >= 0.2
+            ):
+                rates.append((prev_alt - alt) / (t - prev_t))
+    max_descent = max(rates) if rates else None
+    pre_min = min(pre) if pre else None
+    pre_contact = pre_min is None or pre_min <= ground_limit
+    descent_ok = max_descent is not None and max_descent <= limit
+    return {
+        "pre_landing_min_alt": pre_min,
+        "pre_landing_contact": pre_contact,
+        "landed_on_ground": on_ground,
+        "touchdown_max_descent_mps": None if max_descent is None else round(max_descent, 3),
+        "touchdown_descent_limit_mps": limit,
+        "landing_pass": bool(not pre_contact and on_ground and descent_ok),
+    }
+
 
 def _flight_safety_metrics(
     rows: list[dict[str, Any]],
@@ -467,7 +582,26 @@ def _flight_safety_metrics(
     min_required = float(min_required) if min_required is not None else None
     max_return = float(max_return) if max_return is not None else None
     ground = min(alts) <= ground_limit
+    landing = _terminal_landing_assessment(rows, mission_metrics, ground_limit, safety_cfg)
+    landing_ok = True
+    landing_fields: dict[str, Any] = {}
+    gate_min = min(alts)
+    if landing is not None:
+        # Completed terminal ``land``: the touchdown itself is expected ground
+        # contact.  Contact before landing, a hard touchdown or a missing
+        # ON_GROUND confirmation still fail (``landing_pass``).
+        ground = landing["pre_landing_contact"]
+        landing_ok = landing["landing_pass"]
+        gate_min = landing["pre_landing_min_alt"]
+        landing_fields = {
+            "terminal_landing_assessed": True,
+            "landing_pass": landing["landing_pass"],
+            "landing_on_ground_confirmed": landing["landed_on_ground"],
+            "landing_touchdown_max_descent_mps": landing["touchdown_max_descent_mps"],
+            "landing_touchdown_descent_limit_mps": landing["touchdown_descent_limit_mps"],
+        }
     return {
+        **landing_fields,
         "safety_data_available": True,
         "min_relative_altitude_m": round(min(alts), 3),
         "max_relative_altitude_m": round(max(alts), 3),
@@ -475,11 +609,12 @@ def _flight_safety_metrics(
         "ground_contact_detected": ground,
         "return_home_distance_m": round(return_distance, 3),
         "return_home_completed": completed,
-        "safety_min_altitude_pass": min_required is None or min(alts) >= min_required,
+        "safety_min_altitude_pass": min_required is None or gate_min >= min_required,
         "safety_return_distance_pass": max_return is None or return_distance <= max_return,
         "safety_pass": bool(
             not ground
-            and (min_required is None or min(alts) >= min_required)
+            and landing_ok
+            and (min_required is None or gate_min >= min_required)
             and (max_return is None or return_distance <= max_return)
         ),
     }
