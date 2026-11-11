@@ -1818,6 +1818,97 @@ def _search_ends(executor):
     executor.active_loop.state = "blocked"
 
 
+def test_deferred_count_place_remains_revisitable_and_a_lower_bound():
+    place = (-22.0, 28.6)
+    executor = MissionExecutor(
+        _count_plan(3), loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 60.0)}, config=ExecutorConfig(step_budget=140),
+    )
+    sim = Sim(altitude=8.0)
+    lost = _see_small_candidate_then_lose_it(executor, sim, place)
+    assert executor.active_loop.config.count_lost_cycle_guard
+    lost.count_approach_deferred = True
+    _search_ends(executor)
+    _, info = _cycle(executor, sim)
+    assert info["unresolved_revisit"]["track_id"] == lost.track_id
+    assert info["second_look"]["kind"] == "place_revisit"
+    # A confirmed neighbouring object cannot resolve the deferred place, even
+    # after co-visibility history has expired.
+    executor.active_loop.confirmations.append({
+        "track_id": "neighbor", "position_estimate_ne": [place[0] + 3.0, place[1]],
+    })
+    executor._finish("succeeded", "coverage_complete")
+    assert executor.history[0]["count_is_lower_bound"] is True
+    assert executor.counts.get("count", 0) == 0
+
+
+def test_ambiguous_budget_blocked_count_place_remains_revisitable_and_a_lower_bound():
+    place = (-22.0, 28.6)
+    executor = MissionExecutor(
+        _count_plan(3), loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 60.0)}, config=ExecutorConfig(step_budget=140),
+    )
+    sim = Sim(altitude=8.0)
+    lost = _see_small_candidate_then_lose_it(executor, sim, place)
+    loop = executor.active_loop
+    # An earlier lost positive at this place already used the task-wide budget
+    # that ambiguous (not provably distinct) successors share.
+    earlier = Track("earlier", _box(640, 400, 20), 0, 0, verdict="confirm", ground=place,
+                    exhausted=True, identity_verdict_history=["confirm"])
+    loop._tracks[earlier.track_id] = earlier
+    loop._count_lost_ledger[earlier.track_id] = {
+        "track_id": earlier.track_id, "position": place, "radius": 1.5,
+        "co_visible_geometry": {},
+    }
+    loop._count_ambiguous_lost = loop.config.count_lost_cycle_ambiguous_budget
+    assert loop._count_ambiguous_blocked(lost) and not lost.count_approach_deferred
+    _search_ends(executor)
+    _, info = _cycle(executor, sim)
+    assert info["unresolved_revisit"]["track_id"] == lost.track_id
+    # A confirmed neighbour inside the place radius does not resolve it either.
+    loop.confirmations.append({
+        "track_id": "neighbor", "position_estimate_ne": [place[0] + 3.0, place[1]],
+    })
+    assert lost in loop.unresolved_positive_tracks()
+    executor._finish("succeeded", "coverage_complete")
+    assert executor.history[0]["count_is_lower_bound"] is True
+    assert executor.counts.get("count", 0) == 0
+
+
+def test_deferred_count_without_ground_remains_a_lower_bound():
+    executor = MissionExecutor(_count_plan(3), loop_factory=_factory(),
+                               refs={"zone:lot": (0.0, 0.0, 60.0)})
+    loop = executor.active_loop
+    track = Track("missing", _box(640, 400, 20), 0, 0, verdict="confirm",
+                  count_approach_deferred=True, identity_verdict_history=["confirm"])
+    loop._tracks[track.track_id] = track
+    loop.state = "completed"
+    _cycle(executor, Sim())
+    assert executor.history[0]["reason"] == "coverage_complete"
+    assert executor.history[0]["count_is_lower_bound"] is True
+
+
+@pytest.mark.parametrize("skill,params", [
+    ("patrol", {"route_ref": "route:lot", "query": "car", "loops": 1}),
+    ("monitor", {"region": "zone:lot", "query": "car", "duration_s": 20}),
+])
+def test_non_count_continuing_skills_do_not_enable_lost_cycle_guard(skill, params):
+    executor = MissionExecutor(_skill_plan(skill, params), loop_factory=_factory(),
+                               refs={"zone:lot": (0.0, 0.0, 60.0)})
+    assert not executor.active_loop.config.count_lost_cycle_guard
+
+
+def test_fixed_wing_count_does_not_enable_lost_cycle_guard():
+    make = _factory()
+    executor = MissionExecutor(
+        _count_plan(3),
+        loop_factory=lambda text, **overrides: make(text, **{**overrides, "fixed_wing_pass": True}),
+        refs={"zone:lot": (0.0, 0.0, 60.0)},
+    )
+    assert executor.active_loop.config.fixed_wing_pass
+    assert not executor.active_loop.config.count_lost_cycle_guard
+
+
 @pytest.mark.parametrize("skill", ["count", "area_search"])
 def test_search_end_revisits_a_lost_unconfirmed_positive_place(skill):
     place = (-22.0, 28.6)

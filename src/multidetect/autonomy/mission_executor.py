@@ -714,6 +714,7 @@ class MissionExecutor:
                     config,
                     small_reject_net_votes=self.config.count_small_reject_net_votes,
                     rejection_recovery_enabled=True,
+                    count_lost_cycle_guard=not config.fixed_wing_pass,
                 )
         elif step.skill == "inspect":
             run.loop = self._loop(step)
@@ -775,7 +776,10 @@ class MissionExecutor:
         self._last_loop = run.loop
         status = {"step": run.step.id, "skill": run.step.skill, "state": state, "reason": reason}
         if run.step.skill == "count":
-            unresolved = bool(run.loop and run.loop.unresolved_positive_tracks())
+            unresolved = bool(run.loop and (
+                run.loop.unresolved_positive_tracks()
+                or run.loop.unresolved_unlocated_positive_tracks()
+            ))
             # Only a full coverage pass with nothing left unresolved is a complete
             # count; any other ending (budget, max_count, a blocked or exhausted
             # search, an interruption) can have missed objects.  Pending places
