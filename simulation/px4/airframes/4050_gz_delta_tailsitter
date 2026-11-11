@@ -86,6 +86,9 @@ param set-default FW_THR_MAX 0.8
 # 回多旋翼时如果 FW 推力正好为 0，整个过渡段推力都是 NaN、四个电机全停（r31、r36、r38，下坠约 50 m）。
 # 8 次飞行里推力为 0 的 3 次全部出事，大于 0 的 5 次都没事。保留最小推力，效果要靠 back_transition_success 验证。
 param set-default FW_THR_MIN 0.05
+# FW 推力 ≤0.02 时 PX4 发 NaN 表示停电机，VTOL 把它存成回转换推力（vtol_type.cpp:113），见 md-scratch/delta-tools/nan/report.md。
+# FW_THR_IDLE 默认 0 会绕过 FW_THR_MIN，所以也设下限。
+param set-default FW_THR_IDLE 0.05
 param set-default FW_R_LIM 35
 param set-default FW_T_CLMB_MAX 6
 param set-default FW_T_HRATE_FF 0.5
