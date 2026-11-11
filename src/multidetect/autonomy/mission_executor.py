@@ -149,6 +149,10 @@ class ExecutorConfig:
     # cancels one of them instead of resetting the track, this many times per
     # track (LoopConfig.small_reject_net_votes).  0 disables.
     count_small_reject_net_votes: int = 1
+    # Count loops (not fixed-wing): stop re-approaching a positive that was lost
+    # twice and keep it unresolved (LoopConfig.count_lost_cycle_guard).  Off by
+    # default; the 20261111 hydrant A/B enables it explicitly.
+    count_lost_cycle_guard: bool = False
     # With a supervisor energy/time margin, a small unjudged look is flown only
     # while this multiple of its estimated duration stays inside the margin.
     revisit_margin_factor: float = 2.0
@@ -191,6 +195,8 @@ class ExecutorConfig:
             or self.runtime_tail_reserve < 0
         ):
             raise ValueError("runtime_tail_reserve must be a non-negative integer")
+        if not isinstance(self.count_lost_cycle_guard, bool):
+            raise ValueError("count_lost_cycle_guard must be a bool")
         for name in (
             "small_unjudged_revisit_attempts",
             "completion_revisit_max",
@@ -714,7 +720,7 @@ class MissionExecutor:
                     config,
                     small_reject_net_votes=self.config.count_small_reject_net_votes,
                     rejection_recovery_enabled=True,
-                    count_lost_cycle_guard=not config.fixed_wing_pass,
+                    count_lost_cycle_guard=self.config.count_lost_cycle_guard and not config.fixed_wing_pass,
                 )
         elif step.skill == "inspect":
             run.loop = self._loop(step)
