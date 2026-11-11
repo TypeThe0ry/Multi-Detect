@@ -688,7 +688,7 @@ class LlamaServerRunner:
 
     def _http_json(self, url, body=None, timeout=180):
         if os.environ.get("MD_GIMBAL_INVOCATION") is None:
-            return _http_json(url, body, timeout)
+            return _http_json(url, body, timeout=timeout)
         from scripts.gimbal_listener_guard import direct_json, guarded_http, verify_connected_peer
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("invalid HTTP timeout")

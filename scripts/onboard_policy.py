@@ -468,6 +468,7 @@ class OnboardPolicy(RuntimeAdmissionMixin):
             build_mission_from_text=lambda *args, **kwargs: build_mission_from_text(*args, **kwargs),
             perception_task_text=lambda *args: perception_task_text(*args),
             load_http_json=_runtime_http_json,
+            load_runner_type=_runtime_runner_type,
             enabled=_enabled,
         )
 

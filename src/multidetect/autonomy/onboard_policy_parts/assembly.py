@@ -659,6 +659,7 @@ def assemble_runtime_executor(
     build_mission_from_text: Callable[..., Any],
     perception_task_text: Callable[..., str],
     load_http_json: Callable[[], Callable[..., Any]],
+    load_runner_type: Callable[[], Any],
     enabled: Callable[[Any], bool],
 ) -> None:
     """Compile/admit the startup plan and assemble its executor and supervisor."""
@@ -728,6 +729,7 @@ def assemble_runtime_executor(
             )
         elif mission == "from_text":
             _http_json = load_http_json()
+            runner_type = load_runner_type()
 
             refs = options.get("refs") or {}
 
@@ -783,6 +785,7 @@ def assemble_runtime_executor(
                             f"http://127.0.0.1:{runner.port}/v1/chat/completions",
                             body,
                             timeout=self.slow_call_timeout_s,
+                            runner_type=runner_type,
                         )
                     except Exception:
                         self.health.record_slow_call(time.perf_counter() - started, ok=False)

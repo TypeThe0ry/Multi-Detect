@@ -302,6 +302,7 @@ def prepare_runtime_operator_package(
                     },
                 },
                 timeout=self.slow_call_timeout_s,
+                runner_type=LlamaServerRunner,
             )
             return response["choices"][0]["message"].get("content", "")
 
