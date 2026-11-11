@@ -1822,7 +1822,7 @@ def test_deferred_count_place_remains_revisitable_and_a_lower_bound():
     place = (-22.0, 28.6)
     executor = MissionExecutor(
         _count_plan(3), loop_factory=_factory(),
-        refs={"zone:lot": (0.0, 0.0, 60.0)}, config=ExecutorConfig(step_budget=140),
+        refs={"zone:lot": (0.0, 0.0, 60.0)}, config=ExecutorConfig(step_budget=140, count_lost_cycle_guard=True),
     )
     sim = Sim(altitude=8.0)
     lost = _see_small_candidate_then_lose_it(executor, sim, place)
@@ -1846,7 +1846,7 @@ def test_ambiguous_budget_blocked_count_place_remains_revisitable_and_a_lower_bo
     place = (-22.0, 28.6)
     executor = MissionExecutor(
         _count_plan(3), loop_factory=_factory(),
-        refs={"zone:lot": (0.0, 0.0, 60.0)}, config=ExecutorConfig(step_budget=140),
+        refs={"zone:lot": (0.0, 0.0, 60.0)}, config=ExecutorConfig(step_budget=140, count_lost_cycle_guard=True),
     )
     sim = Sim(altitude=8.0)
     lost = _see_small_candidate_then_lose_it(executor, sim, place)
@@ -2280,3 +2280,24 @@ def test_package_home_anchors_envelope_when_aircraft_starts_elsewhere():
     from dataclasses import replace
     adapter.safety.config = replace(adapter.safety.config, max_radius_from_home_m=10.0)
     assert adapter.safety.apply(ActionPrimitive.translate(1, 0), pose_ned=(55, 20, -20)).rejected
+
+
+def test_count_lost_cycle_guard_is_off_by_default_and_never_for_fixed_wing():
+    assert ExecutorConfig().count_lost_cycle_guard is False
+    with pytest.raises(ValueError):
+        ExecutorConfig(count_lost_cycle_guard=1)
+    default = MissionExecutor(_count_plan(3), loop_factory=_factory(),
+                              refs={"zone:lot": (0.0, 0.0, 60.0)})
+    assert not default.active_loop.config.count_lost_cycle_guard
+    make = _factory()
+    fixed = MissionExecutor(
+        _count_plan(3),
+        loop_factory=lambda text, **overrides: make(text, **{**overrides, "fixed_wing_pass": True}),
+        refs={"zone:lot": (0.0, 0.0, 60.0)},
+        config=ExecutorConfig(count_lost_cycle_guard=True),
+    )
+    assert not fixed.active_loop.config.count_lost_cycle_guard
+    on = MissionExecutor(_count_plan(3), loop_factory=_factory(),
+                         refs={"zone:lot": (0.0, 0.0, 60.0)},
+                         config=ExecutorConfig(count_lost_cycle_guard=True))
+    assert on.active_loop.config.count_lost_cycle_guard
