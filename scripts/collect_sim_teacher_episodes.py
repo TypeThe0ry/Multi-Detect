@@ -7509,6 +7509,8 @@ def run_episode(
                     except BaseException as exc:
                         execute_error.append(exc)  # noqa: B023
 
+                if getattr(action, "kind", None) == "land" and gimbal_session is not None:
+                    gimbal_session.control_release_expected = True
                 execute_thread = threading.Thread(target=_execute, name="sim-teacher-action",
                                                   daemon=managed_gimbal_action is not None)
                 execute_thread.start()

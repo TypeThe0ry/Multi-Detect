@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections.abc import Callable
@@ -46,6 +47,9 @@ class GimbalManagerSession:
         self.phase = "idle"
         self.pending = None
         self.error = None
+        # Set once a land primitive is issued: PX4 then drops gimbal manager
+        # control, so a DENIED ack for an in-flight pitch/yaw is expected.
+        self.control_release_expected = False
         self.owned = False
         self.started_ns = 0
         self.started_vehicle_ms = None
@@ -142,6 +146,11 @@ class GimbalManagerSession:
                     self._check_deadline(stamp, vehicle_ms)
                     result = self._field(msg, "result", -1)
                     if result == 5:
+                        continue
+                    if result == 2 and expected == 1000 and self.control_release_expected:
+                        logging.getLogger(__name__).warning(
+                            "gimbal command 1000 denied after landing released control; ignoring")
+                        self.phase = "ready"
                         continue
                     if result != 0:
                         raise RuntimeError(f"gimbal command {expected} rejected: MAV_RESULT={result}")
