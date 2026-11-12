@@ -329,11 +329,19 @@ def test_confuser_teacher_falls_back_to_forced_look_alikes() -> None:
 def test_gimbal_smoke_mounts_calibrated_camera_overlay(monkeypatch, tmp_path, capsys) -> None:
     commands = []
 
-    def run(command, **kwargs):
-        commands.append(command)
-        return SimpleNamespace(returncode=1, stdout="", stderr="test stops before flight")
+    class FakePopen:
+        returncode = 1
 
-    monkeypatch.setattr(smoke.subprocess, "run", run)
+        def __init__(self, command, **kwargs):
+            commands.append(command)
+
+        def communicate(self):
+            return "", "test stops before flight"
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(smoke.subprocess, "Popen", FakePopen)
     scenario = ROOT / "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
     smoke.main(["--airframe", "x500_gimbal", "--scenario", str(scenario), "--out", str(tmp_path)])
     capsys.readouterr()
