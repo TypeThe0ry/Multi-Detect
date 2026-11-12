@@ -126,12 +126,12 @@ def _episode_dirs(root: Path) -> list[Path]:
 
 def _world_id(ep: Path) -> str:
     for part in ep.parts:
-        if part.startswith("gen_") or part.startswith("urban_"):
+        if part.startswith(("gen_", "urban_", "rw_")):
             return part
     # campaign layouts occasionally put the world in episode.json only
     try:
         value = _load(ep / "episode.json")
-        text = str(value.get("world", ""))
+        text = str(value.get("world", "")) or Path(str(value.get("world_sdf", ""))).stem
         if text:
             return text.split(".")[0]
     except Exception:
@@ -143,7 +143,7 @@ def _find_truth(world: str, roots: list[Path]) -> Path | None:
     names = [f"{world}.truth.json"]
     if world.startswith("urban_"):
         names.append("urban_inspection_multirotor_001.truth.json")
-    for root in roots:
+    for root in [*roots, ROOT]:
         for base in (root, root / "configs", root.parent, Path.cwd()):
             for name in names:
                 for candidate in (
@@ -155,6 +155,8 @@ def _find_truth(world: str, roots: list[Path]) -> Path | None:
                     base / "scenarios" / "generated-confusers" / name,
                     base / "scenarios" / "generated-confusers-2" / name,
                     base / "scenarios" / "generated-r15" / name,
+                    base / "scenarios" / "realworld" / name,
+                    base / "scenarios" / "realworld-clusters" / name,
                 ):
                     if candidate.is_file():
                         return candidate

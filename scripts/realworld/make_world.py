@@ -173,7 +173,7 @@ def static_visual_model(name: str, slug: str, x, y, z, yaw, scale=1.0) -> str:
             f'<link name="l">{inst_visuals(slug, scale)}</link></model>')
 
 
-def labelled_model(name: str, slug: str, x, y, z, yaw, label: int) -> str:
+def labelled_model(name: str, slug: str, x, y, z, yaw, label: int, emit_label: bool = False) -> str:
     a = CATALOG[slug]
     lo, hi = a["bbox_min_m"], a["bbox_max_m"]
     size = [h - l for l, h in zip(lo, hi)]
@@ -183,6 +183,7 @@ def labelled_model(name: str, slug: str, x, y, z, yaw, label: int) -> str:
     wx, wy = x + c * cx - s * cy, y + s * cx + c * cy
     return (f'<model name="{name}"><static>true</static><pose>{wx:.3f} {wy:.3f} {z + size[2] / 2:.3f} 0 0 {yaw:.4f}</pose>'
             f'<link name="bounds"><collision name="bounds_collision"><geometry><box><size>{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}</size></box></geometry></collision></link>'
+            + (f'<plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>{label}</label></plugin>' if emit_label else "") +
             f'<model name="mesh"><pose>{-cx:.3f} {-cy:.3f} {-lo[2] - size[2] / 2:.3f} 0 0 0</pose><static>true</static><link name="link">{inst_visuals(slug)}</link></model></model>')
 
 
@@ -493,7 +494,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     parts.append(movers(scene["routes"], random.Random(seed + 1), scene["kind"], mover_scale))
     parts.append(boat_actor(scene))
     for k, t in enumerate(targets):
-        parts.append(labelled_model(t.get("name", f"rw_target_{k:02d}"), t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k)))
+        parts.append(labelled_model(t.get("name", f"rw_target_{k:02d}"), t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k), emit_label=True))
     if w.get("rain"):
         parts.append(rain_emitter())
     if w.get("lamps"):
