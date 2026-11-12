@@ -7291,6 +7291,9 @@ def run_episode(
                 runtime_mode="sim",
                 teacher=plan.teacher,
             )
+            # PX4 releases gimbal manager control once a land primitive starts
+            # (255/190 -> 1/1 -> 0/0), so later pitch/yaw commands are DENIED.
+            landing_started = False
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
@@ -7382,7 +7385,8 @@ def run_episode(
                     action, camera_mount,
                     _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,
                 )
-                if camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None:
+                if (camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None
+                        and not landing_started):
                     if gimbal_session is not None:
                         gimbal_session.poll()
                     _dispatch_teacher_gimbal_command(
@@ -7570,6 +7574,8 @@ def run_episode(
                 if execute_error:
                     raise execute_error[0]
                 result = result_box[0]
+                if getattr(action, "kind", None) == "land" and result.status == "success":
+                    landing_started = True
                 _raise_if_px4_clock_stalled(
                     result, index, sim_clock=primitive_sim_clock
                 )
