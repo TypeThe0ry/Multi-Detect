@@ -5550,6 +5550,7 @@ def _episode_wall_ceiling_s(airframe: str, maximum_s: float) -> float:
     if normalized in {
         "delta_tailsitter",
         "delta_tailsitter_mono_cam",
+        "delta_tailsitter_gimbal",
         "delta_tailsitter_gimbal_cam",
     }:
         return max(

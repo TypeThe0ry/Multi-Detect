@@ -297,6 +297,7 @@ def test_progress_watchdog_has_a_hard_ceiling():
 
 def test_delta_tailsitter_watchdog_uses_a_slow_sim_wall_fallback():
     assert collector._episode_wall_ceiling_s("delta_tailsitter_mono_cam", 300.0) == 3600.0
+    assert collector._episode_wall_ceiling_s("delta_tailsitter_gimbal", 300.0) == 3600.0
     assert collector._episode_wall_ceiling_s("x500_mono_cam", 300.0) == 900.0
 
 
