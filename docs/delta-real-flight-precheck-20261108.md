@@ -60,3 +60,52 @@
 - [ ] 发布前审查私有设计及凭据；原始 CAD/报告留在本地或获授权的私有位置，不新增公开传播。检查记录保存在仓库外 `runs/delta-publish-asset-audit-20261108.json`。
 
 未完成项均保留未勾选；本文不批准实飞、不替代机型适航/操作签核。
+
+<a id="scope-630918-20261109"></a>
+
+## 2026-11-09 补充：版本范围与真机放行边界
+
+以上正文保留为历史检查记录，其中“本轮仿真实读”专指 2026-11-08 的旧镜像实例，不表示下列候选或任何真机已重新导出参数。本补充没有执行参数读写、故障注入、HIL 或真机操作。
+
+### 版本必须按组件和实例区分
+
+| 证据 | 代码 / 镜像范围 | 能证明的内容 |
+|---|---|---|
+| 原 `px4-ver all` 和 `px4-param show` | 集成 `3b817dd1`；旧 `:gpu` image `445d17a7…`；固定实例 `814f4133` | 原日志报告 `PX4_SITL`、git `83c4f4e580558816f0e398918f66358988004696`、`PX4 version: 1.18.0 80`、2026-08-09 构建。该版本字符串不应扩大成全部“PX4 1.18”或真机固件的通用结论 |
+| PX4 lifetime 候选双变体 | 源 `21dcab8b…`；image `b5c576ce…`；`091e36db` / `8e19af28` | 保留上节独立仿真结果；PX4 源锚仍为83c，但已应用 lifetime-r1 补丁，不能把它当成未修改的旧二进制 |
+| transport 候选双变体 | 源 `6f05947031df137904010fba8f691824c59b6811`；image `630918d33596…`；`fa0527b2` / `1d83eda7` | 本节下述严格SIM复验，仅此源/镜像/两变体范围；不能直接改写为最终交付8c或真机已经全部验收 |
+
+完整候选身份及组件链：
+
+- 镜像：`sha256:630918d335967a9ac130cde821080e7b45193bc1a876d10f9508d657ece2bcb0`，父镜像 `sha256:b5c576ce15b8a75935313bc3e8dc4cf9940778226b28e835064d7581c3fe72c6`。
+- PX4：基于上述83c源码，lifetime-r1补丁 SHA256 `43bfe32d5d7572b866b3d411c2394d941b6bcc8e19ace5bdd6e230845cdf0559`；实际候选二进制 SHA256 `9c2280e005ad426f01cdffddf2114e1e4b13e26aa9f5996c4b52cdfa9e722d99`。
+- gz-transport13：修补源 `09266eb0eb381d090b9fa7f784636ef6eb0335a3`；库 SHA256 `aff44fe0ab4e1452c78b65e97c76a3f99f9d132777e96840666186f3d8cc82fe`。这是固定镜像组件范围，不是发行版ABI等价或所有Gazebo版本已覆盖的证明。
+
+项目父目录 `runs/px4-lockstep-candidate-ready-20261108.json`、`runs/transport-candidate-ready-20261109.json` 保存组件身份；双变体原证据在 `runs/delta-transport-recheck-20261109/output/`，独立复算在 `runs/delta-transport-independent-audit-20261109/`。后者 `audit.json` 的 SHA256 为 `f0bf3a8665059fa883b1de289e18d9af0f12dd9feadeae26846ee4ffefe86621`，包含原始输入hash与逐项重算结果。
+
+**参数实读仍有缺口。** `FD_FAIL_P=60°`、`FD_FAIL_R=70°`、两项TTRI=0.3s、`CBRK_FLIGHTTERM=121212`及正文其它实读值，仍只属于旧445镜像的814f4133实例。本附录未在630候选重新执行 `px4-param show`；两份630复验包也没有这些参数的重新导出证据。源码相同或补丁没有意图改参数，均不能代替当前启动实例/持久化参数的实值。真机还须单独保存确切固件hash、版本输出、完整参数导出与机型/启动实例身份，再验证失败事件、动作及输出，不能将表中旧值写成真机保护已通过。
+
+### 630严格门禁通过不等于精准返航或自动停桨
+
+原门禁复算保持 `target_altitude_m=5`、`position_error_m=8`，没有改阈值或实际评测。固定15项、云台16项required fields及各自8项三角翼严格字段均为true，两个collector均为0/complete、各一个原始episode且无retry。
+
+| 原始证据 | 固定 `fa0527b2` | 云台 `1d83eda7` |
+|---|---:|---:|
+| `rtl_entered` / 原 `rtl_success` | true / true | true / true |
+| 飞行后 `landed_state` | 1 | 1 |
+| 最终离起飞原点的水平距离 | 48.611 m | 24.607 m |
+| 最后HEARTBEAT的armed | true | true |
+| 最大位置接收间隔 | 0.293509 s | 0.288754 s |
+| PX4 ULog | logger off | logger off |
+
+冻结源 `scripts/smoke_airframe_flight.py` 对此机型的 `rtl_success` 直接使用进入RTL的判据；该结果不是home arrived或精准回家落地。`landed`表示已有飞行后的落地状态信号，不能替代独立实体触地证据，也不包含自动disarm要求。末条心跳仍armed=true，清理前没有取得自动disarm证据；不能据此宣称自动停桨/解除武装已经验证。
+
+另须保留：fixed的普通短时 `reposition_success=false` 是原源码明确不参与通过判定的参考量，严格FW环形重定位真实通过，不能将前者改写为true；云台初始空速告警后prearm ready=true，不等于空速失效保护完成。只有fixed留有独立docker inspect，gimbal以同一冻结launcher及不可变image launch事件作证；两次均无ULog交叉核查。这两次SIM smoke不替代clock10、原21×2或真机保护门禁。
+
+### 既有软件证据与三角翼真机缺口
+
+- [ ] **签名与真实链路**：保留[SIM计划签名审批记录](e2e-operator-acceptance.md)及[本机UDP/HMAC与GR01硬件准入区别](integration-input-checklist.md#d-第四批数传告警)。它们不证明三角翼实际机载机/飞控/GCS的设备身份、密钥部署、重放/过期/错误签名拒绝和断链重连已验收；应另行保存端到端ACK及拒绝事件，报告只含key ID/摘要，不含密钥或凭据。本次630飞行不是签名审批链专项测试。
+- [ ] **实体标定与时序**：仿真共享标定和云台小于4°的关节跟踪门禁，不是实装相机/云台标定。按[真实运行入口的标定要求与限制](onboard-runtime-real-aircraft.md#相机和标定)，分别测量MC/FW姿态、固定/云台外参、实际分辨率与畸变、传感器曝光到MAVLink时间误差；保存实装证据，不把Gazebo参数当实体测量。相关[机型档案限制](onboard-airframes.md#限制与未验证项)仍适用。
+- [ ] **空中重启与控制权**：[crash-resume记录](crash-resume.md)已有通用PX4/Gazebo SITL五场景历史PASS，不能抹去，也不能挪作630三角翼或真机恢复通过。当前两次630复验没有注入机载进程/设备断电重启，未验证实机MC、FW、转换及RTL/LAND状态下的检查点身份/时效、PX4 boot回退拒绝、恢复后不重复arm/takeoff，以及不得抢回PX4失效保护控制权。后续须在受控台架/HIL和获准实机流程分别取证，不能因本SIM通过而打开接管。
+
+上述新增项均保持未勾选。当前记录不构成真机放行，也不声称已刷写或部署候选到真机。
