@@ -171,6 +171,15 @@ class GimbalManagerSession:
                 elif name == "GIMBAL_MANAGER_STATUS" and self.owned:
                     if (self._field(msg, "gimbal_device_id") == self.device_id and
                         (self._field(msg, "primary_control_sysid"), self._field(msg, "primary_control_compid")) != self.identity):
+                        if self.control_release_expected:
+                            # Landing hands the manager back; nothing left to command.
+                            logging.getLogger(__name__).warning(
+                                "gimbal manager ownership released after landing; ignoring")
+                            self.owned = False
+                            self.pending = None
+                            if self.phase == "command_ack":
+                                self.phase = "ready"
+                            continue
                         raise RuntimeError("gimbal manager ownership lost")
             self._check_deadline(self.clock_ns(), self.reader.state.vehicle_time_boot_ms)
             if self.phase == "idle" and self.pending:
