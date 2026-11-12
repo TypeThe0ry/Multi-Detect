@@ -151,6 +151,25 @@ def build_site(site: str, weather: str, seed: int, out_dir: Path | None) -> list
     return entries
 
 
+VTOL_AIRFRAMES = ("delta_tailsitter", "delta_tailsitter_gimbal")
+
+
+def derive_airframe_index(worlds: list[dict], airframe: str) -> Path:
+    """Scenario bundles whose runtime.vehicle.model matches a VTOL airframe (the collector checks that)."""
+    sys.path.insert(0, str(ROOT / "src"))
+    from multidetect.simulator.world_gen import derive_vtol_scenario
+
+    out = OUT_DIR / airframe
+    out.mkdir(parents=True, exist_ok=True)
+    for w in worlds:
+        derive_vtol_scenario(OUT_DIR / w["files"]["scenario"], out, airframe=airframe)
+    path = out / "index.json"
+    path.write_text(json.dumps({
+        "schema_version": 1, "generator": "scripts.realworld.hydrant_clusters", "count": len(worlds), "airframe": airframe,
+        "worlds": worlds}, ensure_ascii=False, indent=2) + "\n")
+    return path
+
+
 def write_suite(worlds: list[dict], airframe: str) -> Path:
     """Mission suite (same defaults as the cities suite) with one count mission per cluster world."""
     base = json.loads((ROOT / "configs/onboard/suite-cities-r21idr3-r24plan.json").read_text())
@@ -161,7 +180,8 @@ def write_suite(worlds: list[dict], airframe: str) -> Path:
         mission = {
             "id": f"rwclu-{w['site'].removeprefix('rw_')}{tag}-d{int(w['cluster_spacing_m']):02d}",
             "task_text": "Count the fire hydrants in the site and report their positions.",
-            "index": "configs/scenarios/realworld-clusters/index.json", "world": w["world_id"],
+            "index": ("configs/scenarios/realworld-clusters/" + (f"{airframe}/" if airframe in VTOL_AIRFRAMES else "") + "index.json"),
+            "world": w["world_id"],
             "refs": {"zone:site": [0, 0, 55]}, "ref_labels": {"zone:site": "the site"},
             "expect": {"skills": ["count", "return_home"], "min_count_exact": 1},
             "steps": 150, "max_episode_s": 2400, "airframe": airframe,
@@ -205,7 +225,9 @@ def main() -> None:
         "note": "Three fire hydrants in an equilateral triangle (3/6/10 m sides) on real-place terrain; count task.",
         "worlds": worlds}, ensure_ascii=False, indent=2) + "\n")
     print(index_path, len(worlds), "worlds")
-    for airframe in ("x500_mono_cam", "delta_tailsitter", "delta_tailsitter_gimbal"):
+    for airframe in VTOL_AIRFRAMES:
+        print(derive_airframe_index(worlds, airframe))
+    for airframe in ("x500_mono_cam", *VTOL_AIRFRAMES):
         print(write_suite(worlds, airframe))
 
 

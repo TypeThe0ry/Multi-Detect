@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_downtown_sf__overcast_clu3m.expectations.json",
+      "sha256": "5a380ba119e49078c4f44681e76d24fe61d6a9707701636c8c4ea15989a96b62"
+    },
+    "runtime_input": {
+      "path": "rw_downtown_sf__overcast_clu3m.runtime_input.json",
+      "sha256": "6e0f989572b238c554025be9e206be10ef63134292f3d691a4ec25cc2dd33384"
+    },
+    "truth": {
+      "path": "rw_downtown_sf__overcast_clu3m.truth.json",
+      "sha256": "4877ce4e860928bd9492ef80a273a999b7b956538c1bb88139c66cba1bb46e6a"
+    }
+  },
+  "scenario_id": "rw_downtown_sf__overcast_clu3m",
+  "scenario_version": 1,
+  "schema_version": 1
+}

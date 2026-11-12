@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_mountain_boulder__clear_noon_clu10m.expectations.json",
+      "sha256": "fd83796fcd445d2af9f9e9049b81236e94395937c646b498723dbe43cc8b9e82"
+    },
+    "runtime_input": {
+      "path": "rw_mountain_boulder__clear_noon_clu10m.runtime_input.json",
+      "sha256": "0027c0266c2f1ae25dcea576e7fb1dcda79927e9eb0401f68a996593cceeb155"
+    },
+    "truth": {
+      "path": "rw_mountain_boulder__clear_noon_clu10m.truth.json",
+      "sha256": "d37ef5cec7cfb73dadaa59fbae48a725d45d3e61efd2080726fa21be5532e6ad"
+    }
+  },
+  "scenario_id": "rw_mountain_boulder__clear_noon_clu10m",
+  "scenario_version": 1,
+  "schema_version": 1
+}

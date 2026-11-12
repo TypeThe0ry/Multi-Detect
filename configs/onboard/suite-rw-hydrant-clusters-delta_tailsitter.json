@@ -17,7 +17,7 @@
   {
    "id": "rwclu-city_tokyo-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -43,7 +43,7 @@
   {
    "id": "rwclu-city_tokyo-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -69,7 +69,7 @@
   {
    "id": "rwclu-city_tokyo-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -95,7 +95,7 @@
   {
    "id": "rwclu-downtown_sf-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -121,7 +121,7 @@
   {
    "id": "rwclu-downtown_sf-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -147,7 +147,7 @@
   {
    "id": "rwclu-downtown_sf-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -173,7 +173,7 @@
   {
    "id": "rwclu-city_zurich-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -199,7 +199,7 @@
   {
    "id": "rwclu-city_zurich-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -225,7 +225,7 @@
   {
    "id": "rwclu-city_zurich-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -251,7 +251,7 @@
   {
    "id": "rwclu-suburb_davis-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -277,7 +277,7 @@
   {
    "id": "rwclu-suburb_davis-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -303,7 +303,7 @@
   {
    "id": "rwclu-suburb_davis-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -329,7 +329,7 @@
   {
    "id": "rwclu-coast_santacruz-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_coast_santacruz__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -355,7 +355,7 @@
   {
    "id": "rwclu-coast_santacruz-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_coast_santacruz__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -381,7 +381,7 @@
   {
    "id": "rwclu-coast_santacruz-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_coast_santacruz__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -407,7 +407,7 @@
   {
    "id": "rwclu-mountain_boulder-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_mountain_boulder__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -433,7 +433,7 @@
   {
    "id": "rwclu-mountain_boulder-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_mountain_boulder__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -459,7 +459,7 @@
   {
    "id": "rwclu-mountain_boulder-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_mountain_boulder__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -485,7 +485,7 @@
   {
    "id": "rwclu-farm_iowa-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_farm_iowa__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -511,7 +511,7 @@
   {
    "id": "rwclu-farm_iowa-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_farm_iowa__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -537,7 +537,7 @@
   {
    "id": "rwclu-farm_iowa-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_farm_iowa__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -563,7 +563,7 @@
   {
    "id": "rwclu-port_oakland-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_port_oakland__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -589,7 +589,7 @@
   {
    "id": "rwclu-port_oakland-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_port_oakland__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -615,7 +615,7 @@
   {
    "id": "rwclu-port_oakland-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_port_oakland__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -641,7 +641,7 @@
   {
    "id": "rwclu-canal_amsterdam-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_canal_amsterdam__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -667,7 +667,7 @@
   {
    "id": "rwclu-canal_amsterdam-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_canal_amsterdam__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -693,7 +693,7 @@
   {
    "id": "rwclu-canal_amsterdam-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_canal_amsterdam__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -719,7 +719,7 @@
   {
    "id": "rwclu-port_rotterdam-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_port_rotterdam__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -745,7 +745,7 @@
   {
    "id": "rwclu-port_rotterdam-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_port_rotterdam__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -771,7 +771,7 @@
   {
    "id": "rwclu-port_rotterdam-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_port_rotterdam__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -797,7 +797,7 @@
   {
    "id": "rwclu-alpine_grindelwald-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_alpine_grindelwald__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -823,7 +823,7 @@
   {
    "id": "rwclu-alpine_grindelwald-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_alpine_grindelwald__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -849,7 +849,7 @@
   {
    "id": "rwclu-alpine_grindelwald-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_alpine_grindelwald__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -875,7 +875,7 @@
   {
    "id": "rwclu-city_berlin-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_berlin__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -901,7 +901,7 @@
   {
    "id": "rwclu-city_berlin-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_berlin__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -927,7 +927,7 @@
   {
    "id": "rwclu-city_berlin-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_berlin__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -953,7 +953,7 @@
   {
    "id": "rwclu-city_singapore-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_singapore__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -979,7 +979,7 @@
   {
    "id": "rwclu-city_singapore-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_singapore__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -1005,7 +1005,7 @@
   {
    "id": "rwclu-city_singapore-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_singapore__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -1031,7 +1031,7 @@
   {
    "id": "rwclu-city_shenzhen-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_shenzhen__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -1057,7 +1057,7 @@
   {
    "id": "rwclu-city_shenzhen-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_shenzhen__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -1083,7 +1083,7 @@
   {
    "id": "rwclu-city_shenzhen-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_shenzhen__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -1109,7 +1109,7 @@
   {
    "id": "rwclu-singapore_marina_bay-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_singapore_marina_bay__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -1135,7 +1135,7 @@
   {
    "id": "rwclu-singapore_marina_bay-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_singapore_marina_bay__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -1161,7 +1161,7 @@
   {
    "id": "rwclu-singapore_marina_bay-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_singapore_marina_bay__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -1187,7 +1187,7 @@
   {
    "id": "rwclu-shanghai_lujiazui-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_shanghai_lujiazui__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -1213,7 +1213,7 @@
   {
    "id": "rwclu-shanghai_lujiazui-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_shanghai_lujiazui__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -1239,7 +1239,7 @@
   {
    "id": "rwclu-shanghai_lujiazui-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_shanghai_lujiazui__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -1265,7 +1265,7 @@
   {
    "id": "rwclu-shanghai_century_park-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_shanghai_century_park__clear_noon_clu3m",
    "refs": {
     "zone:site": [
@@ -1291,7 +1291,7 @@
   {
    "id": "rwclu-shanghai_century_park-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_shanghai_century_park__clear_noon_clu6m",
    "refs": {
     "zone:site": [
@@ -1317,7 +1317,7 @@
   {
    "id": "rwclu-shanghai_century_park-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_shanghai_century_park__clear_noon_clu10m",
    "refs": {
     "zone:site": [
@@ -1343,7 +1343,7 @@
   {
    "id": "rwclu-city_tokyo-morning-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__morning_clu3m",
    "refs": {
     "zone:site": [
@@ -1369,7 +1369,7 @@
   {
    "id": "rwclu-city_tokyo-morning-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__morning_clu6m",
    "refs": {
     "zone:site": [
@@ -1395,7 +1395,7 @@
   {
    "id": "rwclu-city_tokyo-morning-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__morning_clu10m",
    "refs": {
     "zone:site": [
@@ -1421,7 +1421,7 @@
   {
    "id": "rwclu-city_tokyo-overcast-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__overcast_clu3m",
    "refs": {
     "zone:site": [
@@ -1447,7 +1447,7 @@
   {
    "id": "rwclu-city_tokyo-overcast-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__overcast_clu6m",
    "refs": {
     "zone:site": [
@@ -1473,7 +1473,7 @@
   {
    "id": "rwclu-city_tokyo-overcast-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__overcast_clu10m",
    "refs": {
     "zone:site": [
@@ -1499,7 +1499,7 @@
   {
    "id": "rwclu-city_tokyo-evening-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__evening_clu3m",
    "refs": {
     "zone:site": [
@@ -1525,7 +1525,7 @@
   {
    "id": "rwclu-city_tokyo-evening-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__evening_clu6m",
    "refs": {
     "zone:site": [
@@ -1551,7 +1551,7 @@
   {
    "id": "rwclu-city_tokyo-evening-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_tokyo__evening_clu10m",
    "refs": {
     "zone:site": [
@@ -1577,7 +1577,7 @@
   {
    "id": "rwclu-downtown_sf-morning-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__morning_clu3m",
    "refs": {
     "zone:site": [
@@ -1603,7 +1603,7 @@
   {
    "id": "rwclu-downtown_sf-morning-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__morning_clu6m",
    "refs": {
     "zone:site": [
@@ -1629,7 +1629,7 @@
   {
    "id": "rwclu-downtown_sf-morning-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__morning_clu10m",
    "refs": {
     "zone:site": [
@@ -1655,7 +1655,7 @@
   {
    "id": "rwclu-downtown_sf-overcast-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__overcast_clu3m",
    "refs": {
     "zone:site": [
@@ -1681,7 +1681,7 @@
   {
    "id": "rwclu-downtown_sf-overcast-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__overcast_clu6m",
    "refs": {
     "zone:site": [
@@ -1707,7 +1707,7 @@
   {
    "id": "rwclu-downtown_sf-overcast-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__overcast_clu10m",
    "refs": {
     "zone:site": [
@@ -1733,7 +1733,7 @@
   {
    "id": "rwclu-downtown_sf-evening-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__evening_clu3m",
    "refs": {
     "zone:site": [
@@ -1759,7 +1759,7 @@
   {
    "id": "rwclu-downtown_sf-evening-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__evening_clu6m",
    "refs": {
     "zone:site": [
@@ -1785,7 +1785,7 @@
   {
    "id": "rwclu-downtown_sf-evening-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_downtown_sf__evening_clu10m",
    "refs": {
     "zone:site": [
@@ -1811,7 +1811,7 @@
   {
    "id": "rwclu-city_zurich-morning-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__morning_clu3m",
    "refs": {
     "zone:site": [
@@ -1837,7 +1837,7 @@
   {
    "id": "rwclu-city_zurich-morning-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__morning_clu6m",
    "refs": {
     "zone:site": [
@@ -1863,7 +1863,7 @@
   {
    "id": "rwclu-city_zurich-morning-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__morning_clu10m",
    "refs": {
     "zone:site": [
@@ -1889,7 +1889,7 @@
   {
    "id": "rwclu-city_zurich-overcast-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__overcast_clu3m",
    "refs": {
     "zone:site": [
@@ -1915,7 +1915,7 @@
   {
    "id": "rwclu-city_zurich-overcast-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__overcast_clu6m",
    "refs": {
     "zone:site": [
@@ -1941,7 +1941,7 @@
   {
    "id": "rwclu-city_zurich-overcast-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__overcast_clu10m",
    "refs": {
     "zone:site": [
@@ -1967,7 +1967,7 @@
   {
    "id": "rwclu-city_zurich-evening-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__evening_clu3m",
    "refs": {
     "zone:site": [
@@ -1993,7 +1993,7 @@
   {
    "id": "rwclu-city_zurich-evening-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__evening_clu6m",
    "refs": {
     "zone:site": [
@@ -2019,7 +2019,7 @@
   {
    "id": "rwclu-city_zurich-evening-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_city_zurich__evening_clu10m",
    "refs": {
     "zone:site": [
@@ -2045,7 +2045,7 @@
   {
    "id": "rwclu-suburb_davis-morning-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__morning_clu3m",
    "refs": {
     "zone:site": [
@@ -2071,7 +2071,7 @@
   {
    "id": "rwclu-suburb_davis-morning-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__morning_clu6m",
    "refs": {
     "zone:site": [
@@ -2097,7 +2097,7 @@
   {
    "id": "rwclu-suburb_davis-morning-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__morning_clu10m",
    "refs": {
     "zone:site": [
@@ -2123,7 +2123,7 @@
   {
    "id": "rwclu-suburb_davis-overcast-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__overcast_clu3m",
    "refs": {
     "zone:site": [
@@ -2149,7 +2149,7 @@
   {
    "id": "rwclu-suburb_davis-overcast-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__overcast_clu6m",
    "refs": {
     "zone:site": [
@@ -2175,7 +2175,7 @@
   {
    "id": "rwclu-suburb_davis-overcast-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__overcast_clu10m",
    "refs": {
     "zone:site": [
@@ -2201,7 +2201,7 @@
   {
    "id": "rwclu-suburb_davis-evening-d03",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__evening_clu3m",
    "refs": {
     "zone:site": [
@@ -2227,7 +2227,7 @@
   {
    "id": "rwclu-suburb_davis-evening-d06",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__evening_clu6m",
    "refs": {
     "zone:site": [
@@ -2253,7 +2253,7 @@
   {
    "id": "rwclu-suburb_davis-evening-d10",
    "task_text": "Count the fire hydrants in the site and report their positions.",
-   "index": "configs/scenarios/realworld-clusters/index.json",
+   "index": "configs/scenarios/realworld-clusters/delta_tailsitter/index.json",
    "world": "rw_suburb_davis__evening_clu10m",
    "refs": {
     "zone:site": [

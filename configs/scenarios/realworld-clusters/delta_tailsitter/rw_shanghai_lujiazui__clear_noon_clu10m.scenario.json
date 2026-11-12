@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_shanghai_lujiazui__clear_noon_clu10m.expectations.json",
+      "sha256": "116ee672762fa68feb75950b4f7a735fbb7787844170213096ad368cf8ac9f01"
+    },
+    "runtime_input": {
+      "path": "rw_shanghai_lujiazui__clear_noon_clu10m.runtime_input.json",
+      "sha256": "86a4831f65b935dd42b90dc2e66ca9962a028ff9b30d6cf80b5f14d829c6ff54"
+    },
+    "truth": {
+      "path": "rw_shanghai_lujiazui__clear_noon_clu10m.truth.json",
+      "sha256": "13824422226c49907608e3a559692e3350c4b868c065e0872d04c6fb3f7a96ab"
+    }
+  },
+  "scenario_id": "rw_shanghai_lujiazui__clear_noon_clu10m",
+  "scenario_version": 1,
+  "schema_version": 1
+}

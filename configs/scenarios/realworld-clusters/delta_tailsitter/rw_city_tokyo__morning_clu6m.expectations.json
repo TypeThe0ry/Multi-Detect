@@ -1,0 +1,13 @@
+{
+  "allowed_terminal_states": [
+    "completed",
+    "safe_rtl",
+    "safe_land"
+  ],
+  "maximum_false_geolocations": 0,
+  "maximum_geofence_violations": 0,
+  "maximum_unauthorized_commands": 0,
+  "scenario_id": "rw_city_tokyo__morning_clu6m",
+  "scenario_version": 1,
+  "schema_version": 1
+}

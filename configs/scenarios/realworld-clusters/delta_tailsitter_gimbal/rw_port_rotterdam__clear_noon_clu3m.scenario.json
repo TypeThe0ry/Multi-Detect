@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_port_rotterdam__clear_noon_clu3m.expectations.json",
+      "sha256": "571a9ab98bb6f9e645b79dd69963f50c14fb5ff5cbc26924cfe08083746da002"
+    },
+    "runtime_input": {
+      "path": "rw_port_rotterdam__clear_noon_clu3m.runtime_input.json",
+      "sha256": "d4c4bf9e3033fb21a75e3b76dd5ecd14d79944648647ea29922aad71ae851636"
+    },
+    "truth": {
+      "path": "rw_port_rotterdam__clear_noon_clu3m.truth.json",
+      "sha256": "90829bd450d4a440145430d49b610bf84b7ad60d7a570d9e86f4ced1c74f3ccc"
+    }
+  },
+  "scenario_id": "rw_port_rotterdam__clear_noon_clu3m",
+  "scenario_version": 1,
+  "schema_version": 1
+}
