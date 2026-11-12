@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_shanghai_century_park__clear_noon_clu6m",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_shanghai_century_park__clear_noon_clu6m.runtime.json",
+   "sha256": "406bf00af59fa93ca6efb3025604facf0e18cea49da1e274cf99fd227424dffb"
+  },
+  "truth": {
+   "path": "rw_shanghai_century_park__clear_noon_clu6m.truth.json",
+   "sha256": "88b453ca9a779777e26c8771fc923e0ff93b8615ddf76830803a526f14a5143f"
+  },
+  "expectations": {
+   "path": "rw_shanghai_century_park__clear_noon_clu6m.expectations.json",
+   "sha256": "edbe891e547a9e00d85e88a1a5dabf2be1d41cdd3918c56b46d0b92f6b00cc11"
+  }
+ }
+}

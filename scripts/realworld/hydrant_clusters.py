@@ -156,8 +156,10 @@ def write_suite(worlds: list[dict], airframe: str) -> Path:
     base = json.loads((ROOT / "configs/onboard/suite-cities-r21idr3-r24plan.json").read_text())
     missions = []
     for w in worlds:
+        weather = w["world_id"].split("__")[1].rsplit("_clu", 1)[0]
+        tag = "" if weather == "clear_noon" else f"-{weather}"
         mission = {
-            "id": f"rwclu-{w['site'].removeprefix('rw_')}-d{int(w['cluster_spacing_m']):02d}",
+            "id": f"rwclu-{w['site'].removeprefix('rw_')}{tag}-d{int(w['cluster_spacing_m']):02d}",
             "task_text": "Count the fire hydrants in the site and report their positions.",
             "index": "configs/scenarios/realworld-clusters/index.json", "world": w["world_id"],
             "refs": {"zone:site": [0, 0, 55]}, "ref_labels": {"zone:site": "the site"},
@@ -173,13 +175,23 @@ def write_suite(worlds: list[dict], airframe: str) -> Path:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("sites", nargs="*", default=list(SITES))
-    ap.add_argument("--weather", default="clear_noon")
+    ap.add_argument("--weather", nargs="+", default=["clear_noon"])
+    ap.add_argument("--skip-existing", action="store_true", help="leave worlds already in the index untouched (safe while flights use them)")
     ap.add_argument("--seed", type=int, default=20261112)
     ap.add_argument("--world-out-dir", type=Path)
     a = ap.parse_args()
-    worlds = []
+    index_path = OUT_DIR / "index.json"
+    known = {w["world_id"]: w for w in json.loads(index_path.read_text())["worlds"]} if index_path.is_file() else {}
     for site in a.sites:
-        worlds += build_site(site, a.weather, a.seed, a.world_out_dir)
+        for weather in a.weather:
+            if a.skip_existing and all(f"{site}__{weather}_clu{d:g}m" in known for d in SPACINGS_M):
+                continue
+            try:
+                for entry in build_site(site, weather, a.seed, a.world_out_dir):
+                    known[entry["world_id"]] = entry
+            except Exception as exc:  # one bad site must not stop the rest
+                print(f"SKIP {site} {weather}: {exc}", flush=True)
+    worlds = list(known.values())
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     # Scenario bundles live in configs/scenarios/realworld; the index sits beside copies of them.
     scen_dir = ROOT / "configs/scenarios/realworld"
@@ -188,11 +200,11 @@ def main() -> None:
             (OUT_DIR / p.name).write_text(p.read_text())
             p.unlink()
 
-    (OUT_DIR / "index.json").write_text(json.dumps({
+    index_path.write_text(json.dumps({
         "schema_version": 1, "generator": "scripts.realworld.hydrant_clusters", "count": len(worlds),
         "note": "Three fire hydrants in an equilateral triangle (3/6/10 m sides) on real-place terrain; count task.",
         "worlds": worlds}, ensure_ascii=False, indent=2) + "\n")
-    print(OUT_DIR / "index.json", len(worlds), "worlds")
+    print(index_path, len(worlds), "worlds")
     for airframe in ("x500_mono_cam", "delta_tailsitter", "delta_tailsitter_gimbal"):
         print(write_suite(worlds, airframe))
 
