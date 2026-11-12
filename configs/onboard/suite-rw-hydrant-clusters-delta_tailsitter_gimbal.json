@@ -1,0 +1,330 @@
+{
+ "defaults": {
+  "gguf": "artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf",
+  "planning_model": "artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf",
+  "planning_decision_contract": false,
+  "confirm_max_range_m": 40,
+  "fast_identity": true,
+  "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
+  "near_depth": false,
+  "planning_pregate": true,
+  "mission": "from_text",
+  "plan_sorted_keys": true,
+  "step_budget": 180,
+  "size_aware_search": true
+ },
+ "missions": [
+  {
+   "id": "rwclu-city_tokyo-d03",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_city_tokyo__clear_noon_clu3m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-city_tokyo-d06",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_city_tokyo__clear_noon_clu6m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-city_tokyo-d10",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_city_tokyo__clear_noon_clu10m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-downtown_sf-d03",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_downtown_sf__clear_noon_clu3m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-downtown_sf-d06",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_downtown_sf__clear_noon_clu6m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-downtown_sf-d10",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_downtown_sf__clear_noon_clu10m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-city_zurich-d03",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_city_zurich__clear_noon_clu3m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-city_zurich-d06",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_city_zurich__clear_noon_clu6m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-city_zurich-d10",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_city_zurich__clear_noon_clu10m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-suburb_davis-d03",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_suburb_davis__clear_noon_clu3m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-suburb_davis-d06",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_suburb_davis__clear_noon_clu6m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  },
+  {
+   "id": "rwclu-suburb_davis-d10",
+   "task_text": "Count the fire hydrants in the site and report their positions.",
+   "index": "configs/scenarios/realworld-clusters/index.json",
+   "world": "rw_suburb_davis__clear_noon_clu10m",
+   "refs": {
+    "zone:site": [
+     0,
+     0,
+     55
+    ]
+   },
+   "ref_labels": {
+    "zone:site": "the site"
+   },
+   "expect": {
+    "skills": [
+     "count",
+     "return_home"
+    ],
+    "min_count_exact": 1
+   },
+   "steps": 150,
+   "max_episode_s": 2400,
+   "airframe": "delta_tailsitter_gimbal"
+  }
+ ]
+}

@@ -493,7 +493,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     parts.append(movers(scene["routes"], random.Random(seed + 1), scene["kind"], mover_scale))
     parts.append(boat_actor(scene))
     for k, t in enumerate(targets):
-        parts.append(labelled_model(f"rw_target_{k:02d}", t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k)))
+        parts.append(labelled_model(t.get("name", f"rw_target_{k:02d}"), t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k)))
     if w.get("rain"):
         parts.append(rain_emitter())
     if w.get("lamps"):
@@ -515,7 +515,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     return path
 
 
-def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> Path:
+def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000, truth_extra: dict | None = None) -> Path:
     """Scenario bundle with a real DEM, so geolocation and terrain checks see the true ground."""
     wid = world.stem
     scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
@@ -559,6 +559,7 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> 
     for sensor in runtime["sensors"]:
         sensor["stream_uri"] = sensor["stream_uri"].replace(Path(template).name, wid)
     truth = {"schema_version": 1, "scenario_id": wid, "scenario_version": 1, "targets": []}
+    truth.update(truth_extra or {})
     expect = {"schema_version": 1, "scenario_id": wid, "scenario_version": 1, "allowed_terminal_states": ["completed", "safe_rtl", "safe_land"],
               "maximum_geofence_violations": 0, "maximum_false_geolocations": 0, "maximum_unauthorized_commands": 0}
     chans = {}

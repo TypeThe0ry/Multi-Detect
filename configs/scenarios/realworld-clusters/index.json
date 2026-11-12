@@ -1,0 +1,368 @@
+{
+  "schema_version": 1,
+  "generator": "scripts.realworld.hydrant_clusters",
+  "count": 12,
+  "note": "Three fire hydrants in an equilateral triangle (3/6/10 m sides) on real-place terrain; count task.",
+  "worlds": [
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_city_tokyo__clear_noon_clu3m",
+      "site": "rw_city_tokyo",
+      "cluster_spacing_m": 3.0,
+      "cluster_center_m": [
+        15.0,
+        -25.98
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.68,
+      "world_file": "rw_city_tokyo__clear_noon_clu3m.sdf",
+      "world_id": "rw_city_tokyo__clear_noon_clu3m",
+      "files": {
+        "scenario": "rw_city_tokyo__clear_noon_clu3m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_city_tokyo__clear_noon_clu6m",
+      "site": "rw_city_tokyo",
+      "cluster_spacing_m": 6.0,
+      "cluster_center_m": [
+        15.0,
+        -25.98
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.68,
+      "world_file": "rw_city_tokyo__clear_noon_clu6m.sdf",
+      "world_id": "rw_city_tokyo__clear_noon_clu6m",
+      "files": {
+        "scenario": "rw_city_tokyo__clear_noon_clu6m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_city_tokyo__clear_noon_clu10m",
+      "site": "rw_city_tokyo",
+      "cluster_spacing_m": 10.0,
+      "cluster_center_m": [
+        15.0,
+        -25.98
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.68,
+      "world_file": "rw_city_tokyo__clear_noon_clu10m.sdf",
+      "world_id": "rw_city_tokyo__clear_noon_clu10m",
+      "files": {
+        "scenario": "rw_city_tokyo__clear_noon_clu10m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_downtown_sf__clear_noon_clu3m",
+      "site": "rw_downtown_sf",
+      "cluster_spacing_m": 3.0,
+      "cluster_center_m": [
+        -28.98,
+        7.76
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.3,
+      "world_file": "rw_downtown_sf__clear_noon_clu3m.sdf",
+      "world_id": "rw_downtown_sf__clear_noon_clu3m",
+      "files": {
+        "scenario": "rw_downtown_sf__clear_noon_clu3m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_downtown_sf__clear_noon_clu6m",
+      "site": "rw_downtown_sf",
+      "cluster_spacing_m": 6.0,
+      "cluster_center_m": [
+        -28.98,
+        7.76
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.3,
+      "world_file": "rw_downtown_sf__clear_noon_clu6m.sdf",
+      "world_id": "rw_downtown_sf__clear_noon_clu6m",
+      "files": {
+        "scenario": "rw_downtown_sf__clear_noon_clu6m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_downtown_sf__clear_noon_clu10m",
+      "site": "rw_downtown_sf",
+      "cluster_spacing_m": 10.0,
+      "cluster_center_m": [
+        -28.98,
+        7.76
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.3,
+      "world_file": "rw_downtown_sf__clear_noon_clu10m.sdf",
+      "world_id": "rw_downtown_sf__clear_noon_clu10m",
+      "files": {
+        "scenario": "rw_downtown_sf__clear_noon_clu10m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_city_zurich__clear_noon_clu3m",
+      "site": "rw_city_zurich",
+      "cluster_spacing_m": 3.0,
+      "cluster_center_m": [
+        0.0,
+        30.0
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.14,
+      "world_file": "rw_city_zurich__clear_noon_clu3m.sdf",
+      "world_id": "rw_city_zurich__clear_noon_clu3m",
+      "files": {
+        "scenario": "rw_city_zurich__clear_noon_clu3m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_city_zurich__clear_noon_clu6m",
+      "site": "rw_city_zurich",
+      "cluster_spacing_m": 6.0,
+      "cluster_center_m": [
+        0.0,
+        30.0
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.14,
+      "world_file": "rw_city_zurich__clear_noon_clu6m.sdf",
+      "world_id": "rw_city_zurich__clear_noon_clu6m",
+      "files": {
+        "scenario": "rw_city_zurich__clear_noon_clu6m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_city_zurich__clear_noon_clu10m",
+      "site": "rw_city_zurich",
+      "cluster_spacing_m": 10.0,
+      "cluster_center_m": [
+        0.0,
+        30.0
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.14,
+      "world_file": "rw_city_zurich__clear_noon_clu10m.sdf",
+      "world_id": "rw_city_zurich__clear_noon_clu10m",
+      "files": {
+        "scenario": "rw_city_zurich__clear_noon_clu10m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_suburb_davis__clear_noon_clu3m",
+      "site": "rw_suburb_davis",
+      "cluster_spacing_m": 3.0,
+      "cluster_center_m": [
+        7.76,
+        28.98
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.02,
+      "world_file": "rw_suburb_davis__clear_noon_clu3m.sdf",
+      "world_id": "rw_suburb_davis__clear_noon_clu3m",
+      "files": {
+        "scenario": "rw_suburb_davis__clear_noon_clu3m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_suburb_davis__clear_noon_clu6m",
+      "site": "rw_suburb_davis",
+      "cluster_spacing_m": 6.0,
+      "cluster_center_m": [
+        7.76,
+        28.98
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.02,
+      "world_file": "rw_suburb_davis__clear_noon_clu6m.sdf",
+      "world_id": "rw_suburb_davis__clear_noon_clu6m",
+      "files": {
+        "scenario": "rw_suburb_davis__clear_noon_clu6m.scenario.json"
+      }
+    },
+    {
+      "asset_mode": "fuel_v1",
+      "expected_count": 3,
+      "split": "test",
+      "seed": 20261112,
+      "task_kind": "count",
+      "task_text": "数一数有几个消防栓并报告数量和位置",
+      "task_text_en": "Count the fire hydrant objects and report their positions.",
+      "find_task_text": "找到消防栓并记录位置",
+      "find_task_text_en": "Find the fire hydrant and record its position.",
+      "target_combo": {
+        "category": "fire_hydrant",
+        "color": null,
+        "slug": "fire_hydrant"
+      },
+      "true_target_id": "target_true_rw_suburb_davis__clear_noon_clu10m",
+      "site": "rw_suburb_davis",
+      "cluster_spacing_m": 10.0,
+      "cluster_center_m": [
+        7.76,
+        28.98
+      ],
+      "cluster_distance_from_home_m": 30.0,
+      "cluster_ground_spread_m": 0.02,
+      "world_file": "rw_suburb_davis__clear_noon_clu10m.sdf",
+      "world_id": "rw_suburb_davis__clear_noon_clu10m",
+      "files": {
+        "scenario": "rw_suburb_davis__clear_noon_clu10m.scenario.json"
+      }
+    }
+  ]
+}
