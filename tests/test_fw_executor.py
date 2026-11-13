@@ -432,3 +432,30 @@ def test_mc_hover_translation_reanchors_when_the_commanded_target_runs_away() ->
     for _ in range(10):  # the vehicle never moves, so the commanded target would walk 150 m away
         assert executor.execute(ActionPrimitive.translate(15.0, 0.0)).status == "success"
     assert executor._commanded[0] <= executor.MC_MAX_COMMAND_LEAD_M + 15.0 + 1e-6
+
+
+def test_mc_hover_translation_reanchors_altitude_when_the_vehicle_lags_a_vertical_command() -> None:
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(
+        fake, airframe="vtol", transition_after_takeoff=False, yaw_deg=lambda: 0.0,
+        position=lambda: (0.0, 0.0, -46.0), altitude_m=20.0,
+    )
+    assert executor.arm_and_takeoff().status == "success"
+    for _ in range(8):  # the policy keeps asking for 8 m down but the vehicle never leaves -46
+        assert executor.execute(ActionPrimitive.translate(0.0, 0.0, -8.0)).status == "success"
+    assert executor._commanded[2] <= -46.0 + 8.0 + executor.MC_MAX_COMMAND_LEAD_Z_M + 1e-6
+
+
+def test_back_transition_to_mc_rebases_the_commanded_state_on_the_measured_pose() -> None:
+    from multidetect.autonomy.motion_intent import MotionCommand
+
+    fake = FakeVehicle()
+    pose = [(0.0, 0.0, -40.0)]
+    executor = FixedWingVtolExecutor(
+        fake, airframe="vtol", yaw_deg=lambda: 0.0, position=lambda: pose[0], altitude_m=40.0,
+    )
+    assert executor.arm_and_takeoff().status == "success"
+    pose[0] = (-70.0, 15.0, -46.0)
+    fake.vtol_transition = lambda *a, **k: type("R", (), {"status": "sent", "ok": True})()
+    assert executor.execute(MotionCommand("transition", mode="MC")).status == "success"
+    assert executor._commanded == (-70.0, 15.0, -46.0)
