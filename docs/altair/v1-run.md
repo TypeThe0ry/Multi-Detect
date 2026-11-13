@@ -7,9 +7,11 @@ R=/data/projects/Multi-Detect-env/Multi-Detect，数据与参数依据 r21id-r3�
 cd $R && PYTHONPATH=$R/src:$R .venv-vlm/bin/python -m scripts.altair.build_dataset \
   --source identity=$R/artifacts/r21id-r3/pipeline/r15-sft:22843 \
   --source planning=$R/artifacts/scratch/cx-planner-round/r24/dataset:5460 \
-  --prefix-ids --crop-policy candidate_zoom_v2 --leak-scope same-source \
+  --prefix-ids --crop-policy candidate_zoom_v2 --leak-scope same-source --on-leak drop \
   --output $R/artifacts/datasets/altair-v1-r1
 ```
+`--on-leak drop`：两个源的 val 里都有 world=synthetic_plan（train 里也有），不再手工复制数据集，而是自动剔除与 train 世界冲突的 val/test 行，并把剔除的行数与世界记进输出的 manifest.json 的 dropped_heldout（默认仍是报错）。规划源因此没有 held-out，只靠 planning-v3/v4 评测。
+
 比例用行数本身，所以不重复、不丢行，总量 28303。`--prefix-ids` 解决 sample_id 碰撞；`--crop-policy` 固定为 r21id-r3/r24 训练用的 candidate_zoom_v2（文本规划行不读它）；`--leak-scope same-source` 只检查各源自己的 val/test 世界不得进自己的 train（规划世界名与身份世界名可能重名，跨源检查会误报；如果想严格跨源，去掉该参数，报错再看）。
 
 ## 训练（GPU0，约 7000 步）

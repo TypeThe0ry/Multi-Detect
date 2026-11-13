@@ -90,3 +90,18 @@ def test_leak_scope_same_source(tmp_path):
     (b / "test.jsonl").write_text(json.dumps({"sample_id": "x", "split": "test", "world": "b-tw0"}))
     with pytest.raises(ValueError, match="leak"):
         bd.mix([("a", a, 1), ("b", b, 1)], leak_scope="same-source")
+
+
+def test_on_leak_drop_removes_conflicting_heldout_rows(tmp_path):
+    a = make(tmp_path, "a", 5)
+    rows = [{"sample_id": "keep", "split": "val", "world": "a-heldout"},
+            {"sample_id": "drop1", "split": "val", "world": "a-tw0"},
+            {"sample_id": "drop2", "split": "val", "world": "a-tw0"}]
+    (a / "val.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+    with pytest.raises(ValueError, match="leak"):
+        bd.mix([("a", a, 1)])
+    r = bd.mix([("a", a, 1)], on_leak="drop")
+    assert [row["sample_id"] for row in r["splits"]["val"]] == ["keep"]
+    assert r["dropped_heldout"]["val:a"]["rows"] == 2
+    manifest = bd.write(r, tmp_path / "o")
+    assert manifest["dropped_heldout"]["val:a"]["worlds"] == ["a-tw0"]

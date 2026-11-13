@@ -6,7 +6,8 @@ Rows are never rewritten (except ``--prefix-ids`` and repeated rows, which chang
 the sample_id), so relative ``image_path`` values keep resolving against the repository
 root. The mix is deterministic. By default ratios are exact without repetition (the
 total is the largest size every source can supply); ``--total N`` fixes the size and
-repeats small sources.
+repeats small sources. A held-out world that also occurs in train is an error unless
+``--on-leak drop`` removes those held-out rows (recorded in the manifest).
 
     python -m scripts.altair.build_dataset \
         --source planning=artifacts/datasets/X:0.40 --source identity=...:0.20 \
@@ -48,7 +49,7 @@ def _crop_policy(directory: Path) -> str:
 
 def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_train: int = 0,
         total: int = 0, prefix_ids: bool = False, crop_policy: str = "",
-        leak_scope: str = "all") -> dict:
+        leak_scope: str = "all", on_leak: str = "error") -> dict:
     """``total`` > 0 fixes the train size; sources too small for their share are then
     repeated (sample_id suffixed ``#dupN``), otherwise the size is the largest every
     source can supply without repetition."""
@@ -111,12 +112,21 @@ def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_tra
         out[split] = merged
     train_worlds = {row["world"] for row in train}
     source_train_worlds = {name: {r["world"] for r in pools[name]} for name in pools}
+    dropped = {}
     for (split, name), worlds in held_out.items():
         against = train_worlds if leak_scope == "all" else source_train_worlds[name]
         leaked = against & worlds
-        if leaked:
+        if not leaked:
+            continue
+        if on_leak != "drop":
             raise ValueError(f"{split} worlds of {name} leak into train: {sorted(leaked)[:5]}")
-    return {"splits": out, "counts": counts, "crop_policy": policies.pop(), "seed": seed}
+        # Drop only this source's conflicting rows (rows carry no source tag, so match by id).
+        source_ids = {row["sample_id"] for row in _load(dict(((n, p) for n, p, _ in sources))[name] / f"{split}.jsonl")
+                      if row["world"] in leaked}
+        out[split] = [row for row in out[split] if row["sample_id"] not in source_ids]
+        dropped[f"{split}:{name}"] = {"rows": len(source_ids), "worlds": sorted(leaked)}
+    return {"splits": out, "counts": counts, "crop_policy": policies.pop(), "seed": seed,
+            "dropped_heldout": dropped}
 
 
 def write(result: dict, output: Path) -> dict:
@@ -135,6 +145,7 @@ def write(result: dict, output: Path) -> dict:
         "crop_policy": result["crop_policy"],
         "seed": result["seed"],
         "train_source_counts": result["counts"],
+        "dropped_heldout": result.get("dropped_heldout", {}),
         "split_sizes": sizes,
         "sha256": digest.hexdigest(),
     }
@@ -155,10 +166,12 @@ def main(argv=None) -> int:
     parser.add_argument("--crop-policy", default="", help="write this crop_policy instead of requiring sources to agree")
     parser.add_argument("--leak-scope", choices=("all", "same-source"), default="all",
                         help="world-leak check: val/test vs all train rows, or only the same source's train")
+    parser.add_argument("--on-leak", choices=("error", "drop"), default="error",
+                        help="drop: remove val/test rows whose world also occurs in train (recorded in the manifest)")
     args = parser.parse_args(argv)
     result = mix([parse_source(s) for s in args.source], seed=args.seed, max_train=args.max_train,
                  total=args.total, prefix_ids=args.prefix_ids, crop_policy=args.crop_policy,
-                 leak_scope=args.leak_scope)
+                 leak_scope=args.leak_scope, on_leak=args.on_leak)
     print(json.dumps(write(result, args.output), indent=2, sort_keys=True))
     return 0
 
