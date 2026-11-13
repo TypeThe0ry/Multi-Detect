@@ -3,12 +3,14 @@
 # GPU job: schedule through the compute thread. Reuses the exporter and evaluators the
 # r21..r28 rounds used (export_slow_system_r15.py, run_model_round_eval.py, eval_slow_system.py).
 # usage: bash scripts/altair/run_candidate_eval.sh ADAPTER_DIR TAG
+# default OUT: $R/artifacts/scratch/altair-eval/TAG; default ID_DATASET: artifacts/datasets/flight-identity-eval-v2-v3prop
 # env overrides: R, OUT, R24_EVAL, ID_BASE, ID_DATASET, ID_FLAGS, PORT, DECISION_CONTRACT
 set -euo pipefail
 ADAPTER=${1:?adapter dir (the one containing adapter_config.json)}; TAG=${2:?tag}
 R=${R:-/data/projects/Multi-Detect-env/Multi-Detect}; cd "$R"
 PY=$R/.venv-vlm/bin/python; A=$R/artifacts
-OUT=${OUT:-/data/projects/Multi-Detect-env/md-scratch/altair-eval/$TAG}
+# run_model_round_eval.py only accepts --out inside the worktree (or its scratch dir).
+OUT=${OUT:-$R/artifacts/scratch/altair-eval/$TAG}
 R24_EVAL=${R24_EVAL:-$A/evaluation/r24-planner-round/candidate}
 ID_BASE=${ID_BASE:-$A/r21id-r3/pipeline/eval-v3.json}
 BASE_CACHE=$A/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots
@@ -44,13 +46,8 @@ echo "== 3/4 identity eval =="
 import json, sys
 print("incumbent identity harness:", json.dumps(json.load(open(sys.argv[1])).get("harness"), ensure_ascii=False)[:1500])
 PYEOF
-ID_DATASET=${ID_DATASET:-$("$PY" - "$ID_BASE" <<'PYEOF'
-import json, sys
-h = json.load(open(sys.argv[1])).get("harness") or {}
-print(h.get("dataset", "") if isinstance(h, dict) else "")
-PYEOF
-)}
-[ -n "$ID_DATASET" ] || { echo "set ID_DATASET to the r21id-r3 233-row test dataset dir (see harness above)" >&2; exit 2; }
+ID_DATASET=${ID_DATASET:-$A/datasets/flight-identity-eval-v2-v3prop}  # the 233-row r21id-r3 test set
+[ -d "$ID_DATASET" ] || { echo "identity dataset not found: $ID_DATASET (set ID_DATASET)" >&2; exit 2; }
 ID_FLAGS=${ID_FLAGS:---identity-only --fast-identity --crop-policy candidate_zoom_v2}
 # shellcheck disable=SC2086
 "$PY" scripts/eval_slow_system.py --dataset "$ID_DATASET" --data-root "$R" --backend gguf \
