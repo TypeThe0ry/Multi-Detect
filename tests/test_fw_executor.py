@@ -408,3 +408,15 @@ def test_hold_in_mc_hover_does_not_wait_for_an_orbit_state() -> None:
     result = executor.execute(ActionPrimitive.hold(0.1))
     assert result.status == "success"
     assert not any(call[0] == "orbit" for call in fake.calls)
+
+
+def test_mc_hover_translation_keeps_the_commanded_heading() -> None:
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(
+        fake, airframe="vtol", transition_after_takeoff=False, yaw_deg=lambda: 90.0,
+        position=lambda: (0.0, 0.0, -20.0), altitude_m=20.0,
+    )
+    assert executor.arm_and_takeoff().status == "success"
+    assert executor.execute(ActionPrimitive.translate(5.0, 0.0)).status == "success"
+    repositions = [call for call in fake.calls if call[0] == "reposition"]
+    assert repositions[-1][2]["yaw_deg"] == pytest.approx(90.0)

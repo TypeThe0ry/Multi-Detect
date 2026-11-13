@@ -595,12 +595,16 @@ class FixedWingVtolExecutor:
                 yaw = self._commanded_yaw
             north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw)
             target = (origin[0] + north, origin[1] + east, origin[2] + down)
+            # DO_REPOSITION carries a heading in param4 and the wrapper defaults it to 0 (north), so a
+            # hovering VTOL was swung back to north by every translation.  Keep the commanded heading.
+            heading = {"yaw_deg": yaw} if self.airframe == "vtol" and self.mode == "MC" else {}
             result = self._invoke(
                 "reposition",
                 target[:2],
                 -target[2],
                 self.ground_speed_mps,
                 timeout_s=self._timeout(),
+                **heading,
             )
             if not self._ok(result):
                 return self._failure(started, phase="reposition", result=result)
