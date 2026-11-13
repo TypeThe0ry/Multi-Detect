@@ -182,6 +182,8 @@ class Link(Protocol):
 
     def land(self) -> None: ...
 
+    def enter_reposition_mode(self) -> None: ...
+
 
 @dataclass
 class Plan:
@@ -194,6 +196,7 @@ class Plan:
     initial_window_s: float = 3.0
     setpoint_hz: float = 20.0
     hold_yaw_deg: float | None = None
+    use_reposition: bool = False  # 腿段改用 AUTO_LOITER + MAV_CMD_DO_REPOSITION（采集器的路径）
 
 
 @dataclass
@@ -271,6 +274,9 @@ def run_plan(
     assert latest is not None
     report.takeoff_ok = abs(latest.down - target_down) < 1.5
 
+    if plan.use_reposition:
+        link.enter_reposition_mode()
+        pump(takeoff, 2.0)
     for index, bearing in enumerate(plan.leg_bearings_deg):
         origin = latest
         target_n = origin.north + plan.leg_distance_m * math.cos(math.radians(bearing))
@@ -312,20 +318,29 @@ class MavlinkLink:  # pragma: no cover - 需要真实 PX4，离线不覆盖
         self._yaw_deg: float | None = None
         self._last: Sample | None = None
         self.estimator_flags: int | None = None
-        for message_id, hz in ((32, 20), (30, 20), (230, 2)):
+        self._global: tuple[float, float, float] | None = None
+        self._global_local: tuple[float, float] | None = None
+        self._reposition = False
+        self._sent_target: tuple[float, float] | None = None
+        for message_id, hz in ((32, 20), (30, 20), (33, 5), (230, 2)):
             self.mav.mav.command_long_send(
                 *self.target, 511, 0, message_id, 1e6 / hz, 0, 0, 0, 0, 0
             )
 
     def poll(self) -> Sample | None:
         message = self.mav.recv_match(
-            type=["LOCAL_POSITION_NED", "ATTITUDE", "ESTIMATOR_STATUS"], blocking=False
+            type=["LOCAL_POSITION_NED", "ATTITUDE", "ESTIMATOR_STATUS", "GLOBAL_POSITION_INT"],
+            blocking=False,
         )
         if message is None:
             return None
         kind = message.get_type()
         if kind == "ATTITUDE":
             self._yaw_deg = math.degrees(message.yaw) % 360.0
+            return None
+        if kind == "GLOBAL_POSITION_INT":
+            self._global = (message.lat / 1e7, message.lon / 1e7, message.alt / 1e3)
+            self._global_local = (self._last.north, self._last.east) if self._last else None
             return None
         if kind == "ESTIMATOR_STATUS":
             self.estimator_flags = int(message.flags)
@@ -342,9 +357,43 @@ class MavlinkLink:  # pragma: no cover - 需要真实 PX4，离线不覆盖
         self._last = sample
         return sample
 
+    def enter_reposition_mode(self) -> None:
+        # PX4 自定义模式：main=4 (AUTO)，sub=3 (LOITER/HOLD)
+        self.mav.mav.command_long_send(*self.target, 176, 0, 1, 4, 3, 0, 0, 0, 0)
+        self._reposition = True
+
+    def _send_reposition(self, north: float, east: float, down: float, yaw_deg: float) -> None:
+        """与采集器相同的路径：局部 NED → 经纬度 → MAV_CMD_DO_REPOSITION，只在目标变化时发送。"""
+        if (north, east) == self._sent_target or self._global is None or self._global_local is None:
+            return
+        n0, e0 = self._global_local
+        lat0, lon0, alt0 = self._global
+        earth = 6378137.0
+        lat = lat0 + math.degrees((north - n0) / earth)
+        lon = lon0 + math.degrees((east - e0) / (earth * math.cos(math.radians(lat0))))
+        # param1 地速(-1 默认) param2 bit0 / param4 偏航(度，NaN 表示不控制)
+        self.mav.mav.command_int_send(
+            *self.target,
+            5,  # MAV_FRAME_GLOBAL_INT（AMSL 高度）
+            192,
+            0,
+            0,
+            -1,
+            1,
+            0,
+            yaw_deg,
+            int(lat * 1e7),
+            int(lon * 1e7),
+            alt0 + 0.0,
+        )
+        self._sent_target = (north, east)
+
     def send_setpoint(self, north: float, east: float, down: float, yaw_deg: float) -> None:
         if self._last is not None and north == 0.0 and east == 0.0 and down == 0.0:
             north, east, down = self._last.north, self._last.east, self._last.down
+        if self._reposition:
+            self._send_reposition(north, east, down, yaw_deg)
+            return
         self.mav.mav.set_position_target_local_ned_send(
             int(time.monotonic() * 1000) & 0xFFFFFFFF,
             *self.target,
@@ -446,11 +495,21 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - 薄封
         default=None,
         help="保持的偏航（NED，度）；默认保持起飞时的 EKF 偏航",
     )
+    parser.add_argument(
+        "--reposition",
+        action="store_true",
+        help="腿段改走 AUTO_LOITER + DO_REPOSITION（采集器的路径）而不是 OFFBOARD",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--ulog", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    plan = Plan(altitude_m=args.altitude, leg_distance_m=args.distance, hold_yaw_deg=args.yaw_deg)
+    plan = Plan(
+        altitude_m=args.altitude,
+        leg_distance_m=args.distance,
+        hold_yaw_deg=args.yaw_deg,
+        use_reposition=args.reposition,
+    )
     report = run_plan(MavlinkLink(args.connect), plan)
     payload = report.to_json()
     if args.ulog is not None:

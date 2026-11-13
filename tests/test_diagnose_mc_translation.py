@@ -46,6 +46,9 @@ class RotatedVehicle:
     def land(self):
         self.landed = True
 
+    def enter_reposition_mode(self):
+        self.reposition_entered = True
+
     def _step(self):
         dt = self.clock.now - self._last_t
         self._last_t = self.clock.now
@@ -152,3 +155,12 @@ def test_no_motion_is_not_a_pass():
 def test_requires_two_samples():
     with pytest.raises(ValueError):
         diag.analyze_leg(0, 0.0, 12.0, [diag.Sample(0.0, 0, 0, -10)])
+
+
+def test_reposition_mode_is_entered_before_legs():
+    clock = FakeClock()
+    vehicle = RotatedVehicle(clock, 0.0)
+    plan = diag.Plan(leg_timeout_s=40.0, settle_s=2.0, initial_window_s=1.0, use_reposition=True)
+    report = diag.run_plan(vehicle, plan, clock=clock, sleep=clock.sleep)
+    assert getattr(vehicle, "reposition_entered", False)
+    assert report.summary["passed"]
