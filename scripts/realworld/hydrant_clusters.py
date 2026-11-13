@@ -13,6 +13,7 @@ import argparse
 import json
 import math
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +28,7 @@ SPACINGS_M = (3.0, 6.0, 10.0)
 SITES = ("rw_city_tokyo", "rw_downtown_sf", "rw_city_zurich", "rw_suburb_davis")
 SLUG = "fire_hydrant"
 OUT_DIR = ROOT / "configs/scenarios/realworld-clusters"
+MOTION_OFFSET_OFF = ""  # regex of world ids whose teacher intent turns the motion-frame estimator off
 SOFT_PROPS = {"grass_medium_01", "grass_medium_02", "grass_bermuda_01", "weed_plant_02"}
 
 
@@ -119,10 +121,10 @@ def observation_views(scene: dict, ground: Ground, cx: float, cy: float, angle: 
     raise RuntimeError(f"{scene['site']}: fewer than 6 clear viewing stations around the cluster")
 
 
-def teacher_intent(views: list[dict]) -> dict:
+def teacher_intent(views: list[dict], motion_offset: bool = True) -> dict:
     return {"kind": "find_and_observe", "observation": {
         "camera_altitude_m": 20.0, "camera_pitch_rad": -0.785, "max_detection_range_m": 60.0,
-        "vtol_hover_floor_m": 12.0, "observation_frames": 3, "estimate_motion_frame_offset": True,
+        "vtol_hover_floor_m": 12.0, "observation_frames": 3, "estimate_motion_frame_offset": motion_offset,
         "observation_waypoint": {"x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.0}, "views": views}}
 
 
@@ -168,7 +170,7 @@ def build_site(site: str, weather: str, seed: int, out_dir: Path | None) -> list
         path = mw.build(site, weather, placements, None, seed, name_suffix=suffix, out_dir=out_dir)
         mw.write_scenario(path, site, "x500_mono_cam", truth_extra=truth)
         (ROOT / "configs/scenarios/realworld" / f"{world_id}.teacher_intent.json").write_text(
-            json.dumps(teacher_intent(views), indent=1) + "\n")
+            json.dumps(teacher_intent(views, motion_offset=not (MOTION_OFFSET_OFF and re.search(MOTION_OFFSET_OFF, world_id))), indent=1) + "\n")
         entries.append({
             "asset_mode": "fuel_v1", "expected_count": 3, "split": "test", "seed": seed, "task_kind": "count",
             "task_text": "数一数有几个消防栓并报告数量和位置",
@@ -235,8 +237,11 @@ def main() -> None:
     ap.add_argument("--weather", nargs="+", default=["clear_noon"])
     ap.add_argument("--skip-existing", action="store_true", help="leave worlds already in the index untouched (safe while flights use them)")
     ap.add_argument("--seed", type=int, default=20261112)
+    ap.add_argument("--motion-offset-off", default="", help="regex of world ids whose teacher intent disables estimate_motion_frame_offset")
     ap.add_argument("--world-out-dir", type=Path)
     a = ap.parse_args()
+    global MOTION_OFFSET_OFF
+    MOTION_OFFSET_OFF = a.motion_offset_off
     index_path = OUT_DIR / "index.json"
     known = {w["world_id"]: w for w in json.loads(index_path.read_text())["worlds"]} if index_path.is_file() else {}
     for site in a.sites:

@@ -3081,7 +3081,13 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
             and not vtol_hover_mission
         ),
         vtol_hover_mission=vtol_hover_mission,
-        estimate_motion_offset=bool(vtol_hover_mission and intent.get("estimate_motion_frame_offset")),
+        estimate_motion_offset=bool(
+            vtol_hover_mission
+            and {"on": True, "off": False}.get(
+                (os.environ.get("MULTIDETECT_MOTION_OFFSET") or os.environ.get("RWCLU_MOTION_OFFSET") or "").strip().lower(),
+                bool(intent.get("estimate_motion_frame_offset")),
+            )
+        ),
         fixed_wing_orbit_radius_m=(
             profile.orbit_radius(80.0)
             if profile is not None and profile.category == "fixed_wing"

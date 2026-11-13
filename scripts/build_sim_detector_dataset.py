@@ -296,6 +296,7 @@ def build_dataset(
     truth_roots: list[Path] | None = None,
     max_frames: int | None = None,
     holdout_assets: set[str] | None = None,
+    include_incomplete: bool = False,
 ) -> dict[str, Any]:
     if not math.isfinite(float(max_sim_skew_ms)) or float(max_sim_skew_ms) < 0.0:
         raise ValueError("max_sim_skew_ms must be finite and non-negative")
@@ -325,7 +326,10 @@ def build_dataset(
     for campaign in campaign_roots:
         for episode in _episode_dirs(campaign):
             metadata_path = episode / "episode.json"
-            if not metadata_path.is_file() or _load(metadata_path).get("status") != "complete":
+            if not metadata_path.is_file():
+                continue
+            if _load(metadata_path).get("status") != "complete" and not include_incomplete:
+                # An episode that was never finalised (collector killed mid-RTL) still has usable frames.
                 continue
             world = _world_id(episode)
             if world in splits:
@@ -724,6 +728,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--truth-root", action="append", type=Path, default=[])
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--holdout-asset", action="append", default=[])
+    parser.add_argument(
+        "--include-incomplete",
+        action="store_true",
+        help="also read episodes whose episode.json has no status=complete (salvage unfinished runs)",
+    )
     args = parser.parse_args(argv)
     report = build_dataset(
         args.campaign_root,
@@ -741,6 +750,7 @@ def main(argv: list[str] | None = None) -> int:
         truth_roots=args.truth_root,
         max_frames=args.max_frames,
         holdout_assets=set(args.holdout_asset),
+        include_incomplete=args.include_incomplete,
     )
     print(
         json.dumps(

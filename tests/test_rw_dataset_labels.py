@@ -41,3 +41,23 @@ def test_cluster_worlds_ship_close_range_teacher_intent():
             intent = json.loads((folder / f"{world['world_id']}.teacher_intent.json").read_text())["observation"]
             assert intent["camera_altitude_m"] <= 24 and intent["vtol_hover_floor_m"] <= intent["camera_altitude_m"]
             assert len(intent["views"]) >= 6
+
+
+def test_builder_can_salvage_unfinalised_episodes(tmp_path):
+    import numpy as np
+    import cv2
+
+    ep = tmp_path / "rw_city_tokyo__clear_noon_clu6m" / "episodes" / "episode-0000"
+    (ep / "rgb").mkdir(parents=True)
+    cv2.imwrite(str(ep / "rgb/000000_before.png"), np.zeros((32, 32, 3), np.uint8) + 7)
+    (ep / "episode.json").write_text(json.dumps({"world_sdf": "x/rw_city_tokyo__clear_noon_clu6m.sdf"}))
+    (ep / "steps.jsonl").write_text(json.dumps({"obs_before": {"rgb_path": "rgb/000000_before.png"}}) + "\n")
+    index = json.loads((Path(__file__).resolve().parents[1] / "configs/scenarios/realworld-clusters/index.json").read_text())
+    for world in index["worlds"]:
+        world["split"] = "train"
+    (tmp_path / "idx.json").write_text(json.dumps(index))
+    common = dict(index_path=tmp_path / "idx.json", label_source="projection")
+    skipped = builder.build_dataset([tmp_path], tmp_path.parent / (tmp_path.name + "-out0"), **common)
+    salvaged = builder.build_dataset([tmp_path], tmp_path.parent / (tmp_path.name + "-out1"), include_incomplete=True, **common)
+    assert skipped["counts"]["frames"] == 0
+    assert salvaged["dedupe"]["unique_sha"] == 1  # the frame was scanned
