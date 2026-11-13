@@ -30,3 +30,4 @@ def test_target_models_carry_label_plugin():
     on = make_world.labelled_model("t", "fire_hydrant", 0, 0, 0, 0, 10, emit_label=True)
     off = make_world.labelled_model("t", "fire_hydrant", 0, 0, 0, 0, 10)
     assert "<label>10</label>" in on and "gz-sim-label-system" not in off
+    assert on.count("gz-sim-label-system") == 2  # outer model and nested mesh model

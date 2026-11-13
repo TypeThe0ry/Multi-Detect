@@ -181,10 +181,12 @@ def labelled_model(name: str, slug: str, x, y, z, yaw, label: int, emit_label: b
     cx, cy = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
     c, s = math.cos(yaw), math.sin(yaw)
     wx, wy = x + c * cx - s * cy, y + s * cx + c * cy
+    # Label every model level: the outer bounds link has no visual, so the nested mesh model must carry it too.
+    plugin = f'<plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>{label}</label></plugin>'
     return (f'<model name="{name}"><static>true</static><pose>{wx:.3f} {wy:.3f} {z + size[2] / 2:.3f} 0 0 {yaw:.4f}</pose>'
             f'<link name="bounds"><collision name="bounds_collision"><geometry><box><size>{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}</size></box></geometry></collision></link>'
-            + (f'<plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>{label}</label></plugin>' if emit_label else "") +
-            f'<model name="mesh"><pose>{-cx:.3f} {-cy:.3f} {-lo[2] - size[2] / 2:.3f} 0 0 0</pose><static>true</static><link name="link">{inst_visuals(slug)}</link></model></model>')
+            + (plugin if emit_label else "") +
+            f'<model name="mesh"><pose>{-cx:.3f} {-cy:.3f} {-lo[2] - size[2] / 2:.3f} 0 0 0</pose><static>true</static><link name="link">{inst_visuals(slug)}</link>{plugin if emit_label else ""}</model></model>')
 
 
 def _ensure_emissive_map(path: Path, seed: int) -> Path | None:
