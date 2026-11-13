@@ -61,3 +61,31 @@ def test_builder_can_salvage_unfinalised_episodes(tmp_path):
     salvaged = builder.build_dataset([tmp_path], tmp_path.parent / (tmp_path.name + "-out1"), include_incomplete=True, **common)
     assert skipped["counts"]["frames"] == 0
     assert salvaged["dedupe"]["unique_sha"] == 1  # the frame was scanned
+
+
+def test_gimbal_configure_is_resent_with_growing_windows_before_timing_out(monkeypatch):
+    import scripts.collect_sim_teacher_episodes as collector
+
+    sent, windows = [], []
+
+    class Mav:
+        def command_long_send(self, *args):
+            sent.append(args)
+
+    class Connection:
+        mav = Mav()
+        target_system = 1
+        target_component = 1
+
+    class Link:
+        def __init__(self, *_):
+            pass
+
+        def wait_command_ack(self, command, timeout_s):
+            windows.append(timeout_s)
+            return None
+
+    monkeypatch.setattr(collector, "_ReaderAckLink", Link)
+    result = collector._command_and_wait_gimbal(Connection(), object(), {"yaw": 0.0, "roll": 0.0, "pitch": -45.0})
+    assert result["status"] == "manager_configure_ack_timeout"
+    assert len(sent) == 3 and windows == [5.0, 10.0, 20.0]

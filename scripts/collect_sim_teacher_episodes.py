@@ -4429,6 +4429,10 @@ def _gimbal_attitude_error_deg(
     }
 
 
+# Wall-clock windows for successive gimbal-manager configure attempts.
+GIMBAL_CONFIGURE_ACK_WINDOWS_S = (5.0, 10.0, 20.0)
+
+
 def _command_and_wait_gimbal(
     connection: Any,
     reader: Any,
@@ -4444,15 +4448,21 @@ def _command_and_wait_gimbal(
         raise RuntimeError("MAVLink connection cannot send gimbal command")
     target_system = int(getattr(connection, "target_system", 1) or 1)
     target_component = int(getattr(connection, "target_component", 1) or 1)
-    command_started_ns = time.monotonic_ns()
-    sender(
-        target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, 0,
-        float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT),
-        -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID),
-    )
-    configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
-        MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(timeout_s, 5.0)
-    )
+    # On a saturated host PX4 can answer the configure command later than one 5 s wall window; resend with a
+    # growing window (5, 10, 20 s) before giving up, instead of failing the whole episode.
+    configure_ack = None
+    for attempt_timeout_s in GIMBAL_CONFIGURE_ACK_WINDOWS_S:
+        command_started_ns = time.monotonic_ns()
+        sender(
+            target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, 0,
+            float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT),
+            -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID),
+        )
+        configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
+            MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(max(timeout_s, attempt_timeout_s), attempt_timeout_s)
+        )
+        if configure_ack is not None:
+            break
     if configure_ack is None or int(configure_ack.get("result", -1)) != 0:
         return {
             "status": "manager_configure_rejected" if configure_ack is not None else "manager_configure_ack_timeout",
