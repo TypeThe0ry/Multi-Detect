@@ -2,8 +2,9 @@
 
 Inputs (all existing formats, nothing re-run):
   * identity: ``eval-v3.json`` style ``{harness, metrics, rows}``;
-  * planning: ``summary.json`` from plan_from_task.py with ``valid_rate``,
-    ``exact_sequence_rate``... and ``category_metrics``.
+  * planning (plan_from_task.py): ``planning-v*.json`` (metrics under ``summary``), a
+    bare summary, or the stage manifest ``summary.json`` that references it; the metrics
+    are ``valid_rate``, ``exact_sequence_rate``... and ``category_metrics``.
 Output: ``{"planning": {...}, "identity": {...}, "fixed_wing": {...}}``.
 Latency is deliberately not gated (a 0.01 s absolute tolerance would trip on noise).
 ``fixed_wing`` collects every ``fixed_wing*`` planning category, so the gate
@@ -24,6 +25,47 @@ CATEGORY_KEYS = ("accuracy", "intent_violation_rate", "capability_violation_rate
 
 def _numeric(value):
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _json_strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _json_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _json_strings(item)
+
+
+def _name(ref: str) -> str:
+    return Path(ref.replace("\\", "/")).name
+
+
+def load_planning_summary(path: Path, _depth: int = 0) -> dict:
+    """Accept a bare summary, a planning-v*.json (metrics under ``summary``) or a
+    stage manifest whose ``stages`` reference a planning-v*.json file."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data.get("summary"), dict):
+        return data["summary"]
+    if any(k in data for k in PLANNING_KEYS):
+        return data
+    if _depth == 0 and "stages" in data:
+        refs = sorted(
+            {s for s in _json_strings(data["stages"]) if s.endswith(".json") and _name(s).startswith("planning")},
+            key=_name,
+            reverse=True,  # planning-v4 before planning-v3
+        )
+        for ref in refs:
+            candidate = Path(ref.replace("\\", "/"))
+            options = [candidate] if candidate.is_absolute() else [path.parent / candidate, path.parent / candidate.name]
+            for option in options:
+                if option.is_file():
+                    return load_planning_summary(option, 1)
+        # Manifest without a usable reference: use the newest planning file beside it.
+        for sibling in sorted(path.parent.glob("planning-v*.json"), reverse=True):
+            return load_planning_summary(sibling, 1)
+    raise ValueError(f"no planning metrics found in {path}")
 
 
 def planning_section(summary: dict) -> tuple[dict, dict]:
@@ -63,7 +105,7 @@ def main(argv=None) -> int:
     parser.add_argument("--output-json", type=Path, required=True)
     args = parser.parse_args(argv)
     report = collect(
-        json.loads(args.planning_summary.read_text(encoding="utf-8")),
+        load_planning_summary(args.planning_summary),
         json.loads(args.identity_eval.read_text(encoding="utf-8")),
     )
     args.output_json.parent.mkdir(parents=True, exist_ok=True)

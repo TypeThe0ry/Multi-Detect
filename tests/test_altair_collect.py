@@ -50,3 +50,35 @@ def test_bad_inputs():
         cr.collect({}, IDENT)
     with pytest.raises(ValueError):
         cr.collect(SUMMARY, {"rows": []})
+
+
+def test_load_planning_summary_variants(tmp_path):
+    import json
+
+    full = {"summary": SUMMARY, "rows": []}
+    (tmp_path / "planning-v4.json").write_text(json.dumps(full))
+    (tmp_path / "planning-v3.json").write_text(json.dumps({"summary": {**SUMMARY, "valid_rate": 0.1}}))
+    manifest = {"model": "m", "status": "done", "stages": [
+        {"name": "v3", "output": "planning-v3.json"}, {"name": "v4", "output": "out/planning-v4.json"}]}
+    (tmp_path / "summary.json").write_text(json.dumps(manifest))
+    assert cr.load_planning_summary(tmp_path / "planning-v4.json")["valid_rate"] == 0.7
+    assert cr.load_planning_summary(tmp_path / "summary.json")["valid_rate"] == 0.7  # prefers v4
+    bare = tmp_path / "bare.json"
+    bare.write_text(json.dumps(SUMMARY))
+    assert cr.load_planning_summary(bare) == SUMMARY
+
+
+def test_manifest_falls_back_to_sibling(tmp_path):
+    import json
+
+    (tmp_path / "planning-v4.json").write_text(json.dumps({"summary": SUMMARY}))
+    (tmp_path / "summary.json").write_text(json.dumps({"stages": [{"name": "plan"}]}))
+    assert cr.load_planning_summary(tmp_path / "summary.json")["valid_rate"] == 0.7
+
+
+def test_load_planning_summary_unresolvable(tmp_path):
+    import json
+
+    (tmp_path / "summary.json").write_text(json.dumps({"stages": [{"output": "missing/planning-v4.json"}]}))
+    with pytest.raises(ValueError):
+        cr.load_planning_summary(tmp_path / "summary.json")
