@@ -1288,6 +1288,18 @@ def _first_frame_wait_s() -> float | None:
     return float(value) if value else None
 
 
+def _sensor_first_frame_wait_s() -> float | None:
+    """First-frame wait for the collector-owned sensor stream.
+
+    RWCLU_SENSOR_FIRST_FRAME_S wins; otherwise the shared MULTIDETECT_SIM_FIRST_FRAME_WAIT_S applies; unset keeps the
+    built-in 45 s. A busy host (load > 70) can take longer than 45 s to render the first frame.
+    """
+    value = os.environ.get("RWCLU_SENSOR_FIRST_FRAME_S", "").strip()
+    if value:
+        return float(value)
+    return _first_frame_wait_s()
+
+
 def _camera_stream_command(plan: CollectionPlan, environment: DockerSimEnvironment) -> list[str]:
     """Build the exact MDGZSIM3 + MDGZDEP1 helper invocation.
 
@@ -6410,7 +6422,9 @@ def run_episode(
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
             sensor_reader.request(0)
-            sensor_reader.wait_first_frame(_episode_budget(started, plan.max_episode_s, 45.0))
+            sensor_reader.wait_first_frame(
+                _episode_budget(started, plan.max_episode_s, _sensor_first_frame_wait_s() or 45.0)
+            )
             _progress("sensor_stream_first_frame", frames=sensor_reader.frames_received)
 
             def _reconnect_sensor_stream() -> SensorStreamReader:
@@ -6532,7 +6546,7 @@ def run_episode(
             # explicitly prime it before waiting for the first decoded frame.
             sensor_reader.request(0)
             sensor_reader.wait_first_frame(
-                _episode_budget(started, plan.max_episode_s, _first_frame_wait_s() or 45.0)
+                _episode_budget(started, plan.max_episode_s, _sensor_first_frame_wait_s() or 45.0)
             )
             _progress("sensor_stream_first_frame", frames=sensor_reader.frames_received)
             ekf_required = (
