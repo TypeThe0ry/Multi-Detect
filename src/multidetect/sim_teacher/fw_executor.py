@@ -358,6 +358,8 @@ class FixedWingVtolExecutor:
     # than a command ACK; physical state waits get their own bounded budgets.
     MC_HOLD_SPEED_MPS = 5.0
 
+    # Largest lead of the commanded hover target over the measured pose before translations re-anchor.
+    MC_MAX_COMMAND_LEAD_M = 30.0
     STATE_TIMEOUT_S = {
         "takeoff": 180.0,
         "takeoff_state": 180.0,
@@ -593,6 +595,19 @@ class FixedWingVtolExecutor:
                 self._commanded = (measured[0], measured[1], commanded_down)
                 origin = self._commanded
                 yaw = self._commanded_yaw
+            if self.airframe == "vtol" and self.mode == "MC":
+                # Translations accumulate on the last commanded target.  If the vehicle stops following (a
+                # stuck or mis-steered hover), that target runs away without bound and eventually leaves the
+                # world, after which PX4 ignores every reposition.  Re-anchor on the measured pose once the
+                # commanded target is more than a few steps ahead of it.
+                measured = tuple(float(v) for v in self._position())
+                if (
+                    len(measured) == 3
+                    and all(math.isfinite(v) for v in measured)
+                    and math.hypot(origin[0] - measured[0], origin[1] - measured[1]) > self.MC_MAX_COMMAND_LEAD_M
+                ):
+                    origin = (measured[0], measured[1], origin[2])
+                    self._commanded = origin
             north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw)
             target = (origin[0] + north, origin[1] + east, origin[2] + down)
             # DO_REPOSITION carries a heading in param4 and the wrapper defaults it to 0 (north), so a

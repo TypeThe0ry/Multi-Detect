@@ -420,3 +420,15 @@ def test_mc_hover_translation_keeps_the_commanded_heading() -> None:
     assert executor.execute(ActionPrimitive.translate(5.0, 0.0)).status == "success"
     repositions = [call for call in fake.calls if call[0] == "reposition"]
     assert repositions[-1][2]["yaw_deg"] == pytest.approx(90.0)
+
+
+def test_mc_hover_translation_reanchors_when_the_commanded_target_runs_away() -> None:
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(
+        fake, airframe="vtol", transition_after_takeoff=False, yaw_deg=lambda: 0.0,
+        position=lambda: (0.0, 0.0, -20.0), altitude_m=20.0,
+    )
+    assert executor.arm_and_takeoff().status == "success"
+    for _ in range(10):  # the vehicle never moves, so the commanded target would walk 150 m away
+        assert executor.execute(ActionPrimitive.translate(15.0, 0.0)).status == "success"
+    assert executor._commanded[0] <= executor.MC_MAX_COMMAND_LEAD_M + 15.0 + 1e-6
