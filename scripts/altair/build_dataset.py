@@ -2,14 +2,15 @@
 
 Each source is a dataset directory produced by ``scripts/build_slow_system_sft.py``
 (``train.jsonl`` plus optional ``val.jsonl`` / ``test.jsonl`` and ``manifest.json``).
-Rows are never rewritten (except repeated rows get a ``#dupN`` sample_id suffix), so
-relative ``image_path`` values keep resolving against the repository root. The mix is
-deterministic. By default ratios are exact without repetition (the total is the largest
-size every source can supply); ``--total N`` fixes the size and repeats small sources.
+Rows are never rewritten (except ``--prefix-ids`` and repeated rows, which change only
+the sample_id), so relative ``image_path`` values keep resolving against the repository
+root. The mix is deterministic. By default ratios are exact without repetition (the
+total is the largest size every source can supply); ``--total N`` fixes the size and
+repeats small sources.
 
     python -m scripts.altair.build_dataset \
         --source planning=artifacts/datasets/X:0.40 --source identity=...:0.20 \
-        --output artifacts/datasets/altair-v1 [--total 38000]
+        --output artifacts/datasets/altair-v1 [--total 38000] [--prefix-ids]
 """
 
 from __future__ import annotations
@@ -46,7 +47,8 @@ def _crop_policy(directory: Path) -> str:
 
 
 def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_train: int = 0,
-        total: int = 0) -> dict:
+        total: int = 0, prefix_ids: bool = False, crop_policy: str = "",
+        leak_scope: str = "all") -> dict:
     """``total`` > 0 fixes the train size; sources too small for their share are then
     repeated (sample_id suffixed ``#dupN``), otherwise the size is the largest every
     source can supply without repetition."""
@@ -55,7 +57,7 @@ def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_tra
     names = [name for name, _, _ in sources]
     if len(set(names)) != len(names):
         raise ValueError("duplicate source names")
-    policies = {_crop_policy(path) for _, path, _ in sources}
+    policies = {crop_policy} if crop_policy else {_crop_policy(path) for _, path, _ in sources}
     if len(policies) != 1:
         raise ValueError(f"sources disagree on crop_policy: {sorted(policies)}")
     total_ratio = sum(r for _, _, r in sources)
@@ -66,6 +68,8 @@ def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_tra
             raise ValueError(f"source {name} has no train rows")
         if any(row.get("split") != "train" for row in rows):
             raise ValueError(f"source {name} train.jsonl has rows outside the train split")
+        if prefix_ids:
+            rows = [{**row, "sample_id": f"{name}:{row['sample_id']}"} for row in rows]
         pools[name] = rows
     # Largest total such that every source can supply its exact share.
     if total <= 0:
@@ -95,19 +99,23 @@ def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_tra
     if len(ids) != len(set(ids)):
         raise ValueError("sample_id collision across sources; rename before mixing")
     out = {"train": train}
+    held_out = {}
     for split in ("val", "test"):
         merged = []
         for name, path, _ in sources:
             rows = _load(path / f"{split}.jsonl")
             if any(row.get("split") != split for row in rows):
                 raise ValueError(f"source {name} {split}.jsonl has rows outside the {split} split")
+            held_out[(split, name)] = {row["world"] for row in rows}
             merged.extend(rows)
         out[split] = merged
     train_worlds = {row["world"] for row in train}
-    for split in ("val", "test"):
-        leaked = train_worlds & {row["world"] for row in out[split]}
+    source_train_worlds = {name: {r["world"] for r in pools[name]} for name in pools}
+    for (split, name), worlds in held_out.items():
+        against = train_worlds if leak_scope == "all" else source_train_worlds[name]
+        leaked = against & worlds
         if leaked:
-            raise ValueError(f"{split} worlds leak into train: {sorted(leaked)[:5]}")
+            raise ValueError(f"{split} worlds of {name} leak into train: {sorted(leaked)[:5]}")
     return {"splits": out, "counts": counts, "crop_policy": policies.pop(), "seed": seed}
 
 
@@ -143,9 +151,14 @@ def main(argv=None) -> int:
     parser.add_argument("--seed", type=int, default=20261113)
     parser.add_argument("--max-train", type=int, default=0)
     parser.add_argument("--total", type=int, default=0, help="fixed train size; small sources are repeated")
+    parser.add_argument("--prefix-ids", action="store_true", help="prefix train sample_ids with the source name")
+    parser.add_argument("--crop-policy", default="", help="write this crop_policy instead of requiring sources to agree")
+    parser.add_argument("--leak-scope", choices=("all", "same-source"), default="all",
+                        help="world-leak check: val/test vs all train rows, or only the same source's train")
     args = parser.parse_args(argv)
     result = mix([parse_source(s) for s in args.source], seed=args.seed, max_train=args.max_train,
-                 total=args.total)
+                 total=args.total, prefix_ids=args.prefix_ids, crop_policy=args.crop_policy,
+                 leak_scope=args.leak_scope)
     print(json.dumps(write(result, args.output), indent=2, sort_keys=True))
     return 0
 
