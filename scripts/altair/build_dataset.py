@@ -2,13 +2,14 @@
 
 Each source is a dataset directory produced by ``scripts/build_slow_system_sft.py``
 (``train.jsonl`` plus optional ``val.jsonl`` / ``test.jsonl`` and ``manifest.json``).
-Rows are never rewritten, so relative ``image_path`` values keep resolving against
-the repository root. The mix is deterministic and uses exact ratios without
-oversampling: the total is the largest size every source can supply.
+Rows are never rewritten (except repeated rows get a ``#dupN`` sample_id suffix), so
+relative ``image_path`` values keep resolving against the repository root. The mix is
+deterministic. By default ratios are exact without repetition (the total is the largest
+size every source can supply); ``--total N`` fixes the size and repeats small sources.
 
     python -m scripts.altair.build_dataset \
         --source planning=artifacts/datasets/X:0.40 --source identity=...:0.20 \
-        --output artifacts/datasets/altair-v1
+        --output artifacts/datasets/altair-v1 [--total 38000]
 """
 
 from __future__ import annotations
@@ -44,7 +45,11 @@ def _crop_policy(directory: Path) -> str:
     return json.loads(manifest.read_text(encoding="utf-8")).get("crop_policy") or "none"
 
 
-def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_train: int = 0) -> dict:
+def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_train: int = 0,
+        total: int = 0) -> dict:
+    """``total`` > 0 fixes the train size; sources too small for their share are then
+    repeated (sample_id suffixed ``#dupN``), otherwise the size is the largest every
+    source can supply without repetition."""
     if not sources:
         raise ValueError("at least one source is required")
     names = [name for name, _, _ in sources]
@@ -63,7 +68,8 @@ def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_tra
             raise ValueError(f"source {name} train.jsonl has rows outside the train split")
         pools[name] = rows
     # Largest total such that every source can supply its exact share.
-    total = min(len(pools[name]) * total_ratio / ratio for name, _, ratio in sources)
+    if total <= 0:
+        total = min(len(pools[name]) * total_ratio / ratio for name, _, ratio in sources)
     if max_train:
         total = min(total, max_train)
     rng = random.Random(seed)
@@ -74,7 +80,14 @@ def mix(sources: list[tuple[str, Path, float]], *, seed: int = 20261113, max_tra
             raise ValueError(f"source {name} would contribute no rows")
         pool = list(pools[name])
         rng.shuffle(pool)
-        chosen = pool[:take]
+        chosen = []
+        for cycle in range((take + len(pool) - 1) // len(pool)):
+            if cycle:
+                rng.shuffle(pool)
+            part = pool[: take - len(chosen)]
+            chosen.extend(
+                part if cycle == 0 else [{**row, "sample_id": f"{row['sample_id']}#dup{cycle}"} for row in part]
+            )
         counts[name] = len(chosen)
         train.extend(chosen)
     rng.shuffle(train)
@@ -129,8 +142,10 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=20261113)
     parser.add_argument("--max-train", type=int, default=0)
+    parser.add_argument("--total", type=int, default=0, help="fixed train size; small sources are repeated")
     args = parser.parse_args(argv)
-    result = mix([parse_source(s) for s in args.source], seed=args.seed, max_train=args.max_train)
+    result = mix([parse_source(s) for s in args.source], seed=args.seed, max_train=args.max_train,
+                 total=args.total)
     print(json.dumps(write(result, args.output), indent=2, sort_keys=True))
     return 0
 
