@@ -2359,6 +2359,7 @@ def resolve_takeoff_altitude(
 
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
     altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
+    hover_floor_m: float | None = None
     # Generated teacher intent is the authoritative camera geometry.  Resolve it
     # before launch so PX4 takeoff and episode metadata agree with the route.
     if plan.teacher == "expert_search" and plan.takeoff_altitude_m is None:
@@ -2375,10 +2376,23 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
                 requested = None
             if requested is not None:
                 altitude, source = requested, "teacher_intent_camera_altitude"
+            if isinstance(observation, dict) and observation.get("vtol_hover_floor_m") is not None:
+                hover_floor_m = float(observation["vtol_hover_floor_m"])
         except (OSError, json.JSONDecodeError):
             pass
     profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
     if profile is None or profile.category == "multirotor":
+        return altitude, source
+    # A hover-only tailsitter mission never transitions, so the scenario may lower the
+    # operating floor (close-range observation of small targets); fixed-wing flight may not.
+    if (
+        hover_floor_m is not None
+        and profile.category == "vtol"
+        and profile.subtype == "tailsitter"
+        and plan.vtol_hover_mission is not False
+    ):
+        if altitude < hover_floor_m:
+            return hover_floor_m, f"{source}; raised to the scenario hover floor"
         return altitude, source
     # The multirotor default (5 m) is far below what a fixed-wing needs to loiter
     # or a VTOL needs to transition: a tiltrotor transitioning at 5 m sank into the

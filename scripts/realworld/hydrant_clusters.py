@@ -95,6 +95,37 @@ def pick_center(scene: dict, ground: Ground, angle: float) -> tuple[float, float
     return best[1], best[2], best[3]
 
 
+def observation_views(scene: dict, ground: Ground, cx: float, cy: float, angle: float) -> list[dict]:
+    """Close-in viewing stations around the cluster for the expert teacher (open, dry, well clear of buildings).
+
+    Alternating radius/altitude keeps consecutive frames visibly different, so de-duplication keeps them.
+    The camera is a gimbal held near -45 deg, so ~15 m out at ~18 m up looks straight at the cluster.
+    """
+    footprints = [box(f[0], f[1], f[2], f[3]) for f in scene["footprints"] if math.hypot((f[0] + f[2]) / 2, (f[1] + f[3]) / 2) < 200]
+    water = [shape(w) for w in scene.get("water_areas", [])]
+    for clearance, radii in ((8.0, (15.0, 22.0)), (8.0, (12.0, 17.0)), (6.0, (10.0, 14.0)), (4.0, (8.0, 12.0))):
+        views = []
+        for k in range(12):
+            bearing = angle + math.radians(30 * k) + (math.radians(15) if k % 2 else 0.0)
+            radius, altitude = (radii[0], 18.0) if k % 2 == 0 else (radii[1], 24.0)
+            x, y = cx + radius * math.cos(bearing), cy + radius * math.sin(bearing)
+            point = Point(x, y)
+            if any(f.distance(point) < clearance for f in footprints) or any(w.distance(point) < 3.0 for w in water):
+                continue
+            views.append({"view": f"v{k:02d}", "observation_waypoint": {
+                "x_east_m": round(x, 2), "y_north_m": round(y, 2), "z_up_m": round(ground.z(x, y) + altitude, 2)}})
+        if len(views) >= 6:
+            return views
+    raise RuntimeError(f"{scene['site']}: fewer than 6 clear viewing stations around the cluster")
+
+
+def teacher_intent(views: list[dict]) -> dict:
+    return {"kind": "find_and_observe", "observation": {
+        "camera_altitude_m": 20.0, "camera_pitch_rad": -0.785, "max_detection_range_m": 60.0,
+        "vtol_hover_floor_m": 12.0, "observation_frames": 3,
+        "observation_waypoint": {"x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.0}, "views": views}}
+
+
 def spec(world_id: str, scene: dict, ground: Ground, members: list[tuple[float, float]], seed: int) -> tuple[list[dict], dict]:
     rng = random.Random(seed)
     size = mw.CATALOG[SLUG]["measured_size_m"]
@@ -127,6 +158,7 @@ def build_site(site: str, weather: str, seed: int, out_dir: Path | None) -> list
     rng = random.Random(f"{site}:{seed}")
     angle = rng.uniform(0, 2 * math.pi)
     cx, cy, spread = pick_center(scene, ground, angle)
+    views = observation_views(scene, ground, cx, cy, angle)
     entries = []
     for side in SPACINGS_M:
         suffix = f"_clu{side:g}m"
@@ -135,6 +167,8 @@ def build_site(site: str, weather: str, seed: int, out_dir: Path | None) -> list
         placements, truth = spec(world_id, scene, ground, members, seed)
         path = mw.build(site, weather, placements, None, seed, name_suffix=suffix, out_dir=out_dir)
         mw.write_scenario(path, site, "x500_mono_cam", truth_extra=truth)
+        (ROOT / "configs/scenarios/realworld" / f"{world_id}.teacher_intent.json").write_text(
+            json.dumps(teacher_intent(views), indent=1) + "\n")
         entries.append({
             "asset_mode": "fuel_v1", "expected_count": 3, "split": "test", "seed": seed, "task_kind": "count",
             "task_text": "数一数有几个消防栓并报告数量和位置",
@@ -163,6 +197,9 @@ def derive_airframe_index(worlds: list[dict], airframe: str) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     for w in worlds:
         derive_vtol_scenario(OUT_DIR / w["files"]["scenario"], out, airframe=airframe)
+        sidecar = OUT_DIR / f"{w['world_id']}.teacher_intent.json"
+        if sidecar.is_file():
+            (out / sidecar.name).write_text(sidecar.read_text())
     path = out / "index.json"
     path.write_text(json.dumps({
         "schema_version": 1, "generator": "scripts.realworld.hydrant_clusters", "count": len(worlds), "airframe": airframe,

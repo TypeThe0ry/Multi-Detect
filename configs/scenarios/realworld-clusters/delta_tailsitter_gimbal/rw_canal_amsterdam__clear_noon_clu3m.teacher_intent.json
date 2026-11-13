@@ -1,0 +1,113 @@
+{
+ "kind": "find_and_observe",
+ "observation": {
+  "camera_altitude_m": 20.0,
+  "camera_pitch_rad": -0.785,
+  "max_detection_range_m": 60.0,
+  "vtol_hover_floor_m": 12.0,
+  "observation_frames": 3,
+  "observation_waypoint": {
+   "x_east_m": 0.0,
+   "y_north_m": 0.0,
+   "z_up_m": 0.0
+  },
+  "views": [
+   {
+    "view": "v00",
+    "observation_waypoint": {
+     "x_east_m": -8.78,
+     "y_north_m": 12.82,
+     "z_up_m": 17.9
+    }
+   },
+   {
+    "view": "v01",
+    "observation_waypoint": {
+     "x_east_m": 0.38,
+     "y_north_m": 25.4,
+     "z_up_m": 23.86
+    }
+   },
+   {
+    "view": "v02",
+    "observation_waypoint": {
+     "x_east_m": -7.73,
+     "y_north_m": 27.78,
+     "z_up_m": 17.9
+    }
+   },
+   {
+    "view": "v03",
+    "observation_waypoint": {
+     "x_east_m": -14.04,
+     "y_north_m": 42.01,
+     "z_up_m": 23.86
+    }
+   },
+   {
+    "view": "v04",
+    "observation_waypoint": {
+     "x_east_m": -20.16,
+     "y_north_m": 36.18,
+     "z_up_m": 17.89
+    }
+   },
+   {
+    "view": "v05",
+    "observation_waypoint": {
+     "x_east_m": -35.64,
+     "y_north_m": 37.82,
+     "z_up_m": 23.92
+    }
+   },
+   {
+    "view": "v06",
+    "observation_waypoint": {
+     "x_east_m": -33.65,
+     "y_north_m": 29.61,
+     "z_up_m": 17.91
+    }
+   },
+   {
+    "view": "v07",
+    "observation_waypoint": {
+     "x_east_m": -42.81,
+     "y_north_m": 17.02,
+     "z_up_m": 23.94
+    }
+   },
+   {
+    "view": "v08",
+    "observation_waypoint": {
+     "x_east_m": -34.7,
+     "y_north_m": 14.64,
+     "z_up_m": 17.96
+    }
+   },
+   {
+    "view": "v09",
+    "observation_waypoint": {
+     "x_east_m": -28.38,
+     "y_north_m": 0.41,
+     "z_up_m": 23.95
+    }
+   },
+   {
+    "view": "v10",
+    "observation_waypoint": {
+     "x_east_m": -22.27,
+     "y_north_m": 6.25,
+     "z_up_m": 17.93
+    }
+   },
+   {
+    "view": "v11",
+    "observation_waypoint": {
+     "x_east_m": -6.79,
+     "y_north_m": 4.6,
+     "z_up_m": 23.93
+    }
+   }
+  ]
+ }
+}

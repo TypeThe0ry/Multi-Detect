@@ -31,3 +31,13 @@ def test_target_models_carry_label_plugin():
     off = make_world.labelled_model("t", "fire_hydrant", 0, 0, 0, 0, 10)
     assert "<label>10</label>" in on and "gz-sim-label-system" not in off
     assert on.count("gz-sim-label-system") == 2  # outer model and nested mesh model
+
+
+def test_cluster_worlds_ship_close_range_teacher_intent():
+    root = Path(__file__).resolve().parents[1] / "configs/scenarios/realworld-clusters"
+    worlds = json.loads((root / "index.json").read_text())["worlds"]
+    for world in worlds:
+        for folder in (root, root / "delta_tailsitter_gimbal"):
+            intent = json.loads((folder / f"{world['world_id']}.teacher_intent.json").read_text())["observation"]
+            assert intent["camera_altitude_m"] <= 24 and intent["vtol_hover_floor_m"] <= intent["camera_altitude_m"]
+            assert len(intent["views"]) >= 6

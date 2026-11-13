@@ -1,0 +1,81 @@
+{
+ "kind": "find_and_observe",
+ "observation": {
+  "camera_altitude_m": 20.0,
+  "camera_pitch_rad": -0.785,
+  "max_detection_range_m": 60.0,
+  "vtol_hover_floor_m": 12.0,
+  "observation_frames": 3,
+  "observation_waypoint": {
+   "x_east_m": 0.0,
+   "y_north_m": 0.0,
+   "z_up_m": 0.0
+  },
+  "views": [
+   {
+    "view": "v00",
+    "observation_waypoint": {
+     "x_east_m": -12.72,
+     "y_north_m": 7.99,
+     "z_up_m": 17.98
+    }
+   },
+   {
+    "view": "v01",
+    "observation_waypoint": {
+     "x_east_m": -4.96,
+     "y_north_m": 21.49,
+     "z_up_m": 24.48
+    }
+   },
+   {
+    "view": "v02",
+    "observation_waypoint": {
+     "x_east_m": -13.28,
+     "y_north_m": 22.98,
+     "z_up_m": 17.83
+    }
+   },
+   {
+    "view": "v06",
+    "observation_waypoint": {
+     "x_east_m": -39.24,
+     "y_north_m": 22.01,
+     "z_up_m": 17.91
+    }
+   },
+   {
+    "view": "v07",
+    "observation_waypoint": {
+     "x_east_m": -47.0,
+     "y_north_m": 8.51,
+     "z_up_m": 23.6
+    }
+   },
+   {
+    "view": "v08",
+    "observation_waypoint": {
+     "x_east_m": -38.68,
+     "y_north_m": 7.02,
+     "z_up_m": 17.95
+    }
+   },
+   {
+    "view": "v10",
+    "observation_waypoint": {
+     "x_east_m": -25.42,
+     "y_north_m": 0.01,
+     "z_up_m": 17.94
+    }
+   },
+   {
+    "view": "v11",
+    "observation_waypoint": {
+     "x_east_m": -9.85,
+     "y_north_m": 0.04,
+     "z_up_m": 24.03
+    }
+   }
+  ]
+ }
+}
