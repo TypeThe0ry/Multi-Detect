@@ -51,6 +51,9 @@ CONTAINER_IMAGE_WORLD_ROOT = CONTAINER_WORLD_ROOT
 CONTAINER_SCRIPT_ROOT = "/workspace/scripts"
 DEFAULT_GPU_DEVICES = ("0", "1")
 DEFAULT_GPU_AVOID = ("2", "3")
+# GPUs a SITL launch may use; the workstation owner widens it with MULTIDETECT_SIM_ALLOW_GPUS=0,1,2,3.
+ALLOW_GPUS_ENV = "MULTIDETECT_SIM_ALLOW_GPUS"
+DEFAULT_ALLOWED_GPUS = ("0", "1")
 NVIDIA_EGL_VENDOR_FILE = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 PX4_LOGGER_MODE_ENV = "MULTIDETECT_PX4_LOGGER_MODE"
@@ -281,11 +284,15 @@ def _resolve_gpu_selection(
     )
     if not configured:
         raise DockerSimulatorPlanError("gpu_devices must contain at least one GPU")
+    allowed = set(_split_gpu_list(os.environ.get(ALLOW_GPUS_ENV), label=ALLOW_GPUS_ENV) or DEFAULT_ALLOWED_GPUS)
     if enabled and (
-        any(device not in {"0", "1"} for device in configured)
-        or (explicit_device is not None and explicit_device not in {"0", "1"})
+        any(device not in allowed for device in configured)
+        or (explicit_device is not None and explicit_device not in allowed)
     ):
-        raise DockerSimulatorPlanError("Workstation SITL permits only GPU0/1; GPU2/3 and other devices are forbidden")
+        raise DockerSimulatorPlanError(
+            f"Workstation SITL permits only GPU{'/'.join(sorted(allowed))}; other devices are forbidden "
+            f"(widen with {ALLOW_GPUS_ENV})"
+        )
     if not enabled:
         # CPU execution must not depend on a later ambient GPU avoidance policy.
         return False, None, configured
