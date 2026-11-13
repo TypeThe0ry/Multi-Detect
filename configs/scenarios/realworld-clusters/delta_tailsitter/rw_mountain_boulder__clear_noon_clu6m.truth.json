@@ -1,0 +1,136 @@
+{
+  "asset_mode": "fuel_v1",
+  "scenario_id": "rw_mountain_boulder__clear_noon_clu6m",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "segmentation_labels": {
+    "10": {
+      "asset_slug": "fire_hydrant",
+      "role": "target",
+      "target_id": "target_true_rw_mountain_boulder__clear_noon_clu6m"
+    },
+    "11": {
+      "asset_slug": "fire_hydrant",
+      "role": "count_member",
+      "target_id": "count_member_0000_01"
+    },
+    "12": {
+      "asset_slug": "fire_hydrant",
+      "role": "count_member",
+      "target_id": "count_member_0000_02"
+    }
+  },
+  "targets": [
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "count_member": true,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 27.79,
+        "y_north_m": 12.046,
+        "yaw_rad": -1.817701,
+        "z_up_m": -2.212
+      },
+      "position": {
+        "altitude_m": -2.212,
+        "altitude_reference": "world",
+        "latitude_deg": 39.99910821,
+        "longitude_deg": -105.28267412
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "target_true_rw_mountain_boulder__clear_noon_clu6m",
+      "true_target": true
+    },
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "count_member": true,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 27.635,
+        "y_north_m": 18.044,
+        "yaw_rad": 0.033187,
+        "z_up_m": -2.506
+      },
+      "position": {
+        "altitude_m": -2.506,
+        "altitude_reference": "world",
+        "latitude_deg": 39.99916209,
+        "longitude_deg": -105.28267594
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "count_member_0000_01",
+      "true_target": false
+    },
+    {
+      "asset_slug": "fire_hydrant",
+      "behavior": "stationary",
+      "bottom_offset_m": -0.465647,
+      "category_words": [
+        "fire hydrant",
+        "hydrant"
+      ],
+      "class": "fire_hydrant",
+      "color": null,
+      "count_member": true,
+      "label": "fire hydrant hydrant",
+      "measured_size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "pose": {
+        "x_east_m": 22.518,
+        "y_north_m": 14.91,
+        "yaw_rad": -0.738245,
+        "z_up_m": -2.61
+      },
+      "position": {
+        "altitude_m": -2.61,
+        "altitude_reference": "world",
+        "latitude_deg": 39.99913394,
+        "longitude_deg": -105.28273595
+      },
+      "size_m": [
+        0.423605,
+        0.423605,
+        0.931294
+      ],
+      "target_id": "count_member_0000_02",
+      "true_target": false
+    }
+  ]
+}

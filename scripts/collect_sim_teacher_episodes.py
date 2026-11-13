@@ -55,6 +55,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     ActionPrimitive,
     EpisodeRecorder,
     ExpertSearchPolicy,
+    FwCruiseObservePolicy,
     ExploreBounds,
     ExplorePolicy,
     HoverPolicy,
@@ -720,6 +721,7 @@ class CollectionPlan:
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
     airframe: str = "x500_mono_cam"
     vtol_hover_mission: bool | None = None
+    fw_cruise_observe: bool = False
     # "true": fly to the true target; "confuser": fly to a look-alike (hard negatives).
     teacher_target: str = "true"
     smoke_flight: bool = False
@@ -2359,6 +2361,7 @@ def resolve_takeoff_altitude(
 
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
     altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
+    hover_floor_m: float | None = None
     # Generated teacher intent is the authoritative camera geometry.  Resolve it
     # before launch so PX4 takeoff and episode metadata agree with the route.
     if plan.teacher == "expert_search" and plan.takeoff_altitude_m is None:
@@ -2375,10 +2378,23 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
                 requested = None
             if requested is not None:
                 altitude, source = requested, "teacher_intent_camera_altitude"
+            if isinstance(observation, dict) and observation.get("vtol_hover_floor_m") is not None:
+                hover_floor_m = float(observation["vtol_hover_floor_m"])
         except (OSError, json.JSONDecodeError):
             pass
     profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
     if profile is None or profile.category == "multirotor":
+        return altitude, source
+    # A hover-only tailsitter mission never transitions, so the scenario may lower the
+    # operating floor (close-range observation of small targets); fixed-wing flight may not.
+    if (
+        hover_floor_m is not None
+        and profile.category == "vtol"
+        and profile.subtype == "tailsitter"
+        and plan.vtol_hover_mission is not False
+    ):
+        if altitude < hover_floor_m:
+            return hover_floor_m, f"{source}; raised to the scenario hover floor"
         return altitude, source
     # The multirotor default (5 m) is far below what a fixed-wing needs to loiter
     # or a VTOL needs to transition: a tiltrotor transitioning at 5 m sank into the
@@ -3042,12 +3058,16 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         if plan.vtol_hover_mission is None
         else bool(plan.vtol_hover_mission)
     )
+    if plan.fw_cruise_observe:
+        if not default_hover_mission or plan.vtol_hover_mission is not False:
+            raise ValueError("--fw-cruise-observe needs a delta tailsitter and --no-vtol-hover-mission")
+        vtol_hover_mission = True  # the wrapped policy observes in hover; the wrapper itself reports FW
     camera_mount = (
         profile.camera_mount.to_camera_mount()
         if profile is not None and profile.camera_mount is not None
         else None
     )
-    return ExpertSearchPolicy(
+    inner = ExpertSearchPolicy(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
         altitude_m=altitude_m,
@@ -3067,12 +3087,22 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
             and not vtol_hover_mission
         ),
         vtol_hover_mission=vtol_hover_mission,
+        estimate_motion_offset=bool(
+            vtol_hover_mission
+            and {"on": True, "off": False}.get(
+                (os.environ.get("MULTIDETECT_MOTION_OFFSET") or os.environ.get("RWCLU_MOTION_OFFSET") or "").strip().lower(),
+                bool(intent.get("estimate_motion_frame_offset")),
+            )
+        ),
         fixed_wing_orbit_radius_m=(
             profile.orbit_radius(80.0)
             if profile is not None and profile.category == "fixed_wing"
             else None
         ),
-    ), label
+    )
+    if plan.fw_cruise_observe:
+        return FwCruiseObservePolicy(inner, altitude_m=max(altitude_m, FIXED_WING_MIN_OPERATING_ALT_M + VTOL_TRANSITION_MARGIN_M)), label
+    return inner, label
 
 
 def _hover_policy(plan: CollectionPlan, truth_path: Path):
@@ -4399,6 +4429,10 @@ def _gimbal_attitude_error_deg(
     }
 
 
+# Wall-clock windows for successive gimbal-manager configure attempts.
+GIMBAL_CONFIGURE_ACK_WINDOWS_S = (5.0, 10.0, 20.0)
+
+
 def _command_and_wait_gimbal(
     connection: Any,
     reader: Any,
@@ -4414,15 +4448,21 @@ def _command_and_wait_gimbal(
         raise RuntimeError("MAVLink connection cannot send gimbal command")
     target_system = int(getattr(connection, "target_system", 1) or 1)
     target_component = int(getattr(connection, "target_component", 1) or 1)
-    command_started_ns = time.monotonic_ns()
-    sender(
-        target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, 0,
-        float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT),
-        -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID),
-    )
-    configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
-        MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(timeout_s, 5.0)
-    )
+    # On a saturated host PX4 can answer the configure command later than one 5 s wall window; resend with a
+    # growing window (5, 10, 20 s) before giving up, instead of failing the whole episode.
+    configure_ack = None
+    for attempt_timeout_s in GIMBAL_CONFIGURE_ACK_WINDOWS_S:
+        command_started_ns = time.monotonic_ns()
+        sender(
+            target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, 0,
+            float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT),
+            -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID),
+        )
+        configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
+            MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(max(timeout_s, attempt_timeout_s), attempt_timeout_s)
+        )
+        if configure_ack is not None:
+            break
     if configure_ack is None or int(configure_ack.get("result", -1)) != 0:
         return {
             "status": "manager_configure_rejected" if configure_ack is not None else "manager_configure_ack_timeout",
@@ -5550,6 +5590,7 @@ def _episode_wall_ceiling_s(airframe: str, maximum_s: float) -> float:
     if normalized in {
         "delta_tailsitter",
         "delta_tailsitter_mono_cam",
+        "delta_tailsitter_gimbal",
         "delta_tailsitter_gimbal_cam",
     }:
         return max(
@@ -8012,6 +8053,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="keep a tailsitter in MC for expert_search; --no-vtol-hover-mission selects FW",
     )
+    parser.add_argument(
+        "--fw-cruise-observe",
+        action="store_true",
+        help="tailsitter expert_search: take off, cruise in FW around the target, orbit, transition back to MC, then "
+        "observe from the hover stations (use with --no-vtol-hover-mission)",
+    )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument(
         "--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route"
@@ -8270,6 +8317,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         video_max_bytes=int(args.video_max_gb * 1024**3),
         airframe=args.airframe,
         vtol_hover_mission=args.vtol_hover_mission,
+        fw_cruise_observe=args.fw_cruise_observe,
         teacher_target=args.teacher_target,
         smoke_flight=args.smoke_flight,
         takeoff_method=args.takeoff_method,

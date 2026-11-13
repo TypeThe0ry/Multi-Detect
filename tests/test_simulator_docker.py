@@ -450,3 +450,18 @@ def test_docker_plan_sets_sim_sensor_parameters_for_every_vehicle_class(
     wait = "sed -i 's/^ATTEMPTS=30$/ATTEMPTS=180/' /opt/px4-gazebo/etc/init.d-posix/px4-rc.gzsim; "
     assert wait in startup and "|| exit 72; " in startup
     assert startup.index(wait) < startup.index("exec /opt/px4-gazebo/bin/px4")
+
+
+def test_gpu_allow_list_defaults_to_zero_and_one_and_can_be_widened(monkeypatch):
+    from scripts import run_simulator_docker as rsd
+
+    for name in ("MULTIDETECT_SIM_GPU", "MULTIDETECT_SIM_GPU_DEVICES", "MULTIDETECT_SIM_GPU_AVOID", "MULTIDETECT_SIM_ALLOW_GPUS"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(rsd.DockerSimulatorPlanError):
+        rsd._resolve_gpu_selection(gpu_render=True, gpu_device="2", gpu_devices=None, worker_index=0)
+    monkeypatch.setenv("MULTIDETECT_SIM_ALLOW_GPUS", "0,1,2,3")
+    enabled, device, _ = rsd._resolve_gpu_selection(gpu_render=True, gpu_device="2", gpu_devices=None, worker_index=0)
+    assert enabled and device == "2"
+    monkeypatch.setenv("MULTIDETECT_SIM_ALLOW_GPUS", "0,1")
+    with pytest.raises(rsd.DockerSimulatorPlanError):
+        rsd._resolve_gpu_selection(gpu_render=True, gpu_device="3", gpu_devices=None, worker_index=0)

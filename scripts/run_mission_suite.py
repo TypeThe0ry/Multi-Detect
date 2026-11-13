@@ -645,7 +645,7 @@ def main(
         else:
             mission["variant_label"] = "base"
         config = merge_config(suite["defaults"], mission)
-        slot = len(scheduled) % args.workers
+        slot = int(os.environ.get("MULTIDETECT_SITL_PIN_SLOT", len(scheduled) % args.workers))
         # Multi-slot runs share the r15 per-slot port scheme (14560 + 10 * slot)
         # so a leased global slot maps to one port pair whoever holds it; a
         # 100-port stride put slot 1 on the in-container metadata port 14640.
@@ -705,6 +705,7 @@ def main(
                 args.lock_path,
                 label=f"mission-{mission_id}",
                 slots=configured_slots,
+                slot=int(pin) if (pin := os.environ.get("MULTIDETECT_SITL_PIN_SLOT")) else None,
             )
             lock.acquire()
             slot = lock.slot if lock.slot is not None else planned_slot

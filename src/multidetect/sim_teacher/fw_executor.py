@@ -358,6 +358,9 @@ class FixedWingVtolExecutor:
     # than a command ACK; physical state waits get their own bounded budgets.
     MC_HOLD_SPEED_MPS = 5.0
 
+    # Largest lead of the commanded hover target over the measured pose before translations re-anchor.
+    MC_MAX_COMMAND_LEAD_M = 30.0
+    MC_MAX_COMMAND_LEAD_Z_M = 6.0
     STATE_TIMEOUT_S = {
         "takeoff": 180.0,
         "takeoff_state": 180.0,
@@ -495,6 +498,13 @@ class FixedWingVtolExecutor:
                 return self.execute_command(action)
             if action.kind not in {"hold", "stop"}:
                 self._loiter_captured = False
+            if action.kind == "hold" and self.airframe == "vtol" and self.mode == "MC":
+                # A hovering VTOL has no orbit state to wait for; the last position
+                # setpoint keeps it in place, so a hold is just a pause.
+                deadline = started + max(0.0, float(action.seconds))
+                while self._clock() < deadline:
+                    time.sleep(min(0.05, max(0.0, deadline - self._clock())))
+                return ExecutionResult("success", self._clock() - started, ack={"hold": "mc_hover"})
             if action.kind == "hold":
                 if self._loiter_captured:
                     result = {"status": "already_active", "ok": True}
@@ -586,14 +596,36 @@ class FixedWingVtolExecutor:
                 self._commanded = (measured[0], measured[1], commanded_down)
                 origin = self._commanded
                 yaw = self._commanded_yaw
+            if self.airframe == "vtol" and self.mode == "MC":
+                # Translations accumulate on the last commanded target.  If the vehicle stops following (a
+                # stuck or mis-steered hover), that target runs away without bound and eventually leaves the
+                # world, after which PX4 ignores every reposition.  Re-anchor on the measured pose once the
+                # commanded target is more than a few steps ahead of it.
+                measured = tuple(float(v) for v in self._position())
+                if len(measured) == 3 and all(math.isfinite(v) for v in measured):
+                    # The vehicle follows a vertical step far more slowly than the policy issues it (descent is rate
+                    # limited), so the commanded altitude runs away just like the horizontal target does.
+                    far_xy = math.hypot(origin[0] - measured[0], origin[1] - measured[1]) > self.MC_MAX_COMMAND_LEAD_M
+                    far_z = abs(origin[2] - measured[2]) > self.MC_MAX_COMMAND_LEAD_Z_M
+                    if far_xy or far_z:
+                        origin = (
+                            measured[0] if far_xy else origin[0],
+                            measured[1] if far_xy else origin[1],
+                            measured[2] if far_z else origin[2],
+                        )
+                        self._commanded = origin
             north, east, down = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw)
             target = (origin[0] + north, origin[1] + east, origin[2] + down)
+            # DO_REPOSITION carries a heading in param4 and the wrapper defaults it to 0 (north), so a
+            # hovering VTOL was swung back to north by every translation.  Keep the commanded heading.
+            heading = {"yaw_deg": yaw} if self.airframe == "vtol" and self.mode == "MC" else {}
             result = self._invoke(
                 "reposition",
                 target[:2],
                 -target[2],
                 self.ground_speed_mps,
                 timeout_s=self._timeout(),
+                **heading,
             )
             if not self._ok(result):
                 return self._failure(started, phase="reposition", result=result)
@@ -765,6 +797,9 @@ class FixedWingVtolExecutor:
                 )
                 if self._ok(result):
                     self.mode = command.mode or "FW"
+                    if self.mode == "MC":
+                        # Hover commands accumulate on the last commanded target, which is still the FW leg's.
+                        self.sync_commanded_state()
                 return ExecutionResult(
                     "success" if self._ok(result) else "failed",
                     self._clock() - started,

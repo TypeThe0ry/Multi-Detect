@@ -1,0 +1,136 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_tokyo__morning_clu10m",
+ "scenario_version": 1,
+ "targets": [
+  {
+   "asset_slug": "fire_hydrant",
+   "behavior": "stationary",
+   "bottom_offset_m": -0.465647,
+   "category_words": [
+    "fire hydrant",
+    "hydrant"
+   ],
+   "class": "fire_hydrant",
+   "color": null,
+   "count_member": true,
+   "label": "fire hydrant hydrant",
+   "measured_size_m": [
+    0.423605,
+    0.423605,
+    0.931294
+   ],
+   "size_m": [
+    0.423605,
+    0.423605,
+    0.931294
+   ],
+   "pose": {
+    "x_east_m": 16.551,
+    "y_north_m": -31.542,
+    "yaw_rad": -1.817701,
+    "z_up_m": -2.937
+   },
+   "position": {
+    "altitude_m": -2.937,
+    "altitude_reference": "world",
+    "latitude_deg": 35.71711666,
+    "longitude_deg": 139.77738313
+   },
+   "target_id": "target_true_rw_city_tokyo__morning_clu10m",
+   "true_target": true
+  },
+  {
+   "asset_slug": "fire_hydrant",
+   "behavior": "stationary",
+   "bottom_offset_m": -0.465647,
+   "category_words": [
+    "fire hydrant",
+    "hydrant"
+   ],
+   "class": "fire_hydrant",
+   "color": null,
+   "count_member": true,
+   "label": "fire hydrant hydrant",
+   "measured_size_m": [
+    0.423605,
+    0.423605,
+    0.931294
+   ],
+   "size_m": [
+    0.423605,
+    0.423605,
+    0.931294
+   ],
+   "pose": {
+    "x_east_m": 19.04,
+    "y_north_m": -21.857,
+    "yaw_rad": 0.033187,
+    "z_up_m": -2.26
+   },
+   "position": {
+    "altitude_m": -2.26,
+    "altitude_reference": "world",
+    "latitude_deg": 35.71720366,
+    "longitude_deg": 139.77741067
+   },
+   "target_id": "count_member_0000_01",
+   "true_target": false
+  },
+  {
+   "asset_slug": "fire_hydrant",
+   "behavior": "stationary",
+   "bottom_offset_m": -0.465647,
+   "category_words": [
+    "fire hydrant",
+    "hydrant"
+   ],
+   "class": "fire_hydrant",
+   "color": null,
+   "count_member": true,
+   "label": "fire hydrant hydrant",
+   "measured_size_m": [
+    0.423605,
+    0.423605,
+    0.931294
+   ],
+   "size_m": [
+    0.423605,
+    0.423605,
+    0.931294
+   ],
+   "pose": {
+    "x_east_m": 9.408,
+    "y_north_m": -24.544,
+    "yaw_rad": -0.738245,
+    "z_up_m": -2.377
+   },
+   "position": {
+    "altitude_m": -2.377,
+    "altitude_reference": "world",
+    "latitude_deg": 35.71717952,
+    "longitude_deg": 139.77730409
+   },
+   "target_id": "count_member_0000_02",
+   "true_target": false
+  }
+ ],
+ "asset_mode": "fuel_v1",
+ "segmentation_labels": {
+  "10": {
+   "asset_slug": "fire_hydrant",
+   "role": "target",
+   "target_id": "target_true_rw_city_tokyo__morning_clu10m"
+  },
+  "11": {
+   "asset_slug": "fire_hydrant",
+   "role": "count_member",
+   "target_id": "count_member_0000_01"
+  },
+  "12": {
+   "asset_slug": "fire_hydrant",
+   "role": "count_member",
+   "target_id": "count_member_0000_02"
+  }
+ }
+}

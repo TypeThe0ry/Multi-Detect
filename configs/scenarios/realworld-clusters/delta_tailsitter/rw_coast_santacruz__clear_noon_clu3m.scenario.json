@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_coast_santacruz__clear_noon_clu3m.expectations.json",
+      "sha256": "e4b9a827cd6505f52577b6f7448c253317e0006ee996d5c0864ea2e4e1a20fdb"
+    },
+    "runtime_input": {
+      "path": "rw_coast_santacruz__clear_noon_clu3m.runtime_input.json",
+      "sha256": "e6c25bdbf18ba34e540d3381f8653b9f8c1d1ac4c8f61e372eb3861e354a78fc"
+    },
+    "truth": {
+      "path": "rw_coast_santacruz__clear_noon_clu3m.truth.json",
+      "sha256": "e5de2a63a31186135a109489a1dd03ae02299ae3935cb3cf894406763a855805"
+    }
+  },
+  "scenario_id": "rw_coast_santacruz__clear_noon_clu3m",
+  "scenario_version": 1,
+  "schema_version": 1
+}

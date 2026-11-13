@@ -12,7 +12,7 @@ from typing import Any
 
 from multidetect.camera_mount import CameraMount, compose_camera_pose
 
-from .primitives import ActionPrimitive
+from .primitives import ActionPrimitive, body_to_ned
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,6 +415,12 @@ class ExpertSearchPolicy:
     fixed_wing_orbit_radius_m: float | None = None
     fixed_wing_mode: bool = False
     vtol_hover_mission: bool = False
+    # A hovering tailsitter in the delta SITL model flies translations rotated by a roughly constant
+    # angle from the NED vector commanded (PX4 tilts the thrust vector with a wrong yaw reference).
+    # When enabled, the policy measures that rotation from the pose change after each translation and
+    # pre-rotates later translations by its opposite.  Target-blind: it only uses commanded vs measured motion.
+    estimate_motion_offset: bool = False
+    motion_offset_gain: float = 0.6
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -967,6 +973,37 @@ class ExpertSearchPolicy:
         yaw_deg: float = 0.0,
         camera_pose: Mapping[str, Any] | None = None,
     ) -> ActionPrimitive:
+        if not self.estimate_motion_offset:
+            return self._next_action_core(pose_ned=pose_ned, yaw_deg=yaw_deg, camera_pose=camera_pose)
+        offset = getattr(self, "_motion_offset_deg", 0.0)
+        issued = getattr(self, "_motion_issued", None)
+        if issued is not None:
+            intended, start = issued
+            moved = (float(pose_ned[0]) - start[0], float(pose_ned[1]) - start[1])
+            if math.hypot(*intended) >= 5.0 and math.hypot(*moved) >= 3.0:
+                error = math.degrees(math.atan2(moved[1], moved[0]) - math.atan2(intended[1], intended[0]))
+                error = (error + 180.0) % 360.0 - 180.0
+                offset = (offset + float(self.motion_offset_gain) * error + 180.0) % 360.0 - 180.0
+        self._motion_offset_deg = offset
+        self._motion_issued = None
+        action = self._next_action_core(pose_ned=pose_ned, yaw_deg=yaw_deg, camera_pose=camera_pose)
+        if action.kind == "translate" and math.hypot(action.forward_m, action.right_m) > 1e-6:
+            north, east, _ = body_to_ned(action.forward_m, action.right_m, 0.0, yaw_deg)
+            self._motion_issued = ((north, east), (float(pose_ned[0]), float(pose_ned[1])))
+            magnitude = math.hypot(action.forward_m, action.right_m)
+            angle = math.atan2(action.right_m, action.forward_m) - math.radians(offset)
+            action = ActionPrimitive.translate(
+                magnitude * math.cos(angle), magnitude * math.sin(angle), action.up_m
+            )
+        return action
+
+    def _next_action_core(
+        self,
+        *,
+        pose_ned,
+        yaw_deg: float = 0.0,
+        camera_pose: Mapping[str, Any] | None = None,
+    ) -> ActionPrimitive:
         self._observation_sample_index = None
         self._observation_sample_count = None
         point = (float(pose_ned[0]), float(pose_ned[1]))
@@ -1225,8 +1262,93 @@ class ExpertSearchPolicy:
         }
 
 
+class FwCruiseObservePolicy:
+    """Take off, cruise in FW between waypoints around the target, orbit it, transition back to MC, then observe.
+
+    A tailsitter mission that exercises the whole envelope: forward-flight legs and a high orbit
+    (gimbal frames from cruise altitude), the FW->MC back-transition, and the close-range hover
+    observation of the wrapped ``inner`` policy.  The collector sees ``vtol_hover_mission=False`` so the
+    vehicle is transitioned to FW before the first step; the inner policy keeps its hover behaviour.
+    """
+
+    vtol_hover_mission = False
+
+    def __init__(
+        self,
+        inner: ExpertSearchPolicy,
+        *,
+        altitude_m: float = 40.0,
+        ring_radius_m: float = 110.0,
+        legs: int = 4,
+        orbit_radius_m: float = 70.0,
+        orbit_s: float = 30.0,
+        cruise_speed_mps: float = 15.0,
+        approach_m: float = 60.0,
+    ) -> None:
+        if legs < 1 or altitude_m <= 0 or ring_radius_m <= 0 or orbit_radius_m <= 0 or approach_m < 0:
+            raise ValueError("legs, altitude, ring, orbit and approach must be positive")
+        self.inner = inner
+        self.altitude_m = float(altitude_m)
+        self.orbit_radius_m = float(orbit_radius_m)
+        self.orbit_s = float(orbit_s)
+        self.cruise_speed_mps = float(cruise_speed_mps)
+        north, east = float(inner.target_ned[0]), float(inner.target_ned[1])
+        start = math.atan2(-east, -north)  # first ring point on the home side of the target
+        self._centre = (north, east, -self.altitude_m)
+        self._waypoints = [
+            (
+                north + ring_radius_m * math.cos(start + k * 2.0 * math.pi / legs),
+                east + ring_radius_m * math.sin(start + k * 2.0 * math.pi / legs),
+                -self.altitude_m,
+            )
+            for k in range(legs)
+        ]
+        # The last cruise point is where the vehicle slows into the back-transition.
+        end = start + (legs - 1) * 2.0 * math.pi / legs
+        self._waypoints[-1] = (
+            north + approach_m * math.cos(end), east + approach_m * math.sin(end), -self.altitude_m
+        )
+        self._index = 0
+        self.phase = "cruise"
+
+    def __getattr__(self, name: str) -> Any:
+        if name in {"inner", "__setstate__"} or name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(self.inner, name)
+
+    def labels(self, **kwargs: Any) -> dict[str, Any]:
+        labels = self.inner.labels(**kwargs)
+        if self.phase != "observe":
+            labels["phase"] = self.phase
+            labels["cruise_leg"] = self._index
+        return labels
+
+    def next_action(self, *, pose_ned, yaw_deg: float = 0.0, camera_pose: Mapping[str, Any] | None = None):
+        from multidetect.autonomy.motion_intent import MotionCommand
+
+        if self.phase == "cruise":
+            if self._index < len(self._waypoints):
+                target = self._waypoints[self._index]
+                self._index += 1
+                return MotionCommand(
+                    "reposition", target_ned=target, speed_mps=self.cruise_speed_mps, mode="FW", reason="cruise_leg"
+                )
+            self.phase = "orbit" if self.orbit_s > 0 else "back_transition"
+        if self.phase == "orbit":
+            self.phase = "back_transition"
+            return MotionCommand(
+                "orbit", target_ned=self._centre, radius_m=self.orbit_radius_m, duration_s=self.orbit_s,
+                speed_mps=self.cruise_speed_mps, mode="FW", reason="high_orbit",
+            )
+        if self.phase == "back_transition":
+            self.phase = "observe"
+            return MotionCommand("transition", mode="MC", reason="back_transition")
+        return self.inner.next_action(pose_ned=pose_ned, yaw_deg=yaw_deg, camera_pose=camera_pose)
+
+
 __all__ = [
     "ExploreBounds",
+    "FwCruiseObservePolicy",
     "ExplorePolicy",
     "HoverPolicy",
     "ExpertSearchPolicy",

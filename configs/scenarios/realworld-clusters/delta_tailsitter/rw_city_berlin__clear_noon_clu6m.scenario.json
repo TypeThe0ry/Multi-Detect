@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_city_berlin__clear_noon_clu6m.expectations.json",
+      "sha256": "2948645085dc725470cac83d2cd6d9caa219bb48eb6bbdd1ddf363dc39bd767c"
+    },
+    "runtime_input": {
+      "path": "rw_city_berlin__clear_noon_clu6m.runtime_input.json",
+      "sha256": "ff2704f95df81cdfcdbdd07d1956243f48c02631b505b7936a9dd81f2a09c47f"
+    },
+    "truth": {
+      "path": "rw_city_berlin__clear_noon_clu6m.truth.json",
+      "sha256": "c3b5e1dd29e90f6ab9b8083db03789931f32dda157b790982aeb8402d2c5c23f"
+    }
+  },
+  "scenario_id": "rw_city_berlin__clear_noon_clu6m",
+  "scenario_version": 1,
+  "schema_version": 1
+}

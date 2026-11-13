@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_downtown_sf__overcast_clu6m",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_downtown_sf__overcast_clu6m.runtime.json",
+   "sha256": "6344e874200186dee1f46792f433a738c7e8cbdc054e08adfb2dec544eea3b12"
+  },
+  "truth": {
+   "path": "rw_downtown_sf__overcast_clu6m.truth.json",
+   "sha256": "51073c50922cbb6c55dfa66a25d08472f7d770beeeb3d56f309f076005451baa"
+  },
+  "expectations": {
+   "path": "rw_downtown_sf__overcast_clu6m.expectations.json",
+   "sha256": "336d995dcde6b6bdcc0051b90e70a50b2acaaa81410d9043cacc557180404daa"
+  }
+ }
+}
