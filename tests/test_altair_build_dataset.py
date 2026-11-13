@@ -65,3 +65,28 @@ def test_fixed_total_repeats_small_source(tmp_path):
     ids = [row["sample_id"] for row in r["splits"]["train"]]
     assert len(ids) == len(set(ids)) == 100
     assert sum("#dup" in i for i in ids) == 40
+
+
+def test_prefix_ids_avoid_collision(tmp_path):
+    a, b = make(tmp_path, "a", 5), make(tmp_path, "b", 5)
+    (b / "train.jsonl").write_text((a / "train.jsonl").read_text())
+    r = bd.mix([("a", a, 1), ("b", b, 1)], prefix_ids=True)
+    ids = {row["sample_id"] for row in r["splits"]["train"]}
+    assert len(ids) == 10 and "a:a-0" in ids and "b:a-0" in ids
+
+
+def test_crop_policy_override(tmp_path):
+    a, b = make(tmp_path, "a", 5), make(tmp_path, "b", 5, crop="candidate_zoom_v2")
+    assert bd.mix([("a", a, 1), ("b", b, 1)], crop_policy="candidate_zoom_v2")["crop_policy"] == "candidate_zoom_v2"
+
+
+def test_leak_scope_same_source(tmp_path):
+    a, b = make(tmp_path, "a", 5), make(tmp_path, "b", 5)
+    (b / "test.jsonl").write_text(json.dumps({"sample_id": "x", "split": "test", "world": "a-tw0"}))
+    with pytest.raises(ValueError, match="leak"):
+        bd.mix([("a", a, 1), ("b", b, 1)])
+    bd.mix([("a", a, 1), ("b", b, 1)], leak_scope="same-source")
+    # a source's own test worlds still may not appear in its own train
+    (b / "test.jsonl").write_text(json.dumps({"sample_id": "x", "split": "test", "world": "b-tw0"}))
+    with pytest.raises(ValueError, match="leak"):
+        bd.mix([("a", a, 1), ("b", b, 1)], leak_scope="same-source")
