@@ -37,6 +37,7 @@ from multidetect.sim_teacher.segmentation import (  # noqa: E402
     boxes_from_segmentation,
     load_labels_map,
 )
+from multidetect.host_paths import host_path  # noqa: E402
 from scripts.build_flight_identity_eval import (  # noqa: E402
     MEMORY,
     _campaign_name,
@@ -47,8 +48,8 @@ from scripts.build_flight_identity_eval import (  # noqa: E402
 from scripts.score_onboard_loop import episode_world_id, truth_for_episode  # noqa: E402
 
 SIZE_BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
-DEFAULT_SOURCE = Path("D:/Projects/Multi-Detect")
-DEFAULT_V3_CACHE = Path("D:/Projects/mdwt/yoloe-retrain/tmp/yoloe-v3-round-eval/r3/new-cache.jsonl")
+DEFAULT_SOURCE = ROOT
+DEFAULT_V3_CACHE = host_path("MULTIDETECT_PROPOSAL_V3_CACHE", r"D:\Projects\mdwt\yoloe-retrain\tmp\yoloe-v3-round-eval\r3\new-cache.jsonl", ROOT / ".tmp/yoloe-v3-round-eval/r3/new-cache.jsonl")
 DEFAULT_OLD_CACHE = (
     DEFAULT_SOURCE / "artifacts/datasets/onboard-proposals/v2r3seg-dagger-r8-cfs.jsonl"
 )

@@ -69,6 +69,7 @@ from multidetect.gazebo_fault_verification import (
 )
 from multidetect.multimodal_ranging import CameraCalibration, load_camera_calibration
 from multidetect.product_version import PRODUCT_VERSION
+from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario
 from multidetect.simulator.stack import airframe_profile_hash as stable_airframe_profile_hash
@@ -1821,7 +1822,10 @@ def _validate_owned_container(
         "name": record.get("Name") == f"/{plan.container_name}",
         "pinned_image": config.get("Image") == plan.image,
         "purpose_label": labels.get("multidetect.purpose") == "simulator-docker",
-        "bridge_network": host.get("NetworkMode") in {"bridge", "default"},
+        "bridge_network": host.get("NetworkMode") in {
+            plan.container_network_mode,
+            "default" if plan.container_network_mode == "bridge" else plan.container_network_mode,
+        },
         "not_privileged": host.get("Privileged") is not True,
     }
 
@@ -2087,6 +2091,9 @@ class DockerTelemetryProbe:
             "requested_endpoint": self.endpoint,
             "bind_endpoint": self.endpoint,
             "loopback_publication": self.endpoint.startswith("udpin:127.0.0.1:"),
+            "docker_bridge_publication": self.endpoint.startswith(
+                f"udpin:{sim_listen_host()}:"
+            ),
             "wildcard_bind_fallback": False,
             "heartbeat_observed": self.heartbeat is not None,
             "heartbeat": self.heartbeat,
@@ -2151,7 +2158,7 @@ def run_acceptance(
     container_name: str = DEFAULT_CONTAINER_NAME,
     control_port: int = DEFAULT_CONTROL_PORT,
     telemetry_port: int = DEFAULT_TELEMETRY_PORT,
-    image: str = PINNED_IMAGE,
+    image: str | None = None,
     sensor_frame_count: int = 0,
     sensor_width: int = 1280,
     sensor_height: int = 960,
@@ -2230,7 +2237,7 @@ def run_acceptance(
     runtime = _empty_runtime(status="not_requested" if not execute else "not_started", plan=plan)
     telemetry: dict[str, object] = {
         "status": "not_requested" if not execute else "not_started",
-        "endpoint": f"udpin:127.0.0.1:{telemetry_port}",
+        "endpoint": sim_udpin_endpoint(telemetry_port),
         "heartbeat_observed": False,
         "gps_observed": False,
         "qualified": False,
@@ -2279,6 +2286,9 @@ def run_acceptance(
                     raise DockerSimulatorAcceptanceError(
                         f"container already exists: {container_name}"
                     )
+                from scripts.run_simulator_docker import freeze_runtime_plan
+                plan = freeze_runtime_plan(plan, docker=docker_executable,
+                    runner=lambda argv, **kw: _run(docker_executable, argv[1:], timeout_s=kw["timeout"], runner=runner))
                 container_claimed = True
                 image_check = _run(
                     docker_executable,
@@ -2367,9 +2377,9 @@ def run_acceptance(
                 # This prevents preflight RGB/Depth frames from being replayed
                 # as if they were flight-time observations.
                 if telemetry_probe_factory is not None:
-                    probe = telemetry_probe_factory(f"udpin:127.0.0.1:{telemetry_port}")
+                    probe = telemetry_probe_factory(sim_udpin_endpoint(telemetry_port))
                 else:
-                    probe = DockerTelemetryProbe(f"udpin:127.0.0.1:{telemetry_port}")
+                    probe = DockerTelemetryProbe(sim_udpin_endpoint(telemetry_port))
                 sensor_thread: threading.Thread | None = None
                 sensor_thread_error: list[str] = []
 
@@ -2431,28 +2441,6 @@ def run_acceptance(
                         )
                     if sensor_thread_error:
                         raise DockerSimulatorAcceptanceError(sensor_thread_error[0])
-                # Docker Desktop's Windows UDP proxy owns the published
-                # 127.0.0.1 socket with an exclusive bind.  pymavlink can
-                # still receive the same host-loopback publication through a
-                # wildcard bind (SO_REUSEADDR), so retry that narrowly when
-                # WinSock reports WSAEACCES/10013.  The host-side publication
-                # remains literal loopback and is recorded explicitly.
-                if (
-                    telemetry.get("qualified") is not True
-                    and telemetry.get("error_code") == 10013
-                    and telemetry_probe_factory is None
-                ):
-                    fallback_endpoint = f"udpin:0.0.0.0:{telemetry_port}"
-                    fallback_probe = DockerTelemetryProbe(fallback_endpoint)
-                    fallback = fallback_probe.observe(max(1.0, deadline - time.monotonic()))
-                    fallback["requested_endpoint"] = f"udpin:127.0.0.1:{telemetry_port}"
-                    fallback["bind_endpoint"] = fallback_endpoint
-                    fallback["loopback_publication"] = True
-                    fallback["wildcard_bind_fallback"] = True
-                    fallback["fallback_reason"] = (
-                        "Windows Docker UDP proxy owns 127.0.0.1 bind (WSAEACCES/10013)"
-                    )
-                    telemetry = fallback
                 if telemetry.get("qualified") is not True:
                     raise DockerSimulatorAcceptanceError(
                         str(telemetry.get("error") or "Docker SIM telemetry was not qualified")
@@ -2471,7 +2459,7 @@ def run_acceptance(
                         inspect_record=inspect_record,
                         telemetry=telemetry,
                         control_endpoint=f"udp:127.0.0.1:{control_port}",
-                        telemetry_endpoint=f"udpin:127.0.0.1:{telemetry_port}",
+                        telemetry_endpoint=sim_udpin_endpoint(telemetry_port),
                         evidence_path=evidence,
                     )
                     if not isinstance(transaction_result, Mapping):
@@ -2696,7 +2684,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--container-name", default=DEFAULT_CONTAINER_NAME)
     parser.add_argument("--control-port", type=int, default=DEFAULT_CONTROL_PORT)
     parser.add_argument("--telemetry-port", type=int, default=DEFAULT_TELEMETRY_PORT)
-    parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument("--image", default=None)
     parser.add_argument(
         "--sensor-frames",
         type=int,

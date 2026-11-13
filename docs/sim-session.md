@@ -27,6 +27,8 @@ PX4 runtime、Gazebo 模型、默认世界和 onboard collector profile；省略
 | `x500` / `x500_mono_cam` | `urban_inspection_multirotor_001.sdf` | PX4 默认多旋翼 | `urban_inspection_multirotor_001` |
 | `standard_vtol` | `river_rescue_vtol_001.sdf` | `vtol` | 4+1 `standard_vtol_mono_cam` |
 | `quadtailsitter` | `quadtailsitter_mono_cam_001.sdf` | `vtol` | `quadtailsitter_mono_cam` |
+| `delta_tailsitter` / `delta_tailsitter_mono_cam` | `delta_tailsitter_mono_cam_001.sdf` | `vtol` | `delta_tailsitter_mono_cam` |
+| `delta_tailsitter_gimbal` / `delta_tailsitter_gimbal_cam` | `delta_tailsitter_gimbal_cam_001.sdf` | `vtol` | `delta_tailsitter_gimbal_cam` |
 | `tiltrotor` | `tiltrotor_mono_cam_001.sdf` | `vtol` | `tiltrotor_mono_cam` |
 | `rc_cessna` | `coastal_patrol_fixed_wing_001.sdf` | `runway` | 固定翼 `rc_cessna_mono_cam` |
 
@@ -48,8 +50,10 @@ $env:PYTHONPATH="src;."
 python scripts/run_sim_session.py --airframe x500 --gcs-port 14560
 python scripts/run_sim_session.py --airframe standard_vtol --gcs-port 14562
 python scripts/run_sim_session.py --airframe quadtailsitter --gcs-port 14564
-python scripts/run_sim_session.py --airframe tiltrotor --gcs-port 14566
-python scripts/run_sim_session.py --airframe rc_cessna --gcs-port 14568
+python scripts/run_sim_session.py --airframe delta_tailsitter --gcs-port 14566
+python scripts/run_sim_session.py --airframe delta_tailsitter_gimbal --gcs-port 14568
+python scripts/run_sim_session.py --airframe tiltrotor --gcs-port 14570
+python scripts/run_sim_session.py --airframe rc_cessna --gcs-port 14572
 ```
 
 在已有固定翼/VTOL 派生 scenario 的生成世界中运行：
@@ -61,6 +65,8 @@ python scripts/run_sim_session.py --airframe standard_vtol --world gen_v2_w0016 
   --onboard-task "Find the ambulance and return home."
 python scripts/run_sim_session.py --airframe quadtailsitter --world gen_v2_w0031 --gcs-port 14564 `
   --onboard-task "Find the red fire truck and return home."
+python scripts/run_sim_session.py --airframe delta_tailsitter_gimbal --world gen_v2_w0016 --gcs-port 14568 `
+  --onboard-task "Find the ambulance and return home."
 ```
 
 GCS prompt mission 使用同一 session，只需追加 `--operator-link`；未给 `--onboard-task` 时
@@ -73,7 +79,7 @@ python scripts/run_sim_session.py --airframe standard_vtol --operator-link --gcs
 常用选项：
 
 - `--world <名称|路径>`：`simulation/gazebo/worlds` 下的 SDF 文件名，或仓库内路径；
-- `--airframe <名称>`：`x500_mono_cam`、`standard_vtol`、`quadtailsitter`、`tiltrotor`、`rc_cessna`（及 `rc_cessna_runway/hand/catapult`）；
+- `--airframe <名称>`：`x500_mono_cam`、`standard_vtol`、`quadtailsitter`、`delta_tailsitter`、`delta_tailsitter_gimbal`（以及带 `_mono_cam`/`_gimbal_cam` 的别名）、`tiltrotor`、`rc_cessna`（及 `rc_cessna_runway/hand/catapult`）；
 - `--takeoff-method runway|hand|catapult|vtol`：覆盖按机型推断的起飞方法；
 - `--onboard-defaults FILE`、`--artifacts-root DIR`：onboard 配置默认值（默认 `configs/onboard/sim-session-r18-defaults.json`），其中 `artifacts/...` 路径相对 `--artifacts-root` 解析；
 - `--gcs-port 14560`：PX4 向宿主 `host.docker.internal:<port>` 主动发送 GCS MAVLink；端口不发布到 Docker，避免 Docker proxy 占用宿主 socket；
@@ -96,6 +102,11 @@ python scripts/run_sim_session.py --world gen_cnt2_w0000 --gcs-port 14560 `
 启动后终端会打印世界文件、PX4 control/telemetry、GCS UDP 和浏览器 URL。
 QGroundControl 或 MultiDetectGCS 绑定/连接 `127.0.0.1:14560`；手动控制仍使用
 `127.0.0.1:14540`。
+
+`delta_tailsitter` 和 `delta_tailsitter_gimbal` 都有生成的 `vtol-v2` 场景集：
+`w0016` 为 `train`、`w0031` 为 `val`，数量和 `quadtailsitter` 相同。显式选择
+`--world gen_v2_w0016` 或 `gen_v2_w0031` 时，启动器会按 runtime vehicle model 选择对应的
+固定相机或云台 scenario。
 
 ## 锁与验证
 

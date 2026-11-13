@@ -9,6 +9,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+from multidetect.sim_teacher.policies import ExpertSearchPolicy
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -57,6 +59,62 @@ def _resolve_inputs(episode: dict[str, Any], episode_dir: Path, intent_path, tru
     return _read_json(intent), _read_json(truth)
 
 
+def _effective_observation_distances(
+    *, observation: dict[str, Any], target_pose: dict[str, Any], camera_info: dict[str, Any] | None,
+) -> dict[str, float]:
+    """Return horizontal distances from the stations the expert actually uses.
+
+    Collection applies ``ExpertSearchPolicy``'s FOV visibility adjustment before
+    issuing observation waypoints.  Reconstruct that adjustment for audits so a
+    moved station is not compared with its pre-adjustment design distance.
+    """
+    declared_views = observation.get("views")
+    if not isinstance(declared_views, list) or not declared_views:
+        declared_views = [{"view": "default", "observation_waypoint": observation["observation_waypoint"]}]
+    target_ned = (
+        float(target_pose["y_north_m"]),
+        float(target_pose["x_east_m"]),
+        -float(target_pose.get("z_up_m", 0.0)),
+    )
+    altitude = float(observation["camera_altitude_m"])
+    intrinsics = dict(camera_info or {})
+    if not intrinsics:
+        intrinsics = {"fx": 539.93636802453, "fy": 539.93636802453, "cx": 640.0, "cy": 480.0}
+    else:
+        intrinsics.setdefault("fx", 539.93636802453)
+        intrinsics.setdefault("fy", 539.93636802453)
+        intrinsics.setdefault("cx", 640.0)
+        intrinsics.setdefault("cy", 480.0)
+    waypoints = tuple(
+        (
+            float((row.get("observation_waypoint", row.get("waypoint", {}))).get("y_north_m", 0.0)),
+            float((row.get("observation_waypoint", row.get("waypoint", {}))).get("x_east_m", 0.0)),
+            -float((row.get("observation_waypoint", row.get("waypoint", {}))).get("z_up_m", 0.0) or altitude),
+        )
+        for row in declared_views
+    )
+    try:
+        policy = ExpertSearchPolicy(
+            target_ned=target_ned,
+            intrinsics=intrinsics,
+            altitude_m=altitude,
+            camera_pitch_rad=-float(observation.get("camera_pitch_rad", -0.18)),
+            max_detection_range_m=float(observation.get("max_detection_range_m", 80.0)),
+            observation_frames=int(observation.get("observation_frames", observation.get("min_observation_frames", 8))),
+            observation_waypoints=waypoints,
+        )
+        effective = policy.observation_waypoints
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        effective = waypoints
+    return {
+        str(row.get("view", index)): math.hypot(
+            target_pose["x_east_m"] - effective[index][1],
+            target_pose["y_north_m"] - effective[index][0],
+        )
+        for index, row in enumerate(declared_views)
+    }
+
+
 def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=None, minimum_frames=8):
     episode_dir = Path(episode_dir)
     episode = _read_json(episode_dir / "episode.json")
@@ -73,7 +131,7 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
     if target is None:
         raise ValueError("truth has no true target")
     target_pose = target["pose"]
-    designed_distances = {
+    declared_distances = {
         str(view.get("view", index)): math.hypot(
             float(target_pose["x_east_m"]) - float(view["observation_waypoint"]["x_east_m"]),
             float(target_pose["y_north_m"]) - float(view["observation_waypoint"]["y_north_m"]),
@@ -105,6 +163,16 @@ def evaluate_episode(episode_dir: str | Path, *, intent_path=None, truth_path=No
             "phase": labels.get("phase"),
             "view_index": labels.get("observation_view_index"),
         })
+    designed_distances = declared_distances
+    if not fixed_wing and "camera_pitch_rad" in observation:
+        try:
+            designed_distances = _effective_observation_distances(
+                observation=observation,
+                target_pose=target_pose,
+                camera_info=camera_info,
+            )
+        except (KeyError, TypeError, ValueError):
+            designed_distances = declared_distances
     if fixed_wing:
         info = camera_info or {}
         fy_px = float(info.get("fy", 539.93636802453))

@@ -158,7 +158,7 @@ def test_llama_request_uses_variant_and_cold_prefill_cache_setting(tmp_path, mon
         cache_prompt=False,
     )
 
-    def reply(url, body):
+    def reply(url, body, timeout=None):
         bodies.append(body)
         return {
             "choices": [{"message": {"content": "{}"}}],

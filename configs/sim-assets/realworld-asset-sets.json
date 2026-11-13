@@ -1,0 +1,734 @@
+{
+  "schema_version": 2,
+  "description": "按场景类别筛选的无品牌写实资产。尺寸单位为米；Poly Haven 资产为 CC0-1.0，Fuel 条目许可证与下载清单一致。",
+  "selection_policy": {
+    "excluded": "realworld-library 中未列出的商品扫描、玩具、鞋、明显品牌车辆和影视版权物不参与摆放。",
+    "fence_policy": "OSM fence 由连续网格生成，不实例化围栏模型。",
+    "skipped_sources": [
+      {
+        "source": "Quaternius",
+        "reason": "公开 CC0 候选以卡通/低多边形车辆为主，不满足写实风格。"
+      },
+      {
+        "source": "OpenGameArt",
+        "reason": "公开 CC0 候选缺少可核验的写实车辆/街道物品，跳过。"
+      }
+    ]
+  },
+  "assets": [
+    {
+      "slug": "oak_tree",
+      "category": "broadleaf_tree",
+      "size_m": [
+        7,
+        7,
+        10
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Oak%20tree.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "tree_small_02",
+      "category": "broadleaf_tree",
+      "size_m": [
+        4,
+        4,
+        6
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/tree_small_02"
+    },
+    {
+      "slug": "jacaranda_tree",
+      "category": "broadleaf_tree",
+      "size_m": [
+        7,
+        7,
+        9
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/jacaranda_tree"
+    },
+    {
+      "slug": "island_tree_01",
+      "category": "broadleaf_tree",
+      "size_m": [
+        6,
+        6,
+        8
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/island_tree_01"
+    },
+    {
+      "slug": "island_tree_02",
+      "category": "broadleaf_tree",
+      "size_m": [
+        6,
+        6,
+        8
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/island_tree_02"
+    },
+    {
+      "slug": "island_tree_03",
+      "category": "broadleaf_tree",
+      "size_m": [
+        6,
+        6,
+        8
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/island_tree_03"
+    },
+    {
+      "slug": "pine_tree",
+      "category": "conifer",
+      "size_m": [
+        5,
+        5,
+        11
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pine%20Tree.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "pine_tree_01",
+      "category": "conifer",
+      "size_m": [
+        5,
+        5,
+        10
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/pine_tree_01"
+    },
+    {
+      "slug": "fir_tree_01",
+      "category": "conifer",
+      "size_m": [
+        5,
+        5,
+        12
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/fir_tree_01"
+    },
+    {
+      "slug": "shrub_01",
+      "category": "shrub",
+      "size_m": [
+        1.8,
+        1.8,
+        1.4
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/shrub_01"
+    },
+    {
+      "slug": "shrub_02",
+      "category": "shrub",
+      "size_m": [
+        1.6,
+        1.6,
+        1.3
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/shrub_02"
+    },
+    {
+      "slug": "shrub_03",
+      "category": "shrub",
+      "size_m": [
+        1.7,
+        1.7,
+        1.5
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/shrub_03"
+    },
+    {
+      "slug": "shrub_04",
+      "category": "shrub",
+      "size_m": [
+        1.5,
+        1.5,
+        1.2
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/shrub_04"
+    },
+    {
+      "slug": "shrub_sorrel_01",
+      "category": "shrub",
+      "size_m": [
+        1.2,
+        1.2,
+        0.8
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/shrub_sorrel_01"
+    },
+    {
+      "slug": "wild_rooibos_bush",
+      "category": "shrub",
+      "size_m": [
+        1.5,
+        1.5,
+        1.4
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/wild_rooibos_bush"
+    },
+    {
+      "slug": "grass_medium_01",
+      "category": "grass",
+      "size_m": [
+        0.8,
+        0.8,
+        0.7
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/grass_medium_01"
+    },
+    {
+      "slug": "grass_medium_02",
+      "category": "grass",
+      "size_m": [
+        0.8,
+        0.8,
+        0.6
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/grass_medium_02"
+    },
+    {
+      "slug": "grass_bermuda_01",
+      "category": "grass",
+      "size_m": [
+        0.8,
+        0.8,
+        0.6
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/grass_bermuda_01"
+    },
+    {
+      "slug": "weed_plant_02",
+      "category": "grass",
+      "size_m": [
+        0.6,
+        0.6,
+        0.8
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/weed_plant_02"
+    },
+    {
+      "slug": "boulder_01",
+      "category": "rock",
+      "size_m": [
+        1.6,
+        1.3,
+        1.2
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/boulder_01"
+    },
+    {
+      "slug": "namaqualand_boulder_02",
+      "category": "rock",
+      "size_m": [
+        1.8,
+        1.4,
+        1.2
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/namaqualand_boulder_02"
+    },
+    {
+      "slug": "namaqualand_boulder_03",
+      "category": "rock",
+      "size_m": [
+        1.8,
+        1.4,
+        1.2
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/namaqualand_boulder_03"
+    },
+    {
+      "slug": "rock_moss_set_01",
+      "category": "rock",
+      "size_m": [
+        1.6,
+        1.4,
+        0.9
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/rock_moss_set_01"
+    },
+    {
+      "slug": "coast_land_rocks_03",
+      "category": "rock",
+      "size_m": [
+        3,
+        2,
+        1.4
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/coast_land_rocks_03"
+    },
+    {
+      "slug": "coast_land_rocks_04",
+      "category": "rock",
+      "size_m": [
+        3,
+        2,
+        1.4
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/coast_land_rocks_04"
+    },
+    {
+      "slug": "coast_rocks_01",
+      "category": "rock",
+      "size_m": [
+        2.5,
+        2,
+        1.3
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/coast_rocks_01"
+    },
+    {
+      "slug": "hatchback",
+      "category": "car",
+      "size_m": [
+        4,
+        2.1,
+        1.6
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "hatchback_red",
+      "category": "car",
+      "size_m": [
+        4,
+        2.1,
+        1.6
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback%20red.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "hatchback_blue",
+      "category": "car",
+      "size_m": [
+        4,
+        2.1,
+        1.6
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback%20blue.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "suv",
+      "category": "suv",
+      "size_m": [
+        4.8,
+        2.1,
+        1.9
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/SUV.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "pickup",
+      "category": "truck",
+      "size_m": [
+        5.6,
+        2.1,
+        2
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pickup.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "bus",
+      "category": "bus",
+      "size_m": [
+        12.5,
+        2.7,
+        3.7
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Bus.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "fire_truck",
+      "category": "engineering_vehicle",
+      "size_m": [
+        12.43,
+        3.55,
+        3.36
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fire%20truck.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "forklift",
+      "category": "engineering_vehicle",
+      "size_m": [
+        3,
+        1.2,
+        2.1
+      ],
+      "license": "Creative Commons Attribution 4.0 International",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Forklift.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "truckdelivery",
+      "category": "truck",
+      "size_m": [
+        7,
+        2.4,
+        3.2
+      ],
+      "license": "Creative Commons Attribution 4.0 International",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/TruckDelivery.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "school_bus",
+      "category": "bus",
+      "size_m": [
+        11,
+        2.5,
+        3.2
+      ],
+      "license": "Creative Commons Attribution 4.0 International",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/SCHOOL_BUS.zip",
+      "owner": "GoogleResearch"
+    },
+    {
+      "slug": "standing_person",
+      "category": "pedestrian",
+      "size_m": [
+        0.54,
+        0.35,
+        1.93
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Standing%20person.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "walking_person",
+      "category": "pedestrian",
+      "size_m": [
+        0.55,
+        0.88,
+        1.88
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Walking%20person.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "casual_female",
+      "category": "pedestrian",
+      "size_m": [
+        0.55,
+        0.4,
+        1.7
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Casual%20female.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "male_visitor",
+      "category": "pedestrian",
+      "size_m": [
+        0.55,
+        0.4,
+        1.75
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Male%20visitor.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "airportbench",
+      "category": "bench",
+      "size_m": [
+        2,
+        0.6,
+        0.9
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/AirportBench.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "outsidebench",
+      "category": "bench",
+      "size_m": [
+        2,
+        0.6,
+        0.9
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/OutsideBench.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "litterbin",
+      "category": "waste_basket",
+      "size_m": [
+        0.5,
+        0.5,
+        0.9
+      ],
+      "license": "Creative Commons Attribution 4.0 International",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/LitterBin.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "trashbin",
+      "category": "waste_basket",
+      "size_m": [
+        0.8,
+        0.8,
+        1.1
+      ],
+      "license": "Creative Commons Attribution 4.0 International",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/TrashBin.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "construction_cone",
+      "category": "cone",
+      "size_m": [
+        0.5,
+        0.5,
+        0.8
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Construction%20Cone.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "jersey_barrier",
+      "category": "road_barrier",
+      "size_m": [
+        2,
+        0.6,
+        0.8
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Jersey%20Barrier.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "fire_hydrant",
+      "category": "fire_hydrant",
+      "size_m": [
+        0.42,
+        0.42,
+        0.93
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fire%20hydrant.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "electrical_box",
+      "category": "utility_box",
+      "size_m": [
+        0.5,
+        0.4,
+        0.8
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Electrical%20Box.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "mailbox",
+      "category": "mailbox",
+      "size_m": [
+        0.5,
+        0.5,
+        1.2
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Mailbox.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "postbox",
+      "category": "mailbox",
+      "size_m": [
+        0.5,
+        0.5,
+        1.2
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Postbox.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "lamp_post",
+      "category": "street_furniture",
+      "size_m": [
+        0.5,
+        0.5,
+        6
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Lamp%20Post.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "telephone_pole",
+      "category": "street_furniture",
+      "size_m": [
+        0.35,
+        0.35,
+        8
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Telephone%20pole.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "fountain",
+      "category": "street_furniture",
+      "size_m": [
+        2,
+        2,
+        1.2
+      ],
+      "license": "Creative Commons Zero v1.0 Universal",
+      "source": "Gazebo Fuel / OpenRobotics",
+      "source_url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Fountain.zip",
+      "owner": "OpenRobotics"
+    },
+    {
+      "slug": "painted_wooden_bench",
+      "category": "bench",
+      "size_m": [
+        1.8,
+        0.55,
+        0.85
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/painted_wooden_bench"
+    },
+    {
+      "slug": "concrete_road_barrier",
+      "category": "road_barrier",
+      "size_m": [
+        2,
+        0.6,
+        0.8
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/concrete_road_barrier"
+    },
+    {
+      "slug": "street_lamp_02",
+      "category": "street_furniture",
+      "size_m": [
+        0.6,
+        0.6,
+        5.5
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/street_lamp_02"
+    },
+    {
+      "slug": "industrial_pastic_container",
+      "category": "shipping_container",
+      "size_m": [
+        12.2,
+        2.44,
+        2.59
+      ],
+      "license": "CC0-1.0",
+      "source": "Poly Haven",
+      "source_url": "https://polyhaven.com/a/industrial_pastic_container"
+    }
+  ]
+}
+

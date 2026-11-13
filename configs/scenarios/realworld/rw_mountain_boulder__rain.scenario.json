@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_mountain_boulder__rain",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_mountain_boulder__rain.runtime.json",
+   "sha256": "4b2d611bd4d946f9b425c6a8754e9a22dc01c1110ea3a83b065fef35533b2e6c"
+  },
+  "truth": {
+   "path": "rw_mountain_boulder__rain.truth.json",
+   "sha256": "c93483a8ad74d4b096127ea5450fe6eb12dc1dad225a15ced0433adb588f45af"
+  },
+  "expectations": {
+   "path": "rw_mountain_boulder__rain.expectations.json",
+   "sha256": "8c3f3f05b80b3adf3a193d4d1b80c65b3c1fe7b812dfef16fc3ba188afe91ebe"
+  }
+ }
+}

@@ -26,6 +26,8 @@ _SUBTYPES = frozenset(
 _TAKEOFF_METHODS = frozenset({"hand", "runway", "catapult", "vtol", "multirotor"})
 _LANDING_METHODS = frozenset({"runway", "belly", "parachute", "vtol", "multirotor"})
 _MOUNTS = frozenset({"forward", "downward", "gimbal"})
+_CAMERA_MOUNT_TYPES = frozenset({"fixed", "gimbal"})
+_CAMERA_AXES = frozenset({"pitch", "yaw", "roll"})
 _KNOWN_PX4_PARAMETERS = frozenset(
     {
         "FW_AIRSPD_MIN",
@@ -407,6 +409,7 @@ class CameraProfile:
     mount: str
     body_to_camera_rotation: tuple[float, ...]
     attitude_rotations: Mapping[str, tuple[float, ...]] = MappingProxyType({})
+    gimbal: Mapping[str, Any] = MappingProxyType({})
 
     def __post_init__(self) -> None:
         if self.mount not in _MOUNTS:
@@ -421,6 +424,8 @@ class CameraProfile:
             for k, v in dict(self.attitude_rotations).items()
         }
         object.__setattr__(self, "attitude_rotations", MappingProxyType(rotations))
+        gimbal = self.gimbal if isinstance(self.gimbal, Mapping) else {}
+        object.__setattr__(self, "gimbal", MappingProxyType(dict(gimbal)))
 
     @classmethod
     def from_mapping(cls, raw: Any) -> CameraProfile:
@@ -428,12 +433,17 @@ class CameraProfile:
             raw,
             "camera",
             {"mount", "body_to_camera_rotation"},
-            {"attitude_rotations", "body_to_camera_by_mode"},
+            {"attitude_rotations", "body_to_camera_by_mode", "gimbal"},
         )
         rotations = value.get("attitude_rotations", value.get("body_to_camera_by_mode", {}))
         if not isinstance(rotations, Mapping):
             raise AirframeProfileError("camera.attitude_rotations 必须是对象")
-        return cls(value["mount"], tuple(value["body_to_camera_rotation"]), dict(rotations))
+        gimbal = value.get("gimbal", {})
+        if not isinstance(gimbal, Mapping):
+            raise AirframeProfileError("camera.gimbal 必须是对象")
+        return cls(
+            value["mount"], tuple(value["body_to_camera_rotation"]), dict(rotations), dict(gimbal)
+        )
 
     def to_mapping(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -442,7 +452,91 @@ class CameraProfile:
         }
         if self.attitude_rotations:
             result["attitude_rotations"] = {k: list(v) for k, v in self.attitude_rotations.items()}
+        if self.gimbal:
+            result["gimbal"] = dict(self.gimbal)
         return result
+
+
+@dataclass(frozen=True, slots=True)
+class CameraMountProfile:
+    """Selectable fixed/gimbal capability declared by an airframe profile."""
+
+    type: str = "fixed"
+    axes: tuple[str, ...] = ()
+    limits: Mapping[str, tuple[float, float]] = MappingProxyType({})
+    rates: Mapping[str, float] = MappingProxyType({})
+    default_mode: str = "follow-body"
+
+    def __post_init__(self) -> None:
+        if self.type not in _CAMERA_MOUNT_TYPES:
+            raise AirframeProfileError("camera_mount.type 必须是 fixed 或 gimbal")
+        axes = tuple(self.axes)
+        if len(set(axes)) != len(axes) or any(axis not in _CAMERA_AXES for axis in axes):
+            raise AirframeProfileError("camera_mount.axes 含有不支持的轴")
+        if self.type == "gimbal" and not axes:
+            raise AirframeProfileError("gimbal camera_mount.axes 不能为空")
+        normalized_limits: dict[str, tuple[float, float]] = {}
+        for axis, bounds in dict(self.limits).items():
+            if axis not in _CAMERA_AXES or not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+                raise AirframeProfileError("camera_mount.limits 必须按轴提供 [min,max]")
+            lower, upper = (_number(value, f"camera_mount.limits.{axis}[]") for value in bounds)
+            if lower > upper:
+                raise AirframeProfileError(f"camera_mount.limits.{axis} 反向")
+            normalized_limits[axis] = (lower, upper)
+        normalized_rates: dict[str, float] = {}
+        for axis, rate in dict(self.rates).items():
+            if axis not in _CAMERA_AXES:
+                raise AirframeProfileError("camera_mount.rates 含有不支持的轴")
+            normalized_rates[axis] = _number(rate, f"camera_mount.rates.{axis}", positive=True)
+        if not isinstance(self.default_mode, str) or not self.default_mode.strip():
+            raise AirframeProfileError("camera_mount.default_mode 必须是非空字符串")
+        allowed_modes = {"follow-body", "lock-horizon", "follow-yaw"}
+        if self.default_mode not in allowed_modes:
+            raise AirframeProfileError("camera_mount.default_mode 不受支持")
+        if self.type == "fixed" and self.default_mode != "follow-body":
+            raise AirframeProfileError("fixed camera_mount 必须使用 follow-body")
+        object.__setattr__(self, "axes", axes)
+        object.__setattr__(self, "limits", MappingProxyType(normalized_limits))
+        object.__setattr__(self, "rates", MappingProxyType(normalized_rates))
+
+    @classmethod
+    def from_mapping(cls, raw: Any) -> CameraMountProfile:
+        value = _strict_mapping(raw, "camera_mount", {"type", "axes", "limits", "rates", "default_mode"}, set())
+        if not isinstance(value["axes"], (list, tuple)):
+            raise AirframeProfileError("camera_mount.axes 必须是数组")
+        return cls(value["type"], tuple(value["axes"]), value["limits"], value["rates"], value["default_mode"])
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "axes": list(self.axes),
+            "limits": {axis: list(bounds) for axis, bounds in self.limits.items()},
+            "rates": dict(self.rates),
+            "default_mode": self.default_mode,
+        }
+
+    def to_camera_mount(self) -> Any:
+        from multidetect.camera_mount import CameraMount, GimbalLimits
+
+        if self.type == "fixed":
+            return CameraMount.fixed()
+        limits = self.limits
+        # Airframe JSON follows MAVLink's convention (positive pitch is up),
+        # while CameraMount uses positive pitch toward NED down.  Convert the
+        # interval at this boundary so every internal consumer shares one sign.
+        mav_pitch_min, mav_pitch_max = limits.get("pitch", (-math.pi, math.pi))
+        return CameraMount.gimbal(
+            limits=GimbalLimits(
+                pitch_min_rad=-mav_pitch_max,
+                pitch_max_rad=-mav_pitch_min,
+                yaw_min_rad=limits.get("yaw", (-math.pi, math.pi))[0],
+                yaw_max_rad=limits.get("yaw", (-math.pi, math.pi))[1],
+                roll_min_rad=limits.get("roll", (-math.pi, math.pi))[0],
+                roll_max_rad=limits.get("roll", (-math.pi, math.pi))[1],
+            ),
+            rate_rad_s=self.rates.get("pitch") or self.rates.get("yaw"),
+            stabilization=self.default_mode,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -553,6 +647,7 @@ class AirframeProfile:
     camera: CameraProfile
     endurance: EnduranceProfile
     limits: LimitsProfile
+    camera_mount: CameraMountProfile | None = None
     min_turn_radius_m: float | None = None
     transition: TransitionProfile | None = None
     loiter_radius_override_m: float | None = None
@@ -697,6 +792,7 @@ class AirframeProfile:
             "loiter_radius_override_m",
             "notes",
             "provenance",
+            "camera_mount",
         }
         value = _strict_mapping(raw, "AirframeProfile", required, optional)
         raw_hover_modes = value["hover_modes"]
@@ -722,6 +818,11 @@ class AirframeProfile:
             takeoff=TakeoffProfile.from_mapping(value["takeoff"]),
             landing=LandingProfile.from_mapping(value["landing"]),
             camera=CameraProfile.from_mapping(value["camera"]),
+            camera_mount=(
+                CameraMountProfile.from_mapping(value["camera_mount"])
+                if "camera_mount" in value
+                else None
+            ),
             endurance=EnduranceProfile.from_mapping(value["endurance"]),
             limits=LimitsProfile.from_mapping(value["limits"]),
             min_turn_radius_m=value.get("min_turn_radius_m"),
@@ -763,6 +864,8 @@ class AirframeProfile:
         }
         if self.transition is not None:
             result["transition"] = self.transition.to_mapping()
+        if self.camera_mount is not None:
+            result["camera_mount"] = self.camera_mount.to_mapping()
         if self.loiter_radius_override_m is not None:
             result["loiter_radius_override_m"] = self.loiter_radius_override_m
         if self.notes:
@@ -806,16 +909,103 @@ class AirframeProfile:
             mode = "loiter"
         else:
             mode = "hover" if self.can_hover else "fixed_wing_loiter"
-        return {
+        result = {
             "hover": self.can_hover,
             "loiter": self.loiter_radius_m(),
             "mode_choice": mode,
             "stop_near_target": self.can_stop_near_target(),
         }
+        gimbal = self.camera.gimbal if isinstance(self.camera.gimbal, Mapping) else {}
+        if bool(gimbal.get("enabled")):
+            result["gimbal"] = {
+                "capability": "gimbal_control",
+                "axes": list(gimbal.get("axes", ("yaw", "roll", "pitch"))),
+                "angle_range_deg": dict(gimbal.get("angle_range_deg", {})),
+                "configure_command": "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
+                "command": "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
+                "feedback": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            }
+        return result
 
 
 def load_airframe_profile(path: str | Path) -> AirframeProfile:
     return AirframeProfile.from_json(path)
+
+
+def resolve_airframe_profile(
+    value: str | Path | AirframeProfile | None,
+    takeoff_method: str | None = None,
+    *,
+    base_dir: str | Path | None = None,
+) -> AirframeProfile | None:
+    """Resolve the collector airframe id using its canonical aliases.
+
+    ``None`` is intentional for legacy family aliases whose collector branch
+    predates an explicit profile (``x500``, ``multirotor``, ``vtol`` and the
+    fixed-wing aliases).  Category and executor selection both build on this
+    resolver rather than maintaining another profile alias table.
+    """
+    if isinstance(value, AirframeProfile):
+        return value
+    normalized = "" if value is None else str(value).strip().lower().replace("-", "_")
+    root = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[3]
+    profiles = root / "configs" / "airframes"
+    if normalized == "x500_gimbal":
+        return load_airframe_profile(profiles / "x500_gimbal.json")
+    if normalized in {"x500", "x500_mono_cam", "multirotor", "fixed_wing", "fw", "vtol"}:
+        return None
+
+    selected = normalized
+    if normalized == "rc_cessna_mono_cam" and takeoff_method in {"hand", "catapult"}:
+        selected = f"rc_cessna_{takeoff_method}"
+    aliases = {
+        "rc_cessna_mono_cam": "rc_cessna_runway",
+        "advanced_plane_mono_cam": "advanced_plane",
+        "quadtailsitter_mono_cam": "quadtailsitter",
+        "tiltrotor_mono_cam": "tiltrotor",
+        "standard_vtol_mono_cam": "standard_vtol",
+    }
+    candidates = [profiles / f"{selected}.json"]
+    if selected == normalized and normalized in aliases:
+        candidates.insert(0, profiles / f"{aliases[normalized]}.json")
+    for path in candidates:
+        if path.is_file():
+            return load_airframe_profile(path)
+    raise ValueError(f"unknown airframe profile: {value}")
+
+
+def airframe_profile_category(
+    value: str | Path | AirframeProfile | None,
+    takeoff_method: str | None = None,
+    *,
+    base_dir: str | Path | None = None,
+) -> str:
+    """Resolve an airframe id/path to its capability category."""
+    if isinstance(value, AirframeProfile):
+        return value.category
+    normalized = "" if value is None else str(value).strip().lower().replace("-", "_")
+    profile = resolve_airframe_profile(value, takeoff_method, base_dir=base_dir)
+    if profile is not None:
+        return profile.category
+    if normalized in {"x500", "x500_mono_cam", "multirotor"}:
+        return "multirotor"
+    if normalized == "vtol":
+        return "vtol"
+    return "fixed_wing"
+
+
+def airframe_uses_multirotor_executor(
+    value: str | Path | AirframeProfile | None,
+    takeoff_method: str | None = None,
+    *,
+    base_dir: str | Path | None = None,
+) -> bool:
+    """Choose the hover executor by declared aircraft category, not model id.
+
+    VTOL can hover too, but requires its own transition/landing lifecycle.
+    """
+    return airframe_profile_category(value, takeoff_method, base_dir=base_dir) == "multirotor"
+
 
 
 def save_airframe_profile(profile: AirframeProfile, path: str | Path) -> None:
@@ -827,6 +1017,7 @@ def save_airframe_profile(profile: AirframeProfile, path: str | Path) -> None:
 __all__ = [
     "AirframeProfile",
     "AirframeProfileError",
+    "CameraMountProfile",
     "CameraProfile",
     "EnduranceProfile",
     "LandingProfile",
@@ -835,6 +1026,9 @@ __all__ = [
     "ParameterRef",
     "TakeoffProfile",
     "TransitionProfile",
+    "airframe_profile_category",
+    "airframe_uses_multirotor_executor",
     "load_airframe_profile",
+    "resolve_airframe_profile",
     "save_airframe_profile",
 ]

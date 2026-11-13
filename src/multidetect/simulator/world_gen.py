@@ -21,8 +21,10 @@ import random
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from numbers import Real
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from multidetect.simulator.task_semantics import (
     fuel_count_texts,
@@ -33,9 +35,50 @@ from multidetect.simulator.task_semantics import (
 from multidetect.autonomy.serialization import canonical_sha256
 
 SCHEMA_VERSION = 1
+TEACHER_ACTUATOR_SIDECAR_SCHEMA_VERSION = 1
+GIMBAL_STABILIZATION_MODES = frozenset({"follow-body", "lock-horizon", "follow-yaw"})
 ORIGIN_LAT = 1.352100
 ORIGIN_LON = 103.819800
 WORLD_RADIUS_M = 150.0
+
+
+def build_teacher_actuator_state(
+    *,
+    gimbal_yaw_rad: float = 0.0,
+    gimbal_roll_rad: float = 0.0,
+    stabilization_mode: str = "lock-horizon",
+    propeller_spin_rad_s: Sequence[float] = (0.0, 0.0, 0.0, 0.0),
+) -> dict[str, Any]:
+    """Build the optional versioned actuator-state sidecar payload."""
+
+    def finite_float(value: object, name: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError(f"{name} must be a finite number")
+        result = float(value)
+        if not math.isfinite(result):
+            raise ValueError(f"{name} must be a finite number")
+        return result
+
+    yaw = finite_float(gimbal_yaw_rad, "gimbal_yaw_rad")
+    roll = finite_float(gimbal_roll_rad, "gimbal_roll_rad")
+    if not isinstance(stabilization_mode, str) or stabilization_mode not in GIMBAL_STABILIZATION_MODES:
+        raise ValueError("unsupported gimbal stabilization mode")
+    if (
+        not isinstance(propeller_spin_rad_s, Sequence)
+        or isinstance(propeller_spin_rad_s, (str, bytes))
+        or len(propeller_spin_rad_s) != 4
+    ):
+        raise ValueError("propeller_spin_rad_s must contain four rotor rates")
+    spins = [finite_float(value, "propeller spin rate") for value in propeller_spin_rad_s]
+    return {
+        "schema_version": TEACHER_ACTUATOR_SIDECAR_SCHEMA_VERSION,
+        "gimbal": {
+            "yaw_rad": yaw,
+            "roll_rad": roll,
+            "stabilization_mode": stabilization_mode,
+        },
+        "propeller_spin_rad_s": spins,
+    }
 
 
 def trajectory_position(trajectory: Mapping[str, Any], time_s: float) -> tuple[float, float]:
@@ -709,6 +752,7 @@ def generate_fuel_worlds(
     moving_targets: bool = False,
     appearance: str | Sequence[str] | None = None,
     forced_distractors: Mapping[str, Sequence[str]] | None = None,
+    actuator_state: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate realistic offline Fuel model worlds while preserving box mode.
 
@@ -726,6 +770,9 @@ def generate_fuel_worlds(
     ``confusers`` forces semantically distinct distractor assets alongside each
     target, with ``confuser_copies`` instances per slug and ``confuser: true``
     in truth. Invalid or task-equivalent pairs fail before any files are written.
+
+    ``actuator_state`` optionally writes a versioned teacher actuator sidecar
+    beside each generated scenario and adds its path/hash to the world index.
     """
     if moving_targets:
         raise ValueError(
@@ -746,6 +793,36 @@ def generate_fuel_worlds(
         raise ValueError("split_ratios must be three non-negative values summing to 1")
     if len(spread_m) != 2 or not 0 <= spread_m[0] < spread_m[1] <= WORLD_RADIUS_M:
         raise ValueError("spread_m must satisfy 0 <= min < max <= WORLD_RADIUS_M")
+    if actuator_state is not None:
+        if not isinstance(actuator_state, Mapping) or set(actuator_state) != {
+            "schema_version",
+            "gimbal",
+            "propeller_spin_rad_s",
+        }:
+            raise ValueError("actuator_state must match build_teacher_actuator_state() output")
+        gimbal = actuator_state.get("gimbal")
+        if not isinstance(gimbal, Mapping) or set(gimbal) != {
+            "yaw_rad",
+            "roll_rad",
+            "stabilization_mode",
+        }:
+            raise ValueError("actuator_state.gimbal has an invalid shape")
+        sidecar_version = actuator_state.get("schema_version")
+        if (
+            isinstance(sidecar_version, bool)
+            or not isinstance(sidecar_version, int)
+            or sidecar_version != TEACHER_ACTUATOR_SIDECAR_SCHEMA_VERSION
+        ):
+            raise ValueError("unsupported actuator_state schema_version")
+        expected_actuator_state = build_teacher_actuator_state(
+            gimbal_yaw_rad=gimbal["yaw_rad"],
+            gimbal_roll_rad=gimbal["roll_rad"],
+            stabilization_mode=gimbal["stabilization_mode"],
+            propeller_spin_rad_s=actuator_state.get("propeller_spin_rad_s"),
+        )
+        if dict(actuator_state) != expected_actuator_state:
+            raise ValueError("actuator_state must match build_teacher_actuator_state() output")
+        actuator_state = expected_actuator_state
     appearances = _appearance_sequence(appearance)
     catalog = json.loads(Path(catalog_path).read_text(encoding="utf-8"))
     assets = list(catalog.get("assets", []))
@@ -897,7 +974,11 @@ def generate_fuel_worlds(
             elif value and not value.startswith(("file://", "http://", "https://")):
                 uri.text = f"model://{slug}/{value.lstrip('./')}"
             elif value.startswith("http://") or value.startswith("https://"):
-                raise ValueError(f"asset {slug} contains network URI")
+                filename = Path(unquote(urlparse(value).path)).name
+                local_matches = sorted((Path(resolved_root) / slug).rglob(filename)) if filename else []
+                if not local_matches:
+                    raise ValueError(f"asset {slug} contains unresolved network URI")
+                uri.text = f"model://{slug}/{local_matches[0].relative_to(Path(resolved_root) / slug).as_posix()}"
         return ET.tostring(outer, encoding="unicode")
 
     def pose_point(used: list[tuple[float, float, float]], radius: float) -> tuple[float, float]:
@@ -1232,6 +1313,14 @@ def generate_fuel_worlds(
             "true_target_id": objects[0][0],
             **counting_fields,
         }
+        if actuator_state is not None:
+            sidecar = {**actuator_state, "scenario_id": world_id}
+            sidecar_path = scenarios_dir / f"{world_id}.actuator_state.json"
+            sidecar_hash = _write(sidecar_path, sidecar)
+            entry["actuator_state_sidecar"] = {
+                "path": sidecar_path.name,
+                "sha256": sidecar_hash,
+            }
         if profile is not None:
             entry["appearance"] = profile
         entries.append(entry)
@@ -1617,6 +1706,8 @@ def derive_fixed_wing_scenario(
 VTOL_VEHICLES = {
     "standard_vtol": ("standard_vtol_mono_cam", "px4_standard_vtol_gazebo_v1", 0.2),
     "quadtailsitter": ("quadtailsitter_mono_cam", "px4_quadtailsitter_gazebo_v1", 0.35),
+    "delta_tailsitter": ("delta_tailsitter_mono_cam", "px4_delta_tailsitter_gazebo_v1", 0.411),
+    "delta_tailsitter_gimbal": ("delta_tailsitter_gimbal_cam", "px4_delta_tailsitter_gimbal_gazebo_v1", 0.411),
 }
 
 

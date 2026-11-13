@@ -1,0 +1,10 @@
+--- a/src/modules/simulation/gz_bridge/GZGimbal.cpp
++++ b/src/modules/simulation/gz_bridge/GZGimbal.cpp
+@@ -221,6 +221,7 @@
+ 
+ 	gimbal_att.target_system = 0; // Broadcast
+ 	gimbal_att.target_component = 0; // Broadcast
++	gimbal_att.gimbal_device_id = _gimbal_device_id;
+ 	gimbal_att.device_flags = gimbal_device_attitude_status_s::DEVICE_FLAGS_YAW_IN_EARTH_FRAME;
+ 	_q_gimbal.copyTo(gimbal_att.q);
+ 	gimbal_att.angular_velocity_x = _gimbal_rate[0];

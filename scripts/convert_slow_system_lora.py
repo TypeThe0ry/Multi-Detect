@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -88,10 +89,7 @@ def probe_local_tools(llama_root: Path = DEFAULT_LLAMA_ROOT) -> LocalTools:
         roots.append(gguf_module.parent.parent)
     converter_lora = _first_file(roots, {"convert_lora_to_gguf.py"})
     converter_hf = _first_file(roots, {"convert_hf_to_gguf.py"})
-    quantize = _first_file(
-        roots,
-        {"llama-quantize.exe", "llama-quantize"},
-    )
+    quantize = _first_file(roots, {"llama-quantize.exe", "llama-quantize"})
     server = _first_file(roots, {"llama-server.exe", "llama-server"})
     return LocalTools(
         llama_root=str(llama_root.resolve()),
@@ -154,11 +152,11 @@ def conversion_plan(
         f"model.save_pretrained({py_merged}, safe_serialization=True)",
         f"AutoProcessor.from_pretrained({py_base}, local_files_only=True, trust_remote_"
         f"code=False).save_pretrained({py_merged})",
-        '"@ | & .venv-vlm/Scripts/python.exe -',
+        '"@ | & .venv-vlm/Scripts/python.exe -' if os.name == "nt" else '"@ | & .venv-vlm/bin/python -',
     ]
     if tools.convert_hf_to_gguf:
         commands.append(
-            f"& .venv-vlm/Scripts/python.exe {_ps(tools.convert_hf_to_gguf)} {_ps(merged)} --"
+            f"& {'.venv-vlm/Scripts/python.exe' if os.name == 'nt' else '.venv-vlm/bin/python'} {_ps(tools.convert_hf_to_gguf)} {_ps(merged)} --"
             f"outfile {_ps(f16)} --outtype f16"
         )
     else:

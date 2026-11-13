@@ -178,7 +178,7 @@ def _frame_telemetry(record: Mapping[str, Any], *, captured_at_s: float) -> dict
     # These six fields are deliberately unknown: they are policy/vehicle state,
     # not measurements in the Gazebo camera frame.  Keeping them null prevents
     # a capture converter from inventing mission truth for training.
-    return {
+    telemetry = {
         "altitude_agl_m": source.get("altitude_agl_m"),
         "roll_deg": _finite(source.get("roll_deg"), "roll_deg"),
         "pitch_deg": _finite(source.get("pitch_deg"), "pitch_deg"),
@@ -237,6 +237,23 @@ def _frame_telemetry(record: Mapping[str, Any], *, captured_at_s: float) -> dict
         ),
         "gps_absolute_altitude_m": gps_altitude,
     }
+    return telemetry
+
+
+def _frame_state(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract optional per-frame state without changing raw replay telemetry."""
+    provenance = _mapping(record.get("provenance"), "RGB frame provenance")
+    source = _mapping(provenance.get("frame_telemetry"), "RGB frame telemetry")
+    candidates = [provenance.get("frame_state"), source]
+    state: dict[str, Any] = {}
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        for name in ("camera_pose", "gimbal_joint_state", "propeller_joint_state"):
+            value = candidate.get(name)
+            if isinstance(value, Mapping):
+                state[name] = dict(value)
+    return state
 
 
 def _verify_rgb_document(
@@ -327,6 +344,7 @@ def _verify_rgb_document(
                 "scenario_id": scenario_id,
                 "scenario_manifest_hash": scenario_hash,
                 "telemetry": _frame_telemetry(record, captured_at_s=captured_at_s),
+                "frame_state": _frame_state(record),
             }
         )
     return scenario_id, scenario_hash, normalized
@@ -510,6 +528,9 @@ def build_recording(
                         "depth_record_sha256": depth["wire_record_sha256"],
                     }
                 ),
+                "camera_pose": rgb["frame_state"].get("camera_pose"),
+                "gimbal_joint_state": rgb["frame_state"].get("gimbal_joint_state"),
+                "propeller_joint_state": rgb["frame_state"].get("propeller_joint_state"),
             }
         )
 
@@ -584,6 +605,12 @@ def build_recording(
             "truth_loaded_by_runtime": False,
             "training_ready": False,
             "independent_review": "required",
+        },
+        "frame_state_contract": {
+            "camera_pose": "optional composed camera center/orientation in NED",
+            "gimbal_joint_state": "optional per-frame pitch/yaw/roll joint state",
+            "propeller_joint_state": "optional per-frame angle/spin state",
+            "legacy_capture_compatible": True,
         },
         "source_asset_binding": (
             {

@@ -331,6 +331,10 @@ def frame_from_mapping(raw: Mapping[str, Any]) -> FrameObservation:
             telemetry_raw.get("mission_item_reached_observed_at_s")
         ),
         attitude_observed_at_s=_optional_float(telemetry_raw.get("attitude_observed_at_s")),
+        gimbal_yaw_deg=_optional_float(telemetry_raw.get("gimbal_yaw_deg")),
+        gimbal_roll_deg=_optional_float(telemetry_raw.get("gimbal_roll_deg")),
+        gimbal_pitch_deg=_optional_float(telemetry_raw.get("gimbal_pitch_deg")),
+        gimbal_observed_at_s=_optional_float(telemetry_raw.get("gimbal_observed_at_s")),
         attitude_roll_sigma_deg=_optional_float(telemetry_raw.get("attitude_roll_sigma_deg")),
         attitude_pitch_sigma_deg=_optional_float(telemetry_raw.get("attitude_pitch_sigma_deg")),
         attitude_heading_sigma_deg=_optional_float(telemetry_raw.get("attitude_heading_sigma_deg")),

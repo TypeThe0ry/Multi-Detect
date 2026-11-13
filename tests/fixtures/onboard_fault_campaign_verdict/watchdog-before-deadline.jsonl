@@ -1,0 +1,2 @@
+{"kind":"decision","timestamp":10.55,"action":"hold","reason":"stale_camera watchdog: frame age exceeded","source":"runtime_watchdog"}
+{"kind":"decision","timestamp":10.90,"action":"continue","reason":"healthy frame recovered","source":"policy"}

@@ -1,0 +1,139 @@
+diff --git a/src/NodeShared.cc b/src/NodeShared.cc
+index 8284c50..2ca5bf9 100644
+--- a/src/NodeShared.cc
++++ b/src/NodeShared.cc
+@@ -445,59 +445,75 @@ void NodeShared::RecvMsgUpdate()
+ 
+     try
+     {
++      PublicationMetadata meta;
++      bool haveMetadata = false;
++      bool valid = true;
++      unsigned int partCount = 0;
++      const bool discarding = this->dataPtr->discardIncomingMultipart;
++      bool more = discarding;
++      do
++      {
+ #ifdef GZ_ZMQ_POST_4_3_1
+-      if (!this->dataPtr->subscriber->recv(msg))
++        if (!this->dataPtr->subscriber->recv(msg, zmq::recv_flags::dontwait))
+ #else
+-      if (!this->dataPtr->subscriber->recv(&msg, 0))
++        if (!this->dataPtr->subscriber->recv(&msg, ZMQ_DONTWAIT))
+ #endif
+-        return;
+-      topic = std::string(reinterpret_cast<char *>(msg.data()), msg.size());
++        {
++          this->dataPtr->discardIncomingMultipart = more;
++          return;
++        }
+ 
+-      // TODO(caguero): Use this as extra metadata for the subscriber.
+-#ifdef GZ_ZMQ_POST_4_3_1
+-      if (!this->dataPtr->subscriber->recv(msg))
+-#else
+-      if (!this->dataPtr->subscriber->recv(&msg, 0))
+-#endif
+-        return;
+-      sender = std::string(reinterpret_cast<char *>(msg.data()), msg.size());
++        more = msg.more();
++        this->dataPtr->discardIncomingMultipart = more;
++        if (discarding)
++          continue;
+ 
+-#ifdef GZ_ZMQ_POST_4_3_1
+-      if (!this->dataPtr->subscriber->recv(msg))
+-#else
+-      if (!this->dataPtr->subscriber->recv(&msg, 0))
+-#endif
+-        return;
+-      data = std::string(reinterpret_cast<char *>(msg.data()), msg.size());
++        ++partCount;
++        switch (partCount)
++        {
++          case 1:
++            topic.assign(reinterpret_cast<char *>(msg.data()), msg.size());
++            break;
++          case 2:
++            sender.assign(reinterpret_cast<char *>(msg.data()), msg.size());
++            break;
++          case 3:
++            data.assign(reinterpret_cast<char *>(msg.data()), msg.size());
++            break;
++          case 4:
++            msgType.assign(reinterpret_cast<char *>(msg.data()), msg.size());
++            break;
++          case 5:
++            if (msg.size() == sizeof(meta))
++            {
++              memcpy(&meta, msg.data(), sizeof(meta));
++              haveMetadata = true;
++            }
++            else
++            {
++              valid = false;
++            }
++            break;
++          default:
++            valid = false;
++            break;
++        }
++      } while (more);
+ 
+-#ifdef GZ_ZMQ_POST_4_3_1
+-      if (!this->dataPtr->subscriber->recv(msg))
+-#else
+-      if (!this->dataPtr->subscriber->recv(&msg, 0))
+-#endif
++      // Never consume a subsequent ZMQ message to complete a short message.
++      // Drain extra parts before rejecting so the next message stays aligned.
++      if (discarding || !valid || partCount < 4 || partCount > 5)
+         return;
+-      msgType = std::string(reinterpret_cast<char *>(msg.data()), msg.size());
+ 
+-      if (this->dataPtr->topicStatsEnabled)
++      // Validate wire metadata independently of the local statistics setting.
++      // Discovery still rejects peers with mismatched statistics versions.
++      if (this->dataPtr->topicStatsEnabled && haveMetadata &&
++          this->dataPtr->enabledTopicStatistics.find(topic) !=
++              this->dataPtr->enabledTopicStatistics.end())
+       {
+-#ifdef GZ_ZMQ_POST_4_3_1
+-        if (!this->dataPtr->subscriber->recv(msg))
+-#else
+-        if (!this->dataPtr->subscriber->recv(&msg, 0))
+-#endif
+-          return;
+-        PublicationMetadata *meta =
+-          reinterpret_cast<PublicationMetadata *>(msg.data());
+-
+-        // Update topic statistics.
+-        if (this->dataPtr->enabledTopicStatistics.find(topic) !=
+-            this->dataPtr->enabledTopicStatistics.end())
+-        {
+-          this->dataPtr->topicStats[topic].Update(sender,
+-              meta->stamp, meta->seq);
+-          this->dataPtr->enabledTopicStatistics[topic](
+-              this->dataPtr->topicStats[topic]);
+-        }
++        this->dataPtr->topicStats[topic].Update(sender, meta.stamp, meta.seq);
++        this->dataPtr->enabledTopicStatistics[topic](
++            this->dataPtr->topicStats[topic]);
+       }
+     }
+     catch(const zmq::error_t &_error)
+diff --git a/src/NodeSharedPrivate.hh b/src/NodeSharedPrivate.hh
+index 9eea2e0..43b0b9f 100644
+--- a/src/NodeSharedPrivate.hh
++++ b/src/NodeSharedPrivate.hh
+@@ -206,6 +206,10 @@ namespace gz::transport
+     /// \brief A map of node UUID and its subscribed topics
+     public: std::unordered_map<std::string, std::unordered_set<std::string>>
+             topicsSubscribed;
++
++    /// \brief Drain the remaining parts after an interrupted multipart read.
++    /// Protected by NodeShared::mutex, just like subscriber socket access.
++    public: bool discardIncomingMultipart = false;
+   };
+   }
+ }

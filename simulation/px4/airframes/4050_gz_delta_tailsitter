@@ -1,0 +1,124 @@
+#!/bin/sh
+#
+# @name Folding Delta Tailsitter (design estimate, unverified)
+# @type VTOL Quad Tailsitter
+# 设计报告方案 E；基于镜像的 4018_gz_quadtailsitter，无任何舵面。
+# Gazebo MC FLU -> PX4 FRD=(x,-y,-z)；CAD CG=(0,646,-9) mm。
+# 桨盘 CAD y=605，电机中心 y=629，同一 +Z 推力作用线。
+# 展向 ±0.6 m；上下相对 CAD 翼面 ±0.15 m，计入 CG 后 PX=0.141/-0.159。
+
+. ${R}etc/init.d/rc.vtol_defaults
+
+PX4_SIMULATOR=${PX4_SIMULATOR:=gz}
+PX4_GZ_WORLD=${PX4_GZ_WORLD:=default}
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=delta_tailsitter}
+
+param set-default SIM_GZ_EN 1
+param set-default MAV_TYPE 20
+param set-default CA_AIRFRAME 4
+param set-default CA_ROTOR_COUNT 4
+
+# 0/1 对角 CCW，2/3 对角 CW；KM 符号、大小与 Gazebo 反扭矩一致。
+param set-default CA_ROTOR0_PX 0.141
+param set-default CA_ROTOR0_PY 0.6
+param set-default CA_ROTOR0_PZ -0.041
+param set-default CA_ROTOR0_KM 0.025
+param set-default CA_ROTOR1_PX -0.159
+param set-default CA_ROTOR1_PY -0.6
+param set-default CA_ROTOR1_PZ -0.041
+param set-default CA_ROTOR1_KM 0.025
+param set-default CA_ROTOR2_PX 0.141
+param set-default CA_ROTOR2_PY -0.6
+param set-default CA_ROTOR2_PZ -0.041
+param set-default CA_ROTOR2_KM -0.025
+param set-default CA_ROTOR3_PX -0.159
+param set-default CA_ROTOR3_PY 0.6
+param set-default CA_ROTOR3_PZ -0.041
+param set-default CA_ROTOR3_KM -0.025
+param set-default CA_SV_CS_COUNT 0
+
+param set-default SIM_GZ_EC_FUNC1 101
+param set-default SIM_GZ_EC_FUNC2 102
+param set-default SIM_GZ_EC_FUNC3 103
+param set-default SIM_GZ_EC_FUNC4 104
+param set-default SIM_GZ_EC_MIN1 0
+param set-default SIM_GZ_EC_MIN2 0
+param set-default SIM_GZ_EC_MIN3 0
+param set-default SIM_GZ_EC_MIN4 0
+param set-default SIM_GZ_EC_MAX1 1100
+param set-default SIM_GZ_EC_MAX2 1100
+param set-default SIM_GZ_EC_MAX3 1100
+param set-default SIM_GZ_EC_MAX4 1100
+
+# 插件推力 kT*ω²，满速每电机 16.2 N；归一化推力需要平方根电机映射。
+# 2.929*9.80665/(4*16.2)=0.4433，报告悬停油门约 44%。
+param set-default THR_MDL_FAC 1
+param set-default MPC_THR_HOVER 0.44
+param set-default BAT1_N_CELLS 4
+param set-default BAT1_CAPACITY 5000
+
+# 以 4018 为基准按本机惯量/差动控制力臂缩放速率环增益。
+# pitch: (0.097/0.030208)=3.21；roll->MC yaw: (0.373/0.083542)*(0.05/0.025)=8.93；
+# yaw->MC roll: (0.431/0.113333)*(0.23/0.6)=1.46。输出饱和后仍需结合 ULog 整定。
+param set-default FD_FAIL_R 70
+param set-default FW_P_TC 0.6
+param set-default FW_PR_I 0.963310
+param set-default FW_PR_P 1.605517
+param set-default FW_PSP_OFF 2
+param set-default FW_RR_FF 0.892968
+param set-default FW_RR_I 0.892968
+param set-default FW_RR_P 1.785935
+param set-default FW_YR_FF 0
+param set-default FW_YR_I 0
+param set-default FW_YR_P 0.291559
+# 15 m/s 基础阻力估计约 4 N（满推力 64.8 N 的 6%），不含下方单列的高速桨阻力代理。
+# 无舵面且 SM 约 3.5%；FW_PSP_OFF=2 保持 4018 tailsitter 偏置约定，最终闭环增益仍需 SITL/实测整定。
+# 18-19 m/s 是现有 MAVLink 样本中 PX pitch rotor pair 频繁触底的转折带；工作上限收至 18。
+# 第 31 轮回退交接目标到 15 m/s，前转换推力恢复 0.25；无舵面机型仍须外部验证权限。
+# 第 35 轮只调整横向导航/滚转响应组：实测滚转约 20°/s，降低导航滚转指令斜率并延长
+# NPFG/FW 滚转时间常数，预期减少 ±36°翻转和差动电机触底；不改变气动和判定门限。
+param set-default FW_R_TC 1.0
+param set-default FW_PN_R_SLEW_MAX 20
+param set-default NPFG_PERIOD 20
+param set-default NPFG_ROLL_TC 1.0
+param set-default FW_THR_TRIM 0.32
+param set-default FW_THR_MAX 0.8
+# 回多旋翼时如果 FW 推力正好为 0，整个过渡段推力都是 NaN、四个电机全停（r31、r36、r38，下坠约 50 m）。
+# 8 次飞行里推力为 0 的 3 次全部出事，大于 0 的 5 次都没事。保留最小推力，效果要靠 back_transition_success 验证。
+param set-default FW_THR_MIN 0.05
+# FW 推力 ≤0.02 时 PX4 发 NaN 表示停电机，VTOL 把它存成回转换推力（vtol_type.cpp:113），见 md-scratch/delta-tools/nan/report.md。
+# FW_THR_IDLE 默认 0 会绕过 FW_THR_MIN，所以也设下限。
+param set-default FW_THR_IDLE 0.05
+param set-default FW_R_LIM 35
+param set-default FW_T_CLMB_MAX 6
+param set-default FW_T_HRATE_FF 0.5
+param set-default FW_T_SINK_MAX 3
+param set-default FW_T_SINK_MIN 1.6
+param set-default FW_AIRSPD_STALL 10
+param set-default FW_AIRSPD_MIN 12
+param set-default FW_AIRSPD_TRIM 15
+param set-default FW_AIRSPD_MAX 18
+
+param set-default MC_AIRMODE 2
+param set-default MAN_ARM_GESTURE 0
+param set-default MC_ROLL_P 3
+param set-default MC_PITCH_P 3
+param set-default MC_ROLLRATE_P 0.3
+param set-default MC_PITCHRATE_P 0.3
+
+param set-default VT_ARSP_TRANS 15
+param set-default VT_ARSP_BLEND 10
+param set-default VT_B_DEC_MSS 1
+param set-default VT_B_TRANS_DUR 10
+param set-default VT_B_TRANS_RAMP 5
+param set-default VT_FW_DIFTHR_EN 7
+param set-default VT_FW_DIFTHR_S_R 1
+param set-default VT_FW_DIFTHR_S_P 1
+param set-default VT_FW_DIFTHR_S_Y 1
+param set-default VT_F_TRANS_DUR 5
+param set-default VT_F_TRANS_THR 0.25
+param set-default VT_F_TR_OL_TM 8
+param set-default VT_TRANS_TIMEOUT 20
+param set-default VT_TYPE 0
+param set-default WV_EN 0
+param set-default EKF2_FUSE_BETA 0

@@ -1,0 +1,48 @@
+{
+  "kind": "find_and_observe",
+  "observation": {
+    "camera_altitude_m": 8.0,
+    "camera_pitch_rad": -0.678072205439605,
+    "max_detection_range_m": 23.727,
+    "observation_frames": 8,
+    "observation_waypoint": {
+      "x_east_m": 0.0,
+      "y_north_m": 0.0,
+      "z_up_m": 0.0
+    },
+    "views": [
+      {
+        "observation_waypoint": {
+          "x_east_m": 26.864,
+          "y_north_m": 0.0,
+          "z_up_m": 0.0
+        },
+        "view": "front"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 25.068,
+          "y_north_m": -5.697,
+          "z_up_m": 0.0
+        },
+        "view": "oblique"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 16.932,
+          "y_north_m": -9.932,
+          "z_up_m": 0.0
+        },
+        "view": "edge_truncated"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 8.796,
+          "y_north_m": -5.697,
+          "z_up_m": 0.0
+        },
+        "view": "recovery"
+      }
+    ]
+  }
+}

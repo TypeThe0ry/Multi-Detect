@@ -22,6 +22,7 @@ OVERLAY_ROOT = ROOT / "simulation" / "gazebo" / "model-overlays"
         ("coastal_patrol_fixed_wing_001", "fixed-wing", "rc_cessna_mono_cam", "4003"),
         ("airframes/advanced_plane_mono_cam_001", "fixed-wing", "advanced_plane_mono_cam", "4008"),
         ("airframes/quadtailsitter_mono_cam_001", "vtol", "quadtailsitter_mono_cam", "4018"),
+        ("airframes/delta_tailsitter_mono_cam_001", "vtol", "delta_tailsitter_mono_cam", "4050"),
         ("airframes/tiltrotor_mono_cam_001", "vtol", "tiltrotor_mono_cam", "4020"),
     ],
 )

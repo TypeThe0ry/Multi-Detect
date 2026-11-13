@@ -41,6 +41,100 @@ def test_confusable_negative_table_covers_identity_regressions():
     assert builder._confusable_task("pickup", 0) == "Find the pickup and record its position."
 
 
+def test_semantic_aliases_are_equivalent_for_confusable_rejects():
+    walking_person = {
+        "class": "person",
+        "category_words": ["person", "pedestrian", "walking person"],
+    }
+    hatchback = {"class": "car", "category_words": ["car", "hatchback"]}
+    assert builder._category_task_equivalent("walking_person", walking_person)
+    assert builder._category_task_equivalent("hatchback", hatchback)
+    assert not builder._category_task_equivalent("pickup", {"class": "suv", "category_words": ["car", "suv"]})
+
+
+def test_conflicting_decisions_for_same_model_input_fail():
+    row = {
+        "image_path": "frame.png",
+        "task_text": "Find the person.",
+        "focus_track_id": "track-1",
+        "candidates": [{"track_id": "track-1", "box_xyxy_normalized": [0.1, 0.1, 0.2, 0.2]}],
+        "assistant_target": {"decision": "confirm_target"},
+    }
+    conflict = {**row, "assistant_target": {"decision": "reject_track"}}
+    import pytest
+    with pytest.raises(ValueError, match="conflicting decisions"):
+        builder._validate_no_conflicting_decisions([row, conflict])
+
+
+def test_identity_view_balance_upsamples_sparse_views_without_touching_other_rows():
+    def row(sample_id, category, view, decision):
+        return {
+            "sample_id": sample_id,
+            "task_category": category,
+            "view": view,
+            "assistant_target": {"decision": decision},
+        }
+
+    rows = [
+        row("front-1", "pickup", "front", "confirm_target"),
+        row("front-2", "pickup", "front", "confirm_target"),
+        row("edge-1", "pickup", "edge_truncated", "confirm_target"),
+        row("reject-1", "pickup", "front", "reject_track"),
+        row("reject-2", "pickup", "oblique", "reject_track"),
+        row("other", "suv", "front", "ask_clarify"),
+    ]
+    balanced, report = builder._balance_identity_views(rows, max_upsample=4, seed=7)
+    assert len(balanced) == len(rows) + 1
+    positives = [r for r in balanced if r.get("task_category") == "pickup" and r["assistant_target"]["decision"] == "confirm_target"]
+    assert {r["view"] for r in positives} == {"front", "edge_truncated"}
+    assert sum(r["view"] == "front" for r in positives) == 2
+    assert sum(r["view"] == "edge_truncated" for r in positives) == 2
+    assert report["pickup|positive|edge_truncated"]["added"] == 1
+    assert report["pickup|negative|oblique"]["added"] == 0
+    assert sum(r["sample_id"].startswith("front-") for r in balanced) == 2
+    assert any("~view-balance-" in r["sample_id"] for r in balanced)
+
+
+def test_confusable_negative_view_balance_only_duplicates_hard_rejects():
+    rows = []
+    for index in range(3):
+        rows.append({
+            "sample_id": f"edge-{index}", "label_type": "confusable_negative",
+            "confusable_pair_type": "suv->pickup", "view": "edge_truncated",
+            "assistant_target": {"decision": "reject_track"},
+        })
+    rows.append({
+        "sample_id": "front-0", "label_type": "confusable_negative",
+        "confusable_pair_type": "suv->pickup", "view": "front",
+        "assistant_target": {"decision": "reject_track"},
+    })
+    rows.append({
+        "sample_id": "positive", "label_type": "confusable_positive",
+        "confusable_pair_type": "suv->pickup", "view": "front",
+        "assistant_target": {"decision": "confirm_target"},
+    })
+    balanced, report = builder._balance_confusable_negative_views(rows, max_upsample=2, seed=3)
+    assert len(balanced) == 6
+    assert report["suv->pickup|front"]["added"] == 1
+    assert sum(r["label_type"] == "confusable_positive" for r in balanced) == 1
+
+
+def test_dedupe_preserves_only_explicit_balance_replicas():
+    row = {
+        "sample_id": "original",
+        "world": "w1",
+        "image_path": "frame.png",
+        "task_text": "Find the pickup.",
+        "candidates": [],
+        "assistant_target": {"decision": "reject_track"},
+    }
+    ordinary_duplicate = {**row, "sample_id": "ordinary-copy"}
+    balanced_duplicate = {**row, "sample_id": "original~view-balance-1"}
+    stats = Counter()
+    result = builder._dedupe_rows([row, ordinary_duplicate, balanced_duplicate], stats)
+    assert [item["sample_id"] for item in result] == ["original", "original~view-balance-1"]
+
+
 def test_r21id_view_is_derived_from_synthetic_episode_and_sidecar(tmp_path):
     sidecar = {"observation": {"camera_altitude_m": 12, "views": [
         {"view": "front", "observation_waypoint": {"x_east_m": 24, "y_north_m": 0, "z_up_m": 0}},
@@ -191,6 +285,212 @@ def test_build_dataset_keeps_world_splits_and_labels_true_vs_distractor(tmp_path
             parse_onboard_decision(row["assistant_target"])
         decisions = {row["assistant_target"]["decision"] for row in rows}
         assert {"confirm_target", "reject_track"} <= decisions
+
+
+def test_task_text_variants_add_swapped_identity_pair_only_when_enabled(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    index = root / "index.json"
+    variants = [
+        {"requested_category": "pickup", "task_text": "找皮卡", "task_text_en": "Find the pickup."},
+        {"requested_category": "suv", "task_text": "找 SUV", "task_text_en": "Find the SUV."},
+    ]
+    worlds = [
+        {"world_id": f"gen-pair-{split}", "split": split, "asset_mode": "fuel_v1",
+         "task_text": "找皮卡", "task_text_en": "Find the pickup.",
+         "target_combo": {"category": "pickup"}, "task_text_variants": variants}
+        for split in ("train", "val", "test")
+    ]
+    index.write_text(json.dumps({"asset_mode": "fuel_v1", "worlds": worlds}), encoding="utf-8")
+    monkeypatch.setattr(builder, "ROOT", root)
+    monkeypatch.setattr(runtime, "ROOT", root)
+    monkeypatch.setattr(builder, "_relative", lambda path: Path(path).name)
+    monkeypatch.setattr(builder, "_sdf_sizes", lambda path: {})
+    monkeypatch.setattr(builder, "load_sdf_obstacles", lambda path: [])
+
+    frames = []
+    true = {"target_id": "target_true_pickup", "category": "pickup", "category_words": ["pickup"],
+            "class": "pickup", "asset_slug": "pickup", "true_target": True}
+    suv = {"target_id": "paired_suv", "category_words": ["car", "suv"],
+           "class": "suv", "asset_slug": "suv", "true_target": False}
+    projected = [
+        {"target": true, "box": (10.0, 10.0, 50.0, 50.0), "class": "pickup", "color": None,
+         "range_m": 10.0, "visible_fraction": 1.0},
+        {"target": suv, "box": (60.0, 10.0, 90.0, 40.0), "class": "suv", "color": None,
+         "range_m": 10.0, "visible_fraction": 1.0},
+    ]
+    for split in ("train", "val", "test"):
+        world = f"gen-pair-{split}"
+        frame = root / f"{world}.png"
+        frame.write_bytes(b"frame")
+        slug = {"task_text": "找皮卡", "task_text_en": "Find the pickup.",
+                "task_category": "pickup", "true_target": true,
+                "task_text_variants": variants}
+        frames.append(("campaign", world, split, frame, (100, 100), slug, projected,
+                       {}, "before", {}, None))
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(frames))
+
+    off_a = root / "off-a"
+    off_b = root / "off-b"
+    builder.build_dataset([], off_a, index=index)
+    no_variants = [
+        (*frame[:5], {key: value for key, value in frame[5].items() if key != "task_text_variants"}, *frame[6:])
+        for frame in frames
+    ]
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(no_variants))
+    builder.build_dataset([], off_b, index=index, task_text_variants=False)
+    for split in ("train", "val", "test"):
+        assert (off_a / f"{split}.jsonl").read_bytes() == (off_b / f"{split}.jsonl").read_bytes()
+    assert (off_a / "manifest.json").read_bytes() == (off_b / "manifest.json").read_bytes()
+
+    enabled = root / "enabled"
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(frames))
+    builder.build_dataset([], enabled, index=index, task_text_variants=True)
+    train_rows = [json.loads(line) for line in (enabled / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    swapped = [row for row in train_rows if row["task_text"] in {"Find the SUV.", "找 SUV"}]
+    rejected = next(row for row in swapped if row["label_type"] == "confusable_negative")
+    accepted = next(row for row in swapped if row["label_type"] == "confusable_positive")
+    assert rejected["assistant_target"]["decision"] == "reject_track"
+    assert rejected["target_id"] == "target_true_pickup"
+    assert rejected["confusable_pair_type"] == "suv->pickup"
+    assert rejected["assistant_target"]["args"]["track_id"] == "track-1"
+    assert accepted["assistant_target"]["decision"] == "confirm_target"
+    assert accepted["target_id"] == "paired_suv"
+    assert accepted["confusable_pair_type"] == "suv->pickup"
+    assert accepted["assistant_target"]["args"]["track_id"] == "track-2"
+    assert accepted["candidates"][1]["box_xyxy_normalized"] == [0.6, 0.1, 0.9, 0.4]
+    assert all(row["split"] == "train" for row in swapped)
+    test_rows = [json.loads(line) for line in (enabled / "test.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert not any(row["task_text"] == "Find the SUV." for row in test_rows)
+
+
+def test_confusable_rejects_keep_other_focus_when_primary_target_matches_task(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    worlds = [
+        ("gen-pair-car", "car", "Find the car and record its position.", "hatchback", "mailbox"),
+        # Distinct wording keeps the generated pair positive observable after
+        # deduplication against the ordinary true-target row.
+        ("gen-pair-suv", "suv", "Locate the SUV.", "suv", "postbox"),
+    ]
+    index = root / "index.json"
+    index.write_text(
+        json.dumps({
+            "asset_mode": "fuel_v1",
+            "worlds": [
+                {"world_id": world, "split": "train", "asset_mode": "fuel_v1",
+                 "task_text": task, "task_text_en": task,
+                 "target_combo": {"category": category}}
+                for world, category, task, _, _ in worlds
+            ],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(builder, "ROOT", root)
+    monkeypatch.setattr(runtime, "ROOT", root)
+    monkeypatch.setattr(builder, "_relative", lambda path: Path(path).name)
+    monkeypatch.setattr(builder, "_sdf_sizes", lambda path: {})
+    monkeypatch.setattr(builder, "load_sdf_obstacles", lambda path: [])
+
+    frames = []
+    expected = {}
+    for world, category, task, target_slug, distractor_slug in worlds:
+        target_id = f"target_true_{target_slug}"
+        distractor_id = f"paired_{distractor_slug}"
+        target = {
+            "target_id": target_id,
+            # Match generated fuel truth: the SUV's first word is its parent
+            # category, while the requested task names the SUV subtype.
+            "category_words": ["car", "suv"] if target_slug == "suv" else [category, target_slug],
+            "class": category,
+            "asset_slug": target_slug,
+            "true_target": True,
+        }
+        distractor = {
+            "target_id": distractor_id,
+            "category_words": [distractor_slug],
+            "class": distractor_slug,
+            "asset_slug": distractor_slug,
+            "true_target": False,
+        }
+        projected = [
+            {"target": target, "box": (10.0, 10.0, 50.0, 50.0), "class": category,
+             "color": None, "range_m": 10.0, "visible_fraction": 1.0},
+            {"target": distractor, "box": (60.0, 10.0, 90.0, 40.0),
+             "class": distractor_slug, "color": None, "range_m": 10.0,
+             "visible_fraction": 1.0},
+        ]
+        if target_slug == "suv":
+            for other_slug in ("hatchback", "pickup"):
+                projected.append({
+                    "target": {
+                        "target_id": f"other_{other_slug}",
+                        "class": "car" if other_slug == "hatchback" else other_slug,
+                        "asset_slug": other_slug,
+                        "category_words": ["car", other_slug],
+                        "true_target": False,
+                    },
+                    "box": (10.0, 60.0, 40.0, 90.0), "class": other_slug,
+                    "color": None, "range_m": 10.0, "visible_fraction": 1.0,
+                })
+        frame = root / f"{world}.jpg"
+        frame.write_bytes(b"frame")
+        slug = {"task_text": task, "task_text_en": task,
+                "task_category": category, "true_target": target}
+        frames.append(("campaign", world, "train", frame, (100, 100), slug,
+                       projected, {"_view_metadata": {"view": "front"}}, "before", {}, None))
+        expected[f"{category}->{distractor_slug}"] = (target_id, distractor_id)
+
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(frames))
+    output = root / "out"
+    report = builder.build_dataset([], output, index=index, confusable_negatives=True)
+    rows = [json.loads(line) for line in (output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    rejects = {
+        row["confusable_pair_type"]: row
+        for row in rows
+        if row.get("label_type") == "confusable_negative"
+        and row.get("confusable_pair_type") in expected
+    }
+
+    assert set(rejects) == set(expected)
+    assert report["conflicting_decision_groups"] == 0
+    for pair, (target_id, distractor_id) in expected.items():
+        assert report["source_counts"][f"confusable_pair:{pair}:positive"] == 1
+        rejected = rejects[pair]
+        assert rejected["target_id"] == distractor_id
+        assert rejected["assistant_target"]["decision"] == "reject_track"
+        assert rejected["assistant_target"]["args"]["track_id"] == "track-2"
+        matching_positive = next(
+            row for row in rows
+            if row["image_path"] == rejected["image_path"]
+            and row["task_text"] == rejected["task_text"]
+            and row["target_id"] == target_id
+            and row["assistant_target"]["decision"] in {"confirm_target", "approach_track"}
+        )
+        assert matching_positive["assistant_target"]["args"]["track_id"] == "track-1"
+        if pair == "suv->postbox":
+            assert matching_positive["label_type"] == "confusable_positive"
+            assert matching_positive["confusable_pair_type"] == pair
+
+    # Semantic matching must still respect an explicitly held-out SUV focus,
+    # including when it appears as a distractor in an otherwise allowed world.
+    document = json.loads(index.read_text(encoding="utf-8"))
+    document["held_out_target_combos"] = [{"slug": "suv"}]
+    index.write_text(json.dumps(document), encoding="utf-8")
+    car_frame = frames[0]
+    held_out_suv = {
+        **frames[1][6][0],
+        "target": {**frames[1][6][0]["target"], "target_id": "held_out_suv", "true_target": False},
+    }
+    extra_postbox = frames[1][6][1]
+    held_out_frames = [
+        (*car_frame[:6], [*car_frame[6], held_out_suv, extra_postbox], *car_frame[7:]),
+    ]
+    monkeypatch.setattr(builder, "_eligible_frames", lambda *args, **kwargs: iter(held_out_frames))
+    held_out_output = root / "held-out"
+    builder.build_dataset([], held_out_output, index=index, confusable_negatives=True, unseen_holdout=True)
+    held_out_rows = [json.loads(line) for line in (held_out_output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert not any(row.get("target_id") == "held_out_suv" for row in held_out_rows)
 
 
 def test_fuel_worlds_build_natural_bilingual_tasks_and_focused_decisions(tmp_path, monkeypatch):
@@ -707,3 +1007,31 @@ def test_relative_paths_of_main_checkout_data_from_a_worktree(tmp_path, monkeypa
     frame.parent.mkdir(parents=True)
     frame.write_bytes(b"png")
     assert _relative(frame) == "artifacts/r15-episodes/w/rgb/000000_before.png"
+
+
+def test_task_variant_positive_cap_is_per_world_view_pair_and_preserves_originals():
+    rows = []
+    for index in range(3):
+        rows.append({
+            "sample_id": f"orig-{index}", "world": "w", "view": "front",
+            "label_type": "true_target", "confusable_pair_type": None,
+            "assistant_target": {"decision": "confirm_target"},
+        })
+    for index in range(5):
+        rows.append({
+            "sample_id": f"variant-{index}", "world": "w", "view": "front",
+            "label_type": "confusable_positive", "confusable_pair_type": "postbox->suv",
+            "assistant_target": {"decision": "confirm_target"},
+        })
+    rows.append({
+        "sample_id": "other-view", "world": "w", "view": "oblique",
+        "label_type": "confusable_positive", "confusable_pair_type": "postbox->suv",
+        "assistant_target": {"decision": "confirm_target"},
+    })
+    selected, report = builder._cap_task_variant_positives(rows, positive_cap=1.0)
+    assert [row["sample_id"] for row in selected] == [
+        "orig-0", "orig-1", "orig-2", "variant-0", "variant-1", "variant-2"
+    ]
+    assert report["before"] == 6
+    assert report["after"] == 3
+    assert report["dropped"] == 3

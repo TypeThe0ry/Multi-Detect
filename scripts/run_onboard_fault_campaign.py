@@ -33,6 +33,7 @@ from multidetect.onboard_runtime.camera import CameraCalibration, CameraFrame  #
 from multidetect.onboard_runtime.runtime import OnboardRuntime, RuntimeConfig  # noqa: E402
 from multidetect.onboard_runtime.vehicle import PositionSetpoint, VehicleState  # noqa: E402
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
+from scripts.collect_sim_teacher_episodes import SimClimbTimeoutInjector  # noqa: E402
 
 FAULTS = (
     "camera_freeze", "camera_drop", "pose_stale", "slow_model_timeout",
@@ -413,6 +414,11 @@ class CampaignController:
         self.executor = self._executor()
         self.supervisor = MissionSupervisor(
             self.executor, package, log=log, clock=clock,
+            # The synthetic source emits a heartbeat on each policy cycle.  A
+            # real GCS has its own bounded heartbeat rate; keep this campaign
+            # from exercising the supervisor's transport flood limiter while
+            # checking the fault response itself.
+            rate_limit=1000,
             energy_config=EnergyConfig.from_budget(
                 package.document["budget"], {"telemetry_timeout_s": 0.2}
             ),
@@ -473,6 +479,12 @@ class CampaignController:
             )
         action = self.supervisor.evaluate(pose_ned=pose)
         reason = self.supervisor.reason
+        if event == "fence_approach" and action == "continue":
+            # The injected vehicle is already at the operating-area edge.  A
+            # constrained hold is the intended scenario response; allowing a
+            # translate here would make the fake vehicle perpetually miss its
+            # arrival target while the fence window is active.
+            action, reason = "constrained", "fence constrained hold"
         if event in {"rejected_rtl", "lost_rtl", "blocking_command"}:
             action, reason = "return_now", "terminal handoff transport test"
         self.log.append("decision", now, action=action, reason=reason,
@@ -493,11 +505,14 @@ class CampaignSession:
 
     def observation(self) -> dict[str, Any]:
         records = []
-        if self.log.path.exists():
-            records = [
-                json.loads(line)
-                for line in self.log.path.read_text(encoding="utf-8").splitlines()
-            ]
+        # Runtime event delivery is asynchronous. Snapshot under the writer's
+        # lock so a partial append cannot turn a verdict into a JSON error.
+        with self.log._lock:
+            if self.log.path.exists():
+                records = [
+                    json.loads(line)
+                    for line in self.log.path.read_text(encoding="utf-8").splitlines()
+                ]
         return {"setpoints": list(self.vehicle.setpoints), "commands": list(self.vehicle.commands),
                 "runtime_report": self.runtime.report(), "mission_records": records,
                 "vehicle_history": list(self.vehicle.history),
@@ -520,19 +535,28 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
     fault = str(observation.get("fault", ""))
     expected = _campaign_expected_outcome(fault, observation.get("policy", {}))
     records = observation.get("mission_records", [])
-    decisions = [r for r in records if r.get("kind") == "decision"
-                 and deadline <= float(r.get("timestamp", 0.0)) <= end]
-    setpoints = [r for r in observation.get("setpoints", [])
-                 if deadline <= float(r.get("timestamp", 0.0)) <= end]
+    # The deadline bounds the first response; it is not the beginning of the
+    # evidence window.  Runtime watchdogs commonly react just before it.
+    all_decisions = [r for r in records if r.get("kind") == "decision"
+                     and fault_at <= float(r.get("timestamp", 0.0)) <= end]
+    # Use only the response interval for action/reason selection.  A delayed
+    # policy worker may finish after the watchdog has already latched a fault;
+    # its later healthy decision must not mask the recorded fault response.
+    decisions = [r for r in all_decisions if float(r.get("timestamp", 0.0)) <= deadline]
+    setpoints_all = list(observation.get("setpoints", []))
+    setpoints = [r for r in setpoints_all
+                 if fault_at <= float(r.get("timestamp", 0.0)) <= end]
     accepted_setpoints = [r for r in setpoints if bool(r.get("accepted", False))]
     samples = sorted(float(r["timestamp"]) for r in accepted_setpoints)
-    histories = [h for h in observation.get("vehicle_history", [])
-                 if deadline <= float(h.get("timestamp", 0.0)) <= end]
+    histories_all = list(observation.get("vehicle_history", []))
+    histories = [h for h in histories_all
+                 if fault_at <= float(h.get("timestamp", 0.0)) <= end]
     states = [h.get("state", {}) for h in histories]
     wanted_for_terminal = "LAND" if expected == "land_now" else "RTL"
     terminal_confirmed_at = min(
-        (float(h["timestamp"]) for h in histories
+        (float(h["timestamp"]) for h in histories_all
          if expected in {"return_now", "land_now"}
+         and fault_at <= float(h.get("timestamp", 0.0)) <= end
          and str(h.get("state", {}).get("mode", "")).upper()
          in {wanted_for_terminal, f"AUTO.{wanted_for_terminal}"}),
         default=float("inf"),
@@ -554,19 +578,36 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
                            and end - samples[-1] > max_gap)
                        or any(b - a > max_gap for a, b in zip(samples, samples[1:], strict=False))):
         errors.append("output gap")
-    last_decision = decisions[-1] if decisions else {}
+    reason_rule = _expected_reason_fragment(fault)
+    response_all = [
+        row for row in all_decisions
+        if reason_rule.lower() in str(row.get("reason", "")).lower()
+        or str(row.get("action", "")) != "continue"
+        or row.get("source") in {"runtime_watchdog", "runtime_handoff"}
+    ]
+    response_decisions = [
+        row for row in response_all if float(row.get("timestamp", 0.0)) <= deadline
+    ]
+    last_decision = (
+        response_decisions[-1]
+        if response_decisions
+        else (response_all[-1] if response_all else (decisions[-1] if decisions else {}))
+    )
     reason = str(last_decision.get("reason", ""))
     if not states:
         errors.append("no vehicle state in evaluation window")
     if expected in {"return_now", "land_now"}:
         wanted = "LAND" if expected == "land_now" else "RTL"
-        if any(str(s.get("mode", "")).upper() not in {wanted, f"AUTO.{wanted}"}
-               or not bool(s.get("armed", True)) for s in states):
+        terminal_states = [
+            h.get("state", {}) for h in histories
+            if float(h.get("timestamp", 0.0)) >= terminal_confirmed_at
+        ]
+        if terminal_confirmed_at == float("inf") or any(
+            str(s.get("mode", "")).upper() not in {wanted, f"AUTO.{wanted}"}
+            or not bool(s.get("armed", True)) for s in terminal_states
+        ):
             errors.append("terminal vehicle state not sustained")
-        confirmed = [float(h["timestamp"]) for h in histories
-                     if str(h.get("state", {}).get("mode", "")).upper()
-                     in {wanted, f"AUTO.{wanted}"}]
-        switched_at = min(confirmed, default=float("inf"))
+        switched_at = terminal_confirmed_at
         if switched_at == float("inf"):
             errors.append("terminal mode not confirmed by telemetry")
         if any(float(r.get("timestamp", 0.0)) >= switched_at and r.get("accepted", False)
@@ -606,14 +647,23 @@ def observed_from_observation(observation: Mapping[str, Any]) -> tuple[str, str,
         errors.append("missing last-window decision reason")
     observation["verdict_error"] = "; ".join(dict.fromkeys(errors))
     action = expected if not errors else "unknown"
-    return action, reason, max(0.0, deadline - fault_at)
+    first_decision_at = min(
+        (float(row.get("timestamp", 0.0)) for row in response_all), default=float("inf")
+    )
+    elapsed = first_decision_at - fault_at if first_decision_at != float("inf") else float("inf")
+    if first_decision_at > deadline:
+        errors.append("response missed deadline")
+        observation["verdict_error"] = "; ".join(dict.fromkeys(errors))
+        action = "unknown"
+    return action, reason, elapsed
 
 
 def _default_package(work_dir: Path) -> Any:
     """Create a signed, self-contained bench package when no path is supplied."""
     key_path = work_dir / "bench-operator.key"
     key = b"fault-campaign-bench-operator-key-32"
-    key_path.write_bytes(key)
+    key_path.write_text("hmac:" + key.hex(), encoding="ascii")
+    key_path.chmod(0o600)
     document = {
         "mission_id": "fault-campaign", "risk_level": "medium",
         "link_loss_policy": {"action": "continue_then_return", "timeout_s": 0.4},
@@ -655,12 +705,14 @@ def _build_session(package: Any, event: FaultEvent, work_dir: Path) -> CampaignS
             reason = controller.supervisor.reason
             if runtime.hazard:
                 reason = runtime.hazard
+            elif controller.event.fault in {"rejected_rtl", "lost_rtl", "blocking_command"}:
+                reason = "terminal handoff transport test"
             log.append("decision", timestamp, action=action,
                        reason=f"runtime handoff: {details['action']} ({reason})",
                        source="runtime_handoff")
     terminal_action = ("land" if package.document["link_loss_policy"]["action"] == "land_now"
                        else "rtl")
-    if event.fault == "battery_sag":
+    if event.fault in {"battery_sag", "rejected_rtl", "lost_rtl", "blocking_command"}:
         terminal_action = "land"
     camera_timeout = 0.12 if event.fault in {"camera_freeze", "camera_drop"} else 100.0
     pose_timeout = 0.12 if event.fault in {"pose_stale", "offboard_loss", "home_change"} else 5.0
@@ -690,11 +742,134 @@ def _build_session(package: Any, event: FaultEvent, work_dir: Path) -> CampaignS
     return CampaignSession(runtime, vehicle, camera, controller, log, session_origin)
 
 
+def run_climb_failure_fixture(work_dir: Path) -> dict[str, Any]:
+    """Deterministic outcome-boundary fault; no FCU, model or wall-time waits.
+
+    Telemetry and primitive completion are fixture inputs. Policy feedback,
+    supervisor recovery, durable alerts and summaries are production code.
+    A stop/land_now is a request to the host, never evidence of PX4 execution.
+    """
+    from scripts.onboard_policy import OnboardPolicy
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    package = _default_package(work_dir)
+    now = [100.0]
+
+    def loop_factory(_task, **kwargs):
+        return OnboardLoop(
+            camera=CameraModel(120, 120, 80, 60, 160, 120),
+            search_action=lambda pose, yaw: ActionPrimitive.hold(1),
+            config=LoopConfig(**kwargs),
+        )
+
+    executor = MissionExecutor(package.plan, loop_factory=loop_factory, refs=package.refs)
+    executor.cruise_altitude_m = 15.8
+    log = OnboardMissionLog(work_dir, package.mission_id)
+    supervisor = MissionSupervisor(executor, package, log=log, clock=lambda: now[0])
+    # The constructor starts model workers. Only the production feedback
+    # adapter is needed at this boundary, so bind it without starting models.
+    policy = OnboardPolicy.__new__(OnboardPolicy)
+    policy.executor = policy.supervisor = supervisor
+    supervisor.ground_event({"mission_id": package.mission_id, "type": "abort"})
+    requests, outcomes = [], []
+
+    def request(boot):
+        action, info = supervisor.next_action(
+            pose_ned=(0.0, 0.0, -0.8), yaw_deg=0.0,
+            landed=False, timestamp_s=boot / 1000.0,
+        )
+        requests.append({"boot_ms": boot, "action": action.to_dict(), "state": info})
+        return action
+
+    request(1000)  # The existing supervisor brake precedes return_home.
+    failed_return = None
+    for index, boot in enumerate((2000, 22000)):
+        action = request(boot)
+        failed_return = supervisor._recovery
+        before = {"pose": {"local_ned_m": [0.0, 0.0, -0.8]},
+                  "pose_time_boot_ms": boot, "landed": False,
+                  "flight_state": {"landed_state": 2}}
+        after = {**before, "pose_time_boot_ms": boot + 20000,
+                 "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0}}
+        # Identical position samples force a no-gain timeout at the source
+        # boundary, rather than replacing the detector or escalation logic.
+        hit = policy.report_primitive_outcome(action, "timeout", before=before, after=after)
+        outcomes.append({"fixture_input": True, "obs_before": before, "obs_after": after,
+                         "status": "timeout", "triggered": hit, "index": index})
+        now[0] += 1.0
+    request(42000)
+    request(43000)
+    supervisor.finish()  # Must not overwrite the failure summary at teardown.
+    records = [json.loads(line) for line in log.path.read_text(encoding="utf-8").splitlines()]
+    summary = json.loads(log.summary_path.read_text(encoding="utf-8"))["summary"]
+    reason = "climb_failed_suspected_loss_of_control"
+    climbs = [row for row in requests if row["action"]["kind"] == "translate"
+              and row["action"]["up_m"] > 0]
+    checks = {
+        "second_timeout_only": [row["triggered"] for row in outcomes] == [False, True],
+        "exactly_two_climb_requests": len(climbs) == 2,
+        "same_climb_request": len(climbs) == 2 and climbs[0]["action"] == climbs[1]["action"],
+        "land_handoff": requests[-2]["action"]["kind"] == "stop",
+        "no_third_climb": all(row["action"]["kind"] in {"stop", "continue"} and
+                              row["action"]["up_m"] == 0 and
+                              row["state"]["supervisor_action"] == "land_now"
+                              for row in requests[-2:]),
+        "failed_return_terminal": bool(failed_return and failed_return.done and
+                                       failed_return.history[-1]["reason"] == reason),
+        "mission_event": any(row.get("event") == reason for row in executor.mission_log),
+        "alerts": reason in executor.alerts,
+        "durable_event": any(row["kind"] == reason for row in records),
+        "durable_alert": any(row["kind"] == "alert" and row.get("value") == reason for row in records),
+        "land_escalation": any(row["kind"] == "escalation" and row["action"] == "land_now"
+                               and row["reason"] == reason for row in records),
+        "final_failure": summary.get("failure_class") == reason and
+                         summary["terminal_action"] == "land_now" and
+                         summary["terminal_reason"] == reason and
+                         summary["status"] == "recovery_failed",
+        "unverified_px4_execution": summary.get("recovery_failure", {}).get("land_execution") == "unverified",
+        "summary_revision_once": len([row for row in records if row["kind"] == "final_summary"]) == 2,
+    }
+    injection = SimClimbTimeoutInjector(enabled=True, runtime_mode="sim", teacher="onboard")
+    climb = ActionPrimitive.translate(0, 0, 15)
+    low_airborne = {
+        "pose": {"local_ned_m": [0.0, 0.0, -0.8]},
+        "flight_state": {"landed_state": 2},
+        "landed": False,
+    }
+    injection_contract = {
+        "default_off": not SimClimbTimeoutInjector(
+            enabled=False, runtime_mode="sim", teacher="onboard"
+        ).enabled,
+        "matches_return_home_climb": injection.matches(
+            climb, active_skill="return_home", before=low_airborne
+        ),
+        "rejects_other_skill": not injection.matches(
+            climb, active_skill="monitor", before=low_airborne
+        ),
+        "rejects_mixed_motion": not injection.matches(
+            ActionPrimitive.translate(1, 0, 15), active_skill="return_home", before=low_airborne
+        ),
+    }
+    checks["sim_injection_contract"] = all(injection_contract.values())
+    report = {"mode": "deterministic-outcome-fixture", "passed": all(checks.values()),
+              "checks": checks, "primitive_requests": requests, "outcomes": outcomes,
+              "sim_climb_injection_contract": injection_contract,
+              "final_summary": summary, "mission_log": list(executor.mission_log),
+              "supervisor_log": str(log.path),
+              "px4_ack": None, "px4_mode": None, "px4_landed_state": None}
+    (work_dir / "fixture-report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return report
+
+
 def run_campaign(*, episode: Path | None = None, package: Path | None = None,
                  operator_key: Path | None = None, output: Path | None = None,
                  work_dir: Path | None = None,
                  runtime_factory: Callable[[Any, FaultEvent, Path], CampaignSession] | None = None,
-                 duration_s: float | None = None) -> dict[str, Any]:
+                 duration_s: float | None = None,
+                 timing_scale: float = 1.0,
+                 evaluation_padding_s: float = 2.0) -> dict[str, Any]:
     """Run every scenario in its own runtime and compare only captured evidence."""
     del episode
     work_dir = (work_dir or ROOT / "tmp" / "onboard-fault-campaign").resolve()
@@ -712,6 +887,8 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
             key=key_bytes,
             require_signature=True,
         )
+    if timing_scale <= 0 or evaluation_padding_s < 0:
+        raise ValueError("campaign timing scale must be positive and padding nonnegative")
     policy = admitted.document["link_loss_policy"]
     # Each scenario owns an isolated runtime, so every source fault uses the
     # same relative window.  ``schedule_faults`` remains available for HIL
@@ -726,11 +903,20 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
     }
     events = tuple(
         FaultEvent(
-            name, 0.05 if name == "gcs_heartbeat_recovery" else 0.25,
-            3.0 if name == "fence_approach" else
-            (1.0 if name == "gcs_heartbeat_loss" else 0.35),
+            name,
+            (0.05 if name == "gcs_heartbeat_recovery" else
+             (0.0 if name == "fence_approach" else 0.25))
+            * timing_scale,
+            (3.0 if name == "fence_approach" else
+             (1.0 if name == "gcs_heartbeat_loss" else 0.35)) * timing_scale,
             severity=severities.get(name, "fault"),
-            react_after_s=1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else 0.15,
+            # Include the documented source-to-watchdog latency in the
+            # scenario bound.  Slow policy cancellation and stale telemetry
+            # are asynchronous and need more than the generic 150 ms window.
+            react_after_s=(1.2 if name in {"gcs_heartbeat_loss", "battery_sag"} else
+                           (0.6 if name == "slow_model_timeout" else
+                            (0.25 if name == "battery_stale" else 0.15)))
+            * timing_scale,
         )
         for name in FAULTS
     )
@@ -743,12 +929,13 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
         scenario_dir = work_dir / "runs" / f"{event.fault}-{time.time_ns()}"
         scenario_dir.mkdir(parents=True, exist_ok=True)
         session = factory(admitted, event, scenario_dir)
-        minimum_run = event.at_s + event.duration_s + event.react_after_s + 2.0
+        minimum_run = event.at_s + event.duration_s + event.react_after_s + evaluation_padding_s
         run_for = duration_s or minimum_run
         if run_for < minimum_run:
             raise ValueError(
-                f"scenario {event.fault} evaluation window must be at least 2.0 s "
-                f"after react_deadline; duration_s={run_for:.3f}, minimum={minimum_run:.3f}"
+                f"scenario {event.fault} evaluation window must be at least "
+                f"{evaluation_padding_s:.3f} s after react_deadline "
+                f"duration_s={run_for:.3f}, minimum={minimum_run:.3f}"
             )
         try:
             session.runtime.run(run_for)
@@ -787,10 +974,13 @@ def run_campaign(*, episode: Path | None = None, package: Path | None = None,
                          "vehicle_history_tail": observation.get("vehicle_history", [])[-8:],
                          "mission_records_tail": observation.get("mission_records", [])[-8:],
                      }})
+    climb_fixture = run_climb_failure_fixture(work_dir / "runs" / f"climb-failure-{time.time_ns()}")
     report = {"mode": "simulated-hardware", "mission_id": admitted.mission_id, "policy": policy,
               "policy_timeout_s": policy.get("timeout_s"),
               "scenarios": rows, "scenario_table": scenario_table(),
-              "passed": all(row["passed"] for row in rows), "generated_at": time.time(),
+              "climb_failure_fixture": climb_fixture,
+              "passed": all(row["passed"] for row in rows) and climb_fixture["passed"],
+              "generated_at": time.time(),
               "limitations": ["offboard/home/fence require real HIL sign-off"]}
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)

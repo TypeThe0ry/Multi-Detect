@@ -109,6 +109,7 @@ from multidetect.simulation import load_runtime_scenario
 from multidetect.simulation.energy_replay import CumulativeSimulationEnergy
 from multidetect.simulator.flight_model import SimulationEnergyProfile
 from multidetect.simulator.stack import resolve_simulator_assets
+from multidetect.sim_network import sim_udpin_endpoint
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
@@ -515,7 +516,7 @@ class MissionTelemetrySession:
             raise VtolMissionAcceptanceError("invalid evaluator port")
         if evaluator_port == PROTECTED_GROUND_STATION_PORT:
             raise VtolMissionAcceptanceError("protected evaluator port")
-        self.endpoint = f"udpin:127.0.0.1:{evaluator_port}"
+        self.endpoint = sim_udpin_endpoint(evaluator_port)
         self.connection = mavutil.mavlink_connection(
             self.endpoint,
             source_system=GCS_SOURCE_SYSTEM,
@@ -2753,7 +2754,7 @@ def run_mission_acceptance(
             or telemetry_session.failed
             or telemetry_session.active
             or telemetry_session.container_id != expected_container_id
-            or telemetry_session.endpoint != f"udpin:127.0.0.1:{evaluator_port}"
+            or telemetry_session.endpoint != sim_udpin_endpoint(evaluator_port)
         ):
             raise VtolMissionAcceptanceError("invalid reused session before preflight")
         runtime_input = _prepare_while_collecting(
@@ -2805,7 +2806,7 @@ def run_mission_acceptance(
             f"stale mission journal already exists: {resolved_journal_path}"
         )
 
-    endpoint = f"udpin:127.0.0.1:{evaluator_port}"
+    endpoint = sim_udpin_endpoint(evaluator_port)
     connection: Any | None = None
     collector: TelemetryCollector | None = None
     session_acquired = False

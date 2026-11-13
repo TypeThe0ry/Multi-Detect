@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_mountain_boulder__clear_noon",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_mountain_boulder__clear_noon.runtime.json",
+   "sha256": "968b30533105d0e493a0e751d03c7334782bfee5548171435b6d4cfeb77e2c09"
+  },
+  "truth": {
+   "path": "rw_mountain_boulder__clear_noon.truth.json",
+   "sha256": "ccc64d728b21d02d084ac2f18be3b4c05fad17908aed05e90cd91d2d40ddde11"
+  },
+  "expectations": {
+   "path": "rw_mountain_boulder__clear_noon.expectations.json",
+   "sha256": "bd09ba25754e4be300352c56bd3741ca73eda6547d5628f2c0923c3ad4efbfc3"
+  }
+ }
+}

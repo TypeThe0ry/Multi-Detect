@@ -2,7 +2,15 @@
 
 from pathlib import Path
 
+from multidetect.host_paths import executable_name
+
 ROOT = Path(__file__).resolve().parents[4]
+
+
+def llama_server_path(root: Path = ROOT, *, platform: str | None = None) -> Path:
+    return root / "artifacts/cache/llama-cpp/b11552" / executable_name(
+        "llama-server", platform=platform
+    )
 
 DEFAULTS = {
     "airframe": "x500_mono_cam",
@@ -13,7 +21,9 @@ DEFAULTS = {
     "mmproj": ROOT
     / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
     "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
-    "llama_server": ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
+    "llama_server": llama_server_path(),
+    # Full-frame identity input only; candidate crops keep their own fixed size.
+    "identity_max_side": 448,
     # Leave batch sizing to the selected llama.cpp build unless a measured
     # hardware profile explicitly configures these optional limits.
     "llama_batch_size": None,
@@ -26,6 +36,10 @@ DEFAULTS = {
     "near_depth_min_interval_s": 0.2,
     "near_depth_max_age_s": 1.0,
     "near_depth_sigma_scale": 1.0,
+    # Initial, uncalibrated identity-view independence gates.
+    "confirm_min_view_bearing_deg": 25.0,
+    "confirm_min_view_pitch_deg": 10.0,
+    "confirm_min_view_altitude_m": 3.0,
 }
 
 # Target positioning defaults, kept typed (DEFAULTS above is stringified).

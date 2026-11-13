@@ -41,6 +41,9 @@ from scripts.gazebo_sensor_stream import (
     WireOrderValidator,
     _normalize_depth_float32,
     _odometry_from_message,
+    _frame_gimbal_state,
+    _frame_joint_state,
+    _joint_sample_from_message,
     _parse_depth_contract,
     _runtime_pixel_format_name,
     _shutdown_transport_node,
@@ -66,6 +69,234 @@ TEST_ATTITUDE_COVARIANCE = (
     0.0,
     0.0009,
 )
+
+
+def test_gimbal_state_gate_rejects_missing_and_stale_samples() -> None:
+    assert _frame_gimbal_state(None, 1_000_000_000) is None
+    sample = {
+        "stamp_ns": 800_000_000,
+        "joints": {
+            "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.2},
+            "cgo3_vertical_arm_joint": {"position_rad": 0.3, "velocity_rad_s": 0.4},
+            "cgo3_horizontal_arm_joint": {"position_rad": 0.5, "velocity_rad_s": 0.6},
+        },
+    }
+    assert _frame_gimbal_state(sample, 1_000_000_001) is None
+    assert _frame_gimbal_state({**sample, "joints": {}}, 1_000_000_000) is None
+
+
+def test_gimbal_state_gate_records_fresh_joint_values_and_separate_timestamps() -> None:
+    sample = _joint_sample_from_message(
+        _gazebo_message(
+            stamp_ns=950_000_000,
+            joint=[
+                SimpleNamespace(name=name, axis1=SimpleNamespace(position=pos, velocity=vel))
+                for name, pos, vel in (
+                    ("cgo3_camera_joint", 0.1, 0.2),
+                    ("cgo3_vertical_arm_joint", 0.3, 0.4),
+                    ("cgo3_horizontal_arm_joint", 0.5, 0.6),
+                )
+            ],
+        )
+    )
+    state = _frame_gimbal_state(sample, 1_000_000_000)
+    assert state is not None
+    assert state["timestamp_ns"] == 1_000_000_000
+    assert state["source_timestamp_ns"] == 950_000_000
+    assert state["source_skew_ns"] == 50_000_000
+    assert state["position_rad"] == {"pitch": 0.1, "yaw": 0.3, "roll": 0.5}
+    assert state["velocity_rad_s"] == {"pitch": 0.2, "yaw": 0.4, "roll": 0.6}
+
+
+def test_joint_state_gate_records_x500_rotors_with_the_rgb_timestamp() -> None:
+    sample = {
+        "stamp_ns": 950_000_000,
+        "joints": {
+            **{
+                f"rotor_{index}_joint": {
+                    "position_rad": float(index) + 0.1,
+                    "velocity_rad_s": (-1.0 if index % 2 else 1.0) * (10.0 + index),
+                }
+                for index in range(4)
+            },
+            "unrelated_joint": {"position_rad": 99.0, "velocity_rad_s": 0.0},
+        },
+    }
+    state = _frame_joint_state(sample, 1_000_000_000)
+    assert state is not None
+    assert state["timestamp_ns"] == 1_000_000_000
+    assert state["source_timestamp_ns"] == 950_000_000
+    propeller = state["propeller_joint_state"]
+    assert propeller["joint_names"] == [f"rotor_{index}_joint" for index in range(4)]
+    assert propeller["angles_rad"] == pytest.approx([0.1, 1.1, 2.1, 3.1])
+    assert propeller["spin_rad_s"] == pytest.approx([10.0, -11.0, 12.0, -13.0])
+    assert propeller["velocity_slowdown"] == 10
+
+
+def test_gimbal_joint_sample_contains_both_camera_axes_and_all_rotors() -> None:
+    joints = {
+        **{
+            f"rotor_{index}_joint": {
+                "position_rad": float(index),
+                "velocity_rad_s": float(index + 1),
+            }
+            for index in range(4)
+        },
+        "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.2},
+        "cgo3_vertical_arm_joint": {"position_rad": 0.3, "velocity_rad_s": 0.4},
+        "cgo3_horizontal_arm_joint": {"position_rad": 0.5, "velocity_rad_s": 0.6},
+    }
+    state = _frame_joint_state(
+        {"stamp_ns": 900, "joints": joints}, 1_000, require_complete=True
+    )
+
+    assert state is not None
+    assert state["gimbal_joint_state"]["position_rad"] == {
+        "pitch": 0.1,
+        "yaw": 0.3,
+        "roll": 0.5,
+    }
+    assert state["propeller_joint_state"]["angles_rad"] == [0.0, 1.0, 2.0, 3.0]
+    assert state["propeller_joint_state"]["spin_rad_s"] == [1.0, 2.0, 3.0, 4.0]
+
+
+def test_c11_gimbal_joint_sample_maps_all_axes_within_one_sample() -> None:
+    names = {
+        "pitch": "c11_pitch_joint",
+        "yaw": "c11_yaw_joint",
+        "roll": "c11_roll_joint",
+    }
+    joints = {
+        **{
+            f"rotor_{index}_joint": {
+                "position_rad": float(index),
+                "velocity_rad_s": float(index + 1),
+            }
+            for index in range(4)
+        },
+        **{
+            name: {
+                "position_rad": value,
+                "velocity_rad_s": value + 1.0,
+            }
+            for value, name in zip((0.1, 1.1, 2.1), names.values(), strict=True)
+        },
+    }
+    sample = _joint_sample_from_message(
+        _gazebo_message(
+            stamp_ns=950_000_000,
+            joint=[
+                SimpleNamespace(
+                    name=name,
+                    axis1=SimpleNamespace(
+                        position=value["position_rad"],
+                        velocity=value["velocity_rad_s"],
+                    ),
+                )
+                for name, value in joints.items()
+            ],
+        )
+    )
+
+    state = _frame_joint_state(sample, 1_000_000_000, require_complete=True)
+
+    assert state is not None
+    assert state["source_timestamp_ns"] == 950_000_000
+    assert state["source_skew_ns"] == 50_000_000
+    legacy_gimbal_state = _frame_gimbal_state(sample, 1_000_000_000)
+    assert legacy_gimbal_state is not None
+    assert legacy_gimbal_state["position_rad"] == {
+        "pitch": 0.1,
+        "yaw": 1.1,
+        "roll": 2.1,
+    }
+    assert state["gimbal_joint_state"]["position_rad"] == {
+        "pitch": 0.1,
+        "yaw": 1.1,
+        "roll": 2.1,
+    }
+    assert state["gimbal_joint_state"]["velocity_rad_s"] == {
+        "pitch": 1.1,
+        "yaw": 2.1,
+        "roll": 3.1,
+    }
+    assert state["propeller_joint_state"]["angles_rad"] == [0.0, 1.0, 2.0, 3.0]
+
+
+def test_gimbal_mapping_does_not_combine_axes_from_different_models() -> None:
+    joints = {
+        **{
+            f"rotor_{index}_joint": {"position_rad": 0.0, "velocity_rad_s": 1.0}
+            for index in range(4)
+        },
+        "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.0},
+        "cgo3_vertical_arm_joint": {"position_rad": 0.2, "velocity_rad_s": 0.0},
+        "c11_roll_joint": {"position_rad": 0.3, "velocity_rad_s": 0.0},
+    }
+    sample = {"stamp_ns": 900, "joints": joints}
+
+    assert _frame_gimbal_state(sample, 1_000) is None
+    assert _frame_joint_state(sample, 1_000, require_complete=True) is None
+
+
+@pytest.mark.parametrize("missing", ["rotors", "gimbal"])
+def test_gimbal_frame_contract_rejects_partial_actuator_state(missing: str) -> None:
+    joints = {
+        **{
+            f"rotor_{index}_joint": {"position_rad": 0.0, "velocity_rad_s": 1.0}
+            for index in range(4)
+        },
+        "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.0},
+        "cgo3_vertical_arm_joint": {"position_rad": 0.2, "velocity_rad_s": 0.0},
+        "cgo3_horizontal_arm_joint": {"position_rad": 0.3, "velocity_rad_s": 0.0},
+    }
+    if missing == "rotors":
+        del joints["rotor_2_joint"]
+    else:
+        del joints["cgo3_vertical_arm_joint"]
+
+    state = _frame_joint_state(
+        {"stamp_ns": 900, "joints": joints}, 1_000, require_complete=True
+    )
+    assert state is None
+
+
+def test_joint_parser_rejects_non_finite_actuator_values_for_gimbal_frames() -> None:
+    joints = {
+        **{
+            f"rotor_{index}_joint": {"position_rad": float(index), "velocity_rad_s": 1.0}
+            for index in range(4)
+        },
+        "cgo3_camera_joint": {"position_rad": 0.1, "velocity_rad_s": 0.0},
+        "cgo3_vertical_arm_joint": {"position_rad": 0.2, "velocity_rad_s": 0.0},
+        "cgo3_horizontal_arm_joint": {"position_rad": 0.3, "velocity_rad_s": 0.0},
+    }
+    joints["rotor_2_joint"]["velocity_rad_s"] = float("nan")
+    sample = _joint_sample_from_message(
+        _gazebo_message(
+            stamp_ns=900,
+            joint=[
+                SimpleNamespace(
+                    name=name,
+                    axis1=SimpleNamespace(
+                        position=value["position_rad"],
+                        velocity=value["velocity_rad_s"],
+                    ),
+                )
+                for name, value in joints.items()
+            ],
+        )
+    )
+    assert _frame_joint_state(sample, 1_000, require_complete=True) is None
+
+
+def test_rotor_state_is_optional_for_legacy_joint_samples() -> None:
+    sample = {
+        "stamp_ns": 950_000_000,
+        "joints": {"other_joint": {"position_rad": 0.0, "velocity_rad_s": 0.0}},
+    }
+    assert _frame_joint_state(sample, 1_000_000_000) is None
+    assert _frame_joint_state(sample, 1_100_000_001) is None
 
 
 def _frame(

@@ -6,10 +6,57 @@ import math
 import threading
 import time
 from bisect import bisect_left
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, BinaryIO
+
+from multidetect.camera_mount import CameraMount, compose_camera_pose
+from multidetect.gimbal_controller import parse_gimbal_device_attitude_status
+
+GIMBAL_FEEDBACK_MAX_AGE_S = 1.0
+
+
+def gimbal_angles_from_status(
+    status: Any,
+    *,
+    vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0,
+) -> dict[str, float] | None:
+    q = status.get("q") if isinstance(status, Mapping) else _field(status, "q", None)
+    if not isinstance(q, (list, tuple)) or len(q) < 4:
+        return None
+    try:
+        w, x, y, z = (float(value) for value in q[:4])
+        norm = math.sqrt(w * w + x * x + y * y + z * z)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(norm) or norm <= 1e-9:
+        return None
+    w, x, y, z = (value / norm for value in (w, x, y, z))
+    yaw = math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
+    flags = int(_field(status, "flags", 0) or 0)
+    if vehicle_yaw_deg is not None and flags & 64:
+        yaw -= float(vehicle_yaw_deg)
+    yaw = (yaw + float(yaw_correction_deg) + 180.0) % 360.0 - 180.0
+    return {
+        "roll": math.degrees(math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))),
+        "pitch": math.degrees(math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))),
+        "yaw": yaw,
+    }
+
+
+def gimbal_angles_from_joint_state(joint_state: Any) -> dict[str, float] | None:
+    if not isinstance(joint_state, Mapping) or joint_state.get("fresh") is False:
+        return None
+    positions = joint_state.get("position_rad")
+    if not isinstance(positions, Mapping):
+        return None
+    try:
+        values = {axis: math.degrees(float(positions[axis])) for axis in ("yaw", "roll", "pitch")}
+    except (KeyError, TypeError, ValueError):
+        return None
+    return values if all(math.isfinite(value) for value in values.values()) else None
 
 
 class LatestWinsBuffer:
@@ -75,6 +122,10 @@ class SensorSample:
     depth_frame: Any = None
     segmentation: Any = None
     segmentation_info: dict[str, Any] | None = None
+    # Optional simulator joint sidecar.  Older MDGZSIM3 frames do not carry
+    # this value and remain valid; newer collectors may provide gimbal and
+    # propeller joint samples without changing the RGB wire contract.
+    joint_state: dict[str, Any] | None = None
 
 
 def _import_wire_helpers() -> tuple[Any, Any, Any]:
@@ -264,6 +315,11 @@ class SensorStreamReader:
                         .copy()
                     )
                     segmentation_info = dict(segmentation_frame.metadata)
+                joint_state = None
+                if depth_frame is not None:
+                    sidecar = depth_frame.metadata.get("joint_state")
+                    if isinstance(sidecar, Mapping):
+                        joint_state = dict(sidecar)
                 stamp = self.clock()
                 sample = SensorSample(
                     rgb=bytes(payload),
@@ -299,6 +355,7 @@ class SensorStreamReader:
                     depth_frame=depth_frame,
                     segmentation=segmentation,
                     segmentation_info=segmentation_info,
+                    joint_state=joint_state,
                 )
                 self.buffer.put(sample)
                 self.latest = sample
@@ -379,8 +436,10 @@ class MavlinkReader:
     # with nothing on the wire is a delivery gap, not a slow stream.
     VEHICLE_GAP_MS = 1_000
     VEHICLE_GAPS_KEPT = 16
-    POSE_HISTORY_MS = 5_000
-    POSE_HISTORY_MAX_SAMPLES = 1_024
+    # Keep enough simulation history for delayed Gazebo frames to be aligned to
+    # the PX4 pose timestamp instead of silently falling back to the newest pose.
+    POSE_HISTORY_MS = 30_000
+    POSE_HISTORY_MAX_SAMPLES = 16_384
     TRACKED = frozenset(
         {
             "LOCAL_POSITION_NED",
@@ -403,6 +462,10 @@ class MavlinkReader:
             "WIND_COV",
             "HEALTH_REPORT",
             "STATUSTEXT",
+            "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            "GIMBAL_MANAGER_STATUS",
+            "ACTUATOR_OUTPUT_STATUS",
+            "ESC_STATUS",
         }
     )
 
@@ -423,14 +486,33 @@ class MavlinkReader:
         self._stop = threading.Event()
         self._thread = None
         self._vehicle_newest_ms: int | None = None
+        self._gimbal_events = deque(maxlen=4096)
+        self._gimbal_event_sequence = 0
         self.progress = progress
+        self._health_check: Callable[[], None] | None = None
+
         self.message_counts: Counter[str] = Counter()
+        self.last_message_type: str | None = None
+        self.last_message_monotonic_ns: int | None = None
+        self.last_message_vehicle_ms: int | None = None
         self.parse_errors = 0
         self.bad_crc = 0
+        self.recent_messages: deque[dict[str, Any]] = deque(maxlen=16)
         self._pose_condition = threading.Condition()
         self._pose_history: dict[str, list[tuple[int, dict[str, Any], int, float]]] = {
             name: [] for name in self.POSE_TYPES
         }
+
+    def gimbal_events_cursor(self) -> int:
+        with self._pose_condition:
+            return self._gimbal_event_sequence
+
+    def gimbal_events_since(self, cursor: int):
+        with self._pose_condition:
+            if self._gimbal_events and cursor < self._gimbal_events[0][0] - 1:
+                raise RuntimeError("gimbal telemetry event buffer overflow")
+            events = [(name, message, stamp, vehicle_ms) for seq, name, message, stamp, vehicle_ms in self._gimbal_events if seq > cursor]
+            return self._gimbal_event_sequence, events
 
     def _record_pose_message(self, name: str, message: Any, mono: int, wall: float) -> None:
         """Copy timestamped pose data while the receiver owns the message."""
@@ -511,6 +593,21 @@ class MavlinkReader:
     def stats(self) -> dict[str, Any]:
         """Return a snapshot suitable for progress logs and diagnostics."""
         thread = self._thread
+        socket_state: dict[str, Any] = {"available": False}
+        for attribute in ("port", "socket"):
+            candidate = getattr(self.connection, attribute, None)
+            if candidate is None:
+                continue
+            socket_state = {"available": True, "attribute": attribute}
+            try:
+                socket_state["closed"] = bool(candidate._closed)
+            except Exception:
+                pass
+            try:
+                socket_state["fileno"] = int(candidate.fileno())
+            except Exception as exc:
+                socket_state["fileno_error"] = repr(exc)
+            break
         return {
             "received_messages": self.state.count,
             "message_counts": dict(self.message_counts),
@@ -518,16 +615,28 @@ class MavlinkReader:
             "bad_crc": self.bad_crc,
             "thread_alive": bool(thread is not None and thread.is_alive()),
             "error": None if self.error is None else repr(self.error),
+            "last_exception": None if self.error is None else repr(self.error),
+            "socket": socket_state,
+            "recent_messages": list(self.recent_messages),
+            "last_message_type": self.last_message_type,
+            "last_message_monotonic_ns": self.last_message_monotonic_ns,
+            "last_message_vehicle_ms": self.last_message_vehicle_ms,
         }
 
     def raise_if_failed(self) -> None:
         """Raise a reader failure in the owning episode thread."""
+        if self._health_check is not None:
+            self._health_check()
         if self.error is not None:
             raise RuntimeError(
                 "MAVLink reader failed: "
                 f"{self.error}; messages={self.state.count}; "
                 f"parse_errors={self.parse_errors}; bad_crc={self.bad_crc}"
             ) from self.error
+
+    def set_health_check(self, callback: Callable[[], None] | None) -> None:
+        """Attach an owning-loop health check evaluated at existing poll points."""
+        self._health_check = callback
 
     def start(self) -> MavlinkReader:
         if self._thread is not None:
@@ -555,9 +664,15 @@ class MavlinkReader:
         if isinstance(message, Mapping):
             return dict(message)
         try:
-            return dict(message.to_dict())
+            result = dict(message.to_dict())
         except Exception:
-            return {"message": str(message)}
+            result = {"message": str(message)}
+        for key, getter in (("_source_system", "get_srcSystem"),
+                            ("_source_component", "get_srcComponent")):
+            method = getattr(message, getter, None)
+            if callable(method):
+                result[key] = method()
+        return result
 
     def _run(self) -> None:
         raw_receiver = getattr(self.connection, "recv_msg", None)
@@ -582,6 +697,22 @@ class MavlinkReader:
                         selector(0.01)
                     continue
                 name = self._type(message)
+                boot_ms = _field(message, "time_boot_ms", None)
+                mono = self.clock()
+                self.last_message_type = name
+                self.last_message_monotonic_ns = mono
+                self.last_message_vehicle_ms = (
+                    boot_ms
+                    if isinstance(boot_ms, int) and not isinstance(boot_ms, bool)
+                    else None
+                )
+                self.recent_messages.append(
+                    {
+                        "type": name,
+                        "time_boot_ms": self.last_message_vehicle_ms,
+                        "receive_monotonic_ns": mono,
+                    }
+                )
                 self.message_counts[name] += 1
                 self.state.count += 1
                 if name == "BAD_DATA":
@@ -594,15 +725,13 @@ class MavlinkReader:
                         row.update(
                             {
                                 "message_type": name,
-                                "receive_monotonic_ns": self.clock(),
+                                "receive_monotonic_ns": mono,
                                 "receive_wall_time": time.time(),
                             }
                         )
                         self.on_message(row)
                     continue
-                mono = self.clock()
                 wall = time.time()
-                boot_ms = _field(message, "time_boot_ms", None)
                 if isinstance(boot_ms, int) and not isinstance(boot_ms, bool) and boot_ms >= 0:
                     with self._pose_condition:
                         # Measured from the newest clock seen, so a stray older
@@ -618,6 +747,9 @@ class MavlinkReader:
                 if name in self.TRACKED:
                     with self._pose_condition:
                         self.state.messages[name] = message
+                        if name in {"COMMAND_ACK", "GIMBAL_MANAGER_STATUS", "GIMBAL_DEVICE_ATTITUDE_STATUS"}:
+                            self._gimbal_event_sequence += 1
+                            self._gimbal_events.append((self._gimbal_event_sequence, name, message, mono, self.state.vehicle_time_boot_ms))
                         self.state.received_monotonic_ns[name] = mono
                         self.state.received_wall_time[name] = wall
                         if self.state.vehicle_time_boot_ms is not None:
@@ -729,6 +861,81 @@ def simulation_stamp_skew_ms(
     return frame_sensor_stamp_ns / 1_000_000.0 - float(pose_time_boot_ms)
 
 
+def _propeller_joint_state(mavlink: MavlinkState, timestamp_ns: int) -> dict[str, Any]:
+    """Normalize ESC RPM when present; actuator outputs do not measure rotor spin."""
+    message = mavlink.get("ESC_STATUS")
+    if message is None:
+        return {
+            "timestamp_ns": int(timestamp_ns),
+            "angles_rad": [],
+            "spin_rad_s": [],
+            "source": "unavailable",
+        }
+    getter = (
+        message.get
+        if isinstance(message, Mapping)
+        else lambda key, default=None: getattr(message, key, default)
+    )
+    rpm = getter("rpm", None)
+    if not isinstance(rpm, (list, tuple)):
+        rpm = []
+    spin = [
+        float(value) * 2.0 * math.pi / 60.0
+        for value in rpm
+        if isinstance(value, (int, float)) and math.isfinite(float(value))
+    ]
+    return {
+        "timestamp_ns": int(timestamp_ns),
+        "angles_rad": [],
+        "spin_rad_s": [
+            float(value)
+            for value in spin
+            if isinstance(value, (int, float)) and math.isfinite(float(value))
+        ],
+        "source": "ESC_STATUS.rpm" if spin else "unavailable",
+    }
+
+
+def validate_gimbal_recording_observation(observation: Mapping[str, Any]) -> None:
+    """Reject gimbal observations that are not measured, complete RGB sidecars."""
+    rgb_stamp = observation.get("frame_sensor_stamp_ns")
+    if isinstance(rgb_stamp, bool) or not isinstance(rgb_stamp, int) or rgb_stamp <= 0:
+        raise ValueError("gimbal recording requires a positive RGB sensor timestamp")
+
+    gimbal = observation.get("gimbal_joint_state")
+    if not isinstance(gimbal, Mapping) or gimbal.get("source") != "gazebo_joint_state":
+        raise ValueError("gimbal recording requires Gazebo joint-state feedback")
+    if gimbal.get("timestamp_ns") != rgb_stamp:
+        raise ValueError("gimbal joint timestamp does not match RGB sensor timestamp")
+    positions = gimbal.get("position_rad")
+    velocities = gimbal.get("velocity_rad_s")
+    axes = ("pitch", "yaw", "roll")
+    if not isinstance(positions, Mapping) or not isinstance(velocities, Mapping):
+        raise ValueError("gimbal recording requires position and velocity for all three axes")
+    if not all(_finite_number(positions.get(axis)) and _finite_number(velocities.get(axis)) for axis in axes):
+        raise ValueError("gimbal recording requires finite position and velocity for all three axes")
+
+    propellers = observation.get("propeller_joint_state")
+    if not isinstance(propellers, Mapping) or propellers.get("source") != "gazebo_joint_state":
+        raise ValueError("gimbal recording requires Gazebo propeller joint-state feedback")
+    if propellers.get("timestamp_ns") != rgb_stamp:
+        raise ValueError("propeller joint timestamp does not match RGB sensor timestamp")
+    angles = propellers.get("angles_rad")
+    spin = propellers.get("spin_rad_s")
+    if not isinstance(angles, (list, tuple)) or not isinstance(spin, (list, tuple)):
+        raise ValueError("gimbal recording requires four propeller angles and spin rates")
+    if len(angles) != 4 or len(spin) != 4:
+        raise ValueError("gimbal recording requires exactly four propeller angles and spin rates")
+    if not all(_finite_number(value) for value in (*angles, *spin)):
+        raise ValueError("gimbal recording requires finite propeller angles and spin rates")
+    if not any(float(value) != 0.0 for value in spin):
+        raise ValueError("gimbal recording requires at least one nonzero rotor spin rate")
+
+
+def _finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def _ground_agl(
     sensor: SensorSample, mavlink: MavlinkState, *, max_age_s: float
 ) -> dict[str, Any] | None:
@@ -793,6 +1000,8 @@ def build_observation(
     *,
     camera_info: Mapping[str, object] | None = None,
     ground_agl_max_age_s: float | None = None,
+    camera_mount: CameraMount | None = None,
+    gimbal_yaw_correction_deg: float | None = None,
 ) -> dict[str, Any]:
     local, attitude, global_pos, gps = (
         mavlink.get(name)
@@ -895,6 +1104,7 @@ def build_observation(
     else:
         pose_time_boot_ms = None
         sim_skew_ms = None
+    gimbal_status = mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
     result = {
         "rgb": rgb_value,
         "depth": sensor.depth,
@@ -928,6 +1138,9 @@ def build_observation(
             "vtol_state": vtol_state,
             "landed_state": landed_state,
             "airspeed_mps": airspeed_mps,
+            "gimbal_status": (
+                MavlinkReader._mapping(gimbal_status) if gimbal_status is not None else None
+            ),
         },
         "airspeed_mps": airspeed_mps,
         "sensor_status": "live",
@@ -945,6 +1158,156 @@ def build_observation(
         "pose_received_monotonic_ns": pose_stamp,
         "frame_pose_skew_ns": sensor.received_monotonic_ns - pose_stamp,
     }
+    gimbal_angles = gimbal_angles_from_status(
+        gimbal_status,
+        vehicle_yaw_deg=(
+            math.degrees(float(_field(attitude, "yaw", 0.0)))
+            if gimbal_yaw_correction_deg is not None
+            else None
+        ),
+        yaw_correction_deg=float(gimbal_yaw_correction_deg or 0.0),
+    )
+    sidecar = sensor.joint_state if isinstance(sensor.joint_state, Mapping) else {}
+    sidecar_gimbal = sidecar.get("gimbal_joint_state")
+    sidecar_propeller = sidecar.get("propeller_joint_state")
+    joint_angles = gimbal_angles_from_joint_state(sidecar_gimbal)
+    if joint_angles is not None:
+        gimbal_angles = joint_angles
+    if gimbal_angles is not None:
+        result["gimbal_angles_deg"] = gimbal_angles
+    result["gimbal"] = {
+        "available": gimbal_status is not None or joint_angles is not None,
+        "angles_deg": gimbal_angles,
+        "observed_at_ns": mavlink.received_monotonic_ns.get(
+            "GIMBAL_DEVICE_ATTITUDE_STATUS"
+        ),
+    }
+    # Gimbal feedback is meaningful only for airframes that declare a gimbal.
+    # Fixed mounts retain their legacy projection path; their fixed geometry
+    # is represented by the airframe profile rather than a per-frame pose.
+    gimbal = (
+        mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+        if camera_mount is not None and camera_mount.kind == "gimbal"
+        else None
+    )
+    gimbal_state = parse_gimbal_device_attitude_status(gimbal) if gimbal is not None else None
+    gimbal_received_ns = mavlink.received_monotonic_ns.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_age_s = (
+        None
+        if gimbal_received_ns is None
+        else (sensor.received_monotonic_ns - gimbal_received_ns) / 1e9
+    )
+    gimbal_fresh = gimbal_state is not None and (
+        gimbal_age_s is None or 0.0 <= gimbal_age_s <= GIMBAL_FEEDBACK_MAX_AGE_S
+    )
+    if gimbal_state is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+        within_limits = all(
+            lower <= value <= upper
+            for value, lower, upper in (
+                (
+                    gimbal_state.pitch_rad,
+                    camera_mount.limits.pitch_min_rad,
+                    camera_mount.limits.pitch_max_rad,
+                ),
+                (
+                    gimbal_state.yaw_rad,
+                    camera_mount.limits.yaw_min_rad,
+                    camera_mount.limits.yaw_max_rad,
+                ),
+                (
+                    gimbal_state.roll_rad,
+                    camera_mount.limits.roll_min_rad,
+                    camera_mount.limits.roll_max_rad,
+                ),
+            )
+        )
+        result["gimbal_state"] = {
+            "pitch_rad": gimbal_state.pitch_rad,
+            "yaw_rad": gimbal_state.yaw_rad,
+            "roll_rad": gimbal_state.roll_rad,
+            "rotation": list(gimbal_state.rotation) if gimbal_state.rotation is not None else None,
+            "timestamp_us": gimbal_state.timestamp_us,
+            "yaw_frame": gimbal_state.yaw_frame,
+            "age_s": gimbal_age_s,
+            "fresh": gimbal_fresh,
+            "within_limits": within_limits,
+            "out_of_limits": not within_limits,
+            "source": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+        }
+        result["gimbal_joint_state"] = {
+            "timestamp_ns": sensor.sensor_stamp_ns,
+            "position_rad": {
+                "pitch": gimbal_state.pitch_rad,
+                "yaw": gimbal_state.yaw_rad,
+                "roll": gimbal_state.roll_rad,
+            },
+            "velocity_rad_s": dict(sidecar_gimbal.get("velocity_rad_s", {}))
+            if isinstance(sidecar_gimbal, Mapping)
+            else {},
+            "source": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            "fresh": gimbal_fresh,
+        }
+        if gimbal_fresh:
+            rotation_frame = (
+                gimbal_state.yaw_frame
+                if gimbal_state.yaw_frame in {"body", "world"}
+                else ("world" if camera_mount.stabilization == "lock-horizon" else "body")
+            )
+            composed = compose_camera_pose(
+                tuple(ned),
+                vehicle_roll_rad=math.radians(result["attitude"]["roll_deg"]),
+                vehicle_pitch_rad=math.radians(result["attitude"]["pitch_deg"]),
+                vehicle_yaw_rad=math.radians(result["attitude"]["yaw_deg"]),
+                mount=camera_mount,
+                rotation_override=gimbal_state.rotation,
+                rotation_frame=rotation_frame,
+            )
+            result["camera_pose"] = {
+                "center_ned": list(composed.center_ned),
+                "optical_to_world": list(composed.optical_to_world),
+                "source": "composed",
+                "gimbal_timestamp_us": gimbal_state.timestamp_us,
+                "gimbal_feedback_fresh": True,
+                "gimbal_feedback_out_of_limits": not within_limits,
+            }
+    elif camera_mount is not None:
+        # Fixed-camera episodes use the same explicit state shape.  This makes
+        # consumers independent of the airframe profile while preserving the
+        # old fields and old readers.
+        result["gimbal_joint_state"] = {
+            "timestamp_ns": sensor.sensor_stamp_ns,
+            "position_rad": {
+                "pitch": camera_mount.pitch_rad,
+                "yaw": camera_mount.yaw_rad,
+                "roll": camera_mount.roll_rad,
+            },
+            "velocity_rad_s": {},
+            "source": "fixed_mount" if camera_mount.kind == "fixed" else "unavailable",
+            "fresh": camera_mount.kind == "fixed",
+        }
+    if camera_mount is not None and "gimbal_joint_state" not in result:
+        result["gimbal_joint_state"] = {
+            "timestamp_ns": sensor.sensor_stamp_ns,
+            "position_rad": {},
+            "velocity_rad_s": {},
+            "source": "unavailable",
+            "fresh": False,
+        }
+    if isinstance(sidecar_gimbal, Mapping):
+        # The simulator joint sidecar is an independent measured state.  Do
+        # not merge it with the MAVLink feedback-derived shape: a stale
+        # high-level sample must never leak an angle, velocity, or freshness
+        # field into the fresh joint record.
+        result["gimbal_joint_state"] = dict(sidecar_gimbal)
+        result["gimbal_joint_state"]["timestamp_ns"] = int(
+            sidecar_gimbal.get("timestamp_ns", sensor.sensor_stamp_ns)
+        )
+    if isinstance(sidecar_propeller, Mapping):
+        result["propeller_joint_state"] = dict(sidecar_propeller)
+    else:
+        # PX4 ESC feedback has RPM but no rotor phase. Simulator joint sidecars
+        # can provide both values when the model publishes them.
+        result["propeller_joint_state"] = _propeller_joint_state(mavlink, sensor.sensor_stamp_ns)
     if sensor.segmentation is not None:
         result["segmentation"] = sensor.segmentation
         result["segmentation_info"] = sensor.segmentation_info
@@ -963,4 +1326,7 @@ __all__ = [
     "MavlinkReader",
     "simulation_stamp_skew_ms",
     "build_observation",
+    "gimbal_angles_from_status",
+    "gimbal_angles_from_joint_state",
+    "validate_gimbal_recording_observation",
 ]

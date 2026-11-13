@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_alpine_grindelwald__rain",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_alpine_grindelwald__rain.runtime.json",
+   "sha256": "10031198d6ce158792aef07a9ab440935a19715bac7c44d48d57214669483a76"
+  },
+  "truth": {
+   "path": "rw_alpine_grindelwald__rain.truth.json",
+   "sha256": "c0abf51339952b84e892b41ef5a13bc9bc2e1ebea3c4dee9ad31528ae17aa937"
+  },
+  "expectations": {
+   "path": "rw_alpine_grindelwald__rain.expectations.json",
+   "sha256": "d85e1aa895126ba89b1413a7754db360130f57e4ffe7f97e935773578be949f6"
+  }
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_rotterdam__dusk",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_rotterdam__dusk.runtime.json",
+   "sha256": "2881a5b8b547d7bc11499026c8cbd92240d1d6d59e53117d408c1e65e505fc8c"
+  },
+  "truth": {
+   "path": "rw_port_rotterdam__dusk.truth.json",
+   "sha256": "e48934bdb5373f2e6ae2bb1673534cca6ff5d66f8bfc4aa832132129006e54c5"
+  },
+  "expectations": {
+   "path": "rw_port_rotterdam__dusk.expectations.json",
+   "sha256": "5038fe32a2a1e39f7ef9d2dbd7a4ae007a308f9aecd7447b15118683f77fccdb"
+  }
+ }
+}

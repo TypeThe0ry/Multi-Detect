@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_rotterdam__partly_cloudy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_rotterdam__partly_cloudy.runtime.json",
+   "sha256": "ce718f5fe7c2b3652dc9aff3dda54d633e003e11ad164bdef13ef6700ad61a5e"
+  },
+  "truth": {
+   "path": "rw_port_rotterdam__partly_cloudy.truth.json",
+   "sha256": "548254922b84e5be8de88d743318e66c5cbc905bc3948cd69d5aa06421eb02b6"
+  },
+  "expectations": {
+   "path": "rw_port_rotterdam__partly_cloudy.expectations.json",
+   "sha256": "458f57e3f19d06a7b8aa4bfd9f541862e1a4cd3567776873fe0601b0064f6bc0"
+  }
+ }
+}

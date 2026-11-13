@@ -5,6 +5,7 @@ from __future__ import annotations
 import array
 import copy
 import hashlib
+import importlib.util
 import json
 import struct
 import subprocess
@@ -614,9 +615,20 @@ def test_all_nine_materialized_rows_pass_unmodified_frozen_context_bridge(tmp_pa
 
 
 def test_actual_bad_data_primary_bytes_held_but_foreign(tmp_path):
-    from test_onboard_teacher_telemetry_capture_v2 import installed_dialect
-
-    primary = installed_dialect.__wrapped__()
+    pymavlink_spec = importlib.util.find_spec("pymavlink")
+    if pymavlink_spec is None or not pymavlink_spec.submodule_search_locations:
+        pytest.skip("optional dependency pymavlink is not installed")
+    primary_path = (
+        Path(next(iter(pymavlink_spec.submodule_search_locations)))
+        / "dialects/v20/ardupilotmega.py"
+    )
+    if not primary_path.is_file():
+        pytest.skip("pymavlink ardupilotmega dialect is not installed")
+    spec = importlib.util.spec_from_file_location(
+        "teacher_v3_primary_dialect_fixture", primary_path
+    )
+    primary = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(primary)
     message = primary.MAVLink_bad_data(bytearray(b"\x00\xffbad"), "CPU fixture")
     cap, _ = capture(tmp_path)
     row = cap.append_batch([(message, 10.0)])[0]

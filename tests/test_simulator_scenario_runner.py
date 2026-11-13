@@ -4,6 +4,7 @@ import json
 import shutil
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,10 +27,40 @@ from multidetect.simulator import (
     SimulatorScenarioRunnerConfig,
     SimulatorScenarioRunnerError,
 )
-from multidetect.simulator.scenario_runner import main as scenario_runner_main
+from multidetect.simulator.scenario_runner import _infer_mode, main as scenario_runner_main
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
+
+
+@pytest.mark.parametrize("airframe", ["x500_mono_cam", "x500_gimbal"])
+def test_infer_mode_uses_shared_profile_category_for_both_camera_mounts(airframe: str) -> None:
+    runtime = load_runtime_scenario(MANIFEST, mode=RuntimeMode.SIM)
+    runtime = replace(
+        runtime,
+        vehicle=replace(runtime.vehicle, model="unclassified_model", airframe_profile_id=airframe),
+    )
+    assert _infer_mode(runtime, None) is FlightMode.MULTIROTOR
+
+
+@pytest.mark.parametrize(
+    ("airframe_profile_id", "model", "expected"),
+    [
+        (None, "px4_vtol_standard", FlightMode.VTOL),
+        ("", "px4_multirotor_standard", FlightMode.MULTIROTOR),
+        ("unknown_airframe", "px4_vtol_standard", FlightMode.VTOL),
+    ],
+)
+def test_infer_mode_falls_back_to_model_tokens_without_a_profile(
+    airframe_profile_id: str | None, model: str, expected: FlightMode
+) -> None:
+    runtime = SimpleNamespace(
+        vehicle=SimpleNamespace(
+            model=model,
+            airframe_profile_id=airframe_profile_id,
+        )
+    )
+    assert _infer_mode(runtime, None) is expected
 
 
 def test_energy_profile_loads_from_hash_bound_runtime_channel(tmp_path: Path) -> None:

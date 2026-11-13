@@ -155,6 +155,353 @@ def test_approach_verdict_steers_but_only_two_confirm_views_confirm() -> None:
     assert info["confirmed"]["position_estimate_ne"] is not None
 
 
+def test_same_bearing_positive_views_do_not_confirm() -> None:
+    loop = _loop(stop_on_confirm=True)
+    pose = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 30), 0.9)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+        frame_id="frame-a",
+        frame_path="/tmp/frame-a.png",
+        observation_source="test",
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    loop.update_tracks(
+        [Detection(_box(640, 500, 34), 0.9)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+        frame_id="frame-b",
+        frame_path="/tmp/frame-b.png",
+        observation_source="test",
+    )
+    current = loop.update_tracks(
+        [Detection(_box(640, 500, 34), 0.9)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    _, info = loop.next_action(current, pose_ned=pose, yaw_deg=0.0)
+    assert info["confirm_views"] == 2
+    assert info["confirm_views_independent"] is False
+    assert loop.confirmed is None
+
+
+def test_different_bearing_positive_views_confirm() -> None:
+    loop = _loop()
+    pose_a = (0.0, 0.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 30), 0.9)],
+        pose_ned=pose_a,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+        frame_id="frame-a",
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    loop.step_index += 1
+    pose_b = (40.0, 0.0, -20.0)
+    current = loop.update_tracks(
+        [Detection(_box(640, 500, 34), 0.9)],
+        pose_ned=pose_b,
+        ground_point=lambda _u, _v: (0.0, 40.0),
+        frame_id="frame-b",
+    )
+    loop.apply_verdict(track.track_id, "confirm_target")
+    _, info = loop.next_action(current, pose_ned=pose_b, yaw_deg=0.0)
+    assert info["confirm_views_independent"] is True
+    assert loop.confirmed is not None
+
+
+def test_count_guard_keeps_valid_independent_confirmation() -> None:
+    loop = _loop(stop_on_confirm=False, count_lost_cycle_guard=True)
+    target = (0.0, 40.0)
+    for index, pose in enumerate(((0.0, 0.0, -20.0), (40.0, 0.0, -20.0))):
+        current = loop.update_tracks(
+            [Detection(_box(640, 500, 30 + index), 0.9)],
+            pose_ned=pose, ground_point=lambda _u, _v: target, frame_id=f"view-{index}",
+        )
+        loop.apply_verdict(current[0].track_id, "confirm_target")
+        if index == 0:
+            loop.step_index += 1
+    _, info = loop.next_action(current, pose_ned=pose, yaw_deg=0.0,
+                               ground_point=lambda _u, _v: target)
+    assert info["confirm_views_independent"] is True
+    assert len(loop.confirmations) == 1
+
+
+def test_earlier_independent_positive_view_survives_stationary_final_pair() -> None:
+    loop = _loop()
+    target = (0.0, 40.0)
+    poses = [(0.0, 0.0, -20.0), (20.0, 0.0, -10.0), (20.0, 0.0, -10.0)]
+    track = None
+    for index, pose in enumerate(poses):
+        current = loop.update_tracks(
+            [Detection(_box(640, 500, 30 + index), 0.9)],
+            pose_ned=pose,
+            ground_point=lambda _u, _v: target,
+            frame_id=f"frame-{index}",
+        )
+        track = current[0]
+        loop.apply_verdict(track.track_id, "confirm_target")
+        if index < len(poses) - 1:
+            loop.step_index += 1
+    _, info = loop.next_action(current, pose_ned=poses[-1], yaw_deg=0.0)
+    assert info["confirm_views"] == 3
+    assert info["confirm_views_independent"] is True
+    assert loop.confirmed is not None
+
+
+def test_altitude_change_alone_below_ray_angle_gate_is_not_independent() -> None:
+    loop = _loop()
+    target = (0.0, 40.0)
+    poses = [(0.0, 0.0, -20.0), (0.0, 0.0, -16.0)]
+    current = []
+    for index, pose in enumerate(poses):
+        current = loop.update_tracks(
+            [Detection(_box(640, 500, 30 + index), 0.9)],
+            pose_ned=pose,
+            ground_point=lambda _u, _v: target,
+            frame_id=f"frame-{index}",
+        )
+        loop.apply_verdict(current[0].track_id, "confirm_target")
+        if index == 0:
+            loop.step_index += 1
+    _, info = loop.next_action(current, pose_ned=poses[-1], yaw_deg=0.0)
+    assert info["confirm_views"] == 2
+    assert info["confirm_views_independent"] is False
+    assert loop.confirmed is None
+
+
+def test_count_confirmed_focus_repeatedly_lost_is_deferred_unresolved() -> None:
+    # Mirrors the recorded t19 cycle: same ground anchor, two close-altitude
+    # confirmations, disappearance, and the same track reacquired after ascent.
+    loop = _loop(stop_on_confirm=False, count_lost_cycle_guard=True, lost_after_steps=2, ground_reid_max_steps=20)
+    target = (8.0, 0.0)
+    point = lambda _u, _v: target
+    pose = (0.0, 0.0, -15.0)
+    reasons = []
+    for cycle in range(2):
+        for height in (15.0, 12.0):
+            pose = (0.0, 0.0, -height)
+            current = loop.update_tracks(
+                [Detection(_box(640, 400, 20), 0.9)], pose_ned=pose,
+                ground_point=point, frame_id=f"{cycle}-{height}",
+            )
+            assert current[0].track_id == "t1"
+            loop.apply_verdict("t1", "confirm_target")
+            loop.next_action(current, pose_ned=pose, yaw_deg=0.0, ground_point=point)
+        for _ in range(3):
+            current = loop.update_tracks([], pose_ned=pose, ground_point=point)
+            _, info = loop.next_action(current, pose_ned=pose, yaw_deg=0.0, ground_point=point)
+            reasons.append(info.get("reason"))
+    track = loop.tracks["t1"]
+    assert reasons.count("count_focus_lost_deferred") == 1
+    assert track.count_approach_deferred and not track.exhausted
+    assert loop.unresolved_positive_tracks() == [track]
+    assert not loop.confirmations
+    current = loop.update_tracks([Detection(_box(640, 400, 20), 0.9)], pose_ned=pose, ground_point=point)
+    assert current[0] is track
+    assert loop.tracks_needing_verdict(current) == []
+    _, info = loop.next_action(current, pose_ned=pose, yaw_deg=0.0, ground_point=point)
+    assert loop.state == "searching" and info.get("focus") is None
+    assert not loop.confirmations
+    loop.step_index += 21  # Past ground-reidentification retention, so a new id is created.
+    replacement = loop.update_tracks(
+        [Detection(_box(640, 400, 20), 0.9)], pose_ned=pose, ground_point=point
+    )[0]
+    assert replacement is not track
+    # A new id is ambiguous even at the same place: do not suppress it.
+    assert not loop._count_deferred_at(replacement)
+    assert replacement in loop.tracks_needing_verdict([replacement])
+    replacement.co_visible_with.add(track.track_id)
+    assert not loop._count_deferred_at(replacement)
+    replacement.co_visible_with.clear()
+    # A different candidate is still selectable; a host-authorized bounded
+    # revisit explicitly reopens the unresolved place for fresh evidence.
+    other = Track("other", _box(900, 400, 20), loop.step_index, loop.step_index,
+                  verdict="approach", ground=(50.0, 0.0))
+    assert loop._best_match([track, other]) is other
+    loop._reask_place({"kind": "place_revisit", "centre": target,
+                       "rejection": {"track_id": track.track_id}})
+    assert not track.count_approach_deferred and track.count_lost_cycles == 0
+    assert track.needs_fresh_verdict and not loop.confirmations
+
+
+def test_count_deferred_place_not_resolved_by_covisible_neighbour():
+    loop = _loop(stop_on_confirm=False, count_lost_cycle_guard=True)
+    a = Track("a", _box(600, 400, 20), 0, 0, verdict="confirm", ground=(0.0, 0.0),
+              count_approach_deferred=True, identity_verdict_history=["confirm"])
+    b = Track("b", _box(700, 400, 20), 0, 0, verdict="confirm", ground=(3.0, 0.0))
+    a.co_visible_with.add("b")
+    b.co_visible_with.add("a")
+    loop._tracks = {"a": a, "b": b}
+    loop.confirmations.append({"track_id": "b", "position_estimate_ne": [3.0, 0.0]})
+    assert loop.unresolved_positive_tracks() == [a]
+
+
+def test_count_focus_loss_is_recorded_when_another_candidate_is_visible():
+    loop = _loop(stop_on_confirm=False, count_lost_cycle_guard=True, lost_after_steps=1)
+    a = Track("a", _box(600, 400, 20), 0, 0, verdict="confirm", ground=(8.0, 0.0),
+              confirm_steps=[0], identity_verdict_history=["confirm"])
+    b = Track("b", _box(700, 400, 20), 0, 0, verdict="approach", ground=(20.0, 0.0))
+    loop._tracks = {"a": a, "b": b}
+    loop.state, loop._focus, loop.step_index = "approaching", "a", 2
+    loop.next_action([b], pose_ned=(0.0, 0.0, -15.0), yaw_deg=0.0,
+                     ground_point=lambda _u, _v: b.ground)
+    assert a.count_lost_cycles == 1
+
+
+_COUNT_PLACE = (8.0, 0.0)
+_COUNT_POSE = (0.0, 0.0, -15.0)
+
+
+def _guard_loop(**extra) -> OnboardLoop:
+    config = dict(stop_on_confirm=False, count_lost_cycle_guard=True, lost_after_steps=2,
+                  ground_reid_max_steps=20)
+    config.update(extra)
+    return _loop(**config)
+
+
+def _see_positive(loop, *, side=20, place=_COUNT_PLACE, gap=0, frame="f", extra=()):
+    """One confirmed positive view of a count candidate (``place`` None: no ground)."""
+    point = (lambda _u, _v: place) if place is not None else None
+    loop.step_index += gap
+    detections = [Detection(_box(640, 400, side), 0.9), *extra]
+    current = loop.update_tracks(
+        detections, pose_ned=_COUNT_POSE, ground_point=point, frame_id=frame
+    )
+    track = current[0]
+    loop.apply_verdict(track.track_id, "confirm_target")
+    return track, current, point
+
+
+def _approach_then_lose(loop, current, point) -> None:
+    """Fly one approach step on the visible candidate, then lose it for good."""
+    loop.next_action(current, pose_ned=_COUNT_POSE, yaw_deg=0.0, ground_point=point)
+    assert loop.state == "approaching"
+    for _ in range(4):
+        current = loop.update_tracks([], pose_ned=_COUNT_POSE, ground_point=point)
+        loop.next_action(current, pose_ned=_COUNT_POSE, yaw_deg=0.0, ground_point=point)
+    assert loop.state == "searching"
+
+
+@pytest.mark.parametrize("mode", ["missing_ground", "expired_reid", "inconsistent_appearance"])
+def test_count_new_id_cannot_restart_lost_positive_approach_without_bound(mode) -> None:
+    # A recurring target whose re-identification fails (no ground, expired
+    # window, inconsistent appearance) arrives as a new id with a fresh per-track
+    # budget.  Missing evidence is not proof of identity, nor of distinctness:
+    # such ambiguous successors share one task-wide budget.
+    loop = _guard_loop()
+    sides = [20, 60, 180] if mode == "inconsistent_appearance" else [20, 20, 20]
+    place = None if mode == "missing_ground" else _COUNT_PLACE
+    gap = 25 if mode == "expired_reid" else 0
+    seen = []
+    for index in range(2):
+        track, current, point = _see_positive(
+            loop, side=sides[index], place=place, gap=gap if index else 0, frame=f"a{index}"
+        )
+        assert track not in seen, "the scenario must create a genuinely new id"
+        assert loop._best_match(current) is track, "within the budget it is approachable"
+        _approach_then_lose(loop, current, point)
+        seen.append(track)
+    third, current, point = _see_positive(
+        loop, side=sides[2], place=place, gap=gap, frame="a2"
+    )
+    assert third not in seen and third.verdict == "confirm"
+    assert loop._best_match(current) is None
+    _, info = loop.next_action(current, pose_ned=_COUNT_POSE, yaw_deg=0.0, ground_point=point)
+    assert loop.state == "searching" and info.get("focus") is None
+    assert not loop.confirmations
+    # Nothing is counted or merged; every positive observation stays unresolved.
+    unresolved = {
+        t.track_id
+        for t in (*loop.unresolved_positive_tracks(), *loop.unresolved_unlocated_positive_tracks())
+    }
+    assert {t.track_id for t in (*seen, third)} <= unresolved
+
+
+def test_count_ambiguous_budget_is_configurable_and_bounded() -> None:
+    loop = _guard_loop(count_lost_cycle_ambiguous_budget=2)
+    seen = []
+    for index in range(3):
+        track, current, point = _see_positive(loop, place=None, frame=f"b{index}")
+        assert loop._best_match(current) is track
+        _approach_then_lose(loop, current, point)
+        seen.append(track)
+    blocked, current, _ = _see_positive(loop, place=None, frame="b3")
+    assert loop._best_match(current) is None
+    assert blocked in loop.unresolved_unlocated_positive_tracks()
+
+
+@pytest.mark.parametrize("proof", ["co_visible", "separated"])
+def test_count_proven_distinct_candidates_are_not_blocked_by_spent_budget(proof) -> None:
+    # Budget 0: any ambiguous successor is blocked, so a candidate that stays
+    # approachable is one proven distinct from every lost positive: seen in one
+    # frame as a separate box, or well beyond any same-object place radius.
+    loop = _guard_loop(count_lost_cycle_ambiguous_budget=0)
+    neighbour_place = (11.0, 0.0) if proof == "co_visible" else (60.0, 0.0)
+    other = Detection(_box(900, 400, 20), 0.9)
+
+    def point(u, _v):
+        return neighbour_place if u > 800 else _COUNT_PLACE
+
+    loop.step_index += 0
+    current = loop.update_tracks(
+        [Detection(_box(640, 400, 20), 0.9), other] if proof == "co_visible"
+        else [Detection(_box(640, 400, 20), 0.9)],
+        pose_ned=_COUNT_POSE, ground_point=point, frame_id="c0",
+    )
+    first = current[0]
+    loop.apply_verdict(first.track_id, "confirm_target")
+    _approach_then_lose(loop, [first], point)
+    if proof == "co_visible":
+        neighbour = next(t for t in loop.tracks.values() if t is not first)
+        assert neighbour.track_id in first.co_visible_with
+        neighbour.last_step = loop.step_index  # still in view, never lost
+    else:
+        loop.step_index += 30
+        current = loop.update_tracks([other], pose_ned=_COUNT_POSE, ground_point=point,
+                                     frame_id="c1")
+        neighbour = current[0]
+        assert neighbour is not first
+    neighbour.verdict, neighbour.verdict_step = "approach", loop.step_index
+    neighbour.identity_verdict_history.append("approach")
+    assert loop._best_match([neighbour]) is neighbour
+    # ...while a same-place successor of the lost positive stays blocked.
+    again, current, _ = _see_positive(loop, gap=30, frame="c2")
+    assert again is not first and loop._best_match(current) is None
+
+
+def test_count_similar_nearby_neighbour_is_neither_merged_nor_blocked_within_budget() -> None:
+    loop = _guard_loop()
+    first, current, point = _see_positive(loop, frame="d0")
+    _approach_then_lose(loop, current, point)
+    # A similar object 3 m away, never seen together with the first.
+    near = (11.0, 0.0)
+    neighbour, current, _ = _see_positive(loop, place=near, gap=3, frame="d1")
+    assert neighbour is not first
+    assert loop._best_match(current) is neighbour
+    assert not loop.confirmations
+    assert first in loop.unresolved_positive_tracks()
+
+
+def test_identity_vote_audit_fields_are_complete() -> None:
+    loop = _loop()
+    pose = (1.0, 2.0, -20.0)
+    (track,) = loop.update_tracks(
+        [Detection(_box(640, 500, 24), 0.9)],
+        pose_ned=pose,
+        ground_point=lambda _u, _v: (3.0, 4.0),
+        frame_id="frame-a",
+        frame_path="/tmp/frame-a.png",
+        observation_source="test-source",
+        view_pitch_deg=-20.0,
+    )
+    loop.apply_verdict(track.track_id, "confirm_target", confidence=0.8)
+    vote = track.identity_votes[-1]
+    assert {"frame_id", "frame_path", "camera_pose_ned", "observation_bearing_deg", "source"} <= vote.keys()
+
+
 def test_reject_resets_votes_and_unconfirmed_focus_is_dropped() -> None:
     loop = _loop(max_approach_steps=3)
     pose = (0.0, 0.0, -20.0)
@@ -670,7 +1017,12 @@ def test_return_home_turns_then_flies_and_stops() -> None:
 
 
 def test_onboard_modules_never_read_scenario_truth() -> None:
-    for path in ("src/multidetect/autonomy/onboard_loop.py", "scripts/onboard_policy.py"):
+    for path in (
+        "src/multidetect/autonomy/onboard_loop.py",
+        "scripts/onboard_policy.py",
+        "src/multidetect/autonomy/onboard_policy_parts/assembly.py",
+        "src/multidetect/autonomy/onboard_policy_parts/runtime.py",
+    ):
         tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         strings = {
@@ -1039,6 +1391,23 @@ def _observe(loop: OnboardLoop, step: int, boxes: dict) -> list:
         yaw_deg=0.0,
         ground_point=lambda u, _v: by_u[min(by_u, key=lambda x: abs(x - u))],
     )
+
+
+def test_count_does_not_add_a_second_result_without_a_fresh_position():
+    loop = _loop(stop_on_confirm=False)
+    (track,) = _observe(loop, 0, {_box(640, 700, 20): (-22.9813591813, 28.9331661776)})
+    first = _count(loop, track, (-22.9813591813, 28.9331661776))
+    assert "counted" in first
+
+    # joint2 step 105 logged this same cone at (-16.9495, 29.4145),
+    # 6.05 m from the prior point and outside the configured 4 m radius.
+    # The frame had no fresh camera_pose, so the projection must be absent;
+    # an invalid stale-pose point must not become another count.
+    stale_record = {"track_id": track.track_id, "position_estimate_ne": None}
+    _, info = loop._count_confirmation(track, stale_record, (0.0, 0.0, -8.0), 0.0, {})
+    assert info["count_blocked"] == "position_unavailable"
+    assert len(loop.confirmations) == 1
+    assert loop.config.count_dedupe_m == 4.0
 
 
 def test_count_dedupe_ignores_co_visibility_after_a_track_migrates_onto_a_counted_object():
@@ -1529,6 +1898,41 @@ def test_count_dedupe_widens_with_the_position_uncertainty_of_both_estimates():
     assert count_twice(3.6, 1.2) == 1
     # Precise estimates that far apart are two objects (1.5 m footprint radius).
     assert count_twice(0.3, 0.3) == 2
+
+
+def test_count_dedupe_allows_small_calibration_margin_for_fused_estimates():
+    from multidetect.autonomy.onboard_loop import AppearanceSignature
+
+    hydrant = AppearanceSignature(size_range=0.02, aspect_ratio=0.5, footprint_m=0.8)
+    loop = _loop(stop_on_confirm=False)
+    (first,) = _observe(loop, 0, {_box(400, 700, 13): (39.167, -20.818)})
+    first.appearance = hydrant
+    loop._count_confirmation(
+        first,
+        {
+            "track_id": first.track_id,
+            "position_estimate_ne": [39.167, -20.818],
+            "position_sigma_m": 1.233,
+        },
+        (0.0, 0.0, -8.0),
+        0.0,
+        {},
+    )
+    (second,) = _observe(loop, 90, {_box(900, 300, 13): (37.936, -19.307)})
+    second.appearance = hydrant
+    _, info = loop._count_confirmation(
+        second,
+        {
+            "track_id": second.track_id,
+            "position_estimate_ne": [37.936, -19.307],
+            "position_sigma_m": 1.229,
+        },
+        (0.0, 0.0, -8.0),
+        0.0,
+        {},
+    )
+    assert info["duplicate_of_counted"] == second.track_id
+    assert len(loop.confirmations) == 1
 
 
 def test_count_does_not_approach_a_new_track_id_on_a_counted_object() -> None:

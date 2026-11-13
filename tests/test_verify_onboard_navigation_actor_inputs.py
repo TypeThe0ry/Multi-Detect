@@ -27,7 +27,9 @@ from scripts import verify_onboard_navigation_actor_inputs as verifier
 
 @pytest.fixture(scope="module")
 def torch_cpu():
-    torch = importlib.import_module("torch")
+    torch = pytest.importorskip(
+        "torch", reason="navigation actor CPU fixtures require optional PyTorch"
+    )
     assert not torch.cuda.is_initialized()
     return torch
 

@@ -205,6 +205,7 @@ def test_parameter_snapshot_is_atomic_and_rejects_overwrite(tmp_path: Path) -> N
     write_pixhawk_parameter_snapshot(output, snapshot, force=True)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_real_pymavlink_udp_parameter_backup_hil() -> None:
     mavutil = pytest.importorskip("pymavlink.mavutil")
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:

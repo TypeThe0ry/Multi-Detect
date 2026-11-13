@@ -22,6 +22,9 @@ OUT = ROOT / "artifacts/evaluation/crash-resume-sitl-20261027"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from scripts.run_simulator_docker import DEFAULT_SCENARIO, build_docker_simulator_plan
+from scripts.platform_paths import pythonpath_value
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
+from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 
 CASES = ("valid", "corrupt", "digest", "expired", "rtl")
 
@@ -32,7 +35,7 @@ class Px4LoopbackRelay:
         self.px4_port, self.onboard_port, self.control_port = px4_port, onboard_port, control_port
         self.stop = threading.Event()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("0.0.0.0", px4_port))
+        self.sock.bind((sim_listen_host(), px4_port))
         self.sock.settimeout(0.2)
         from pymavlink import mavutil
         self.mavutil = mavutil
@@ -109,7 +112,7 @@ def wait_for(predicate, timeout: float, interval: float = 0.25) -> bool:
 def launch_onboard(args, work: Path, log_path: Path) -> subprocess.Popen:
     command = [
         sys.executable, str(ROOT / "scripts/onboard_main.py"), "real",
-        "--endpoint", f"udpin:127.0.0.1:{args.telemetry_port}",
+        "--endpoint", sim_udpin_endpoint(args.telemetry_port),
         "--camera", args.camera, "--camera-backend", args.camera_backend,
         "--calibration", str(args.calibration), "--mission-package", str(args.mission_package),
         "--operator-key", str(args.operator_key), "--failsafe", "rtl",
@@ -121,7 +124,7 @@ def launch_onboard(args, work: Path, log_path: Path) -> subprocess.Popen:
         command.append("--apply-px4-params")
     stream = log_path.open("ab", buffering=0)
     env = os.environ.copy()
-    env.update({"PYTHONPATH": f"{ROOT / 'src'};{ROOT}",
+    env.update({"PYTHONPATH": pythonpath_value(ROOT),
                 "PYTHONUTF8": "1",
                 "MULTIDETECT_ONBOARD_TEST_HOOK": "scripts.onboard_real_test_hook",
                 "MULTIDETECT_CRASH_RESUME_TEST": "1",
@@ -209,6 +212,8 @@ def run_case(name: str, args) -> dict[str, Any]:
     try:
         if subprocess.run([docker, "container", "inspect", container], capture_output=True).returncode == 0:
             raise RuntimeError(f"refusing pre-existing container {container}")
+        from scripts.run_simulator_docker import freeze_runtime_plan
+        plan = freeze_runtime_plan(plan, docker=docker)
         subprocess.run([docker, *plan.command[1:]], check=True, capture_output=True, text=True)
         container_claimed = True
         if not wait_for(lambda: subprocess.run([docker, "inspect", "-f", "{{.State.Running}}", container], capture_output=True, text=True).stdout.strip() == "true", args.startup_timeout):
@@ -235,7 +240,7 @@ def run_case(name: str, args) -> dict[str, Any]:
         if name == "rtl":
             # Confirm RTL on the telemetry port, release it, then relaunch onboard
             # right away so PX4 is still airborne in RTL when recovery classifies it.
-            rtl_records = wait_for_px4_rtl(f"udpin:127.0.0.1:{args.telemetry_port}")
+            rtl_records = wait_for_px4_rtl(sim_udpin_endpoint(args.telemetry_port))
         second = launch_onboard(args, work, process_log)
         result["second_pid"] = second.pid
         wait_for(lambda: any(row.get("kind") == "crash_resume" for path in (work / "mission_log").rglob("mission.jsonl") for row in read_jsonl(path)), args.decision_timeout)
@@ -319,6 +324,7 @@ def main() -> int:
     parser.add_argument("--crash-after-sequence", type=int, default=2)
     parser.add_argument("--apply-px4-params", action="store_true")
     parser.add_argument("--crash-step-id", default="home")
+    parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     args = parser.parse_args()
     for path in (args.mission_package, args.operator_key, args.calibration, args.scenario):
         if not path.is_file():
@@ -326,16 +332,17 @@ def main() -> int:
     OUT = args.output_dir.resolve()
     OUT.mkdir(parents=True, exist_ok=True)
     results = []
-    for name in args.cases:
-        args.attempt = 1
-        case = run_case(name, args)
-        if case.get("error") and any(term in case["error"].lower() for term in ("timeout", "docker", "memory", "container")):
-            args.attempt = 2
-            retry = run_case(name, args)
-            retry["first_attempt_error"] = case["error"]
-            case = retry
-        results.append(case)
-        print(json.dumps({"scenario": name, "passed": case["passed"], "error": case.get("error")}, ensure_ascii=False), flush=True)
+    with sitl_lock_context(SitlLock(args.sitl_lock_path, label="crash-resume", min_memory_gb=5.0)):
+        for name in args.cases:
+            args.attempt = 1
+            case = run_case(name, args)
+            if case.get("error") and any(term in case["error"].lower() for term in ("timeout", "docker", "memory", "container")):
+                args.attempt = 2
+                retry = run_case(name, args)
+                retry["first_attempt_error"] = case["error"]
+                case = retry
+            results.append(case)
+            print(json.dumps({"scenario": name, "passed": case["passed"], "error": case.get("error")}, ensure_ascii=False), flush=True)
     summary = {"schema": "multidetect.crash-resume-sitl.v1", "generated_at": time.time(), "cases": results, "passed": all(row["passed"] and row.get("container_absent_after_cleanup") for row in results)}
     (OUT / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"summary": str(OUT / "summary.json"), "passed": summary["passed"]}, ensure_ascii=False))

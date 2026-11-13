@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from multidetect.host_paths import executable_name, host_path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET_VERSION = "0.3.0-pre.9"
@@ -149,7 +152,7 @@ def stage_definitions(root: Path = ROOT) -> tuple[Stage, ...]:
             "20-60 min",
             "10-30 GB",
             (
-                "powershell.exe",
+                executable_name("powershell"),
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
@@ -173,7 +176,7 @@ def stage_definitions(root: Path = ROOT) -> tuple[Stage, ...]:
             "15-45 min",
             "5-20 GB",
             (
-                "powershell.exe",
+                executable_name("powershell"),
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
@@ -269,7 +272,7 @@ def _run(
     log.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with log.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.write("$ " + subprocess.list2cmdline(list(command)) + "\n")
+        handle.write("$ " + _format_command(command) + "\n")
         handle.flush()
         result = subprocess.run(
             list(command),
@@ -284,9 +287,14 @@ def _run(
         handle.write(f"\nexit_code={result.returncode}\nelapsed_seconds={elapsed:.3f}\n")
     if result.returncode and result.returncode not in (allow_exit_codes or set()):
         raise RuntimeError(
-            f"command failed ({result.returncode}): {subprocess.list2cmdline(list(command))}"
+            f"command failed ({result.returncode}): {_format_command(command)}"
         )
     return result.returncode
+
+
+def _format_command(command: Sequence[str], *, platform: str | None = None) -> str:
+    is_windows = os.name == "nt" if platform is None else platform == "nt"
+    return subprocess.list2cmdline(list(command)) if is_windows else shlex.join(command)
 
 
 def _tool(name: str) -> str | None:
@@ -295,13 +303,15 @@ def _tool(name: str) -> str | None:
 
 def preflight_report(root: Path = ROOT) -> dict[str, object]:
     checks: dict[str, object] = {}
-    for drive in ("C:\\", "D:\\"):
+    is_windows = os.name == "nt"
+    disks = (("c", "C:\\"), ("d", "D:\\")) if is_windows else (("root", "/"), ("repo", str(root)))
+    for name, drive in disks:
         try:
             usage = shutil.disk_usage(drive)
-            checks[f"disk_{drive[0].lower()}_free_bytes"] = usage.free
-            checks[f"disk_{drive[0].lower()}_free_gib"] = round(usage.free / 1024**3, 2)
+            checks[f"disk_{name}_free_bytes"] = usage.free
+            checks[f"disk_{name}_free_gib"] = round(usage.free / 1024**3, 2)
         except OSError as exc:
-            checks[f"disk_{drive[0].lower()}_error"] = str(exc)
+            checks[f"disk_{name}_error"] = str(exc)
     required_tools = (
         "python",
         "ruff",
@@ -313,12 +323,14 @@ def preflight_report(root: Path = ROOT) -> dict[str, object]:
         "gst-inspect-1.0",
     )
     checks["tools"] = {name: _tool(name) for name in required_tools}
-    checks["missing_tools"] = [name for name in required_tools if _tool(name) is None]
-    checks["msvc_vswhere"] = _tool("vswhere") or (
+    posix_tools = ("python", "ruff", "cmake", "git", "patch", "docker")
+    required = required_tools if is_windows else posix_tools
+    checks["missing_tools"] = [name for name in required if checks["tools"][name] is None]
+    checks["msvc_vswhere"] = (_tool("vswhere") or (
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
         if Path("C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe").exists()
         else None
-    )
+    )) if is_windows else None
     vswhere = checks["msvc_vswhere"]
     checks["msvc_installation"] = None
     if vswhere:
@@ -341,7 +353,15 @@ def preflight_report(root: Path = ROOT) -> dict[str, object]:
             checks["msvc_installation"] = probe.stdout.strip() or None
         except (OSError, subprocess.TimeoutExpired):
             checks["msvc_installation"] = None
-    checks["temp_expected"] = os.environ.get("TEMP") == str(root / ".tmp")
+    temp_variable = "TEMP" if is_windows else "TMPDIR"
+    configured_temp = temp_variable in os.environ
+    expected_temp = host_path(
+        temp_variable,
+        str(root / ".tmp"),
+        root / ".tmp",
+        platform="nt" if is_windows else "posix",
+    )
+    checks["temp_expected"] = configured_temp and expected_temp == root / ".tmp"
     checks["temp_exists"] = (root / ".tmp").exists()
     checks["docker_daemon"] = False
     docker = _tool("docker")
@@ -527,7 +547,7 @@ def _print_plan(stages: Sequence[Stage]) -> None:
     print("release-pre9 dry-run (no files will be written)")
     for index, stage in enumerate(stages, 1):
         print(f"[{index:02d}] {stage.name}: estimate={stage.estimate}; disk={stage.disk}")
-        print("     " + subprocess.list2cmdline(list(stage.command)))
+        print("     " + _format_command(stage.command))
     print(
         "owner-required: HIL, REAL, hardware, and manual QGC visual acceptance "
         "remain false/not_claimed"

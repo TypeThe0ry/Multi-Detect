@@ -1,0 +1,54 @@
+{
+  "defaults": {
+    "gguf": "artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf",
+    "planning_model": "artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf",
+    "mission": "from_text",
+    "plan_sorted_keys": true,
+    "confirm_max_range_m": 40,
+    "step_budget": 140,
+    "size_aware_search": true,
+    "fast_identity": true,
+    "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
+    "near_depth": false
+  },
+  "missions": [
+    {
+      "id": "multitarget-count-cones-near-confuser",
+      "task_text": "Count the orange traffic cones in the site and report their positions.",
+      "index": "configs/scenarios/generated-count-site/index.json",
+      "split": "test",
+      "world": "gen_cnt2_w0000",
+      "refs": {
+        "zone:site": [0, 0, 55]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": ["count", "return_home"],
+        "min_count_exact": 1
+      },
+      "steps": 150,
+      "max_episode_s": 3600
+    },
+    {
+      "id": "multitarget-count-cones-near-confuser-train",
+      "task_text": "Count the orange traffic cones in the site and report their positions.",
+      "index": "configs/scenarios/generated-confusers/index.json",
+      "split": "train",
+      "world": "gen_cfs_w0011",
+      "refs": {
+        "zone:site": [0, 0, 55]
+      },
+      "ref_labels": {
+        "zone:site": "the site"
+      },
+      "expect": {
+        "skills": ["count", "return_home"],
+        "min_count_exact": 1
+      },
+      "steps": 150,
+      "max_episode_s": 3600
+    }
+  ]
+}

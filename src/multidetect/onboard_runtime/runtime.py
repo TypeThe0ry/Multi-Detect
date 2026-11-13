@@ -8,7 +8,7 @@ import queue
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -135,6 +135,7 @@ class SetpointPump:
         self.vehicle, self.rate_hz, self.before_send = vehicle, rate_hz, before_send
         self.motion_adapter = motion_adapter
         self._target = initial
+        self._stream_enabled = True
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -147,6 +148,9 @@ class SetpointPump:
     def set_target(self, target: PositionSetpoint) -> None:
         with self._lock:
             self._target = target
+
+    def set_stream_enabled(self, enabled: bool) -> None:
+        self._stream_enabled = bool(enabled)
 
     @property
     def target(self) -> PositionSetpoint:
@@ -166,7 +170,9 @@ class SetpointPump:
                     and getattr(getattr(adapter, "profile", None), "category", None) == "vtol"
                     and getattr(adapter, "mode", "FW") == "MC"
                 )
-                if adapter is None or getattr(adapter, "is_multirotor", True) or vtol_mc:
+                if self._stream_enabled and (
+                    adapter is None or getattr(adapter, "is_multirotor", True) or vtol_mc
+                ):
                     self.vehicle.send_setpoint(self.target)
                 sent = time.monotonic()
                 with self._lock:
@@ -286,6 +292,8 @@ class OnboardRuntime:
         self.pump: SetpointPump | None = None
         self.policy_worker_stopped = True
         self.mission_complete = False
+        self._landing_commanded = False
+        self._landing_requested = False
 
     def _arbitrate_action(
         self,
@@ -545,9 +553,10 @@ class OnboardRuntime:
 
     def _guard(self) -> None:
         """Runs in the pump, independent of coordinator or inference delays."""
-        now = time.monotonic()
         try:
             state, frame = self.vehicle.snapshot(), self.camera.latest()
+            # Reads can return telemetry newer than the start of this guard tick.
+            now = time.monotonic()
             fault = self._freshness_fault(state, frame, now)
             with self._lock:
                 if (
@@ -572,12 +581,15 @@ class OnboardRuntime:
                 ):
                     self._latch("autonomy_timeout", now)
                 elif self._active and not self.failsafe_sent:
-                    if not state.armed:
+                    mission_landing_mode = self._landing_commanded and state.mode in {"LAND", "AUTO.LAND"}
+                    if mission_landing_mode and self.pump is not None:
+                        self.pump.set_stream_enabled(False)
+                    if not state.armed and not (mission_landing_mode and state.landed is True):
                         self._latch("unexpected_disarm", now)
                     elif self.motion_adapter is None or getattr(
                         self.motion_adapter, "is_multirotor", True
                     ):
-                        if state.mode != "OFFBOARD":
+                        if state.mode != "OFFBOARD" and not mission_landing_mode:
                             self._latch("offboard_exited", now)
                     elif state.mode not in FIXED_WING_GUIDED_MODES:
                         self._latch("fixed_wing_navigation_mode_lost", now)
@@ -588,7 +600,7 @@ class OnboardRuntime:
                 if self.hazard and self._hazard_target and self.pump:
                     self._set_target_checked(self._hazard_target, "hazard_hold", state=state)
         except Exception as exc:
-            self._latch(f"sensor_error: {exc}", now)
+            self._latch(f"sensor_error: {exc}", time.monotonic())
 
     def start(self, *, active: bool = True, own_flight: bool = True) -> None:
         if self.pump is not None:
@@ -747,9 +759,64 @@ class OnboardRuntime:
         self._command_thread = threading.Thread(target=send, name="onboard-handoff", daemon=True)
         self._command_thread.start()
 
+    def _send_landing_once(self, state: VehicleState) -> None:
+        """Request mission landing and retry until vehicle.land returns."""
+        self._landing_requested = True
+        if self._landing_commanded:
+            return
+        if self._command_thread is not None and self._command_thread.is_alive():
+            self._event("handoff_command_blocked", action="land")
+            return
+        self._command_error = None
+        if self.pump is not None and self._last_good_state is not None:
+            self._set_target_checked(
+                hold_setpoint(self._last_good_state), "policy_hold", state=self._last_good_state
+            )
+        self._event("landing_command_attempt", source="mission")
+
+        def send() -> None:
+            try:
+                self.vehicle.land()
+                self._landing_commanded = True
+                self._event("landing_command", source="mission")
+            except Exception as exc:
+                self._command_error = str(exc)
+                self._event("handoff_command_error", action="land", error=str(exc))
+
+        self._command_thread = threading.Thread(target=send, name="onboard-mission-land", daemon=True)
+        self._command_thread.start()
+
     def _dispatch_motion_command(self, command: MotionCommand, state: VehicleState) -> Any:
         """Dispatch a profile command to the FixedWingVtolVehicle protocol."""
         vehicle = self.vehicle
+        if command.kind == "gimbal":
+            profile = getattr(self.motion_adapter, "profile", None)
+            gimbal = getattr(getattr(profile, "camera", None), "gimbal", {})
+            if not isinstance(gimbal, Mapping) or not bool(gimbal.get("enabled")):
+                raise RuntimeError("gimbal_capability_required")
+            action = command.action
+            if action is not None:
+                pitch = action.gimbal_pitch_deg
+                yaw = action.gimbal_yaw_deg
+                roll = action.gimbal_roll_deg
+            else:
+                pitch = float(command.gimbal_pitch_deg or 0.0)
+                yaw = float(command.gimbal_yaw_deg or 0.0)
+                roll = float(command.gimbal_roll_deg or 0.0)
+            limits = gimbal.get("angle_range_deg", {})
+            for axis, value in (("pitch", pitch), ("yaw", yaw), ("roll", roll)):
+                bounds = limits.get(axis) if isinstance(limits, Mapping) else None
+                if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+                    raise RuntimeError(f"gimbal_axis_range_missing: {axis}")
+                if value < float(bounds[0]) or value > float(bounds[1]):
+                    raise RuntimeError(f"gimbal_angle_out_of_range: {axis}={value}")
+            method = getattr(vehicle, "gimbal_control", None)
+            if not callable(method):
+                raise RuntimeError("vehicle lacks gimbal_control()")
+            result = method(pitch_deg=pitch, yaw_deg=yaw, roll_deg=roll, timeout_s=1.0)
+            if hasattr(result, "ok") and not result.ok:
+                raise RuntimeError(getattr(result, "detail", None) or "gimbal command failed")
+            return result
         target = command.target_ned or state.position_ned
         if target is None:
             raise RuntimeError("motion command has no target and no vehicle position")
@@ -913,10 +980,23 @@ class OnboardRuntime:
             except Exception as exc:
                 self._latch(f"sensor_error: {exc}", now)
                 return
+            now = time.monotonic()
             fault = self._freshness_fault(state, frame, now)
             if fault:
                 self._latch(fault, now)
                 return
+            poll_gimbal = getattr(self.vehicle, "poll_gimbal", None)
+            if callable(poll_gimbal):
+                try:
+                    phase = poll_gimbal()
+                    if phase is not None and phase != getattr(self, "_gimbal_session_phase", None):
+                        self._gimbal_session_phase = phase
+                        self._event("gimbal_session", state=phase)
+                except Exception as exc:
+                    self._latch(f"gimbal_command_error: {exc}", now)
+                    return
+            if self._landing_requested and not self._landing_commanded:
+                self._send_landing_once(state)
             if self._worker and self._worker.is_alive():
                 self.pending_ticks += 1
                 return
@@ -926,12 +1006,39 @@ class OnboardRuntime:
             if self._result:
                 action, _labels, source_state = self._result
                 self._result = None
+                if (
+                    isinstance(_labels, dict)
+                    and isinstance(_labels.get("gimbal_command"), dict)
+                    and not _labels.get("gimbal_dispatched")
+                ):
+                    sender = getattr(self.vehicle, "send_gimbal_pitch_yaw", None)
+                    if not callable(sender):
+                        self._latch("gimbal_controller_unavailable", now)
+                        return
+                    try:
+                        sender(
+                            float(_labels["gimbal_command"]["pitch_down_rad"]),
+                            float(_labels["gimbal_command"]["yaw_world_rad"]),
+                            mode=str(_labels["gimbal_command"].get("mode", "lock-horizon")),
+                            vehicle_yaw_rad=math.radians(source_state.attitude_deg[2]),
+                        )
+                    except Exception as exc:
+                        self._latch(f"gimbal_command_error: {exc}", now)
+                        return
                 if isinstance(action, MotionCommand):
                     if action.rejected:
                         self._latch(action.reason or "motion command rejected", now)
                         return
                     try:
-                        result = self._dispatch_motion_command(action, source_state)
+                        if action.kind == "mc_land":
+                            self._send_landing_once(source_state)
+                            result = {"status": "accepted", "mission_landing": True}
+                        elif action.kind == "fw_land" and not self._landing_commanded:
+                            result = self._dispatch_motion_command(action, source_state)
+                        elif action.kind == "fw_land":
+                            result = {"status": "accepted", "mission_landing": True}
+                        else:
+                            result = self._dispatch_motion_command(action, source_state)
                     except Exception as exc:
                         self._latch(f"motion_command_error: {exc}", now)
                         return
@@ -947,6 +1054,8 @@ class OnboardRuntime:
                             f"motion_command_rejected: {getattr(result, 'detail', result)}", now
                         )
                         return
+                    if isinstance(action, MotionCommand) and action.kind == "fw_land":
+                        self._landing_commanded = True
                     self.steps += 1
                     self._event(
                         "autonomy_motion_command", command=action.to_dict(), result=str(result)
@@ -973,7 +1082,10 @@ class OnboardRuntime:
                     self.mission_complete = True
                     self._command(self.config.completion_action)
                     return
-                if action.kind == "hold":
+                if action.kind == "land":
+                    self._send_landing_once(source_state)
+                    target = hold_setpoint(state)
+                elif action.kind in {"hold", "continue"}:
                     target = hold_setpoint(state)
                 else:
                     n, e, d, yaw = primitive_to_ned(action, source_state.attitude_deg[2])
@@ -1000,7 +1112,7 @@ class OnboardRuntime:
                 else:
                     complete = (
                         now - started >= action.seconds
-                        if action.kind == "hold"
+                        if action.kind in {"hold", "continue"}
                         else self._arrived(state, self.pump.target)
                     )
                 if not complete:

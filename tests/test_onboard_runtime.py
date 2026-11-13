@@ -180,6 +180,72 @@ def test_runtime_calls_final_arbiter_before_pump_target() -> None:
         runtime.close()
 
 
+def test_mission_landing_allows_only_land_mode_and_landed_disarm() -> None:
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    runtime = OnboardRuntime(vehicle, camera, SlowPolicy(), config=RuntimeConfig())
+    runtime.start()
+    try:
+        runtime._send_landing_once(vehicle.snapshot())
+        deadline = time.monotonic() + 1.0
+        while not runtime._landing_commanded and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert runtime._landing_commanded
+        vehicle.mode = "AUTO.LAND"
+        runtime._guard()
+        assert runtime.hazard is None
+        vehicle.landed = True
+        vehicle.armed = False
+        runtime._guard()
+        assert runtime.hazard is None
+        assert runtime.pump is not None and not runtime.pump._stream_enabled
+    finally:
+        runtime.close()
+
+
+def test_mission_landing_does_not_mask_unrelated_mode_change() -> None:
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    runtime = OnboardRuntime(vehicle, camera, SlowPolicy(), config=RuntimeConfig())
+    runtime.start()
+    try:
+        runtime._send_landing_once(vehicle.snapshot())
+        deadline = time.monotonic() + 1.0
+        while not runtime._landing_commanded and time.monotonic() < deadline:
+            time.sleep(0.005)
+        vehicle.mode = "POSCTL"
+        runtime._guard()
+        assert runtime.hazard == "offboard_exited"
+    finally:
+        runtime.close()
+
+
+def test_mission_landing_retries_after_vehicle_land_failure() -> None:
+    vehicle, camera = FakeVehicle(), FakeCamera()
+    calls = []
+    original = vehicle.land
+
+    def flaky_land():
+        calls.append(len(calls))
+        if len(calls) == 1:
+            raise RuntimeError("temporary command failure")
+        return original()
+
+    vehicle.land = flaky_land
+    runtime = OnboardRuntime(vehicle, camera, SlowPolicy(), config=RuntimeConfig())
+    runtime.start()
+    try:
+        runtime._send_landing_once(vehicle.snapshot())
+        deadline = time.monotonic() + 1.0
+        while runtime._command_thread is not None and runtime._command_thread.is_alive():
+            time.sleep(0.005)
+        assert not runtime._landing_commanded
+        runtime.poll()
+        while not runtime._landing_commanded and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert runtime._landing_commanded and len(calls) == 2
+    finally:
+        runtime.close()
+
+
 def test_runtime_has_one_checked_setpoint_boundary():
     source = inspect.getsource(OnboardRuntime)
     assert source.count("self.pump.set_target(") == 1
@@ -503,3 +569,54 @@ def test_takeoff_target_is_only_clipped_above_the_envelope_ceiling():
     # A 150 m request is clipped to the 120 m ceiling.
     runtime._set_target_checked(PositionSetpoint(0.0, 0.0, -150.0, 0.0), "takeoff")
     assert runtime.pump.target.down_m == pytest.approx(-120.0)
+
+
+def test_pending_gimbal_does_not_block_motion_or_safety_fault_and_close():
+    class PendingGimbalVehicle(FakeVehicle):
+        def __init__(self):
+            super().__init__()
+            self.gimbal_queued = 0
+            self.gimbal_polls = 0
+        def send_gimbal_pitch_yaw(self, *args, **kwargs):
+            self.gimbal_queued += 1
+        def poll_gimbal(self):
+            self.gimbal_polls += 1
+            return 'configure_ack' if self.gimbal_queued else None
+
+    class GimbalPolicy(SlowPolicy):
+        def act(self, observation, *, pose_ned, yaw_deg):
+            return ActionPrimitive.translate(1.0, 0.0), {'gimbal_command': {
+                'pitch_down_rad': 1.0, 'yaw_world_rad': 0.0, 'mode': 'lock-horizon'}}
+
+    vehicle, camera = PendingGimbalVehicle(), FakeCamera()
+    runtime = OnboardRuntime(vehicle, camera, GimbalPolicy(0), config=RuntimeConfig(camera_timeout_s=3.0))
+    runtime.start()
+    try:
+        runtime.poll()
+        wait_for(lambda: runtime._worker is not None and not runtime._worker.is_alive())
+        runtime.poll()
+        assert vehicle.gimbal_queued == 1
+        assert runtime.steps == 1
+        runtime.poll()
+        assert vehicle.gimbal_polls >= 2
+        assert any(event['event'] == 'gimbal_session' and event['state'] == 'configure_ack' for event in runtime.events)
+        vehicle.snapshot_error = True
+        runtime.poll()
+        assert 'receiver stopped' in runtime.hazard
+    finally:
+        vehicle.snapshot_error = False
+        runtime.close()
+    assert vehicle.closed
+
+
+def test_gimbal_session_failure_is_latched_by_runtime():
+    class FailedGimbalVehicle(FakeVehicle):
+        def poll_gimbal(self):
+            raise RuntimeError('manager rejected')
+    runtime = OnboardRuntime(FailedGimbalVehicle(), FakeCamera(), SlowPolicy(0))
+    runtime.start()
+    try:
+        runtime.poll()
+        assert 'gimbal_command_error: manager rejected' == runtime.hazard
+    finally:
+        runtime.close()

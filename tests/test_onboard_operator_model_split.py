@@ -24,12 +24,13 @@ def _prompt_package():
     return load_mission_package(document), onboard_policy.validate_mission_plan(plan)
 
 
-def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None):
+def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None, invoke_post=False):
     events = []
     active = {"count": 0, "maximum": 0}
     identity_plan = []
 
-    class FakeRunner:
+    from scripts.eval_slow_system import LlamaServerRunner as RealRunner
+    class FakeRunner(RealRunner):
         def __init__(self, model, mmproj=None, **kwargs):
             role = "planner" if "r14" in str(model) else "identity"
             if block_start is not None and role == "planner":
@@ -39,6 +40,12 @@ def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None):
             active["count"] += 1
             active["maximum"] = max(active["maximum"], active["count"])
             self.role, self.port = role, kwargs["port"]
+            if invoke_post:
+                from types import SimpleNamespace
+                self.process=SimpleNamespace(pid=123)
+                self._gimbal_startticks=456
+                self._gimbal_cgroup='/system.slice/md-gimbal-worker-test.service'
+                self._command=['/fake/llama-server']
             events.append(("start", role, kwargs.get("cache_ram_mib")))
 
         def close(self):
@@ -51,6 +58,8 @@ def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None):
         runner = policy.slow
         events.append(("plan", runner.role, None))
         assert policy._model_lock._is_owned()
+        if invoke_post:
+            assert args[2]('test prompt', {'type':'object'}) == 'guarded'
         if runner.role == "planner" and fail_planner:
             raise ValueError("planner failed")
         if runner.role == "identity":
@@ -70,6 +79,17 @@ def _setup(monkeypatch, tmp_path, *, fail_planner=False, block_start=None):
         slow_runner=None,
     )
     return policy, package, events, active, identity_plan
+
+def test_candidate_operator_package_uses_actual_runner_guard(monkeypatch,tmp_path):
+    monkeypatch.setenv('MD_GIMBAL_INVOCATION','a'*32)
+    calls=[]
+    monkeypatch.setattr('scripts.gimbal_listener_guard.guarded_http',lambda *a,**kw: calls.append((a,kw)) or {'choices':[{'message':{'content':'guarded'}}]})
+    monkeypatch.setattr('scripts.eval_slow_system._http_json',lambda *a,**kw: pytest.fail('legacy HTTP called'))
+    policy,package,_,_,_=_setup(monkeypatch,tmp_path,invoke_post=True)
+    try:
+        policy.prepare_operator_package(package)
+        assert len(calls)==1 and calls[0][0][:2]==(policy._identity_port,123)
+    finally:policy.close()
 
 
 def test_operator_prompt_swaps_models_serially_and_restores_identity(monkeypatch, tmp_path):
@@ -101,6 +121,75 @@ def test_operator_prompt_planner_failure_falls_back_to_identity(monkeypatch, tmp
     assert identity_plan == [True]
     assert active["maximum"] == 1
     policy.close()
+    assert active["count"] == 0
+
+
+def test_operator_planning_resolves_runner_and_http_after_construction(monkeypatch, tmp_path):
+    policy, package, events, active, _ = _setup(monkeypatch, tmp_path)
+    previous = policy.executor
+    runner_type = type(policy.slow)
+    _, plan = _prompt_package()
+    calls = []
+
+    def runner(*args, **kwargs):
+        calls.append(("runner", str(args[0])))
+        return runner_type(*args, **kwargs)
+
+    def http(url, body, *, timeout):
+        calls.append(("http", url, body, timeout))
+        return {"choices": [{"message": {"content": "patched response"}}]}
+
+    def build(task, refs, post, **kwargs):
+        assert policy._model_lock._is_owned()
+        assert policy.slow.role == "planner"
+        assert post("patched prompt", {"type": "object"}) == "patched response"
+        calls.append(("build", task, refs))
+        return plan, {"error": None}
+
+    monkeypatch.setattr("scripts.eval_slow_system.LlamaServerRunner", runner)
+    monkeypatch.setattr("scripts.eval_slow_system._http_json", http)
+    monkeypatch.setattr(onboard_policy, "build_mission_from_text", build)
+    try:
+        candidate = policy.prepare_operator_package(package)
+        assert [call[0] for call in calls] == ["runner", "http", "build"]
+        assert "r14" in calls[0][1]
+        assert calls[1][1] == f"http://127.0.0.1:{policy._identity_port}/v1/chat/completions"
+        assert calls[1][2]["messages"] == [{"role": "user", "content": "patched prompt"}]
+        assert calls[1][3] == policy.slow_call_timeout_s
+        assert candidate.executor.plan is plan
+        assert policy.executor is previous and policy.operator_link_waiting
+        assert events[-1][:2] == ("start", "identity")
+        assert active["maximum"] == 1 and active["count"] == 1
+    finally:
+        policy.close()
+    assert active["count"] == 0
+
+
+def test_operator_fallback_resolves_replaced_facade_builder(monkeypatch, tmp_path):
+    policy, package, _, active, _ = _setup(monkeypatch, tmp_path)
+    _, plan = _prompt_package()
+    calls = []
+
+    def identity_build(*args, **kwargs):
+        calls.append(policy.slow.role)
+        assert policy._model_lock._is_owned()
+        return plan, {"error": None}
+
+    def planner_build(*args, **kwargs):
+        calls.append(policy.slow.role)
+        monkeypatch.setattr(onboard_policy, "build_mission_from_text", identity_build)
+        raise ValueError("planner failed")
+
+    monkeypatch.setattr(onboard_policy, "build_mission_from_text", planner_build)
+    try:
+        candidate = policy.prepare_operator_package(package)
+        assert calls == ["planner", "identity"]
+        assert candidate.executor.plan is plan
+        assert policy._model_runtime["planning_fallback_to_identity"] is True
+        assert policy.health.state.planning_failures == 1
+        assert active["maximum"] == 1 and active["count"] == 1
+    finally:
+        policy.close()
     assert active["count"] == 0
 
 

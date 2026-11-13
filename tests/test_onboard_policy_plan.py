@@ -69,7 +69,8 @@ def test_build_mission_from_text_passes_refs_and_sorted_schema():
     assert len(calls) == 1
     assert "Known places: zone:site." in calls[0][0]
     assert calls[0][1] == trained_key_order_schema(plan_json_schema())
-    assert list(calls[0][1]["properties"]) == ["goal", "plan_version", "report", "steps"]
+    assert "anyOf" not in calls[0][1]
+    assert "decision\":\"reject" not in calls[0][0]
     assert report["raw"] == raw
     assert report["error"] is None
 
@@ -90,7 +91,20 @@ def test_build_mission_from_text_can_use_unsorted_schema():
 
     assert plan.steps[0].skill == "area_search"
     assert schemas == [plan_json_schema()]
-    assert report["error"] is None
+
+
+def test_build_mission_from_text_can_enable_decision_contract():
+    raw = json.dumps(_site_search_plan())
+    calls = []
+
+    def post(prompt, schema):
+        calls.append((prompt, schema))
+        return raw
+
+    build_mission_from_text("Find the red car at the site", ("zone:site",), post,
+                            include_decision_contract=True)
+    assert "anyOf" in calls[0][1]
+    assert "reason_code" in calls[0][0]
 
 
 def test_build_mission_from_text_falls_back_to_single_return_home():

@@ -11,6 +11,7 @@ from multidetect.autonomy.step_triangulation import (
     fuse_position_estimates,
     make_ground_estimate,
     position_from_range,
+    triangulation_residual_gain,
     triangulate_views,
 )
 
@@ -43,6 +44,26 @@ def test_intersection_and_offline_sigma_propagation():
     )
     assert estimate.sigma_m == pytest.approx(expected)
     assert estimate.timestamp_s == 1.0
+
+
+def test_isotropic_geometry_leaves_residual_scale_unchanged():
+    rays = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
+    assert triangulation_residual_gain(rays) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("degrees", [5.0, 30.0, 90.0])
+def test_geometry_gain_matches_two_ray_information_eigenvalue(degrees):
+    angle = math.radians(degrees)
+    rays = [(1.0, 0.0, 0.0), (math.cos(angle), math.sin(angle), 0.0)]
+    # Mean(I-dd.T) has minimum eigenvalue (1-|cos(angle)|)/2.
+    expected = math.sqrt((2.0 / 3.0) / ((1.0 - abs(math.cos(angle))) / 2.0))
+    assert triangulation_residual_gain(rays) == pytest.approx(expected)
+
+
+def test_repeated_correlated_views_cannot_shrink_geometry_uncertainty():
+    rays = [(1.0, 0.0, 0.0), (math.cos(0.1), math.sin(0.1), 0.0)]
+    assert triangulation_residual_gain(rays * 8) == pytest.approx(triangulation_residual_gain(rays))
+    assert triangulation_residual_gain(rays) > 10.0
 
 
 def test_requires_distinct_steps_and_translation():

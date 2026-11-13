@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "asset_root": "/data/datasets/multidetect-sim-assets",
+  "comment": "Real places rebuilt from public data. origin is the takeoff point; size_m is the square edge.",
+  "sites": {
+    "rw_downtown_sf": {
+      "title": "旧金山市中心 高楼街区",
+      "lat": 37.78515,
+      "lon": -122.4025,
+      "size_m": 2000,
+      "kind": "urban"
+    },
+    "rw_suburb_davis": {
+      "title": "戴维斯 独栋住宅区",
+      "lat": 38.557,
+      "lon": -121.751,
+      "size_m": 2000,
+      "kind": "suburb"
+    },
+    "rw_farm_iowa": {
+      "title": "爱荷华 农田和乡村公路",
+      "lat": 42.015,
+      "lon": -93.71,
+      "size_m": 3000,
+      "kind": "rural"
+    },
+    "rw_mountain_boulder": {
+      "title": "博尔德 山地森林",
+      "lat": 39.999,
+      "lon": -105.283,
+      "size_m": 3000,
+      "kind": "mountain"
+    },
+    "rw_coast_santacruz": {
+      "title": "圣克鲁斯 海岸和港口",
+      "lat": 36.96697,
+      "lon": -122.00144,
+      "size_m": 3000,
+      "kind": "coast"
+    },
+    "rw_port_oakland": {
+      "title": "奥克兰港 工业区",
+      "lat": 37.801,
+      "lon": -122.315,
+      "size_m": 3000,
+      "kind": "industrial"
+    },
+    "rw_city_zurich": {
+      "title": "苏黎世老城与湖滨",
+      "lat": 47.3665,
+      "lon": 8.5417,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "swiss"
+    },
+    "rw_alpine_grindelwald": {
+      "title": "格林德瓦山村",
+      "lat": 46.6245,
+      "lon": 8.0412,
+      "size_m": 2000,
+      "kind": "mountain",
+      "provider": "swiss"
+    },
+    "rw_port_rotterdam": {
+      "title": "鹿特丹港区",
+      "lat": 51.88522464309306,
+      "lon": 4.4297321931078555,
+      "size_m": 2000,
+      "kind": "industrial",
+      "provider": "nl",
+      "takeoff_surface": "港区陆地硬地；相对旧水上原点向西 225 m、向北 25 m，航拍与 OSM 水域联合核对"
+    },
+    "rw_canal_amsterdam": {
+      "title": "阿姆斯特丹运河区",
+      "lat": 52.357,
+      "lon": 4.882,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "nl"
+    },
+    "rw_city_tokyo": {
+      "title": "东京 台东区公园起飞点",
+      "lat": 35.7174,
+      "lon": 139.7772,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "plateau",
+      "city_model": "PLATEAU 13106 Taito-ku LOD2 textured"
+    },
+    "rw_city_berlin": {
+      "title": "柏林 Tiergarten 周边",
+      "lat": 52.5145,
+      "lon": 13.3501,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "berlin",
+      "city_model": "Berlin LoD2 CityGML + DOP20"
+    },
+    "rw_city_singapore": {
+      "title": "新加坡 Upper Thomson 开阔草地（距默认家点约 0.7 km）",
+      "lat": 1.357442,
+      "lon": 103.82375,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM landuse=grass 开阔草地（约 1.42 ha 多边形）；起飞点附近按 25 m 压平"
+    },
+    "rw_city_shenzhen": {
+      "title": "深圳南山 深圳湾公园开阔地",
+      "lat": 22.523177,
+      "lon": 113.942624,
+      "size_m": 2000,
+      "kind": "coast",
+      "provider": "global",
+      "takeoff_surface": "OSM leisure=park 开阔公园地（约 0.45 ha 多边形）；起飞点附近按 25 m 压平"
+    },
+    "rw_shanghai_lujiazui": {
+      "title": "上海 陆家嘴中心绿地",
+      "lat": 31.239514553907295,
+      "lon": 121.50182645597538,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM陆家嘴绿地中扣除水域和建筑后的干地；选点距边界73.46m，25m起飞盘须再次通过构建检查"
+    },
+    "rw_shanghai_century_park": {
+      "title": "上海 世纪公园",
+      "lat": 31.21626409031214,
+      "lon": 121.54835820183557,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM世纪公园干地区域；扣除已映射水域和建筑后边界净距38.7m，25m起飞盘另经构建检查"
+    },
+    "rw_singapore_marina_bay": {
+      "title": "新加坡 滨海湾中央岬 The Promontory",
+      "lat": 1.281614,
+      "lon": 103.854207,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "global",
+      "takeoff_surface": "OSM landuse=grass The Promontory@Marina Bay；25m起飞盘须通过构建检查"
+    }
+  }
+}

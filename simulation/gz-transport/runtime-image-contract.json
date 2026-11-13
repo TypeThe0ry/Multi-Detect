@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "default_reference": "multidetect/px4-sitl-gazebo:transport-frame-09266eb0eb38",
+  "platform": {
+    "Architecture": "amd64",
+    "Os": "linux"
+  },
+  "rootfs": {
+    "Layers": [
+      "sha256:42724e448bf499ec7d4b3c21d6cc68fe665ef677ed393c3dbb5357394e89ff91",
+      "sha256:c453b02af249653f3f01b2d8fece380a079c8c2c85c0e6aa93b8634608a5a9c0",
+      "sha256:66ff7669a82fd0c902921197686c122945ed66f96ac8ddc17973c789ae8dd5db",
+      "sha256:08b60d7a39eeefc048e7e79a7b2f69f2fc636230099726bc5a414a84b53224e5",
+      "sha256:91cbf3b6fd0d2765e0bbb15d3265b46ceeec8bf60fd526a7be35849b5a83dbbf",
+      "sha256:adffecb4d057fa1c1ef73e3880119286a6ede484e82b2ec483087f828ffc18f6",
+      "sha256:1cd5cc76d293d91e12dac26aeceb0597186faa46908045bb7624865b104c4dbd",
+      "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+      "sha256:89c19165ec0cf7a2fa493c1f1963429092cd56a9086cc77b6e4796f7ebe9b713",
+      "sha256:8878fc7e3f50222bea8dd87ed913044095eda90b88923e36962cfc2ed9a69ffc",
+      "sha256:c19aa4b460426f44620c77a00d31c720c1f9d7e5642a6f0a348b074389d034c9"
+    ],
+    "Type": "layers"
+  },
+  "config": {
+    "ArgsEscaped": true,
+    "Entrypoint": [
+      "/opt/px4-gazebo/bin/px4-entrypoint.sh"
+    ],
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "DEBIAN_FRONTEND=noninteractive",
+      "RUNS_IN_DOCKER=true",
+      "GZ_SIM_RESOURCE_PATH=/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds",
+      "GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/px4-gazebo/lib/gz/plugins",
+      "GZ_SIM_SERVER_CONFIG_PATH=/opt/px4-gazebo/share/gz/server.config",
+      "PX4_GZ_MODELS=/opt/px4-gazebo/share/gz/models",
+      "PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds",
+      "PX4_SIM_MODEL=gz_x500",
+      "HOME=/root",
+      "HEADLESS=1",
+      "GZ_SIM_RENDER_ENGINE=ogre2",
+      "GZ_SIM_HEADLESS_RENDERING=1",
+      "EGL_PLATFORM=surfaceless",
+      "NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute",
+      "__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+      "LIBGL_ALWAYS_SOFTWARE=0"
+    ],
+    "ExposedPorts": {
+      "14540/udp": {},
+      "14550/udp": {},
+      "8888/udp": {}
+    },
+    "Labels": {
+      "description": "PX4 SITL with Gazebo Harmonic simulation",
+      "maintainer": "PX4 Development Team",
+      "org.opencontainers.image.version": "24.04"
+    },
+    "WorkingDir": "/root"
+  },
+  "components": {
+    "px4_sha256": "9c2280e005ad426f01cdffddf2114e1e4b13e26aa9f5996c4b52cdfa9e722d99",
+    "transport_sha256": "aff44fe0ab4e1452c78b65e97c76a3f99f9d132777e96840666186f3d8cc82fe"
+  },
+  "source": {
+    "px4_commit": "83c4f4e580558816f0e398918f66358988004696",
+    "px4_patch_sha256": "43bfe32d5d7572b866b3d411c2394d941b6bcc8e19ace5bdd6e230845cdf0559",
+    "transport_commit": "7232d0b163b08f79dd390ad9913d6ea72efaf209",
+    "transport_patch_sha256": "5ccf19125b46baf8857b38a07713358eef892c5425ac2572eb9b3fa4839bf6ef"
+  },
+  "qualification": "runtime-content reference only; flight acceptance remains separately required; no automatic promotion"
+}

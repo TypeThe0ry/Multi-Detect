@@ -1,0 +1,24 @@
+{
+  "assets": {
+    "4001_gz_x500": {
+      "image_path": "/opt/px4-gazebo/etc/init.d-posix/airframes/4001_gz_x500",
+      "sha256": "1db18c52bee06a339d0aae9767cc08fead182cf95c9149ab8cc070458f730351"
+    },
+    "4019_gz_x500_gimbal": {
+      "image_path": "/opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal",
+      "sha256": "7bb9d28b8116ace7cdd14cfde6a033ad6dafd7bf150331fe734b87900b38822d"
+    },
+    "gimbal_model.sdf": {
+      "image_path": "/opt/px4-gazebo/share/gz/models/gimbal/model.sdf",
+      "sha256": "040314986e177e24755822ca0b3be11dbf07c8a391eae39c554d22b461f7c451"
+    },
+    "x500_gimbal_model.sdf": {
+      "image_path": "/opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf",
+      "sha256": "72b0e39876073d4f4ccfdc94cd20dbb3d3256969e823725d9512a91a1434f574"
+    }
+  },
+  "contract": "multidetect.px4-x500-gimbal-source-assets-v3",
+  "image": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "image_revision": "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8",
+  "schema_version": 1
+}

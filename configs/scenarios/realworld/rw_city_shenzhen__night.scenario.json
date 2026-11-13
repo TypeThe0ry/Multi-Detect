@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_shenzhen__night",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_shenzhen__night.runtime.json",
+   "sha256": "dc6999ba8bab878a38047186bb1eb394dbfb5b2f284e45c54ff0ae39ac3a3b1e"
+  },
+  "truth": {
+   "path": "rw_city_shenzhen__night.truth.json",
+   "sha256": "7686ece88b5fc11583014a0ce277d4e62de7c4bc3e68799bc916b65f0d1994e8"
+  },
+  "expectations": {
+   "path": "rw_city_shenzhen__night.expectations.json",
+   "sha256": "2ddc77f8f84054d4035c78f8d6dc8d30be8ce56c191f4554e8ebafc2c3c332b5"
+  }
+ }
+}

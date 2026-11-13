@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ def test_session_plan_enables_browser_viewer() -> None:
     assert world.name == "urban_inspection_multirotor_001.sdf"
     assert VIEWER_IMAGE in command
     assert "HEADLESS=1" in command
+    assert command[-1].endswith("-d")
     assert "DISPLAY=:99" in command
     assert "127.0.0.1:6080:6080/tcp" in command
     assert any("Xvfb :99" in token for token in command)
@@ -31,9 +33,188 @@ def test_session_plan_sends_gcs_to_host_without_publishing_port() -> None:
     assert any("-t $DOCKER_HOST_IP -u 14542 -o 14560" in token for token in command)
 
 
+def test_session_container_snapshot_uses_fake_docker(monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[1] == "inspect":
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": json.dumps(
+                        {
+                            "Id": "session-container-id",
+                            "State": {
+                                "Running": True,
+                                "ExitCode": 0,
+                                "OOMKilled": False,
+                                "FinishedAt": "0001-01-01T00:00:00Z",
+                            },
+                        }
+                    ),
+                    "stderr": "",
+                },
+            )()
+        return type(
+            "Result",
+            (),
+            {"returncode": 0, "stdout": "PID COMMAND\n5678 px4\n", "stderr": ""},
+        )()
+
+    monkeypatch.setattr(session.subprocess, "run", run)
+    snapshot = session._container_runtime_snapshot("docker", "session-container")
+    assert snapshot["container_id"] == "session-container-id"
+    assert snapshot["state"] == {
+        "running": True,
+        "exit_code": 0,
+        "oom_killed": False,
+        "finished_at": "0001-01-01T00:00:00Z",
+    }
+    assert snapshot["px4_process_alive"] is True
+    assert snapshot["px4_host_pids"] == [5678]
+    assert len(calls) == 2
+
+
+def test_nonzero_task_logs_failure_and_cleanup_snapshots(monkeypatch, tmp_path):
+    class FakeLock:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def acquire(self, *_args, **_kwargs):
+            raise AssertionError("inherited lock should not be reacquired")
+
+        def release(self):
+            pass
+
+    class Result:
+        returncode = 0
+        stdout = "true\n"
+        stderr = ""
+
+    stopped = False
+
+    def run(command, **_kwargs):
+        nonlocal stopped
+        if command[:2] == ["docker", "inspect"]:
+            if "{{.State.Running}}" in command:
+                return Result()
+            state = {
+                "Running": not stopped,
+                "ExitCode": 0 if not stopped else 137,
+                "OOMKilled": False,
+                "FinishedAt": "0001-01-01T00:00:00Z" if not stopped else "2026-11-05T01:02:03Z",
+            }
+            return type(
+                "InspectResult",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": json.dumps({"Id": "session-container-id", "State": state}),
+                    "stderr": "",
+                },
+            )()
+        if command[:2] == ["docker", "top"]:
+            return type(
+                "TopResult",
+                (),
+                {"returncode": 0, "stdout": "PID COMMAND\n5678 px4\n", "stderr": ""},
+            )()
+        if command[:2] == ["docker", "stop"]:
+            stopped = True
+        return Result()
+
+    monkeypatch.setattr(session, "SitlLock", FakeLock)
+    monkeypatch.setattr(session, "validate_runtime_prerequisites", lambda **_: None)
+    monkeypatch.setattr(session, "ensure_viewer_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        session,
+        "build_session_command",
+        lambda **_kwargs: (
+            ["docker", "run"],
+            type("Plan", (), {"docker_executable": "docker", "container_name": "c"})(),
+            ROOT / "simulation/gazebo/worlds/gen_cnt2_w0000.sdf",
+        ),
+    )
+    monkeypatch.setattr(session, "_wait_world_ready", lambda *_args: (True, True, ""))
+    monkeypatch.setattr(session, "_run_task", lambda *_args, **_kwargs: 9)
+    monkeypatch.setattr(session.subprocess, "run", run)
+    monkeypatch.setenv("MULTIDETECT_SITL_LOCK_HELD", "1")
+    log_path = tmp_path / "session.jsonl"
+
+    try:
+        assert main([
+            "--onboard-task", "test", "--exit-after-task",
+            "--onboard-out", str(tmp_path / "out"), "--artifacts-root", str(tmp_path / "art"),
+            "--session-log", str(log_path),
+        ]) == 9
+    finally:
+        monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+
+    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    ready = next(row for row in rows if row["phase"] == "container_ready_snapshot")
+    failure = next(row for row in rows if row["phase"] == "container_failure_snapshot")
+    cleanup = next(row for row in rows if row["phase"] == "container_cleanup")
+    assert ready["container_snapshot"]["px4_host_pids"] == [5678]
+    assert failure["reason"] == "onboard task exited with code 9"
+    assert failure["container_snapshot"]["state"]["running"] is True
+    assert failure["container_snapshot"]["px4_process_alive"] is True
+    assert failure["container_snapshot"]["container_id"] == "session-container-id"
+    assert cleanup["container_snapshot"]["state"]["exit_code"] == 137
+    assert cleanup["container_snapshot"]["px4_process_alive"] is False
+
+
 def test_session_options_reject_invalid_snapshot_interval() -> None:
     with pytest.raises(SystemExit):
         main(["--snapshot-interval", "0"])
+
+
+@pytest.mark.parametrize("held,should_acquire", [(False, True), (True, False)])
+def test_session_honors_inherited_sitl_lock_marker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, held: bool, should_acquire: bool
+) -> None:
+    events: list[str] = []
+
+    class FakeLock:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def acquire(self, *_args, **_kwargs):
+            events.append("acquire")
+
+        def release(self):
+            events.append("release")
+
+    class Result:
+        returncode = 0
+        stdout = "true\n"
+
+    monkeypatch.setattr(session, "SitlLock", FakeLock)
+    monkeypatch.setattr(session, "validate_runtime_prerequisites", lambda **_: None)
+    monkeypatch.setattr(session, "ensure_viewer_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        session,
+        "build_session_command",
+        lambda **_kwargs: (["docker", "run"], type("Plan", (), {"docker_executable": "docker", "container_name": "c"})(), ROOT / "simulation/gazebo/worlds/gen_cnt2_w0000.sdf"),
+    )
+    monkeypatch.setattr(session, "_wait_world_ready", lambda *_args: (True, True, ""))
+    monkeypatch.setattr(session.subprocess, "run", lambda *_args, **_kwargs: Result())
+    if held:
+        monkeypatch.setenv("MULTIDETECT_SITL_LOCK_HELD", "1")
+    else:
+        monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+    try:
+        assert main([
+            "--onboard-task", "test", "--exit-after-task",
+            "--onboard-out", str(tmp_path / "out"), "--artifacts-root", str(tmp_path / "art"),
+            "--sitl-lock-path", str(tmp_path / "lock"),
+        ]) == 0
+    finally:
+        monkeypatch.delenv("MULTIDETECT_SITL_LOCK_HELD", raising=False)
+    assert ("acquire" in events) is should_acquire
+    assert ("release" in events) is should_acquire
 
 
 def test_world_must_be_repository_owned() -> None:
@@ -45,8 +226,13 @@ def test_world_must_be_repository_owned() -> None:
     ("airframe", "world", "model"),
     [
         ("x500", "urban_inspection_multirotor_001.sdf", "px4_multirotor_standard"),
+        ("x500_gimbal", "urban_inspection_multirotor_001.sdf", "px4_multirotor_standard"),
         ("standard_vtol", "river_rescue_vtol_001.sdf", "px4_vtol_standard"),
         ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter_mono_cam"),
+        ("delta_tailsitter", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter_mono_cam"),
+        ("delta_tailsitter_mono_cam", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter_mono_cam"),
+        ("delta_tailsitter_gimbal", "delta_tailsitter_gimbal_cam_001.sdf", "delta_tailsitter_gimbal_cam"),
+        ("delta_tailsitter_gimbal_cam", "delta_tailsitter_gimbal_cam_001.sdf", "delta_tailsitter_gimbal_cam"),
         ("tiltrotor", "tiltrotor_mono_cam_001.sdf", "tiltrotor_mono_cam"),
         ("rc_cessna", "coastal_patrol_fixed_wing_001.sdf", "px4_fixed_wing_standard"),
     ],
@@ -60,12 +246,23 @@ def test_session_plan_selects_airframe_runtime(airframe: str, world: str, model:
     assert plan.vehicle_model == model
 
 
+def test_gimbal_session_plan_keeps_gimbal_px4_selection() -> None:
+    _, plan, _ = build_session_command(
+        airframe="x500_gimbal", container_name="test-x500-gimbal"
+    )
+    environment = dict(plan.environment)
+    assert environment["PX4_SYS_AUTOSTART"] == "4019"
+    assert environment["PX4_SIM_MODEL"] == "gz_x500_gimbal"
+
+
 @pytest.mark.parametrize(
     ("airframe", "world", "scenario"),
     [
         ("standard_vtol", "gen_v2_w0031", "vtol-v2/standard_vtol/gen_v2_w0031"),
         ("standard_vtol", "gen_v2_w0016", "vtol-v2/standard_vtol/gen_v2_w0016"),
         ("quadtailsitter", "gen_v2_w0016", "vtol-v2/quadtailsitter/gen_v2_w0016"),
+        ("delta_tailsitter", "gen_v2_w0016", "vtol-v2/delta_tailsitter/gen_v2_w0016"),
+        ("delta_tailsitter_gimbal", "gen_v2_w0016", "vtol-v2/delta_tailsitter_gimbal/gen_v2_w0016"),
         ("rc_cessna", "gen_v2_w0031", "fixed-wing-v2/gen_v2_w0031"),
         ("rc_cessna_hand", "gen_v2_w0016", "fixed-wing-v2/gen_v2_w0016"),
         ("x500", "gen_v2_w0031", "generated-v2/gen_v2_w0031"),
@@ -101,6 +298,7 @@ def test_known_world_without_an_airframe_scenario_is_rejected(airframe: str, wor
         ("x500", None, None),
         ("standard_vtol", None, "vtol"),
         ("quadtailsitter_mono_cam", None, "vtol"),
+        ("delta_tailsitter_mono_cam", None, "vtol"),
         ("tiltrotor", None, "vtol"),
         ("rc_cessna", None, "runway"),
         ("rc_cessna", "catapult", "catapult"),
@@ -119,6 +317,7 @@ def test_takeoff_method_follows_the_airframe(
     [
         ("x500", "runway"),
         ("standard_vtol", "runway"),
+        ("delta_tailsitter", "runway"),
         ("rc_cessna", "vtol"),
         ("rc_cessna_hand", "catapult"),
     ],
@@ -136,6 +335,7 @@ def test_takeoff_method_rejects_other_airframe_families(airframe: str, requested
         ("x500", "urban_inspection_multirotor_001.sdf", "x500_mono_cam", None),
         ("standard_vtol", "gen_v2_w0016", "standard_vtol", "vtol"),
         ("quadtailsitter", "quadtailsitter_mono_cam_001.sdf", "quadtailsitter", "vtol"),
+        ("delta_tailsitter", "delta_tailsitter_mono_cam_001.sdf", "delta_tailsitter", "vtol"),
         ("tiltrotor", "tiltrotor_mono_cam_001.sdf", "tiltrotor", "vtol"),
         ("rc_cessna", "gen_v2_w0031", "rc_cessna_mono_cam", "runway"),
         ("rc_cessna_hand", "coastal_patrol_fixed_wing_001.sdf", "rc_cessna_mono_cam", "hand"),
@@ -168,6 +368,8 @@ def test_onboard_collector_command_carries_airframe_and_takeoff(
         artifacts_root=tmp_path / "art",
     )
     command = captured[0]
+    assert command[command.index("--image") + 1] == VIEWER_IMAGE
+    assert "--no-gpu-render" in command
     assert command[command.index("--airframe") + 1] == canonical
     assert Path(command[command.index("--scenario") + 1]) == session._scenario_for(
         world_path, airframe
@@ -214,6 +416,19 @@ def test_generated_world_resolves_through_its_scenario_index() -> None:
         _scenario_for(worlds / "gen_v2_w0031.sdf", "rc_cessna")
         == ROOT / "configs/scenarios/fixed-wing-v2/gen_v2_w0031.scenario.json"
     )
+
+
+@pytest.mark.parametrize("family", ["delta_tailsitter", "delta_tailsitter_gimbal"])
+def test_delta_tailsitter_vtol_scenario_index_is_complete(family: str) -> None:
+    index_path = ROOT / "configs/scenarios" / "vtol-v2" / family / "index.json"
+    document = json.loads(index_path.read_text(encoding="utf-8"))
+    worlds = document["worlds"]
+    assert len(worlds) == 2
+    assert {entry["split"] for entry in worlds} == {"train", "val"}
+    assert {entry["world_id"] for entry in worlds} == {"gen_v2_w0016", "gen_v2_w0031"}
+    for entry in worlds:
+        scenario = index_path.parent / f"{entry['world_id']}.scenario.json"
+        assert scenario.is_file()
 
 
 def test_run_task_uses_session_ports_and_repo_defaults(monkeypatch, tmp_path: Path) -> None:
@@ -335,6 +550,7 @@ def test_heartbeat_details_releases_the_gcs_port(monkeypatch) -> None:
     assert closed == [True]
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_heartbeat_details_actually_frees_the_udp_port() -> None:
     import socket
 

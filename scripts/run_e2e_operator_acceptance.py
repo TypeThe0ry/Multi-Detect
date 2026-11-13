@@ -39,7 +39,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRATCH = Path(r"D:/Projects/mdwt/_scratch")
+sys.path.insert(0, str(ROOT / "src"))
+from multidetect.host_paths import host_path  # noqa: E402
+from scripts.sitl_lock import sitl_lock_context  # noqa: E402
+SCRATCH = host_path("MULTIDETECT_E2E_SCRATCH", r"D:\Projects\mdwt\_scratch", ROOT / ".tmp")
 LOCK = SCRATCH / "sitl.lock"
 DEFAULT_RADIUS_M = 10.0  # scripts/score_onboard_loop.py --radius-m default
 sys.path.insert(0, str(ROOT))
@@ -918,11 +921,15 @@ def run(args: argparse.Namespace) -> int:
         "--gcs-port",
         str(args.gcs_port),
     ]
+    lock = SitlLock(args.lock_name)
+    with sitl_lock_context(lock, args.lock_timeout):
+        return _run_locked(args, run_dir, out, session_cmd)
+
+
+def _run_locked(args, run_dir: Path, out: Path, session_cmd: list[str]) -> int:
     procs: list[subprocess.Popen] = []
     handles = []
-    lock = SitlLock(args.lock_name)
     try:
-        lock.acquire(args.lock_timeout)
         handles.append((run_dir / "session.out").open("w", encoding="utf-8"))
         session = subprocess.Popen(
             session_cmd, cwd=ROOT, stdout=handles[-1], stderr=subprocess.STDOUT
@@ -978,7 +985,6 @@ def run(args: argparse.Namespace) -> int:
                 )
         except OSError:
             pass
-        lock.release()
     return _score(run_dir, args)
 
 

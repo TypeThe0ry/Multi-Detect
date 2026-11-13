@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_alpine_grindelwald__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_alpine_grindelwald__windy.runtime.json",
+   "sha256": "72e17779f56e1488e1f30278caedda6c18376783aeb32ea212eca2da3cb991d9"
+  },
+  "truth": {
+   "path": "rw_alpine_grindelwald__windy.truth.json",
+   "sha256": "dc5b028a721905df517a4395d9be3fffdf289ad3bb9111b4b4fb700af3f53632"
+  },
+  "expectations": {
+   "path": "rw_alpine_grindelwald__windy.expectations.json",
+   "sha256": "f51872850219a0c09618387429409b9daf8e190e11d2b47d4e860908987f205e"
+  }
+ }
+}

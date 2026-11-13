@@ -96,6 +96,7 @@ def test_real_deployment_requires_configured_peer() -> None:
         )
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_peer_state_maps_are_bounded_without_evicting_bound_peer() -> None:
     server = UdpOperatorSelectionServer(
         bind_host="127.0.0.1",
@@ -155,6 +156,7 @@ def _runtime_status(
     )
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_runtime_status_round_trips_over_direct_signed_udp_metadata_link() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -220,6 +222,7 @@ def test_runtime_status_round_trips_over_direct_signed_udp_metadata_link() -> No
     assert received.physical_release_enabled is False
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_selection_guard_uses_injected_runtime_clock_domain() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -251,6 +254,7 @@ def test_selection_guard_uses_injected_runtime_clock_domain() -> None:
     assert acknowledgement_packet.message.accepted is True
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_runtime_status_requires_matching_post_adoption_acceptance_ack() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -312,6 +316,7 @@ def test_runtime_status_requires_matching_post_adoption_acceptance_ack() -> None
 
 
 @pytest.mark.parametrize("corruption", ["sequence", "run"])
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_runtime_status_acceptance_ack_fails_closed_on_wrong_binding(corruption: str) -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -364,6 +369,7 @@ def test_runtime_status_acceptance_ack_fails_closed_on_wrong_binding(corruption:
                 server.wait_runtime_status_ack(send_receipt, timeout_s=1.0)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_runtime_status_acceptance_ack_rejects_wrong_peer_timeout_and_out_of_order() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -445,6 +451,7 @@ def test_runtime_status_acceptance_ack_rejects_wrong_peer_timeout_and_out_of_ord
                 server.publish_runtime_status_for_acceptance(second_status, peer=peer)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_runtime_status_ack_timestamp_before_deadline_succeeds_deterministically() -> None:
     peer = ("127.0.0.1", 49_001)
     clock_ns = [1_000_000_000]
@@ -469,6 +476,7 @@ def test_runtime_status_ack_timestamp_before_deadline_succeeds_deterministically
     assert receipt.acknowledged_at_monotonic_ns - receipt.sent_at_monotonic_ns == 10_000_000
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_runtime_status_ack_timestamp_after_deadline_fails_deterministically() -> None:
     peer = ("127.0.0.1", 49_002)
     clock_ns = [2_000_000_000]
@@ -513,6 +521,7 @@ def test_runtime_status_ack_timestamp_after_deadline_fails_deterministically() -
     assert "after deadline" in str(wait_errors[0])
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_runtime_status_timeout_enqueue_race_does_not_poison_next_ack() -> None:
     peer = ("127.0.0.1", 49_003)
     clock_ns = [3_000_000_000]
@@ -587,6 +596,7 @@ def test_runtime_status_timeout_enqueue_race_does_not_poison_next_ack() -> None:
     assert next_receipt.acknowledgement == next_acknowledgement
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_runtime_status_peer_change_and_old_ack_cannot_revive_next_send() -> None:
     old_peer = ("127.0.0.1", 49_004)
     new_peer = ("127.0.0.1", 49_005)
@@ -626,6 +636,7 @@ def test_runtime_status_peer_change_and_old_ack_cannot_revive_next_send() -> Non
     assert receipt.remote == new_peer
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_background_server_registers_qgc_heartbeat_before_selection() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -671,6 +682,7 @@ def test_background_server_registers_qgc_heartbeat_before_selection() -> None:
         assert server.poll_error() is None
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_authenticated_metadata_peer_lease_expires_without_heartbeat() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
 
@@ -692,6 +704,7 @@ def test_authenticated_metadata_peer_lease_expires_without_heartbeat() -> None:
             assert server.active_metadata_peer() is None
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_metadata_peer_lease_default_matches_qgc_stale_timeout() -> None:
     server = UdpOperatorSelectionServer(
         bind_host="127.0.0.1",
@@ -705,6 +718,7 @@ def test_metadata_peer_lease_default_matches_qgc_stale_timeout() -> None:
         server.close()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_selection_replay_from_another_udp_source_port_cannot_replace_session_peer() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -764,6 +778,7 @@ def test_selection_replay_from_another_udp_source_port_cannot_replace_session_pe
         assert server.poll_selection() is None
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_background_error_queue_is_bounded_and_aggregated_per_source() -> None:
     server = UdpOperatorSelectionServer(
         bind_host="127.0.0.1",
@@ -785,6 +800,7 @@ def test_background_error_queue_is_bounded_and_aggregated_per_source() -> None:
         server.close()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_stale_authenticated_status_is_rejected_before_display() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -807,6 +823,7 @@ def test_stale_authenticated_status_is_rejected_before_display() -> None:
             client.receive_runtime_status(timeout_s=1.0)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_duplicate_authenticated_selection_ack_is_throttled() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -839,6 +856,7 @@ def test_duplicate_authenticated_selection_ack_is_throttled() -> None:
                 sender.recvfrom(1024)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_real_localhost_udp_selection_and_ack_round_trip() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -883,6 +901,7 @@ def test_real_localhost_udp_selection_and_ack_round_trip() -> None:
     assert receipt.elapsed_s < 2.0
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_background_server_delivers_selection_and_returns_tracking_status() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -1144,6 +1163,7 @@ def test_background_server_delivers_selection_and_returns_tracking_status() -> N
     assert target_observation.advisory_only is True
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_background_server_round_trips_bound_authorization_decision() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -1273,6 +1293,7 @@ def test_background_server_round_trips_bound_authorization_decision() -> None:
     assert queued_decision[0].decision is AuthorizationDecision.APPROVE
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_background_server_round_trips_bound_continuous_approach_slide() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -1364,6 +1385,7 @@ def test_background_server_round_trips_bound_continuous_approach_slide() -> None
             assert received_status.flight_control_enabled is False
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_background_server_round_trips_bound_payload_target_slide_and_status() -> None:
     jetson = _adapter(OperatorMavlinkEndpoint(1, 191, 255, 190))
     g20 = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
@@ -1462,6 +1484,7 @@ def test_background_server_round_trips_bound_payload_target_slide_and_status() -
             assert received_status.physical_release_enabled is False
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_session_client_binds_and_reports_explicit_ipv4_source() -> None:
     adapter = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
 
@@ -1475,6 +1498,7 @@ def test_session_client_binds_and_reports_explicit_ipv4_source() -> None:
 
 
 @pytest.mark.parametrize("source_host", ["localhost", "::1"])
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_session_client_rejects_non_ipv4_source(source_host: str) -> None:
     adapter = _adapter(OperatorMavlinkEndpoint(255, 190, 1, 191))
 

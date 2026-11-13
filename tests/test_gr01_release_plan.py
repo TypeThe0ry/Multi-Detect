@@ -17,6 +17,7 @@ from multidetect.gr01_release_plan import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+PYTHON = Path(sys.executable).resolve()
 SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session-plan.schema.json"
 
 
@@ -38,7 +39,7 @@ def _create(directory: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, dic
         maximum_attempts=3,
         maximum_evidence_age_s=900.0,
         repository_root=ROOT,
-        python_path=sys.executable,
+        python_path=PYTHON,
         output_root=directory,
     )
     return output, document
@@ -129,7 +130,7 @@ def test_ready_requires_secrets_clean_git_and_verified_parity(
             maximum_attempts=3,
             maximum_evidence_age_s=900.0,
             repository_root=ROOT,
-            python_path=sys.executable,
+            python_path=PYTHON,
             output_root=Path(name),
         )
         assert document["ready_to_execute"] is True
@@ -159,7 +160,7 @@ def test_creator_is_write_new_and_cli_rejects_invalid_plan(
                 maximum_attempts=3,
                 maximum_evidence_age_s=900.0,
                 repository_root=ROOT,
-                python_path=sys.executable,
+                python_path=PYTHON,
                 output_root=Path(name),
             )
         output.write_text("not-json\n", encoding="utf-8")

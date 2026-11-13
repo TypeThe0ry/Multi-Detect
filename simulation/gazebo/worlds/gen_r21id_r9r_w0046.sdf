@@ -1,0 +1,295 @@
+<sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.000000</real_time_factor></physics><gravity>0 0 -9.80665</gravity><spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>1.3521</latitude_deg><longitude_deg>103.8198</longitude_deg><elevation>18</elevation></spherical_coordinates><scene><ambient>0.450 0.450 0.450 1</ambient><background>0.750 0.800 0.880 1</background><shadows>true</shadows></scene><light name="sun" type="directional"><pose>0 0 500 0 0 0</pose><direction>-0.4240 0.3180 -0.8480</direction><cast_shadows>true</cast_shadows><intensity>1.000</intensity><diffuse>1.000 1.000 1.000 1</diffuse><specular>0.200 0.200 0.200 1</specular></light><model name="ground_plane"><static>true</static><link name="ground_link"><collision name="ground_collision"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry></collision><visual name="ground_visual"><geometry><plane><normal>0 0 1</normal><size>340 340</size></plane></geometry><material><diffuse>0.34 0.50 0.28 1</diffuse></material></visual></link></model>
+<model name="obstacle_00"><static>true</static><pose>37.491 -106.163 9.328731 0 0 -3.018881</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>17.6972 17.6971 18.6575</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>1</label></plugin><model name="mesh">
+        <pose>0.000002 0.000001 -9.328729 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision">
+                <geometry>
+                    <mesh>
+                        <uri>model://office_building/meshes/office_building.dae</uri>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://office_building/meshes/office_building.dae</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>1</label></plugin></model></model>
+<model name="obstacle_01"><static>true</static><pose>4.976 85.581 4.611750 0 0 0.034822</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>2.1161 1.0000 9.2235</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>2</label></plugin><model name="mesh">
+        <pose>-0.000000 -0.000000 -4.611750 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision_pole">
+                <pose>0 0 4.572 0 0 0</pose>
+                <geometry>
+                    <cylinder>
+                        <radius>0.07794752</radius>
+                        <length>9.144</length>
+                    </cylinder>
+                </geometry>
+            </collision>
+            <collision name="collision_cross">
+                <pose>0 -0.098806 8.048363126 0 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>2.11605876 0.041763442 0.177805588</size>
+                    </box>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://telephone_pole/meshes/telephone_pole.dae</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>2</label></plugin></model></model>
+<model name="obstacle_02"><static>true</static><pose>-30.071 -86.949 2.538904 0 0 2.048586</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>3.1723 3.1723 5.0778</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>3</label></plugin><model name="mesh">
+        <pose>-0.000000 -0.000000 -2.538904 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision">
+                <geometry>
+                    <mesh>
+                        <uri>model://pine_tree/meshes/pine_tree.dae</uri>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="branch">
+                <geometry>
+                    <mesh>
+                        <uri>model://pine_tree/meshes/pine_tree.dae</uri>
+                        <submesh>
+                            <name>Branch</name>
+                        </submesh>
+                    </mesh>
+                </geometry>
+                <material>
+                    <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://pine_tree/materials/textures/branch_2_diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
+            </visual>
+            <visual name="bark">
+                <geometry>
+                    <mesh>
+                        <uri>model://pine_tree/meshes/pine_tree.dae</uri>
+                        <submesh>
+                            <name>Bark</name>
+                        </submesh>
+                    </mesh>
+                </geometry>
+                <material>
+                    <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://pine_tree/materials/textures/bark_diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>3</label></plugin></model></model>
+<model name="obstacle_03"><static>true</static><pose>86.488 -1.249 3.843458 0 0 -1.469230</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>16.4900 12.9306 7.6869</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>4</label></plugin><model name="mesh">
+        <pose>0.397002 0.374849 -3.843247 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision">
+                <geometry>
+                    <mesh>
+                        <uri>model://house_1/meshes/house_1.dae</uri>
+                        <scale>1.5 1.5 1.5</scale>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://house_1/meshes/house_1.dae</uri>
+                        <scale>1.5 1.5 1.5</scale>
+                    </mesh>
+                </geometry>
+                <material>
+                    <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_1/materials/textures/House_1_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>4</label></plugin></model></model>
+<model name="obstacle_04"><static>true</static><pose>-79.994 -81.064 4.585930 0 0 -1.203507</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>13.1740 8.7064 9.1719</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>5</label></plugin><model name="mesh">
+        <pose>0.489898 0.016694 -4.585929 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision">
+                <geometry>
+                    <mesh>
+                        <uri>model://house_3/meshes/house_3.dae</uri>
+                        <scale>1.5 1.5 1.5</scale>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://house_3/meshes/house_3.dae</uri>
+                        <scale>1.5 1.5 1.5</scale>
+                    </mesh>
+                </geometry>
+                <material>
+                    <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://house_3/materials/textures/House_3_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>5</label></plugin></model></model>
+<model name="target_true_gen_r21id_r9r_w0046"><static>true</static><pose>62.000 4.000 1.078 0 0 -0.350000</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>5.0201 2.6037 2.1565</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>6</label></plugin><model name="mesh">
+        <pose>-0.066717 -0.033885 -1.069893 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision">
+                <pose>0 0 0 0 0 -1.57079632679</pose>
+                <geometry>
+                    <mesh>
+                        <scale>0.06 0.06 0.06</scale>
+                        <uri>model://suv/meshes/suv.obj</uri>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <pose>0 0 0 0 0 -1.57079632679</pose>
+                <geometry>
+                    <mesh>
+                        <scale>0.06 0.06 0.06</scale>
+                        <uri>model://suv/meshes/suv.obj</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>6</label></plugin></model></model>
+<model name="confuser_0046_00_00"><static>true</static><pose>65.500 4.000 0.762 0 0 1.490796</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.681827 0.684864 1.524000</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>7</label></plugin><model name="mesh">
+        <pose>-0.000000 -0.000000 -0.762000 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision">
+                <geometry>
+                    <mesh>
+                        <uri>model://postbox/meshes/postbox.dae</uri>
+                    <scale>1 1 1</scale></mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://postbox/meshes/postbox.dae</uri>
+                    <scale>1 1 1</scale></mesh>
+                </geometry>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>7</label></plugin></model></model>
+<model name="forced_0046_00"><static>true</static><pose>12.876 -97.116 0.280000 0 0 -3.095975</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.4344 0.3311 0.5600</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>8</label></plugin><model name="mesh">
+        <pose>0.017204 0.165568 0.000000 0 0 0</pose><static>true</static>
+        <link name="link">
+            <pose>0 0 0 1.57 3.14159 0</pose>
+            <collision name="collision">
+                <geometry>
+                    <mesh>
+                        <uri>model://electrical_box/meshes/Electrical Box.dae</uri>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://electrical_box/meshes/Electrical Box.dae</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>8</label></plugin></model></model>
+<model name="distractor_0046_00"><static>true</static><pose>-100.764 55.344 0.571500 0 0 2.674956</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>4.0656 0.8128 1.1430</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>9</label></plugin><model name="mesh">
+        <pose>-0.000000 -0.000000 -0.571500 0 0 0</pose><static>true</static>
+        <link name="link">
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://jersey_barrier/meshes/jersey_barrier.dae</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+            <collision name="upright">
+                <pose>0 0 0.5715 0 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>4.06542 0.3063 1.143</size>
+                    </box>
+                </geometry>
+            </collision>
+            <collision name="base">
+                <pose>0 0 0.032258 0 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>4.06542 0.8107 0.064516</size>
+                    </box>
+                </geometry>
+            </collision>
+            <collision name="base2">
+                <pose>0 0 0.1 0 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>4.06542 0.65 0.1</size>
+                    </box>
+                </geometry>
+            </collision>
+            <collision name="base3">
+                <pose>0 0 0.2 0 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>4.06542 0.5 0.1</size>
+                    </box>
+                </geometry>
+            </collision>
+            <collision name="left-angle">
+                <pose>0 -0.224 0.2401 0.9 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>4.06542 0.5 0.064516</size>
+                    </box>
+                </geometry>
+            </collision>
+            <collision name="right-angle">
+                <pose>0 0.224 0.2401 -0.9 0 0</pose>
+                <geometry>
+                    <box>
+                        <size>4.06542 0.5 0.064516</size>
+                    </box>
+                </geometry>
+            </collision>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>9</label></plugin></model></model>
+<model name="distractor_0046_01"><static>true</static><pose>22.153 79.823 0.932771 0 0 -2.948623</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>5.6647 2.4729 1.8655</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>10</label></plugin><model name="mesh">
+        <pose>0.120118 -0.000000 -0.925423 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision">
+                <pose>0 0 0 0 0 -1.57079632679</pose>
+                <geometry>
+                    <mesh>
+                        <uri>model://pickup/meshes/pickup.dae</uri>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <pose>0 0 0 0 0 -1.57079632679</pose>
+                <geometry>
+                    <mesh>
+                        <uri>model://pickup/meshes/pickup.dae</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>10</label></plugin></model></model>
+<model name="distractor_0046_02"><static>true</static><pose>-86.352 -39.005 0.908798 0 0 1.570643</pose><link name="bounds"><collision name="bounds_collision"><geometry><box><size>0.5931 0.0228 1.8176</size></box></geometry></collision></link><plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>11</label></plugin><model name="mesh">
+        <pose>-0.000000 0.000396 -0.908798 0 0 0</pose><static>true</static>
+        <link name="link">
+            <collision name="collision">
+                <geometry>
+                    <mesh>
+                        <uri>model://stop_sign/meshes/stop_sign.dae</uri>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual">
+                <geometry>
+                    <mesh>
+                        <uri>model://stop_sign/meshes/stop_sign.dae</uri>
+                    </mesh>
+                </geometry>
+                <material>
+                    <diffuse>1 1 1 1</diffuse><specular>0.1 0.1 0.1 1</specular><pbr><metal><albedo_map>model://stop_sign/materials/textures/StopSign_Diffuse.png</albedo_map><roughness>0.8</roughness><metalness>0</metalness></metal></pbr></material>
+            </visual>
+        </link>
+    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>11</label></plugin></model></model></world></sdf>

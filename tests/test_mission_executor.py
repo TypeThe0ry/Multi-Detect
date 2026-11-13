@@ -165,11 +165,16 @@ def test_count_keeps_searching_and_dedupes_by_ground_position():
         _count_plan(2), loop_factory=without_reid, refs={"zone:lot": (0.0, 0.0, 100.0)}
     )
     sim = Sim()
-    # Three confirmations: object A, object A again (new track id, 2 m away), object B.
+    # Three confirmations: object A, a distinct 2 m observation, then object B.
+    # Each identity gets a second view from a laterally shifted pose to satisfy
+    # independent-view gating.
     script = [(10.0, 0.0), (10.0, 2.0), (40.0, -20.0)]
     counted = []
     for position in script:
-        for _ in range(4):  # two confirm views are needed per object
+        sim.pose = [position[0] - 10.0, position[1], -20.0]
+        for view_index in range(4):
+            if view_index == 1:
+                sim.pose[1] += 6.0
             box = [Detection(_box(640, 700, 40), 0.5)]
             _action, info = _cycle(
                 executor,
@@ -186,8 +191,8 @@ def test_count_keeps_searching_and_dedupes_by_ground_position():
             _cycle(executor, sim)
             if executor._run is None or executor._run.step.skill != "count":
                 break
-    # The 2 m re-observation is outside the small cone footprint radius; it is
-    # a distinct object under footprint-based count dedupe.
+    # The nearby object is outside the small cone footprint gate; the far object
+    # also counts, and reaching max_count ends the step before a third count.
     assert counted == ["counted", "counted"]
     assert executor.counts == {"count": 2}
     assert executor.history[0]["reason"] == "max_count"
@@ -200,7 +205,9 @@ def test_count_does_not_reassociate_exhausted_identity_after_it_leaves_view():
     )
     sim = Sim()
     box = [Detection(_box(640, 700, 40), 0.5)]
-    for _ in range(4):
+    for view_index in range(4):
+        if view_index == 1:
+            sim.pose[1] += 6.0
         _, info = _cycle(
             executor, sim, box, ground=lambda u, v: (10.0, 0.0),
             verdicts=lambda t: "confirm_target",
@@ -316,7 +323,7 @@ def test_goto_poi_and_unknown_ref_and_hover_duration():
     sim = Sim()
     holds = 0.0
     last = None
-    for _ in range(60):
+    for _ in range(120):
         action, _info = _cycle(executor, sim)
         if action.kind == "hold":
             holds += action.seconds
@@ -327,7 +334,7 @@ def test_goto_poi_and_unknown_ref_and_hover_duration():
         ("a", "succeeded", "arrived"),
         ("b", "failed", "unknown_ref"),
         ("c", "succeeded", "duration_elapsed"),
-        ("z", "succeeded", "landing_commanded_unconfirmed"),
+        ("z", "failed", "landing_timeout_no_telemetry"),
     ]
     assert math.hypot(sim.pose[0], sim.pose[1] - 40.0) <= 3.0
     assert holds == 12.0 and last.kind == "stop"
@@ -391,7 +398,7 @@ def test_runtime_no_fly_guard_rejects_dynamic_finding_leg():
     executor._successful_step_ids.append("s")
     sim = Sim()
     action, _ = _cycle(executor, sim)
-    assert action.kind == "stop"
+    assert action.kind == "land"
     assert executor.history[0]["reason"] == "no_fly_zone"
     assert "s:no_fly_zone" in executor.alerts
 
@@ -440,8 +447,8 @@ def test_return_home_lands_in_place_when_no_detour_fits_area():
         "east_min_m": -0.5, "east_max_m": 0.5,
     }
     action, _ = _cycle(executor, Sim(north=20.0, east=0.0))
-    assert action.kind == "stop"
-    assert executor.history[0]["reason"] == "landing_commanded_unconfirmed"
+    assert action.kind == "land"
+    assert not executor.history
     assert "s:no_fly_zone_land_fallback" in executor.alerts
 
 
@@ -1583,26 +1590,151 @@ def _land_only_plan():
     )
 
 
+def _target_land_plan(target_ref):
+    return validate_mission_plan(
+        {
+            "plan_version": 1,
+            "goal": "land",
+            "steps": [
+                {
+                    "id": "land",
+                    "skill": "land",
+                    "params": {"target_ref": target_ref},
+                    "on_success": None,
+                    "on_fail": None,
+                }
+            ],
+            "report": [],
+        }
+    )
+
+
 def test_land_requires_host_confirmation_or_records_unknown_state():
     pose = (0.0, 0.0, -20.0)
     confirmed = MissionExecutor(_land_only_plan(), loop_factory=_factory())
     confirmed.next_action(pose_ned=pose, yaw_deg=0.0, landed=True)
     assert confirmed.history[-1]["reason"] == "landed"
 
-    unknown = MissionExecutor(_land_only_plan(), loop_factory=_factory())
-    unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed="unknown")
-    assert unknown.history[-1]["reason"] == "landing_commanded_unconfirmed"
+    unknown = MissionExecutor(
+        _land_only_plan(), loop_factory=_factory(), config=ExecutorConfig(landing_descent_speed_mps=1.0)
+    )
+    first, first_info = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None, timestamp_s=0.0)
+    second, second_info = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None, timestamp_s=30.0)
+    third, _ = unknown.next_action(pose_ned=pose, yaw_deg=0.0, landed=None, timestamp_s=46.0)
+    assert first.kind == "land" and first_info["phase"] == "landing_commanded"
+    assert second.kind == "continue" and second_info["phase"] == "landing_pending"
+    assert third.kind == "stop" and unknown.history[-1]["reason"] == "landing_timeout_no_telemetry"
 
     airborne = MissionExecutor(
         _land_only_plan(),
         loop_factory=_factory(),
-        config=ExecutorConfig(landing_timeout_steps=2),
+        config=ExecutorConfig(landing_descent_speed_mps=1.0),
     )
-    for _ in range(4):
-        airborne.next_action(pose_ned=pose, yaw_deg=0.0, landed=False)
+    for timestamp in (0.0, 10.0, 20.0, 30.0, 40.0, 46.0):
+        action, _ = airborne.next_action(
+            pose_ned=pose, yaw_deg=0.0, landed=False, timestamp_s=timestamp
+        )
         if airborne.done:
             break
+    assert action.kind == "stop"
     assert airborne.history[-1]["reason"] == "landing_timeout"
+
+
+def test_land_accepts_px4_landing_state_sequence_while_altitude_descends():
+    executor = MissionExecutor(
+        _land_only_plan(), loop_factory=_factory(), config=ExecutorConfig(step_budget=220)
+    )
+    states = [2, *([4] * 14), 1]
+    altitudes = [7.424, 7.448, 7.237, 6.872, 6.533, 6.284, 5.913, 5.686,
+                 5.436, 5.184, 4.942, 4.701, 4.430, 4.241, 4.048, 3.759]
+    timestamps = [39.536, 39.832, 40.428, 40.756, 41.152, 41.484, 41.912, 42.176,
+                  42.540, 42.904, 43.200, 43.496, 43.860, 44.156, 44.452, 44.784]
+    actions = []
+    for state, altitude, timestamp in zip(states, altitudes, timestamps, strict=True):
+        action, _ = executor.next_action(
+            pose_ned=(0.0, 0.0, -altitude),
+            yaw_deg=0.0,
+            landed=state == 1,
+            timestamp_s=timestamp,
+        )
+        actions.append(action.kind)
+    assert actions[0] == "land"
+    assert actions[1:-1] == ["continue"] * 14
+    assert actions[-1] == "stop"
+    assert executor.history[-1]["reason"] == "landed"
+
+
+def test_land_target_home_returns_home_before_landing():
+    executor = MissionExecutor(
+        _target_land_plan("home"),
+        loop_factory=_factory(),
+    )
+    executor.home = (30.0, 0.0)
+    sim = Sim()
+    for _ in range(20):
+        action, _ = executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw, landed=True)
+        sim.apply(action)
+        if executor.done:
+            break
+    assert executor.history[-1]["reason"] == "landed"
+    assert math.dist(sim.pose[:2], executor.home) <= executor.config.arrive_tolerance_m
+    assert executor.report().landing_positions == ("30.0,0.0",)
+
+
+def test_land_target_finding_uses_clear_approach_offset_and_reports_it():
+    executor = MissionExecutor(
+        _target_land_plan("finding:1"),
+        loop_factory=_factory(),
+    )
+    executor.findings.append(
+        {
+            "step": "land",
+            "query": "object",
+            "position_ne": (30.0, 0.0),
+            "footprint_m": 2.0,
+        }
+    )
+    executor._successful_step_ids.append("land")
+    sim = Sim()
+    for _ in range(30):
+        action, _ = executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw, landed=True)
+        sim.apply(action)
+        if executor.done:
+            break
+    assert executor.history[-1]["reason"] == "landed"
+    chosen = next(item for item in executor.mission_log if item["event"] == "landing_target_selected")
+    assert chosen["reference_position_ne"] == [30.0, 0.0]
+    assert chosen["landing_position_ne"] == [25.0, 0.0]
+    assert chosen["footprint_radius_m"] == 2.0
+    assert executor.report().landing_positions == ("25.0,0.0",)
+    assert "land:landing_target:25.0,0.0" in executor.report().state_answers
+
+
+def test_land_target_named_ref_flies_there_before_landing():
+    executor = MissionExecutor(
+        _target_land_plan("poi:pad"),
+        loop_factory=_factory(),
+        refs={"poi:pad": (30.0, 0.0)},
+    )
+    sim = Sim()
+    for _ in range(20):
+        action, _ = executor.next_action(pose_ned=sim.ned, yaw_deg=sim.yaw, landed=True)
+        sim.apply(action)
+        if executor.done:
+            break
+    assert executor.history[-1]["reason"] == "landed"
+    assert math.dist(sim.pose[:2], (30.0, 0.0)) <= executor.config.arrive_tolerance_m
+
+
+def test_land_target_unresolved_ref_fails_safely():
+    executor = MissionExecutor(
+        _target_land_plan("poi:missing"),
+        loop_factory=_factory(),
+    )
+    action, _ = executor.next_action(pose_ned=Sim().ned, yaw_deg=0.0, landed=True)
+    assert action.kind == "stop"
+    assert executor.history[-1]["reason"] == "unknown_ref"
+    assert executor.history[-1]["state"] == "failed"
 
 
 def test_vertical_move_uses_clearance_and_fails_after_retries():
@@ -1684,6 +1816,97 @@ def _see_small_candidate_then_lose_it(executor, sim, place, verdict="approach_tr
 def _search_ends(executor):
     # An obstacle-limited search pattern ends the loop's search the same way.
     executor.active_loop.state = "blocked"
+
+
+def test_deferred_count_place_remains_revisitable_and_a_lower_bound():
+    place = (-22.0, 28.6)
+    executor = MissionExecutor(
+        _count_plan(3), loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 60.0)}, config=ExecutorConfig(step_budget=140, count_lost_cycle_guard=True),
+    )
+    sim = Sim(altitude=8.0)
+    lost = _see_small_candidate_then_lose_it(executor, sim, place)
+    assert executor.active_loop.config.count_lost_cycle_guard
+    lost.count_approach_deferred = True
+    _search_ends(executor)
+    _, info = _cycle(executor, sim)
+    assert info["unresolved_revisit"]["track_id"] == lost.track_id
+    assert info["second_look"]["kind"] == "place_revisit"
+    # A confirmed neighbouring object cannot resolve the deferred place, even
+    # after co-visibility history has expired.
+    executor.active_loop.confirmations.append({
+        "track_id": "neighbor", "position_estimate_ne": [place[0] + 3.0, place[1]],
+    })
+    executor._finish("succeeded", "coverage_complete")
+    assert executor.history[0]["count_is_lower_bound"] is True
+    assert executor.counts.get("count", 0) == 0
+
+
+def test_ambiguous_budget_blocked_count_place_remains_revisitable_and_a_lower_bound():
+    place = (-22.0, 28.6)
+    executor = MissionExecutor(
+        _count_plan(3), loop_factory=_factory(),
+        refs={"zone:lot": (0.0, 0.0, 60.0)}, config=ExecutorConfig(step_budget=140, count_lost_cycle_guard=True),
+    )
+    sim = Sim(altitude=8.0)
+    lost = _see_small_candidate_then_lose_it(executor, sim, place)
+    loop = executor.active_loop
+    # An earlier lost positive at this place already used the task-wide budget
+    # that ambiguous (not provably distinct) successors share.
+    earlier = Track("earlier", _box(640, 400, 20), 0, 0, verdict="confirm", ground=place,
+                    exhausted=True, identity_verdict_history=["confirm"])
+    loop._tracks[earlier.track_id] = earlier
+    loop._count_lost_ledger[earlier.track_id] = {
+        "track_id": earlier.track_id, "position": place, "radius": 1.5,
+        "co_visible_geometry": {},
+    }
+    loop._count_ambiguous_lost = loop.config.count_lost_cycle_ambiguous_budget
+    assert loop._count_ambiguous_blocked(lost) and not lost.count_approach_deferred
+    _search_ends(executor)
+    _, info = _cycle(executor, sim)
+    assert info["unresolved_revisit"]["track_id"] == lost.track_id
+    # A confirmed neighbour inside the place radius does not resolve it either.
+    loop.confirmations.append({
+        "track_id": "neighbor", "position_estimate_ne": [place[0] + 3.0, place[1]],
+    })
+    assert lost in loop.unresolved_positive_tracks()
+    executor._finish("succeeded", "coverage_complete")
+    assert executor.history[0]["count_is_lower_bound"] is True
+    assert executor.counts.get("count", 0) == 0
+
+
+def test_deferred_count_without_ground_remains_a_lower_bound():
+    executor = MissionExecutor(_count_plan(3), loop_factory=_factory(),
+                               refs={"zone:lot": (0.0, 0.0, 60.0)})
+    loop = executor.active_loop
+    track = Track("missing", _box(640, 400, 20), 0, 0, verdict="confirm",
+                  count_approach_deferred=True, identity_verdict_history=["confirm"])
+    loop._tracks[track.track_id] = track
+    loop.state = "completed"
+    _cycle(executor, Sim())
+    assert executor.history[0]["reason"] == "coverage_complete"
+    assert executor.history[0]["count_is_lower_bound"] is True
+
+
+@pytest.mark.parametrize("skill,params", [
+    ("patrol", {"route_ref": "route:lot", "query": "car", "loops": 1}),
+    ("monitor", {"region": "zone:lot", "query": "car", "duration_s": 20}),
+])
+def test_non_count_continuing_skills_do_not_enable_lost_cycle_guard(skill, params):
+    executor = MissionExecutor(_skill_plan(skill, params), loop_factory=_factory(),
+                               refs={"zone:lot": (0.0, 0.0, 60.0)})
+    assert not executor.active_loop.config.count_lost_cycle_guard
+
+
+def test_fixed_wing_count_does_not_enable_lost_cycle_guard():
+    make = _factory()
+    executor = MissionExecutor(
+        _count_plan(3),
+        loop_factory=lambda text, **overrides: make(text, **{**overrides, "fixed_wing_pass": True}),
+        refs={"zone:lot": (0.0, 0.0, 60.0)},
+    )
+    assert executor.active_loop.config.fixed_wing_pass
+    assert not executor.active_loop.config.count_lost_cycle_guard
 
 
 @pytest.mark.parametrize("skill", ["count", "area_search"])
@@ -2057,3 +2280,24 @@ def test_package_home_anchors_envelope_when_aircraft_starts_elsewhere():
     from dataclasses import replace
     adapter.safety.config = replace(adapter.safety.config, max_radius_from_home_m=10.0)
     assert adapter.safety.apply(ActionPrimitive.translate(1, 0), pose_ned=(55, 20, -20)).rejected
+
+
+def test_count_lost_cycle_guard_is_off_by_default_and_never_for_fixed_wing():
+    assert ExecutorConfig().count_lost_cycle_guard is False
+    with pytest.raises(ValueError):
+        ExecutorConfig(count_lost_cycle_guard=1)
+    default = MissionExecutor(_count_plan(3), loop_factory=_factory(),
+                              refs={"zone:lot": (0.0, 0.0, 60.0)})
+    assert not default.active_loop.config.count_lost_cycle_guard
+    make = _factory()
+    fixed = MissionExecutor(
+        _count_plan(3),
+        loop_factory=lambda text, **overrides: make(text, **{**overrides, "fixed_wing_pass": True}),
+        refs={"zone:lot": (0.0, 0.0, 60.0)},
+        config=ExecutorConfig(count_lost_cycle_guard=True),
+    )
+    assert not fixed.active_loop.config.count_lost_cycle_guard
+    on = MissionExecutor(_count_plan(3), loop_factory=_factory(),
+                         refs={"zone:lot": (0.0, 0.0, 60.0)},
+                         config=ExecutorConfig(count_lost_cycle_guard=True))
+    assert on.active_loop.config.count_lost_cycle_guard

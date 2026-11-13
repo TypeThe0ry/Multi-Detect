@@ -1,0 +1,625 @@
+#!/usr/bin/env python3
+"""Report PX4 sensor timeout counts, episode RTF, and recorded host pressure."""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import math
+import statistics
+from pathlib import Path
+from typing import Any
+
+from scripts.sensor_timeout_counts import (
+    count_sensor_timeouts,
+    iter_jsonl_rows,
+    sensor_timeout_kinds_from_row,
+)
+
+
+FAILURE_SNAPSHOT_SCHEMA_VERSION = 1
+_MISSING = "missing"
+_UNKNOWN = "unknown"
+
+
+def _presence(path: Path) -> str:
+    return "present" if path.is_file() else _MISSING
+
+
+def _probe_status(probe: Any) -> str:
+    """Return an evidence status without treating a failed probe as a stall."""
+    if not isinstance(probe, dict):
+        return _MISSING if probe is None else _UNKNOWN
+    if probe.get("timed_out") is True:
+        return "timeout"
+    if probe.get("error"):
+        return "error"
+    if probe.get("returncode") in (None, 0):
+        if probe.get("returncode") == 0 or probe.get("stdout") or probe.get("sim_time_s"):
+            return "ok"
+    return _UNKNOWN
+
+
+def _capture_probe_summary(capture: dict[str, Any] | None) -> dict[str, Any]:
+    capture = capture if isinstance(capture, dict) else {}
+    samples = capture.get("samples") if isinstance(capture.get("samples"), list) else []
+    clock = [_probe_status(row.get("gz_clock")) for row in samples[:2] if isinstance(row, dict)]
+    stats = [_probe_status(row.get("gz_world_stats")) for row in samples[:2] if isinstance(row, dict)]
+    ordering = ((capture.get("capture_budget") or {}).get("ordering"))
+    if not isinstance(ordering, list):
+        ordering = [_UNKNOWN]
+    return {
+        "clock": clock or [_MISSING],
+        "stats": stats or [_MISSING],
+        "gdb_ordering": list(ordering),
+        "gdb_before_probe": (
+            ordering.index("px4_gdb") < ordering.index("clock_topic_info")
+            if "px4_gdb" in ordering and "clock_topic_info" in ordering
+            else _UNKNOWN
+        ),
+        "capture_present": bool(capture),
+    }
+
+
+def build_failure_snapshot(
+    meta: dict[str, Any],
+    *,
+    timeline: list[dict[str, Any]] | None = None,
+    pressure_path: Path | None = None,
+    capture: dict[str, Any] | None = None,
+    mavlink_rows: list[dict[str, Any]] | None = None,
+    mavlink_status: str | None = None,
+    final_failure_class: str | None = None,
+) -> dict[str, Any]:
+    """Build the stable failure evidence contract, adapting old episodes."""
+    rows = timeline or _frame_wait_timeline(meta)
+    ended = next((row for row in reversed(rows) if row.get("ended_monotonic_ns") is not None), {})
+    pressure_path = pressure_path or Path()
+    pressure = ended.get("host_pressure_sample")
+    if pressure is None and pressure_path.is_file():
+        try:
+            source_rows = _jsonl(pressure_path)
+            pressure = source_rows[-1] if source_rows else None
+        except OSError:
+            pressure = None
+    pressure_state = "present" if isinstance(pressure, dict) else _presence(pressure_path)
+    capture_summary = _capture_probe_summary(capture)
+    mavlink_rows = mavlink_rows or []
+
+    def _last_mavlink(message_type: str) -> dict[str, Any]:
+        return next(
+            (row for row in reversed(mavlink_rows) if str(row.get("message_type", "")).upper() == message_type),
+            {},
+        )
+
+    last_local = _last_mavlink("LOCAL_POSITION_NED")
+    last_status = _last_mavlink("STATUSTEXT")
+    local_received_mono = last_local.get("receive_monotonic_ns")
+    local_received_wall = last_local.get("receive_wall_time")
+    status_received_mono = last_status.get("receive_monotonic_ns")
+    status_received_wall = last_status.get("receive_wall_time")
+
+    def _coalesce(value: Any, fallback: Any) -> Any:
+        return fallback if value is None else value
+    raw_class = final_failure_class or meta.get("failure_class") or _UNKNOWN
+    return {
+        "schema_version": FAILURE_SNAPSHOT_SCHEMA_VERSION,
+        "failure_class": raw_class,
+        "final_failure_classification": raw_class,
+        "reason": meta.get("failure") or ended.get("error") or _UNKNOWN,
+        "clocks": {
+            "episode_start_monotonic_ns": meta.get("created_monotonic_ns"),
+            "episode_end_monotonic_ns": meta.get("finished_monotonic_ns"),
+            "wait_start_monotonic_ns": ended.get("started_monotonic_ns"),
+            "wait_end_monotonic_ns": ended.get("ended_monotonic_ns"),
+            "primitive_end_monotonic_ns": ended.get("primitive_end_monotonic_ns"),
+        },
+        "pose": {
+            "time_boot_ms": _coalesce(ended.get("pose_time_boot_ms"), last_local.get("time_boot_ms")),
+            "requested_time_boot_ms": ended.get("requested_pose_time_boot_ms"),
+            "local_position_received_monotonic_ns": _coalesce(ended.get("pose_received_monotonic_ns"), local_received_mono),
+            "local_position_received_wall_time": _coalesce(ended.get("pose_received_wall_time"), local_received_wall),
+        },
+        "frame": {
+            "last_sensor_stamp_ns": ended.get("last_frame_sensor_stamp_ns"),
+            "last_received_monotonic_ns": ended.get("last_frame_received_monotonic_ns"),
+            "last_received_wall_time": ended.get("last_frame_received_wall_time"),
+            "required_sensor_stamp_ns": ended.get("required_sensor_stamp_ns"),
+            "frames_received": ended.get("frames_received"),
+        },
+        "px4": {
+            "local_position_received_monotonic_ns": _coalesce(ended.get("pose_received_monotonic_ns"), local_received_mono),
+            "local_position_received_wall_time": _coalesce(ended.get("pose_received_wall_time"), local_received_wall),
+            "statustext_received_monotonic_ns": _coalesce(ended.get("statustext_received_monotonic_ns"), status_received_mono),
+            "statustext_received_wall_time": _coalesce(ended.get("statustext_received_wall_time"), status_received_wall),
+            "last_statustext": _coalesce(ended.get("last_statustext"), last_status.get("text")),
+        },
+        "pressure": {
+            "status": pressure_state,
+            "sample": pressure,
+        },
+        "probes": capture_summary,
+        "evidence": {
+            "frame_wait_timeline": "present" if rows else _MISSING,
+            "host_pressure": pressure_state,
+            "clock_capture": "present" if capture else _MISSING,
+            "mavlink": mavlink_status or ("present" if mavlink_rows else _MISSING),
+        },
+        "offline_classification": _offline_classification(
+            raw_class, rows, capture, pressure_present=pressure_state == "present"
+        ),
+    }
+
+
+def _offline_classification(
+    failure_class: str,
+    timeline: list[dict[str, Any]],
+    capture: dict[str, Any] | None,
+    *,
+    pressure_present: bool = False,
+) -> str:
+    classes = {str(row.get("failure_class")) for row in timeline if row.get("failure_class")}
+    if "frame_timestamp_below_pose_watermark" in classes:
+        return "frame_timestamp_below_pose_watermark"
+    if "no_new_frame_observed" in classes:
+        return "no_new_frame_observed"
+    if "px4_clock_and_telemetry_stalled" in classes:
+        return "px4_clock_and_telemetry_stalled"
+    analysis = capture.get("analysis") if isinstance(capture, dict) else None
+    if isinstance(analysis, dict):
+        if analysis.get("gz_clock_advanced") is False and analysis.get("px4_thread_progress") is False:
+            return "px4_gazebo_both_stalled"
+        if analysis.get("gz_clock_advanced") is True and analysis.get("px4_thread_progress") is False:
+            return "px4_clock_stalled_gazebo_advancing"
+    if failure_class in {"sensor_stream_stalled", "clock_stalled_alive"}:
+        return "unknown"
+    return "related_load_only" if failure_class == "px4_alive_other_failure" and pressure_present else "unknown"
+
+
+def _jsonl(path: Path) -> list[dict[str, Any]]:
+    return list(iter_jsonl_rows(path))
+
+
+def _jsonl_gz(path: Path) -> list[dict[str, Any]]:
+    return list(iter_jsonl_rows(path))
+
+
+def _finite(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _sim_seconds(row: dict[str, Any], key: str) -> float | None:
+    observation = row.get(key) or {}
+    value = _finite(observation.get("pose_time_boot_ms"))
+    return value / 1000.0 if value is not None else None
+
+
+def _wall_duration(meta: dict[str, Any]) -> float | None:
+    start = _finite(meta.get("created_monotonic_ns"))
+    finish = _finite(meta.get("finished_monotonic_ns"))
+    if start is not None and finish is not None and finish >= start:
+        return (finish - start) / 1e9
+    start = _finite(meta.get("created_wall_time"))
+    finish = _finite(meta.get("finished_wall_time"))
+    if start is not None and finish is not None and finish >= start:
+        return finish - start
+    return None
+
+
+def _pressure(rows: list[dict[str, Any]]) -> dict[str, float] | None:
+    fields = ("core_busy_percent_mean", "core_busy_percent_max")
+    values = {field: [_finite(row.get(field)) for row in rows] for field in fields}
+    result = {}
+    for field, items in values.items():
+        numeric = [item for item in items if item is not None]
+        if numeric:
+            result[f"{field}_mean"] = statistics.fmean(numeric)
+            result[f"{field}_peak"] = max(numeric)
+    loads = []
+    for row in rows:
+        raw = row.get("loadavg")
+        if isinstance(raw, str):
+            try:
+                loads.append(float(raw.split()[0]))
+            except (ValueError, IndexError):
+                continue
+    if loads:
+        result["load1_mean"] = statistics.fmean(loads)
+        result["load1_peak"] = max(loads)
+    return result or None
+
+
+def _sidecar_summary(path: Path) -> dict[str, Any]:
+    rows = _jsonl(path)
+    required = (
+        "wall_time",
+        "monotonic_ns",
+        "loadavg",
+        "cpu_pressure",
+        "memory_pressure",
+        "io_pressure",
+        "cpuset_cpus",
+        "core_busy_percent_mean",
+        "core_busy_percent_max",
+        "px4_sim_time_boot_ms",
+    )
+    missing = {field: 0 for field in required}
+    null_values = {field: 0 for field in required}
+    for row in rows:
+        for field in required:
+            if field not in row:
+                missing[field] += 1
+            elif row[field] is None:
+                null_values[field] += 1
+    return {
+        "path": str(path),
+        "present": path.is_file(),
+        "sample_count": len(rows),
+        "first_wall_time": _finite(rows[0].get("wall_time")) if rows else None,
+        "last_wall_time": _finite(rows[-1].get("wall_time")) if rows else None,
+        "missing_fields": {key: value for key, value in missing.items() if value},
+        "null_values": {key: value for key, value in null_values.items() if value},
+        "complete_samples": sum(
+            all(field in row for field in required) for row in rows
+        ),
+    }
+
+
+def _frame_wait_timeline(meta: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = meta.get("frame_wait_timeline")
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def analyze_episode(episode_dir: Path) -> dict[str, Any]:
+    episode_dir = episode_dir.resolve()
+    try:
+        meta = json.loads((episode_dir / "episode.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = {}
+    mavlink = _jsonl(episode_dir / "mavlink.jsonl")
+    mavlink_status = "present" if (episode_dir / "mavlink.jsonl").is_file() else _MISSING
+    if not mavlink:
+        mavlink = _jsonl_gz(episode_dir / "mavlink.jsonl.gz")
+        if (episode_dir / "mavlink.jsonl.gz").is_file():
+            mavlink_status = "present_gzip"
+    capture: dict[str, Any] | None = None
+    capture_path = episode_dir / "px4-clock-stall-capture.json"
+    try:
+        if capture_path.is_file():
+            raw_capture = json.loads(capture_path.read_text(encoding="utf-8"))
+            capture = raw_capture if isinstance(raw_capture, dict) else None
+    except (OSError, ValueError):
+        capture = None
+    counts = count_sensor_timeouts(mavlink)
+    timeout_events = []
+    for row in mavlink:
+        for sensor in sensor_timeout_kinds_from_row(row):
+            timeout_events.append(
+                {
+                    "sensor": sensor,
+                    "text": str(row.get("text", "")),
+                    "wall_time": _finite(row.get("receive_wall_time")),
+                }
+            )
+    steps = _jsonl(episode_dir / "steps.jsonl")
+    stamps = [
+        value
+        for row in steps
+        for value in (
+            _sim_seconds(row, "obs_before"),
+            _sim_seconds(row, "obs_after"),
+        )
+        if value is not None
+    ]
+    sim_delta = max(stamps) - min(stamps) if len(stamps) >= 2 else None
+    wall_s = _wall_duration(meta)
+    timeline = _frame_wait_timeline(meta)
+    failed_waits = [row for row in timeline if row.get("error")]
+    snapshot = meta.get("failure_snapshot")
+    if not isinstance(snapshot, dict) or snapshot.get("schema_version") != FAILURE_SNAPSHOT_SCHEMA_VERSION:
+        snapshot = build_failure_snapshot(
+            meta,
+            timeline=timeline,
+            pressure_path=episode_dir / "host_pressure.jsonl",
+            capture=capture,
+            mavlink_rows=mavlink,
+            mavlink_status=mavlink_status,
+        )
+    return {
+        "episode": episode_dir.name,
+        "status": meta.get("status", "unknown"),
+        "timeouts": counts,
+        "timeout_events": timeout_events,
+        "rtf": sim_delta / wall_s if sim_delta is not None and wall_s and wall_s > 0 else None,
+        "wall_s": wall_s,
+        "created_wall_time": _finite(meta.get("created_wall_time")),
+        "finished_wall_time": _finite(meta.get("finished_wall_time")),
+        "host_pressure": _pressure(_jsonl(episode_dir / "host_pressure.jsonl")),
+        "host_pressure_sidecar": _sidecar_summary(episode_dir / "host_pressure.jsonl"),
+        "frame_wait_timeline": timeline,
+        "frame_wait_failure_count": len(failed_waits),
+        "frame_wait_failure_classes": sorted(
+            {str(row.get("failure_class")) for row in failed_waits if row.get("failure_class")}
+        ),
+        "failure_snapshot": snapshot,
+        "stall_capture": {
+            "present": capture is not None,
+            "path": str(capture_path),
+            "analysis": (capture or {}).get("analysis"),
+        },
+    }
+
+
+def _trace_rows(path: Path) -> list[dict[str, Any]]:
+    return sorted(
+        (row for row in _jsonl(path) if _finite(row.get("t")) is not None),
+        key=lambda row: float(row["t"]),
+    )
+
+
+def _nearest_trace_sample(timestamp: float, samples: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not samples:
+        return None
+    return min(samples, key=lambda row: abs(float(row["t"]) - timestamp))
+
+
+def _nearest_pressure_sample(timestamp: float, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    timed = [row for row in rows if _finite(row.get("wall_time")) is not None]
+    return min(timed, key=lambda row: abs(float(row["wall_time"]) - timestamp)) if timed else None
+
+
+def _trace_pressure(sample: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "time": sample.get("t"),
+        "cpu_psi_some": (sample.get("cpu") or {}).get("some"),
+        "load": sample.get("load"),
+        "top_cgroups": [
+            {"name": name, "cpu_percent": value}
+            for name, value in (sample.get("top_cores") or {}).items()
+        ],
+    }
+
+
+def _fisher_exact_two_sided(a: int, b: int, c: int, d: int) -> float:
+    """Two-sided Fisher exact p-value for [[a, b], [c, d]]."""
+    row1, row2, col1 = a + b, c + d, a + c
+    total = row1 + row2
+    if total == 0:
+        return 1.0
+
+    def probability(x: int) -> float:
+        return (
+            math.comb(col1, x)
+            * math.comb(total - col1, row1 - x)
+            / math.comb(total, row1)
+        )
+
+    low, high = max(0, row1 - (total - col1)), min(row1, col1)
+    observed = probability(a)
+    return min(1.0, sum(probability(x) for x in range(low, high + 1) if probability(x) <= observed + 1e-12))
+
+
+def correlate_trace(
+    reports: list[dict[str, Any]], samples: list[dict[str, Any]]
+) -> dict[str, Any]:
+    if not samples:
+        return {
+            "trace_start": None,
+            "trace_end": None,
+            "episodes": [],
+            "events": [],
+            "burst_cutoff_cpu_psi_some": None,
+            "burst_quiet_sample_boundary": {
+                "trace_sample_count": 0,
+                "trace_start": None,
+                "trace_end": None,
+                "cutoff_rule": "inclusive 75th percentile of available CPU PSI some samples; episode is burst if any covered sample exceeds it",
+                "covered_episode_count": 0,
+            },
+            "burst_vs_quiet": {
+                "burst_timeout_episodes": 0,
+                "burst_no_timeout_episodes": 0,
+                "quiet_timeout_episodes": 0,
+                "quiet_no_timeout_episodes": 0,
+                "fisher_two_sided_p": 1.0,
+            },
+        }
+    trace_start, trace_end = float(samples[0]["t"]), float(samples[-1]["t"])
+    episode_rows = []
+    event_rows = []
+    for report in reports:
+        start, end = report.get("created_wall_time"), report.get("finished_wall_time")
+        if start is None or end is None or end < trace_start or start > trace_end:
+            continue
+        covered = [row for row in samples if start <= float(row["t"]) <= end]
+        cpu_values = [
+            _finite((row.get("cpu") or {}).get("some")) for row in covered
+        ]
+        cpu_values = [value for value in cpu_values if value is not None]
+        loads = [_finite(row.get("load")) for row in covered]
+        loads = [value for value in loads if value is not None]
+        top_cgroups: dict[str, list[float]] = {}
+        for row in covered:
+            for name, value in (row.get("top_cores") or {}).items():
+                numeric = _finite(value)
+                if numeric is not None:
+                    top_cgroups.setdefault(name, []).append(numeric)
+        psi_means = {}
+        for resource in ("cpu", "memory", "io"):
+            values = [
+                _finite((row.get(resource) or {}).get("some")) for row in covered
+            ]
+            values = [value for value in values if value is not None]
+            psi_means[f"{resource}_psi_some_mean"] = statistics.fmean(values) if values else None
+        episode_rows.append(
+            {
+                "episode": report["episode"],
+                "start": start,
+                "end": end,
+                "samples": len(covered),
+                "trace_sample_start": float(covered[0]["t"]) if covered else None,
+                "trace_sample_end": float(covered[-1]["t"]) if covered else None,
+                "timeouts": report["timeouts"],
+                "timeout_events": report["timeout_events"],
+                "host_pressure_sidecar": report["host_pressure_sidecar"],
+                "frame_wait_timeline": report["frame_wait_timeline"],
+                "failure_snapshot": report.get("failure_snapshot"),
+                "offline_classification": (report.get("failure_snapshot") or {}).get(
+                    "offline_classification", _UNKNOWN
+                ),
+                "rtf": report["rtf"],
+                "cpu_psi_some_mean": statistics.fmean(cpu_values) if cpu_values else None,
+                "cpu_psi_some_peak": max(cpu_values) if cpu_values else None,
+                **psi_means,
+                "load_mean": statistics.fmean(loads) if loads else None,
+                "load_peak": max(loads) if loads else None,
+                "top_cgroups": [
+                    {"name": name, "mean_cpu_percent": statistics.fmean(values), "samples": len(values)}
+                    for name, values in sorted(
+                        top_cgroups.items(), key=lambda item: -statistics.fmean(item[1])
+                    )[:5]
+                ],
+            }
+        )
+        for event in report["timeout_events"]:
+            timestamp = event.get("wall_time")
+            sample = (
+                _nearest_trace_sample(timestamp, samples)
+                if timestamp is not None and trace_start <= timestamp <= trace_end
+                else None
+            )
+            event_rows.append(
+                {
+                    "episode": report["episode"],
+                    **event,
+                    "offline_classification": (report.get("failure_snapshot") or {}).get(
+                        "offline_classification", _UNKNOWN
+                    ),
+                    "pressure_coverage": report["host_pressure_sidecar"].get(
+                        "present", False
+                    ),
+                    "frame_timeline_coverage": bool(report.get("frame_wait_timeline")),
+                    "episode_trace_covered": (
+                        report.get("created_wall_time") is not None
+                        and report.get("finished_wall_time") is not None
+                        and trace_start <= report["created_wall_time"] <= trace_end
+                        and trace_start <= report["finished_wall_time"] <= trace_end
+                    ),
+                    "trace_sample": _trace_pressure(sample) if sample else None,
+                    "host_pressure_sample": (
+                        _nearest_pressure_sample(
+                            timestamp,
+                            _jsonl(Path(report["host_pressure_sidecar"]["path"])),
+                        )
+                        if timestamp is not None
+                        else None
+                    ),
+                }
+            )
+    psi = [
+        value
+        for row in samples
+        for value in [_finite((row.get("cpu") or {}).get("some"))]
+        if value is not None
+    ]
+    burst_cutoff = statistics.quantiles(psi, n=4, method="inclusive")[2] if len(psi) > 1 else (psi[0] if psi else None)
+    burst_cases = quiet_cases = burst_controls = quiet_controls = 0
+    if burst_cutoff is not None:
+        for row in episode_rows:
+            covered = [sample for sample in samples if row["start"] <= float(sample["t"]) <= row["end"]]
+            is_burst = any(
+                (_finite((sample.get("cpu") or {}).get("some")) or -math.inf) > burst_cutoff
+                for sample in covered
+            )
+            row["burst"] = is_burst
+            has_timeout = sum(row["timeouts"].values()) > 0
+            if is_burst:
+                burst_cases += int(has_timeout)
+                burst_controls += int(not has_timeout)
+            else:
+                quiet_cases += int(has_timeout)
+                quiet_controls += int(not has_timeout)
+    return {
+        "trace_start": trace_start,
+        "trace_end": trace_end,
+        "episodes": episode_rows,
+        "events": event_rows,
+        "burst_cutoff_cpu_psi_some": burst_cutoff,
+        "burst_quiet_sample_boundary": {
+            "trace_sample_count": len(samples),
+            "trace_start": trace_start,
+            "trace_end": trace_end,
+            "cutoff_rule": "inclusive 75th percentile of available CPU PSI some samples; episode is burst if any covered sample exceeds it",
+            "covered_episode_count": len(episode_rows),
+        },
+        "burst_vs_quiet": {
+            "burst_timeout_episodes": burst_cases,
+            "burst_no_timeout_episodes": burst_controls,
+            "quiet_timeout_episodes": quiet_cases,
+            "quiet_no_timeout_episodes": quiet_controls,
+            "fisher_two_sided_p": _fisher_exact_two_sided(
+                burst_cases, burst_controls, quiet_cases, quiet_controls
+            ),
+        },
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("episodes", nargs="+", type=Path, help="episode directories")
+    parser.add_argument("--trace", type=Path, help="whole-machine host trace JSONL")
+    args = parser.parse_args(argv)
+    episode_dirs = []
+    for path in args.episodes:
+        if (path / "episode.json").is_file():
+            episode_dirs.append(path)
+        else:
+            episode_dirs.extend(sorted(p.parent for p in path.rglob("episode.json")))
+    reports = [analyze_episode(path) for path in episode_dirs]
+    print("episode\tstatus\taccel_timeout\tgyro_timeout\tmag_timeout\trtf\tpressure")
+    for report in reports:
+        pressure = report["host_pressure"]
+        print(
+            f"{report['episode']}\t{report['status']}\t"
+            f"{report['timeouts']['accel']}\t{report['timeouts']['gyro']}\t{report['timeouts']['mag']}\t"
+            f"{report['rtf'] if report['rtf'] is not None else '-'}\t"
+            f"{json.dumps(pressure, separators=(',', ':')) if pressure else '-'}"
+        )
+    if args.trace:
+        trace_samples = _trace_rows(args.trace)
+        correlation = correlate_trace(reports, trace_samples)
+        print(
+            "trace_capture="
+            + json.dumps(
+                {
+                    "path": str(args.trace),
+                    "sample_count": len(trace_samples),
+                    "trace_start": correlation["trace_start"],
+                    "trace_end": correlation["trace_end"],
+                    "read_completed_at": datetime.datetime.now().astimezone().isoformat(
+                        timespec="seconds"
+                    ),
+                    "episode_count": len(reports),
+                    "overlap_episode_count": len(correlation["episodes"]),
+                },
+                separators=(",", ":"),
+            )
+        )
+        print("\ntrace_episode_summaries=" + json.dumps(correlation["episodes"], separators=(",", ":")))
+        print("timeout_event_trace_samples=" + json.dumps(correlation["events"], separators=(",", ":")))
+        print("burst_vs_quiet=" + json.dumps(correlation["burst_vs_quiet"], separators=(",", ":")))
+        print("burst_cutoff_cpu_psi_some=" + str(correlation["burst_cutoff_cpu_psi_some"]))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

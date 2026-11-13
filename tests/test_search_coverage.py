@@ -1,3 +1,8 @@
+import math
+
+import pytest
+
+from multidetect.camera_mount import CameraMount, compose_camera_pose
 from multidetect.search_coverage import (
     CoverageCamera,
     CoverageConfig,
@@ -50,6 +55,29 @@ def test_camera_default_matches_recorded_1280x960_principal_point() -> None:
     camera = CoverageCamera()
     assert (camera.width_px, camera.height_px) == (1280, 960)
     assert (camera.cx, camera.cy) == (640.0, 480.0)
+
+
+def test_fixed_camera_footprint_is_numerically_unchanged_with_explicit_legacy_pose() -> None:
+    camera = CoverageCamera(pitch_down_deg=math.degrees(0.18))
+    assert camera.footprint(35.0) == pytest.approx(
+        (78.74714000776318, 164.9458072084732), abs=1e-12
+    )
+
+
+def test_composed_lock_horizon_camera_uses_world_pose_for_footprint() -> None:
+    composed = compose_camera_pose(
+        (0.0, 0.0, -20.0),
+        vehicle_roll_rad=0.0,
+        vehicle_pitch_rad=math.radians(90.0),
+        vehicle_yaw_rad=0.0,
+        mount=CameraMount.gimbal(stabilization="lock-horizon", pitch_rad=math.radians(70.0)),
+    )
+    camera = CoverageCamera(camera_pose={
+        "center_ned": composed.center_ned,
+        "optical_to_world": composed.optical_to_world,
+    })
+    width, depth = camera.footprint(20.0)
+    assert width > 0.0 and depth > 0.0
 
 
 def test_two_altitude_can_recover_small_objects() -> None:

@@ -374,8 +374,15 @@ class Track:
     identity_positive_matches: int = 0
     identity_reject_matches: int = 0
     identity_verdict_history: list[str] = field(default_factory=list)
+    # Auditable identity observations.  Each real positive/negative vote keeps
+    # the source frame and the camera geometry that produced it.
+    identity_votes: list[dict[str, Any]] = field(default_factory=list)
     approach_steps: int = 0
     exhausted: bool = False
+    # A confirmed candidate that repeatedly disappears during a count approach
+    # remains unresolved, but must not immediately restart the same approach.
+    count_lost_cycles: int = 0
+    count_approach_deferred: bool = False
     # Ground (north, east) of the box bottom centre from the latest view, if known.
     ground: tuple[float, float] | None = None
     verdict_remembered: bool = False
@@ -496,6 +503,12 @@ class LoopConfig:
     home_tolerance_m: float = 3.0
     max_steps: int = 120
     confirm_matches: int = 2
+    # Two positive identity votes must come from meaningfully different views.
+    # 25 degrees is an initial calibration value, not a validated flight limit.
+    confirm_min_view_bearing_deg: float = 25.0
+    # A sufficiently different vertical view can also establish independence.
+    confirm_min_view_pitch_deg: float = 10.0
+    confirm_min_view_altitude_m: float = 3.0
     border_margin_px: float = 2.0
     max_approach_steps: int = 8
     min_verdict_side_px: float = 10.0
@@ -530,9 +543,23 @@ class LoopConfig:
     # False keeps searching after a confirmation (counting); confirmations within
     # count_dedupe_m of an earlier one are the same object seen again.
     stop_on_confirm: bool = True
+    count_lost_cycle_guard: bool = False
+    # With count_lost_cycle_guard: lost approach cycles that a track with an
+    # unresolved identity link may spend, task-wide.  A new id that cannot be
+    # shown distinct from an earlier lost positive (no ground, no or inconsistent
+    # appearance, expired re-identification, or merely nearby and never seen in
+    # the same frame) is neither that track nor a proven different object, so
+    # its approaches share this one budget instead of a fresh per-track one.
+    # Once spent, further such candidates are not approached; their positive
+    # observations stay unresolved and the count remains a lower bound.
+    count_lost_cycle_ambiguous_budget: int = 1
     # Passed through mission loop factories to the target-blind search policy.
     restart_route: bool = True
     count_dedupe_m: float = 4.0
+    # Fused ground estimates can be separated slightly beyond their combined
+    # sigma (28-head hydrant: 1.95 m apart vs 1.74 m combined sigma). Keep a
+    # small calibration margin without widening the ordinary footprint gate.
+    count_dedupe_sigma_factor: float = 1.15
     # Second look: after this many steps without a confirmation, fly to the far side
     # of candidates that were rejected from one side only and ask again (an object
     # can look different from behind, e.g. the grey back of a stop sign).
@@ -808,8 +835,19 @@ class LoopConfig:
             or self.ground_reid_max_steps < 0
         ):
             raise ValueError("ground_reid_max_steps must be a non-negative integer or None")
+        if (
+            not math.isfinite(self.count_dedupe_sigma_factor)
+            or self.count_dedupe_sigma_factor < 1.0
+        ):
+            raise ValueError("count_dedupe_sigma_factor must be finite and at least 1")
         if not math.isfinite(self.ground_reid_radius_m) or self.ground_reid_radius_m <= 0:
             raise ValueError("ground_reid_radius_m must be finite and positive")
+        if (
+            isinstance(self.count_lost_cycle_ambiguous_budget, bool)
+            or not isinstance(self.count_lost_cycle_ambiguous_budget, int)
+            or self.count_lost_cycle_ambiguous_budget < 0
+        ):
+            raise ValueError("count_lost_cycle_ambiguous_budget must be a non-negative integer")
         if (
             not math.isfinite(self.ground_reid_footprint_factor)
             or self.ground_reid_footprint_factor < 0
@@ -836,6 +874,14 @@ class LoopConfig:
             raise ValueError("memory_max_range_ratio must be in (0, 1]")
         if self.max_blocked_legs < 1:
             raise ValueError("max_blocked_legs must be positive")
+        for name in (
+            "confirm_min_view_bearing_deg",
+            "confirm_min_view_pitch_deg",
+            "confirm_min_view_altitude_m",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and non-negative")
         if (
             isinstance(self.closest_view_max_holds, bool)
             or not isinstance(self.closest_view_max_holds, int)
@@ -1056,6 +1102,10 @@ class OnboardLoop:
     # Closest-view holds/back-offs spent on the current focus.
     _closest_holds: int = 0
     _last_pose: tuple[float, float, float] | None = None
+    _last_frame_id: str | None = None
+    _last_frame_path: str | None = None
+    _last_observation_source: str | None = None
+    _last_view_pitch_deg: float | None = None
     # step_index of the latest update_tracks frame (hosts that call next_action
     # advance it after the update, patrol/monitor hosts before).
     _frame_step: int = -1
@@ -1063,6 +1113,11 @@ class OnboardLoop:
     _rejections: list[dict[str, Any]] = field(default_factory=list)
     _revisit: dict[str, Any] | None = None
     _revisits_done: int = 0
+    # Count lost-cycle guard: one entry per track that lost a positive approach
+    # (position, place radius, co-visibility snapshot), and the task-wide number
+    # of lost cycles spent by tracks whose identity link was ambiguous.
+    _count_lost_ledger: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _count_ambiguous_lost: int = 0
     _place_memory: PlaceVerdictMemory = field(default_factory=PlaceVerdictMemory)
     _co_visibility_pairs: dict[tuple[str, str], int] = field(default_factory=dict)
     co_visibility_max_pairs: int = 4096
@@ -1127,6 +1182,10 @@ class OnboardLoop:
         ]
         | None = None,
         timestamp_s: float | None = None,
+        frame_id: str | None = None,
+        frame_path: str | None = None,
+        observation_source: str | None = None,
+        view_pitch_deg: float | None = None,
     ) -> list[Track]:
         """Associate detections with tracks by ground position and predicted pixels.
 
@@ -1170,6 +1229,10 @@ class OnboardLoop:
             self._last_yaw_deg = yaw_deg
         if pose_ned is not None:
             self._last_pose = tuple(pose_ned)
+        self._last_frame_id = frame_id
+        self._last_frame_path = frame_path
+        self._last_observation_source = observation_source
+        self._last_view_pitch_deg = view_pitch_deg
         self._frame_step = self.step_index
         predicted = {}
         for tid, t in free.items():
@@ -1402,8 +1465,20 @@ class OnboardLoop:
         for key in list(self._co_visibility_pairs):
             if key[0] not in live_ids or key[1] not in live_ids:
                 self._co_visibility_pairs.pop(key, None)
-        while len(self._co_visibility_pairs) > self.co_visibility_max_pairs:
-            oldest = min(self._co_visibility_pairs, key=self._co_visibility_pairs.get)
+        overflow = len(self._co_visibility_pairs) - self.co_visibility_max_pairs
+        if overflow > 0:
+            # ``dict`` iteration is insertion ordered, so stable sorting by the
+            # step preserves the old repeated-min semantics for equal steps
+            # while scanning the relation table only once.
+            oldest_keys = [
+                key
+                for key, _step in sorted(
+                    self._co_visibility_pairs.items(), key=lambda item: item[1]
+                )[:overflow]
+            ]
+        else:
+            oldest_keys = []
+        for oldest in oldest_keys:
             self._co_visibility_pairs.pop(oldest, None)
             left = self._tracks.get(oldest[0])
             right = self._tracks.get(oldest[1])
@@ -1651,6 +1726,82 @@ class OnboardLoop:
             and _min_side(track.bbox) >= ratio * side
         )
 
+    def _count_deferred_at(self, candidate: Track) -> bool:
+        # A new id at the same place can be a distinct object.  Never suppress
+        # it on proximity or appearance alone, including after history pruning.
+        return candidate.count_approach_deferred
+
+    def _count_proven_distinct(self, track: Track, entry: Mapping[str, Any]) -> bool:
+        """Whether ``track`` is shown to differ from the lost positive in ``entry``.
+
+        Only two things prove it: the two were separate boxes in one frame and
+        have not moved away from those places since, or both positions are known
+        and farther apart than any same-object place radius.  Missing ground or
+        appearance, an inconsistent appearance, expired re-identification and
+        plain proximity prove nothing either way.
+        """
+        other = self._tracks.get(entry["track_id"])
+        position = self.target_position(track)
+        other_position = (self.target_position(other) if other is not None else None) or entry[
+            "position"
+        ]
+        radius = max(self.config.count_dedupe_m, self.place_radius(track), entry["radius"])
+        geometry = {**entry["co_visible_geometry"], **(other.co_visible_geometry if other else {})}
+        if co_visibility_proves_distinct(
+            track, entry["track_id"], geometry, position, other_position, radius
+        ):
+            return True
+        return (
+            position is not None
+            and other_position is not None
+            and math.dist(position[:2], other_position[:2]) > radius
+        )
+
+    def _count_lost_predecessors(self, track: Track) -> list[Mapping[str, Any]]:
+        """Unresolved lost count positives that may be the same object as ``track``."""
+        counted = {record.get("track_id") for record in self.confirmations}
+        found = []
+        for entry in self._count_lost_ledger.values():
+            other = self._tracks.get(entry["track_id"])
+            if (
+                entry["track_id"] == track.track_id
+                or other is None
+                or other.verdict == "no_match"
+                or entry["track_id"] in counted
+            ):
+                continue
+            if not self._count_proven_distinct(track, entry):
+                found.append(entry)
+        return found
+
+    def _count_ambiguous_blocked(self, track: Track) -> bool:
+        """The task-wide ambiguous-identity budget is spent and ``track`` is in it.
+
+        Not approached (the host may still judge it and keeps it unresolved);
+        never counted, merged or rejected on this evidence.
+        """
+        return (
+            self.config.count_lost_cycle_guard
+            and self._count_ambiguous_lost >= self.config.count_lost_cycle_ambiguous_budget
+            and bool(self._count_lost_predecessors(track))
+        )
+
+    def _note_count_focus_lost(self, focus: Track) -> bool:
+        """Record a lost approach cycle; True once the track is deferred."""
+        focus.count_lost_cycles += 1
+        if self._count_lost_predecessors(focus):
+            self._count_ambiguous_lost += 1
+        position = self.target_position(focus)
+        self._count_lost_ledger[focus.track_id] = {
+            "track_id": focus.track_id,
+            "position": tuple(position[:2]) if position is not None else None,
+            "radius": self.place_radius(focus),
+            "co_visible_geometry": dict(focus.co_visible_geometry),
+        }
+        if focus.count_lost_cycles >= 2:
+            focus.count_approach_deferred = True
+        return focus.count_approach_deferred
+
     def tracks_needing_verdict(self, current: Sequence[Track]) -> list[Track]:
         stale = [
             t
@@ -1658,6 +1809,7 @@ class OnboardLoop:
             # Boxes too small to judge are not worth a slow call.
             if _min_side(t.bbox) >= self.config.min_verdict_side_px
             and not t.exhausted
+            and not self._count_deferred_at(t)
             and (
                 t.needs_fresh_verdict
                 or t.contradiction_active
@@ -1703,6 +1855,10 @@ class OnboardLoop:
         confidence: float | None = None,
         *,
         remembered: bool = False,
+        frame_id: str | None = None,
+        frame_path: str | None = None,
+        observation_source: str | None = None,
+        view_pitch_deg: float | None = None,
     ) -> None:
         """Apply a real or remembered identity decision.
 
@@ -1714,6 +1870,14 @@ class OnboardLoop:
         track = self._tracks.get(track_id)
         if track is None:
             return
+        if frame_id is not None:
+            self._last_frame_id = frame_id
+        if frame_path is not None:
+            self._last_frame_path = frame_path
+        if observation_source is not None:
+            self._last_observation_source = observation_source
+        if view_pitch_deg is not None:
+            self._last_view_pitch_deg = view_pitch_deg
         if track.needs_fresh_verdict and remembered:
             return
         if remembered and decision not in {"reject_track", "approach_track"}:
@@ -1828,6 +1992,8 @@ class OnboardLoop:
         elif verdict == "no_match":
             track.identity_reject_matches += 1
             track.identity_verdict_history.append(verdict)
+        if not remembered and verdict in {"confirm", "approach", "no_match"}:
+            self._record_identity_vote(track, verdict, confidence)
         if (
             not remembered
             and verdict in {"confirm", "approach"}
@@ -1947,6 +2113,53 @@ class OnboardLoop:
         return math.degrees(
             math.atan2(track.ground[1] - self._last_pose[1], track.ground[0] - self._last_pose[0])
         )
+
+    def _record_identity_vote(self, track: Track, verdict: str, confidence: float | None) -> None:
+        altitude = max(0.0, -self._last_pose[2]) if self._last_pose is not None else None
+        track.identity_votes.append(
+            {
+                "step": self.step_index,
+                "frame_id": self._last_frame_id,
+                "frame_path": self._last_frame_path,
+                "source": self._last_observation_source,
+                "camera_pose_ned": list(self._last_pose) if self._last_pose is not None else None,
+                "observation_bearing_deg": self._view_bearing(track),
+                "observation_pitch_deg": self._last_view_pitch_deg,
+                "camera_altitude_m": altitude,
+                "decision": verdict,
+                "confidence": None if confidence is None else float(confidence),
+            }
+        )
+        del track.identity_votes[:-max(self.config.place_votes_max, 32)]
+
+    def _has_independent_positive_views(self, track: Track) -> bool:
+        positives = [v for v in track.identity_votes if v.get("decision") in {"confirm", "approach"}]
+        if len(positives) < self.config.confirm_matches:
+            return False
+        # A target is often approached through several frames before the final
+        # confirmation.  Requiring the last two votes to differ made a valid
+        # target fail when the final pair was stationary, even though an earlier
+        # positive vote came from a clearly different viewpoint.  Search the
+        # retained positive history for any qualifying pair instead.
+        for first_index, first in enumerate(positives[:-1]):
+            for second in positives[first_index + 1 :]:
+                if first.get("observation_bearing_deg") is None or first.get("camera_pose_ned") is None:
+                    return True
+                if second.get("observation_bearing_deg") is None or second.get("camera_pose_ned") is None:
+                    return True
+                bearing_delta = abs(
+                    _wrap(
+                        float(second["observation_bearing_deg"])
+                        - float(first["observation_bearing_deg"])
+                    )
+                )
+                # Vertical descent changes the 3-D ray angle without exposing a
+                # new horizontal face.  Treat only horizontal bearing change as
+                # independent evidence; near-range confirmation is handled by
+                # the caller once the vehicle can no longer improve the view.
+                if bearing_delta >= self.config.confirm_min_view_bearing_deg:
+                    return True
+        return False
 
     def _contradiction_place_key(self, track: Track) -> tuple[float, float] | None:
         if track.ground is None:
@@ -2482,6 +2695,10 @@ class OnboardLoop:
                 track.verdict, track.confirm_steps = None, []
                 track.verdict_ground = None
                 track.needs_fresh_verdict = True
+                if look.get("kind") == "place_revisit":
+                    track.count_approach_deferred = False
+                    track.count_lost_cycles = 0
+                    self._count_lost_ledger.pop(track.track_id, None)
                 # A place revisit asks again but never re-opens a counted
                 # or approach-exhausted track.
                 if look.get("kind") != "place_revisit":
@@ -2508,6 +2725,7 @@ class OnboardLoop:
         positive = {"approach", "confirm", "pending_near"}
         found: list[Track] = []
         for track in self._tracks.values():
+            blocked = track.count_approach_deferred or self._count_ambiguous_blocked(track)
             place = self.target_position(track)
             history = track.identity_verdict_history
             if (
@@ -2520,11 +2738,18 @@ class OnboardLoop:
                 continue
             radius = self.place_radius(track)
             if any(
+                (not blocked or record.get("track_id") == track.track_id)
+                and
                 record.get("position_estimate_ne") is not None
                 and math.dist(place, record["position_estimate_ne"][:2])
                 <= max(radius, self.config.count_dedupe_m)
                 for record in self.confirmations
             ):
+                continue
+            if blocked:
+                # A different nearby track or place-memory rejection is not
+                # enough to resolve this candidate's positive evidence.
+                found.append(track)
                 continue
             since = track.verdict_step if track.verdict in positive else track.first_step
             if any(
@@ -2552,6 +2777,16 @@ class OnboardLoop:
                 continue
             found.append(track)
         return found
+
+    def unresolved_unlocated_positive_tracks(self) -> list[Track]:
+        """Positive observations lacking a location cannot be revisited or resolved."""
+        return [
+            track for track in self._tracks.values()
+            if self.target_position(track) is None
+            and not track.exhausted
+            and track.identity_verdict_history[-1:] in (["approach"], ["confirm"], ["pending_near"])
+            and track.verdict != "no_match"
+        ]
 
     def plan_place_revisit(self, track: Track, pose_ned) -> dict[str, Any] | None:
         """A near-side look at ``track``'s place, or None when the leg is not clear.
@@ -3216,6 +3451,8 @@ class OnboardLoop:
             if (
                 (t.verdict in {"approach", "confirm", "pending_near"} or t.contradiction_active)
                 and not t.exhausted
+                and not self._count_deferred_at(t)
+                and not self._count_ambiguous_blocked(t)
             )
         ]
         if not self.config.stop_on_confirm and self.confirmations:
@@ -3287,7 +3524,10 @@ class OnboardLoop:
             return max(
                 1.5,
                 self.config.memory_footprint_factor * footprint,
-                min(self.config.count_dedupe_m, sigma),
+                min(
+                    self.config.count_dedupe_m,
+                    self.config.count_dedupe_sigma_factor * sigma,
+                ),
             )
 
         def same_object(prior: dict[str, Any]) -> bool:
@@ -3328,9 +3568,12 @@ class OnboardLoop:
         """Counting mode: keep the confirmation (unless already counted) and search on."""
         self._end_fw_pass()
         position = record["position_estimate_ne"]
-        duplicate = position is not None and self._counted_at(
-            track, position, record.get("position_sigma_m")
-        )
+        if position is None:
+            info["count_blocked"] = "position_unavailable"
+            self.state, self._focus = "searching", None
+            self._approach_sizes.clear()
+            return self._search_step(pose_ned, yaw_deg), info
+        duplicate = self._counted_at(track, position, record.get("position_sigma_m"))
         if track.needs_fresh_verdict:
             info["count_blocked"] = "fresh_verdict_required"
             self.state, self._focus = "searching", None
@@ -3736,6 +3979,18 @@ class OnboardLoop:
             info["reason"] = "step_budget"
         if self.state in {"searching", "approaching"}:
             best = self._best_match(current)
+            if (
+                self.config.count_lost_cycle_guard
+                and self.state == "approaching"
+                and self._focus is not None
+                and best is not None
+                and best.track_id != self._focus
+                and all(t.track_id != self._focus for t in current)
+            ):
+                focus = self._tracks[self._focus]
+                if focus.verdict in {"approach", "confirm", "pending_near"} and focus.confirm_steps:
+                    if self._note_count_focus_lost(focus):
+                        info.update(reason="count_focus_lost_deferred", dropped=focus.track_id)
             if best is None:
                 if self.state == "approaching" and self._focus is not None:
                     focus = self._tracks[self._focus]
@@ -3761,6 +4016,15 @@ class OnboardLoop:
                     ):
                         focus.exhausted, wanted = True, False
                         info.update(reason="approach_exhausted", dropped=focus.track_id)
+                    elif (
+                        self.config.count_lost_cycle_guard
+                        and wanted
+                        and focus.confirm_steps
+                        and lost > self.config.lost_after_steps
+                    ):
+                        if self._note_count_focus_lost(focus):
+                            wanted = False
+                            info.update(reason="count_focus_lost_deferred", dropped=focus.track_id)
                     if wanted and lost <= self.config.lost_after_steps:
                         info["reason"] = "focus_briefly_lost"
                         focus_position = self.target_position(focus)
@@ -3922,6 +4186,8 @@ class OnboardLoop:
             )
             near = near or pass_near
             info["confirm_views"] = votes
+            independent = self.config.confirm_matches <= 1 or self._has_independent_positive_views(best)
+            info["confirm_views_independent"] = independent
             # At the closest view the host cannot improve the picture: identity is all
             # that is left to judge, so "approach" answers count as matching views too.
             matches = len(best.match_steps)
@@ -3944,10 +4210,16 @@ class OnboardLoop:
                 and not best.needs_fresh_verdict
                 and not best.verdict_remembered
                 and (
-                    votes >= self.config.confirm_matches
-                    or (votes >= 1 and (stalled or near))
+                    (votes >= self.config.confirm_matches and (independent or near))
                     or (
-                        near
+                        self.config.confirm_matches > 1
+                        and votes < self.config.confirm_matches
+                        and votes >= 1
+                        and (stalled or near)
+                    )
+                    or (
+                        votes < self.config.confirm_matches
+                        and near
                         and self.config.closest_view_identity_matches is not None
                         and matches >= self.config.closest_view_identity_matches
                     )
@@ -3983,6 +4255,8 @@ class OnboardLoop:
                     info["return"] = "autopilot"
                     return ActionPrimitive.stop(), info
                 return ActionPrimitive.hold(2.0), info
+            if votes >= self.config.confirm_matches and not independent:
+                info["confirmation_blocked"] = "insufficient_observation_independence"
             if self.config.fixed_wing_pass:
                 if ground is None and self._fw_pass is None:
                     # No ground anchor to pass over (e.g. above the horizon): keep the

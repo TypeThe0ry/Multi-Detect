@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from multidetect.camera_mount import CameraMount, GimbalLimits
 from multidetect.sim_teacher.streams import (
     LatestWinsBuffer,
     MavlinkState,
@@ -52,6 +53,214 @@ def test_build_observation_uses_live_mavlink_and_converts_rgb() -> None:
     assert observation["pose_time_boot_ms"] is None
 
 
+def test_build_observation_records_optional_gimbal_and_composed_camera_pose() -> None:
+    sensor = SensorSample(
+        rgb=bytes([0, 10, 20]), width=1, height=1, depth=None,
+        camera_info={"width": 1, "height": 1, "fx": 1.0, "fy": 1.0}, pose={},
+        velocity=[0.0, 0.0, 0.0], sensor_stamp_ns=10,
+        received_monotonic_ns=100, received_wall_time=1.0,
+    )
+    messages = {
+        "LOCAL_POSITION_NED": {"x": 1, "y": 2, "z": -3, "vx": 0, "vy": 0, "vz": 0},
+        "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+        "GLOBAL_POSITION_INT": {"lat": 10_000_000, "lon": 20_000_000, "relative_alt": 4000},
+        "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
+        "GIMBAL_DEVICE_ATTITUDE_STATUS": {"q0": 1.0, "q1": 0.0, "q2": 0.0, "q3": 0.0, "time_boot_ms": 7},
+    }
+    observation = build_observation(sensor, MavlinkState(messages=messages), camera_mount=CameraMount.gimbal())
+    assert observation["gimbal_state"]["source"] == "GIMBAL_DEVICE_ATTITUDE_STATUS"
+    assert observation["camera_pose"]["center_ned"] == [1.0, 2.0, -3.0]
+
+
+def test_build_observation_composes_real_downward_feedback_without_euler_sign_flip() -> None:
+    import math
+
+    sensor = SensorSample(
+        rgb=bytes([0, 10, 20]), width=1, height=1, depth=None,
+        camera_info={"width": 1, "height": 1, "fx": 1.0, "fy": 1.0}, pose={},
+        velocity=[0.0, 0.0, 0.0], sensor_stamp_ns=10,
+        received_monotonic_ns=100, received_wall_time=1.0,
+    )
+    pitch = -math.pi / 2.0  # MAVLink positive-up Euler convention.
+    messages = {
+        "LOCAL_POSITION_NED": {"x": 0, "y": 0, "z": -10, "vx": 0, "vy": 0, "vz": 0},
+        "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+        "GLOBAL_POSITION_INT": {"lat": 0, "lon": 0, "relative_alt": 10000},
+        "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
+        "GIMBAL_DEVICE_ATTITUDE_STATUS": {
+            "q": [math.cos(pitch / 2.0), 0.0, math.sin(pitch / 2.0), 0.0],
+            "time_boot_ms": 7,
+        },
+    }
+    state = MavlinkState(
+        messages=messages,
+        received_monotonic_ns={"GIMBAL_DEVICE_ATTITUDE_STATUS": 100},
+    )
+    observation = build_observation(sensor, state, camera_mount=CameraMount.gimbal())
+    rotation = observation["camera_pose"]["optical_to_world"]
+    assert rotation[6] == pytest.approx(1.0, abs=1e-6)
+    assert observation["gimbal_state"]["pitch_rad"] == pytest.approx(math.pi / 2.0)
+
+
+def test_build_observation_records_out_of_limit_feedback_without_raising() -> None:
+    import math
+
+    sensor = SensorSample(
+        rgb=bytes([0, 10, 20]), width=1, height=1, depth=None,
+        camera_info={"width": 1, "height": 1, "fx": 1.0, "fy": 1.0}, pose={},
+        velocity=[0.0, 0.0, 0.0], sensor_stamp_ns=10,
+        received_monotonic_ns=100, received_wall_time=1.0,
+    )
+    messages = {
+        "LOCAL_POSITION_NED": {"x": 0, "y": 0, "z": -10, "vx": 0, "vy": 0, "vz": 0},
+        "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+        "GLOBAL_POSITION_INT": {"lat": 0, "lon": 0, "relative_alt": 10000},
+        "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
+        "GIMBAL_DEVICE_ATTITUDE_STATUS": {
+            "q": [math.cos(math.radians(100) / 2), 0.0, -math.sin(math.radians(100) / 2), 0.0],
+            "time_boot_ms": 7,
+        },
+    }
+    observation = build_observation(
+        sensor,
+        MavlinkState(
+            messages=messages,
+            received_monotonic_ns={"GIMBAL_DEVICE_ATTITUDE_STATUS": 100},
+        ),
+        camera_mount=CameraMount.gimbal(
+            limits=GimbalLimits(pitch_min_rad=-math.pi, pitch_max_rad=0.5)
+        ),
+    )
+    assert observation["gimbal_state"]["out_of_limits"] is True
+    assert "camera_pose" in observation
+
+
+def test_fixed_mount_does_not_attach_gimbal_state_or_stale_camera_pose() -> None:
+    sensor = SensorSample(
+        rgb=bytes([0, 10, 20]), width=1, height=1, depth=None,
+        camera_info={"width": 1, "height": 1, "fx": 1.0, "fy": 1.0}, pose={},
+        velocity=[0.0, 0.0, 0.0], sensor_stamp_ns=10,
+        received_monotonic_ns=100, received_wall_time=1.0,
+    )
+    messages = {
+        "LOCAL_POSITION_NED": {"x": 0, "y": 0, "z": -10, "vx": 0, "vy": 0, "vz": 0},
+        "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+        "GLOBAL_POSITION_INT": {"lat": 0, "lon": 0, "relative_alt": 10000},
+        "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
+        "GIMBAL_DEVICE_ATTITUDE_STATUS": {"q": [1.0, 0.0, 0.0, 0.0]},
+    }
+    observation = build_observation(sensor, MavlinkState(messages=messages), camera_mount=CameraMount.fixed())
+    assert "gimbal_state" not in observation
+    assert "camera_pose" not in observation
+
+
+def test_stale_gimbal_feedback_is_recorded_but_not_used_for_camera_pose() -> None:
+    sensor = SensorSample(
+        rgb=bytes([0, 10, 20]), width=1, height=1, depth=None,
+        camera_info={"width": 1, "height": 1, "fx": 1.0, "fy": 1.0}, pose={},
+        velocity=[0.0, 0.0, 0.0], sensor_stamp_ns=10,
+        received_monotonic_ns=2_000_000_000, received_wall_time=1.0,
+    )
+    messages = {
+        "LOCAL_POSITION_NED": {"x": 0, "y": 0, "z": -10, "vx": 0, "vy": 0, "vz": 0},
+        "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+        "GLOBAL_POSITION_INT": {"lat": 0, "lon": 0, "relative_alt": 10000},
+        "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
+        "GIMBAL_DEVICE_ATTITUDE_STATUS": {"q": [1.0, 0.0, 0.0, 0.0]},
+    }
+    observation = build_observation(
+        sensor,
+        MavlinkState(
+            messages=messages,
+            received_monotonic_ns={"GIMBAL_DEVICE_ATTITUDE_STATUS": 500_000_000},
+        ),
+        camera_mount=CameraMount.gimbal(),
+    )
+    assert observation["gimbal_state"]["fresh"] is False
+    assert "camera_pose" not in observation
+
+
+def test_stale_feedback_cannot_overwrite_fresh_joint_sidecar_angles() -> None:
+    sensor = SensorSample(
+        rgb=bytes([0, 10, 20]), width=1, height=1, depth=None,
+        camera_info={"width": 1, "height": 1, "fx": 1.0, "fy": 1.0}, pose={},
+        velocity=[0.0, 0.0, 0.0], sensor_stamp_ns=10,
+        received_monotonic_ns=2_000_000_000, received_wall_time=1.0,
+        joint_state={
+            "gimbal_joint_state": {
+                "timestamp_ns": 10,
+                "position_rad": {"pitch": 0.4, "yaw": 0.5, "roll": 0.6},
+                "velocity_rad_s": {"pitch": 1.0, "yaw": 2.0, "roll": 3.0},
+                "source": "gazebo_joint_state",
+                "fresh": True,
+            },
+            "propeller_joint_state": {
+                "timestamp_ns": 10,
+                "joint_names": [f"rotor_{index}_joint" for index in range(4)],
+                "angles_rad": [0.1, 0.2, 0.3, 0.4],
+                "spin_rad_s": [10.0, -11.0, 12.0, -13.0],
+                "velocity_slowdown": 10,
+                "source": "gazebo_joint_state",
+            },
+        },
+    )
+    messages = {
+        "LOCAL_POSITION_NED": {"x": 1, "y": 2, "z": -10, "vx": 0, "vy": 0, "vz": 0},
+        "ATTITUDE": {"roll": 0, "pitch": 0, "yaw": 0},
+        "GLOBAL_POSITION_INT": {"lat": 0, "lon": 0, "relative_alt": 10000},
+        "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
+        "GIMBAL_DEVICE_ATTITUDE_STATUS": {
+            "q": [1.0, 0.0, 0.0, 0.0],
+            "time_boot_ms": 7,
+        },
+    }
+    observation = build_observation(
+        sensor,
+        MavlinkState(
+            messages=messages,
+            received_monotonic_ns={"GIMBAL_DEVICE_ATTITUDE_STATUS": 500_000_000},
+        ),
+        camera_mount=CameraMount.gimbal(),
+    )
+
+    assert observation["gimbal_state"]["fresh"] is False
+    assert observation["gimbal_joint_state"]["source"] == "gazebo_joint_state"
+    assert observation["gimbal_joint_state"]["position_rad"] == {
+        "pitch": 0.4,
+        "yaw": 0.5,
+        "roll": 0.6,
+    }
+    assert observation["propeller_joint_state"]["angles_rad"] == [0.1, 0.2, 0.3, 0.4]
+    assert "camera_pose" not in observation
+
+
+def test_collector_dispatches_only_the_shared_gimbal_command_schema() -> None:
+    collector = _collector_module()
+
+    class Controller:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def command_pitch_yaw(self, pitch, yaw, *, mode, vehicle_yaw_rad):
+            self.calls.append((pitch, yaw, mode, vehicle_yaw_rad))
+
+    controller = Controller()
+    labels = {
+        "gimbal_command": {
+            "pitch_down_rad": 1.0,
+            "yaw_world_rad": -0.5,
+            "mode": "lock-horizon",
+        }
+    }
+    assert collector._dispatch_teacher_gimbal_command(
+        controller, labels, vehicle_yaw_deg=90.0
+    ) is True
+    assert controller.calls == [(1.0, -0.5, "lock-horizon", pytest.approx(1.57079632679))]
+    assert collector._dispatch_teacher_gimbal_command(
+        controller, {"gimbal_command": {"pitch_rad": 1.0}}, vehicle_yaw_deg=0.0
+    ) is False
+
+
 def test_build_observation_exposes_known_mavlink_landed_state() -> None:
     sensor = SensorSample(
         rgb=bytes([0, 10, 20]),
@@ -92,6 +301,21 @@ def test_pose_sim_stamp_helper_converts_px4_boot_time() -> None:
     collector = _collector_module()
     state = MavlinkState(messages={"LOCAL_POSITION_NED": {"time_boot_ms": 7_160}})
     assert collector._pose_sim_stamp_ns(state) == 7_160_000_000
+
+
+def test_achieved_delta_uses_primitive_pose_displacement_from_crash_evidence() -> None:
+    collector = _collector_module()
+    before = [-0.6, 0.0, -18.62]
+    after = [-0.5, 0.1, 0.76]
+    assert collector._achieved_delta_ned(before, after) == pytest.approx([0.1, 0.1, 19.38])
+
+    # The reported delta is local to the adjacent pose pair; it cannot inherit
+    # the executor's cumulative 15 m setpoint drift after the aircraft stops.
+    near_ground_before = [-0.5, 0.1, 0.76]
+    near_ground_after = [-0.4, 0.1, 0.70]
+    assert collector._achieved_delta_ned(near_ground_before, near_ground_after) == pytest.approx(
+        [0.1, 0.0, -0.06]
+    )
 
 
 def test_simulation_stamp_skew_helper() -> None:
@@ -340,9 +564,107 @@ def test_wait_prearm_health_times_out_with_named_failures(monkeypatch) -> None:
         raise_if_failed=lambda: None,
     )
     with pytest.raises(TimeoutError, match="manual_control_input, communication_links, system"):
-        collector._wait_prearm_health(reader, timeout_s=0.02)
+        collector._wait_prearm_health(reader, timeout_s=0.02, max_wall_s=0.02)
 
 
+def test_wait_prearm_health_uses_sim_time_and_has_a_wall_ceiling(monkeypatch) -> None:
+    import pytest
+
+    collector = _collector_module()
+
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 100.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def monotonic_ns(self) -> int:
+            return int(self.now * 1_000_000_000)
+
+        def sleep(self, seconds: float) -> None:
+            self.now += seconds
+
+    clock = FakeClock()
+    monkeypatch.setattr(collector, "time", clock)
+    monkeypatch.setattr(collector, "_progress", lambda *args, **kwargs: None)
+
+    class SlowReader:
+        def __init__(self) -> None:
+            self.state = MavlinkState(
+                messages={
+                    "SYS_STATUS": {
+                        "onboard_control_sensors_present": 16384,
+                        "onboard_control_sensors_health": 0,
+                    },
+                    "LOCAL_POSITION_NED": {"time_boot_ms": 0},
+                }
+            )
+
+        def raise_if_failed(self) -> None:
+            # Sim time advances at 0.2x host time, then the position check clears.
+            position = self.state.messages["LOCAL_POSITION_NED"]
+            position["time_boot_ms"] += 20
+            if position["time_boot_ms"] >= 980:
+                self.state.messages["SYS_STATUS"]["onboard_control_sensors_health"] = 16384
+
+    reader = SlowReader()
+    result = collector._wait_prearm_health(
+        reader,
+        timeout_s=1.0,
+        max_wall_s=10.0,
+        warmup_s=0.0,
+    )
+
+    assert result["ready"] is True
+    assert clock.now - 100.0 == pytest.approx(4.9, abs=0.2)
+
+
+def test_wait_prearm_health_stops_at_wall_ceiling_when_sim_clock_is_frozen(monkeypatch) -> None:
+    import pytest
+
+    collector = _collector_module()
+
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 100.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def monotonic_ns(self) -> int:
+            return int(self.now * 1_000_000_000)
+
+        def sleep(self, seconds: float) -> None:
+            self.now += seconds
+
+    clock = FakeClock()
+    monkeypatch.setattr(collector, "time", clock)
+    monkeypatch.setattr(collector, "_progress", lambda *args, **kwargs: None)
+    reader = SimpleNamespace(
+        state=MavlinkState(
+            messages={
+                "SYS_STATUS": {
+                    "onboard_control_sensors_present": 16384,
+                    "onboard_control_sensors_health": 0,
+                },
+                "LOCAL_POSITION_NED": {"time_boot_ms": 1000},
+            }
+        ),
+        raise_if_failed=lambda: None,
+    )
+
+    with pytest.raises(TimeoutError, match="xy_position_control"):
+        collector._wait_prearm_health(
+            reader,
+            timeout_s=1.0,
+            max_wall_s=0.35,
+            warmup_s=0.0,
+        )
+    assert clock.now - 100.0 == pytest.approx(0.4)
+
+
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_mavlink_reader_drains_real_udp_mavlink2_burst() -> None:
     import socket
     import threading
@@ -426,3 +748,225 @@ def test_truth_target_world_relative_altitude_is_not_treated_as_amsl(tmp_path):
     (north, east, down), _ = _truth_target(truth, origin=(1.352100, 103.819800, 18.0))
     assert abs(north) < 1e-6 and abs(east) < 1e-6
     assert down == -0.75
+
+
+def test_collector_current_step_routes_first_and_alternating_actions_without_prior_action():
+    """Execute the real collector policy/route block, with no simulator or subprocess."""
+    import pathlib
+    import textwrap
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+
+    collector = _collector_module()
+    source = pathlib.Path(collector.__file__).read_text()
+    start = source.index('                if plan.teacher == "expert_search":', source.index('            for index in range(plan.steps_per_episode):'))
+    end = source.index('                # Non-multirotor onboard policies emit a MotionCommand', start)
+    block = textwrap.dedent(source[start:end])
+    function = 'def run_one():\n' + textwrap.indent(block, '    ') + '\n    return action, managed_gimbal_action\n'
+    actions = [ActionPrimitive.hold(1), ActionPrimitive.gimbal(pitch_deg=-30),
+               ActionPrimitive.hold(1), SimpleNamespace(kind='gimbal', rejected=False,
+                   action=None, gimbal_pitch_deg=-20, gimbal_yaw_deg=5, gimbal_roll_deg=0)]
+    dispatches, ensures = [], []
+    policy = SimpleNamespace(next_action=lambda **kwargs: actions.pop(0))
+    env = {'plan': SimpleNamespace(teacher='hover'), 'policy': policy,
+           'pose': (0, 0, -10), 'yaw': 0.0, 'before': {}, 'timing': {},
+           'camera_mount': CameraMount.gimbal(), 'gimbal_session': None,
+           'gimbal_controller': object(),
+           '_managed_teacher_gimbal_action': collector._managed_teacher_gimbal_action,
+           '_ensure_gimbal_session': lambda: ensures.append(True),
+           '_dispatch_teacher_gimbal_command': lambda *args, **kwargs: dispatches.append(True)}
+    exec(compile(function, str(collector.__file__), 'exec'), env)
+    first = env['run_one']()
+    second = env['run_one']()
+    third = env['run_one']()
+    fourth = env['run_one']()
+    assert [first[1], third[1]] == [None, None]
+    assert second[1] is second[0] and second[1].gimbal_pitch_deg == -30
+    assert fourth[1].kind == 'gimbal' and fourth[1].gimbal_pitch_deg == -20
+    assert len(dispatches) == 2 and len(ensures) == 2
+    actions.append(ActionPrimitive.gimbal(pitch_deg=-10))
+    first_gimbal = env['run_one']()
+    assert first_gimbal[1] is first_gimbal[0]
+
+
+def test_collector_gimbal_worker_does_not_call_mutable_watchdog():
+    import ast
+    import pathlib
+    import threading
+
+    collector = _collector_module()
+    tree = ast.parse(pathlib.Path(collector.__file__).read_text())
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == '_execute_managed_gimbal_action']
+    assert len(calls) == 1
+    check = next(keyword.value for keyword in calls[0].keywords if keyword.arg == 'check')
+    assert isinstance(check, ast.Attribute) and check.attr == 'check'
+    assert isinstance(check.value, ast.Name) and check.value.id == 'gimbal_send_gate'
+    main_id = threading.get_ident()
+    seen = []
+    done = threading.Event()
+    thread = threading.Thread(target=lambda: done.wait(0.5))
+    thread.start()
+    def watchdog_tick():
+        seen.append(threading.get_ident())
+        done.set()
+    collector._join_action_with_gimbal(thread, None, watchdog_tick)
+    assert seen and all(item == main_id for item in seen)
+
+
+def test_watchdog_cancels_managed_worker_between_drain_and_new_command():
+    import threading
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    in_drain, release = threading.Event(), threading.Event()
+    sent, worker_errors = [], []
+    class Session:
+        pending = None
+        def poll(self):
+            in_drain.set()
+            assert release.wait(1)
+            return 'ready'
+        def command(self, *args): sent.append(args)
+    profile = SimpleNamespace(camera=SimpleNamespace(gimbal={
+        'enabled': True, 'angle_range_deg': {'pitch': [-135, 45], 'yaw': [-180, 180], 'roll': [-45, 45]}}))
+    def work():
+        try:
+            collector._execute_managed_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0),
+                session=Session(), profile=profile, reader=None, check=gate.check)
+        except Exception as exc:
+            worker_errors.append(str(exc))
+    thread = threading.Thread(target=work)
+    thread.start()
+    assert in_drain.wait(1)
+    def watchdog(): raise RuntimeError('watchdog expired')
+    def cancel():
+        gate.cancel()
+        release.set()
+    with pytest.raises(RuntimeError, match='watchdog expired'):
+        collector._join_action_with_gimbal(thread, None, watchdog, cancel=cancel)
+    assert sent == [] and worker_errors == ['gimbal command cancelled']
+
+
+def test_gimbal_send_gate_serializes_inflight_send_and_cancellation():
+    import threading
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+    sent = []
+    def sender():
+        entered.set()
+        assert release.wait(1)
+        sent.append('in-flight')
+    first = gate.send(sender)
+    assert entered.wait(1)
+    second = gate.send(lambda: sent.append('queued'))
+    gate.cancel()
+    cleanup = threading.Thread(target=lambda: (gate.close(), closed.set()))
+    cleanup.start()
+    try:
+        assert not closed.wait(0.05)  # do not close or reuse the connection
+        with pytest.raises(RuntimeError, match='cancelled'):
+            gate.send(lambda: sent.append('new'))
+    finally:
+        release.set()
+        cleanup.join(1)
+    assert closed.is_set() and first.done.is_set() and second.done.is_set()
+    assert first.error is None and isinstance(second.error, RuntimeError)
+    assert sent == ['in-flight']
+    assert [item['event'] for item in gate.snapshot()] == ['queued', 'in_flight', 'queued', 'cancelled', 'completed', 'discarded']
+
+
+def test_watchdog_returns_without_waiting_for_blocked_gimbal_transport():
+    import threading
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    entered, release, worker_release = threading.Event(), threading.Event(), threading.Event()
+    def blocked_sender():
+        entered.set()
+        assert release.wait(1)
+    gate.send(blocked_sender)
+    assert entered.wait(1)
+    action_thread = threading.Thread(target=lambda: worker_release.wait(1), daemon=True)
+    action_thread.start()
+    try:
+        with pytest.raises(RuntimeError, match='watchdog expired'):
+            collector._join_action_with_gimbal(action_thread, None,
+                lambda: (_ for _ in ()).throw(RuntimeError('watchdog expired')),
+                cancel=gate.cancel, abandon_on_cancel=True)
+        assert action_thread.is_alive()
+        with pytest.raises(RuntimeError, match='cancelled'):
+            gate.send(lambda: None)
+    finally:
+        worker_release.set()
+        release.set()
+        action_thread.join(1)
+        gate.close()
+
+
+def test_cancellation_before_sender_entry_prevents_send_and_teardown_waits():
+    import threading
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    at_boundary, resume, closed = threading.Event(), threading.Event(), threading.Event()
+    sent, count = [], [0]
+    original_check = gate.check
+    def paused_check():
+        count[0] += 1
+        if count[0] == 2:  # I/O worker, after admission but before sender
+            at_boundary.set()
+            assert resume.wait(1)
+        original_check()
+    gate.check = paused_check
+    ticket = gate.send(lambda: sent.append('sent'))
+    assert at_boundary.wait(1)
+    gate.cancel()
+    cleanup = threading.Thread(target=lambda: (gate.close(), closed.set()))
+    cleanup.start()
+    try:
+        assert not closed.wait(0.05)
+    finally:
+        resume.set()
+        cleanup.join(1)
+    assert closed.is_set() and ticket.done.is_set()
+    assert isinstance(ticket.error, RuntimeError) and sent == []
+
+
+def test_collector_context_never_tears_down_connection_while_sender_is_alive():
+    import threading
+    collector = _collector_module()
+    gate = collector._GimbalSendGate()
+    entered, release, env_closed, reported = (threading.Event() for _ in range(4))
+    class Environment:
+        def __enter__(self): return self
+        def __exit__(self, *args):
+            env_closed.set()
+            return False
+    def sender():
+        entered.set()
+        assert release.wait(1)
+    def collect():
+        try:
+            with Environment(), gate:
+                gate.send(sender)
+                assert entered.wait(1)
+                raise RuntimeError('watchdog expired')
+        except RuntimeError:
+            reported.set()
+    thread = threading.Thread(target=collect)
+    thread.start()
+    assert entered.wait(1)
+    try:
+        assert gate._cancelled.wait(1)
+        assert not env_closed.wait(0.05)
+        assert not reported.is_set()
+    finally:
+        release.set()
+        thread.join(1)
+    assert reported.is_set() and env_closed.is_set()
+
+
+def test_unmanaged_explicit_gimbal_primitive_cannot_bypass_io_owner():
+    from multidetect.sim_teacher.primitives import ActionPrimitive
+    collector = _collector_module()
+    with pytest.raises(RuntimeError, match='requires the managed gimbal session'):
+        collector._managed_teacher_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0), None, None)

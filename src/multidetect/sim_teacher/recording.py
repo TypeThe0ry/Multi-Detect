@@ -9,8 +9,8 @@ import json
 import math
 import threading
 import time
-from queue import Queue
 from pathlib import Path
+from queue import Queue
 from typing import Any
 
 
@@ -88,6 +88,12 @@ class EpisodeRecorder:
             "created_monotonic_ns": time.monotonic_ns(),
             "step_count": 0,
             "timing_enabled": True,
+            "frame_state_contract": {
+                "camera_pose": "optional composed camera center/orientation",
+                "gimbal_joint_state": "optional per-frame pitch/yaw/roll state",
+                "propeller_joint_state": "optional per-frame angle/spin state",
+                "legacy_episode_compatible": True,
+            },
         }
         self._mavlink_file = None
         self._mavlink_lock = threading.Lock()
@@ -169,6 +175,11 @@ class EpisodeRecorder:
         self.meta["finished_wall_time"] = time.time()
         self.meta["finished_monotonic_ns"] = time.monotonic_ns()
         self.meta["status"] = status
+        snapshot = self.meta.get("failure_snapshot")
+        if isinstance(snapshot, dict):
+            clocks = snapshot.setdefault("clocks", {})
+            clocks["episode_end_monotonic_ns"] = self.meta["finished_monotonic_ns"]
+            snapshot.setdefault("schema_version", 1)
         if failure:
             self.meta["failure"] = failure
         if self._timing_rows:
@@ -199,6 +210,12 @@ class EpisodeRecorder:
         if obs is None:
             return None
         out = {k: v for k, v in obs.items() if k not in {"rgb", "depth", "segmentation"}}
+        # Accept the names emitted by both the gimbal-aware collector and
+        # older callers that only used ``gimbal_state``/``propeller_state``.
+        if "gimbal_joint_state" not in out and isinstance(out.get("gimbal_state"), dict):
+            out["gimbal_joint_state"] = dict(out["gimbal_state"])
+        if "propeller_joint_state" not in out and isinstance(out.get("propeller_state"), dict):
+            out["propeller_joint_state"] = dict(out["propeller_state"])
         stem = f"{self.index:06d}_{prefix}"
         rgb = obs.get("rgb")
         if rgb is not None:
@@ -266,7 +283,7 @@ class EpisodeRecorder:
                                 .clip(0, 65535)
                                 .astype(np.uint16)
                             )
-                        Image.fromarray(array, mode="I;16").save(path, format="PNG", optimize=True)
+                        Image.fromarray(array).save(path, format="PNG", optimize=True)
                     else:
                         np.save(path, array.astype("float32"))
                     out["depth_path"] = str(path.relative_to(self.episode_dir))

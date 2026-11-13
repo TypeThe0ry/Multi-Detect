@@ -1,0 +1,68 @@
+{
+  "purpose": "Mechanical exact dependency pin requalification for the reviewed b5 GPU image whitelist; guards remain strict, no historical receipts changed",
+  "rows": [
+    {
+      "source": "scripts/onboard_teacher_gazebo_session.py",
+      "old_size": 30832,
+      "new_size": 31076,
+      "old_sha256": "da5d4e164a54b23548d5c7fba90c23143fad825e5ef586b0167e5a97b2a1e2fb",
+      "new_sha256": "80d6a00c817c1654d62d9d3ffb0ddd35ccdce9a4bc8c1e884ea924f947793b42",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_gazebo_session_v3.py"
+      ]
+    },
+    {
+      "source": "scripts/onboard_teacher_gazebo_session_v3.py",
+      "old_size": 19604,
+      "new_size": 19604,
+      "old_sha256": "04d57a9bb00eae73a355d53a6263c4054019ca6ccc7490ec2eaa9d3bdea07a22",
+      "new_sha256": "dcd88c2aa5391e99c7e3d7eddd3c13d0ce619a5fdc8a5bddc848496dc2413ded",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_gazebo_session_v4.py",
+        "tests/test_onboard_teacher_gazebo_session_v4.py"
+      ]
+    },
+    {
+      "source": "scripts/onboard_teacher_gazebo_session_v4.py",
+      "old_size": 12186,
+      "new_size": 12186,
+      "old_sha256": "2e982a38ec99f67e58ff1ad8a7d398593f0a03931d4e1ef6222edb79e7a605a5",
+      "new_sha256": "035e10a9d4c7a6b0735671cd37ba86b181decab1e5bb36a25bf85dcf6d339300",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_sim_operator.py",
+        "tests/test_onboard_teacher_sim_operator.py"
+      ]
+    },
+    {
+      "source": "scripts/onboard_teacher_sim_operator.py",
+      "old_size": 26803,
+      "new_size": 26803,
+      "old_sha256": "286e883fd3aafb82714a84fdfe53af1bd3b20ddcd90a7f97e42e7715ea827ce9",
+      "new_sha256": "683b293be805306b7392519b922e78890c0baf3120d8451aa8c0fbe9e19539f8",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_sim_operator_v2.py"
+      ]
+    },
+    {
+      "source": "tests/test_onboard_teacher_sim_operator.py",
+      "old_size": 23498,
+      "new_size": 23498,
+      "old_sha256": "dfbefb0ec6e80b66a69354168051f4f8911853507030d056e590cfb7aa9b1d6f",
+      "new_sha256": "7ae72c133f9da1dda53896e529fd7fbc60662f8559c55c39e3abc1752daa65c4",
+      "exact_pin_consumers": [
+        "scripts/onboard_teacher_sim_operator_v2.py"
+      ]
+    }
+  ],
+  "mechanical_only_pass": true,
+  "mechanical_consumers": [
+    "scripts/onboard_teacher_gazebo_session_v3.py",
+    "scripts/onboard_teacher_gazebo_session_v4.py",
+    "scripts/onboard_teacher_sim_operator.py",
+    "scripts/onboard_teacher_sim_operator_v2.py",
+    "tests/test_onboard_teacher_gazebo_session_v4.py",
+    "tests/test_onboard_teacher_sim_operator.py"
+  ],
+  "flight_receipt": false,
+  "qualification_boundary": "Exact inherited source pins were requalified; historical receipts were not modified and do not qualify the new source."
+}

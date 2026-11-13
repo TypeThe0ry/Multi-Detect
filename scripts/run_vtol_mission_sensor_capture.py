@@ -84,6 +84,7 @@ from multidetect.sensor_transport_binding import (  # noqa: E402
 )
 from multidetect.simulation.energy_replay import CumulativeSimulationEnergy  # noqa: E402
 from multidetect.simulator.flight_model import SimulationEnergyProfile  # noqa: E402
+from multidetect.sim_network import sim_udpin_endpoint  # noqa: E402
 from multidetect.simulator.stack import (  # noqa: E402
     airframe_profile_hash as stable_airframe_profile_hash,  # noqa: E402
 )
@@ -1570,7 +1571,7 @@ def validate_mission_evidence(
         "airframe_profile_bound": bindings.get("airframe_profile_hash") == airframe_profile_hash,
         "runtime_descriptor_bound": bindings.get("runtime_descriptor_hash") == descriptor_hash,
         "runtime_provenance_bound": bindings.get("runtime_provenance_hash") == provenance_hash,
-        "evaluator_endpoint_bound": mavlink.get("endpoint") == f"udpin:127.0.0.1:{evaluator_port}"
+        "evaluator_endpoint_bound": mavlink.get("endpoint") == sim_udpin_endpoint(evaluator_port)
         and mavlink.get("source_system") == EVALUATOR_SYSTEM_ID
         and mavlink.get("source_component") == EVALUATOR_COMPONENT_ID
         and mavlink.get("target_system") == 1
@@ -2909,6 +2910,9 @@ def run_vtol_mission_sensor_capture(
                 raise VtolMissionSensorCaptureError(
                     f"container already exists; refusing replacement: {container_name}"
                 )
+            from scripts.run_simulator_docker import freeze_runtime_plan
+            plan = freeze_runtime_plan(plan, docker=docker_executable,
+                runner=lambda argv, **kw: _run(docker_executable, argv[1:], timeout_s=kw["timeout"], runner=command_runner))
             _run(
                 docker_executable,
                 ["image", "inspect", plan.image],

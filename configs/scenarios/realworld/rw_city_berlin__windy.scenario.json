@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_berlin__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_berlin__windy.runtime.json",
+   "sha256": "dcdc989e83628c2b27ac1bdb94f76da67d352108c17e56d9cb079e844e826dca"
+  },
+  "truth": {
+   "path": "rw_city_berlin__windy.truth.json",
+   "sha256": "9db86cd7ddbdb4e6c3b6a596a218f8402196b2ec3a5975a70519108e3eb326e7"
+  },
+  "expectations": {
+   "path": "rw_city_berlin__windy.expectations.json",
+   "sha256": "26b9358c9d929f4563d2ff33c28ecb7d6503d3a23ca23199160c22f3e2173fb4"
+  }
+ }
+}

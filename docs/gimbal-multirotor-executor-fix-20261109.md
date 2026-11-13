@@ -1,0 +1,11 @@
+# 云台多旋翼 executor 分派修复
+
+旧21任务回归中，x500_gimbal在prearm成功后0步失败。baseline `gimbal-count-cones/campaign/gen_cnt2_w0000.log` 的原始 traceback指向collector6246构造FixedWingVtolExecutor，后者正确拒绝非固定翼/VTOL。该异常不是PX4时钟卡住，旧日志和失败attempt保持原样。
+
+collector原来在executor构造、起飞、RTL及降落四处仅用精确 `x500_mono_cam` ID选择多旋翼路径，因此同属multirotor的x500_gimbal被送进FW路径。共享executor选择helper也保留了一张机型ID表。
+
+本补丁让共享helper依据解析后的AirframeProfile.category选择multirotor，并在每个episode开始时解析一次。四个生命周期入口共用该决定：多旋翼继续原来的setpoint→arm→OFFBOARD→爬升与多旋翼LAND；固定翼/VTOL继续其现有物理起飞、transition、RTL/降落。VTOL即使can_hover也不会误分为multirotor。多旋翼executor同时接收真实profile、telemetry reader与原有gimbal yaw correction，使云台动作继续执行控制权/新鲜反馈检查。FixedWingVtolExecutor自身验证完全保留，没有放宽门槛。
+
+验证包括mono/gimbal多旋翼、fixedwing、standard VTOL、tailsitter、delta两款、tiltrotor和新名称多旋翼profile，证明选择不依赖模型ID表；另确认x500_gimbal仍被FW executor拒绝。首批profile/FW/collector/clock/delta相关105项通过，补充真实collector profile分类等9项后profile单独59项全部通过。完整CPU gate日志位于工作区 `runs/airframe-executor-capability-cpu-gate-20261109.log`，实景仍须在最终冻结整合源码上重跑新21x2。
+
+本修复基于fd4316e5，独立于尚未推广的默认镜像prototype；未改候选镜像、超时、step预算、成功断言、旧冻结source或既有失败记录。新gimbal-inspect-postbox两次首关应与后继完整回归共用最终冻结source、不可变b5 image与显式planning precheck，以免混用不同源码的证据。

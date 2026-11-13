@@ -70,6 +70,7 @@ def test_expert_search_consumes_generated_observation_intent(tmp_path: Path, mon
                     "observation": {
                         "camera_altitude_m": 24.0,
                         "camera_pitch_rad": -0.31,
+                        "max_detection_range_m": 145.0,
                         "observation_waypoint": {
                             "x_east_m": 12.0,
                             "y_north_m": 34.0,
@@ -99,9 +100,27 @@ def test_expert_search_consumes_generated_observation_intent(tmp_path: Path, mon
     policy, _ = collector._policy_for(plan, Path("truth.json"), 1)
     assert policy.altitude_m == 24.0
     assert policy.camera_pitch_rad == 0.31
+    assert policy.max_detection_range_m == 145.0
     assert policy.home_ned == (34.0, 12.0, 0.0)
     assert policy.observation_frames == 8
     assert policy.observation_waypoints == ((34.0, 12.0, -24.0),)
+
+
+def test_expert_search_keeps_default_detection_range_without_intent_override(tmp_path: Path, monkeypatch):
+    import scripts.collect_sim_teacher_episodes as collector
+
+    runtime = tmp_path / "runtime.json"
+    runtime.write_text(json.dumps({"task_intent": {"observation": {"camera_altitude_m": 20.0}}}), encoding="utf-8")
+    plan = collector.CollectionPlan(
+        scenario="scenario.json", runtime=str(runtime), truth="truth.json", teacher="expert_search",
+        episodes=1, steps_per_episode=1, seed=1, out=str(tmp_path),
+    )
+    monkeypatch.setattr(collector, "_truth_target", lambda *args, **kwargs: ((1.0, 2.0, 0.0), "target"))
+    monkeypatch.setattr(collector, "_takeoff_altitude_for_plan", lambda plan: (20.0, "default"))
+    monkeypatch.setattr(collector, "scenario_world_path", lambda runtime: None)
+    monkeypatch.setattr(collector, "load_sdf_obstacles", lambda path: ())
+    policy, _ = collector._policy_for(plan, Path("truth.json"), 1)
+    assert policy.max_detection_range_m == 80.0
 
 
 def test_fixed_wing_intent_uses_camera_altitude_and_observation_route(tmp_path: Path, monkeypatch):
@@ -148,12 +167,27 @@ def test_deterministic_collector_config_failure_is_not_retried(monkeypatch, tmp_
 
     monkeypatch.setattr(round_script.subprocess, "run", fake_run)
     monkeypatch.setattr(round_script, "_remove_worker_containers", lambda prefix: None)
+    monkeypatch.setattr(round_script, "_docker_daemon_reachable", lambda: True)
     runner = Round.__new__(Round)
     runner.a = type("Args", (), {"retries": 4})()
     cmd = ["python", "collect.py", "--container-prefix", "w", "--out", str(tmp_path)]
     result = runner._collect_one("world:0", cmd, tmp_path)
     assert result["attempts"] == 1
     assert len(calls) == 1
+
+
+def test_recorded_episode_completion_requires_final_status_and_matching_hash(tmp_path: Path):
+    from scripts.run_r15_round import recorded_episode_is_complete, sha256
+
+    episode = tmp_path / "episode.json"
+    episode.write_text(json.dumps({"status": None}), encoding="utf-8")
+    record = {"status": "complete", "path": str(episode), "sha256": sha256(episode)}
+    assert recorded_episode_is_complete(record) is False
+
+    episode.write_text(json.dumps({"status": "complete"}), encoding="utf-8")
+    assert recorded_episode_is_complete(record) is False
+    record["sha256"] = sha256(episode)
+    assert recorded_episode_is_complete(record) is True
 
 
 def test_collect_one_does_not_merge_failed_episode_as_complete(monkeypatch, tmp_path: Path):

@@ -10,6 +10,10 @@ from multidetect.autonomy.onboard_loop import Detection
 from scripts.onboard_policy import VOCABULARY, OnboardPolicy, YoloeProposer
 
 
+def _stub_slow_runner(*args, **kwargs):
+    return SimpleNamespace(max_restarts=3, request_timeout_s=None, close=lambda: None)
+
+
 class StubModel:
     names = {0: "object", 1: "different label"}
 
@@ -183,7 +187,7 @@ def test_policy_config_wires_tiling_and_minimum_box_filter(
 
     calls = []
     monkeypatch.setattr(policy_module, "YoloeProposer", lambda *a, **kw: calls.append(kw))
-    monkeypatch.setattr(slow, "LlamaServerRunner", lambda *a, **kw: None)
+    monkeypatch.setattr(slow, "LlamaServerRunner", _stub_slow_runner)
     config = {"proposer_tiled": True, "proposer_tile_overlap": 0.25, "proposer_merge_iou": 0.6}
     if min_side is not None:
         config["proposal_min_side_px"] = min_side
@@ -217,7 +221,7 @@ def test_default_policy_stays_single_pass_and_altitude_uses_effective_task(monke
 
     calls = []
     monkeypatch.setattr(policy_module, "YoloeProposer", lambda *a, **kw: calls.append(kw))
-    monkeypatch.setattr(slow, "LlamaServerRunner", lambda *a, **kw: None)
+    monkeypatch.setattr(slow, "LlamaServerRunner", _stub_slow_runner)
     policy = OnboardPolicy(
         task_text="Find a bus", world_path=None, altitude_m=30,
         camera_info={"fx": 540, "fy": 540, "cx": 640, "cy": 480},

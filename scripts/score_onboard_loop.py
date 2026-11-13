@@ -17,7 +17,7 @@ import json
 import math
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +33,10 @@ def episode_world_id(episode: Path) -> str | None:
         metadata = {}
     world_sdf = metadata.get("world_sdf")
     if isinstance(world_sdf, str) and world_sdf:
-        world_id = Path(world_sdf).stem
+        # Episode metadata may have been produced on Windows and then scored on
+        # POSIX, where backslashes are ordinary filename characters.
+        world_path = PureWindowsPath(world_sdf) if "\\" in world_sdf else Path(world_sdf)
+        world_id = world_path.stem
         if world_id:
             return world_id
     return next((part for part in reversed(episode.parts) if part.startswith("gen_")), None)
@@ -146,9 +149,16 @@ def _nearest_object(
 
 def _count_metrics(rows: list[dict[str, Any]], members: list[dict[str, Any]], radius_m: float):
     """Reported count and findings matched one-to-one to distinct counted objects."""
-    mission = {}
+    # MissionExecutor uses the same ``mission`` label for its terminal status
+    # (for example ``"done"``) when the executor has no report to attach.
+    # Keep the latest structured report instead of replacing it with that
+    # status string.  This is especially important when a return-home or
+    # health-recovery step emits the final row after the count report.
+    mission: dict[str, Any] = {}
     for row in rows:
-        mission = ((row.get("labels") or {}).get("onboard") or {}).get("mission") or mission
+        candidate = ((row.get("labels") or {}).get("onboard") or {}).get("mission")
+        if isinstance(candidate, dict):
+            mission = candidate
     counts = mission.get("counts") or {}
     reported = sum(int(v) for v in counts.values()) if counts else None
     positions = [tuple(float(v) for v in p.split(",")) for p in mission.get("positions", [])]
@@ -393,6 +403,121 @@ def _moving_track_metrics(
     }
 
 
+def _terminal_landing_assessment(
+    rows: list[dict[str, Any]],
+    mission_metrics: dict[str, Any] | None,
+    ground_limit: float,
+    safety_cfg: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Assess a mission whose last skill is a completed ``land`` step.
+
+    Returns ``None`` when the mission does not qualify (the caller then keeps
+    the legacy whole-flight ground-contact rule untouched).  Otherwise the
+    terminal touchdown is separated from earlier flight: poses up to the
+    moment ``land`` was commanded are the pre-landing flight, and everything
+    after is the landing.  The landing passes only with an ON_GROUND
+    (``landed_state == 1``) confirmation on the last row and a controlled
+    descent rate inside ``touchdown_window_m`` of the ground.  The default
+    limit 1.5 m/s is about twice the PX4 land speed observed in the evidence
+    (max 0.71 m/s below 3 m); override with ``touchdown_max_descent_mps``.
+    """
+    metrics = mission_metrics or {}
+    history = metrics.get("mission_step_outcomes")
+    skills = metrics.get("mission_plan_skills")
+    if not (
+        metrics.get("mission_completed") is True
+        and isinstance(history, list)
+        and history
+        and isinstance(history[-1], dict)
+        and history[-1].get("skill") == "land"
+        and history[-1].get("state") == "succeeded"
+        and isinstance(skills, list)
+        and skills
+        and skills[-1] == "land"
+    ):
+        return None
+    start = None
+    for index in range(len(rows) - 1, -1, -1):
+        if ((rows[index].get("labels") or {}).get("onboard") or {}).get("skill") == "land":
+            start = index
+        else:
+            break
+    if start is None:
+        return None
+
+    def sample(obs: Any) -> tuple[float, float | None, float | None] | None:
+        obs = obs or {}
+        ned = (obs.get("pose") or {}).get("local_ned_m")
+        if not (isinstance(ned, (list, tuple)) and len(ned) >= 3):
+            return None
+        try:
+            down = float(ned[2])
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(down):
+            return None
+        vz = None
+        velocity = obs.get("velocity")
+        if isinstance(velocity, (list, tuple)) and len(velocity) >= 3:
+            try:
+                vz = float(velocity[2])
+            except (TypeError, ValueError):
+                vz = None
+            if vz is not None and not math.isfinite(vz):
+                vz = None
+        t_ms = obs.get("pose_time_boot_ms")
+        t_s = float(t_ms) / 1000.0 if isinstance(t_ms, (int, float)) else None
+        return (-down, vz, t_s)
+
+    pre = []
+    for row in rows[:start]:
+        for key in ("obs_before", "obs_after"):
+            item = sample(row.get(key))
+            if item is not None:
+                pre.append(item[0])
+    first = sample(rows[start].get("obs_before"))
+    if first is not None:
+        pre.append(first[0])
+    landing = []
+    for offset, row in enumerate(rows[start:]):
+        for key in ("obs_before", "obs_after"):
+            if key == "obs_before" and offset == 0:
+                continue
+            item = sample(row.get(key))
+            if item is not None:
+                landing.append(item)
+    last_obs = rows[-1].get("obs_after") or rows[-1].get("obs_before") or {}
+    landed_state = (last_obs.get("flight_state") or {}).get("landed_state")
+    on_ground = landed_state == 1 and not isinstance(landed_state, bool)
+
+    window = float(safety_cfg.get("touchdown_window_m", 3.0))
+    limit = float(safety_cfg.get("touchdown_max_descent_mps", 1.5))
+    rates: list[float] = []
+    for index, (alt, vz, t) in enumerate(landing):
+        if alt <= window and vz is not None:
+            rates.append(vz)
+        if index:
+            prev_alt, _pv, prev_t = landing[index - 1]
+            if (
+                min(alt, prev_alt) <= window
+                and prev_t is not None
+                and t is not None
+                and t - prev_t >= 0.2
+            ):
+                rates.append((prev_alt - alt) / (t - prev_t))
+    max_descent = max(rates) if rates else None
+    pre_min = min(pre) if pre else None
+    pre_contact = pre_min is None or pre_min <= ground_limit
+    descent_ok = max_descent is not None and max_descent <= limit
+    return {
+        "pre_landing_min_alt": pre_min,
+        "pre_landing_contact": pre_contact,
+        "landed_on_ground": on_ground,
+        "touchdown_max_descent_mps": None if max_descent is None else round(max_descent, 3),
+        "touchdown_descent_limit_mps": limit,
+        "landing_pass": bool(not pre_contact and on_ground and descent_ok),
+    }
+
 
 def _flight_safety_metrics(
     rows: list[dict[str, Any]],
@@ -457,7 +582,26 @@ def _flight_safety_metrics(
     min_required = float(min_required) if min_required is not None else None
     max_return = float(max_return) if max_return is not None else None
     ground = min(alts) <= ground_limit
+    landing = _terminal_landing_assessment(rows, mission_metrics, ground_limit, safety_cfg)
+    landing_ok = True
+    landing_fields: dict[str, Any] = {}
+    gate_min = min(alts)
+    if landing is not None:
+        # Completed terminal ``land``: the touchdown itself is expected ground
+        # contact.  Contact before landing, a hard touchdown or a missing
+        # ON_GROUND confirmation still fail (``landing_pass``).
+        ground = landing["pre_landing_contact"]
+        landing_ok = landing["landing_pass"]
+        gate_min = landing["pre_landing_min_alt"]
+        landing_fields = {
+            "terminal_landing_assessed": True,
+            "landing_pass": landing["landing_pass"],
+            "landing_on_ground_confirmed": landing["landed_on_ground"],
+            "landing_touchdown_max_descent_mps": landing["touchdown_max_descent_mps"],
+            "landing_touchdown_descent_limit_mps": landing["touchdown_descent_limit_mps"],
+        }
     return {
+        **landing_fields,
         "safety_data_available": True,
         "min_relative_altitude_m": round(min(alts), 3),
         "max_relative_altitude_m": round(max(alts), 3),
@@ -465,11 +609,12 @@ def _flight_safety_metrics(
         "ground_contact_detected": ground,
         "return_home_distance_m": round(return_distance, 3),
         "return_home_completed": completed,
-        "safety_min_altitude_pass": min_required is None or min(alts) >= min_required,
+        "safety_min_altitude_pass": min_required is None or gate_min >= min_required,
         "safety_return_distance_pass": max_return is None or return_distance <= max_return,
         "safety_pass": bool(
             not ground
-            and (min_required is None or min(alts) >= min_required)
+            and landing_ok
+            and (min_required is None or gate_min >= min_required)
             and (max_return is None or return_distance <= max_return)
         ),
     }
@@ -831,6 +976,82 @@ def _true_box(
     return (list(box) if box else None), "projection"
 
 
+def _geographic_skills(value: Any) -> bool:
+    return (
+        isinstance(value, list) and bool(value)
+        and all(skill in ("survey", "return_home") for skill in value)
+    )
+
+
+def _geographic_plan_skills(raw: Any) -> list[str]:
+    """Check the recorded diagnostic summary or the existing full plan DSL."""
+    from multidetect.autonomy.mission_plan import validate_mission_plan
+
+    if not isinstance(raw, dict):
+        raise ValueError("target-free mission needs a declared plan")
+    summary_keys = {"skills", "repairs", "error", "latency_s"}
+    if raw.get("error") is not None:
+        raise ValueError("target-free mission plan records an error")
+    if "repairs" in raw and (
+        not isinstance(raw["repairs"], list) or any(not isinstance(value, str) for value in raw["repairs"])
+    ):
+        raise ValueError("invalid target-free plan repair summary")
+    if "latency_s" in raw and (
+        isinstance(raw["latency_s"], bool) or not isinstance(raw["latency_s"], (int, float))
+        or not math.isfinite(raw["latency_s"]) or raw["latency_s"] < 0
+    ):
+        raise ValueError("invalid target-free plan latency summary")
+    if "steps" in raw:
+        plan = validate_mission_plan({k: v for k, v in raw.items() if k not in summary_keys})
+        skills = [step.skill for step in plan.steps]
+        if "skills" in raw and raw["skills"] != skills:
+            raise ValueError("plan skills disagree with actual steps")
+    else:
+        if set(raw) - summary_keys:
+            raise ValueError("unknown target-free plan summary fields")
+        skills = raw.get("skills")
+    if not _geographic_skills(skills):
+        raise ValueError("declared plan requires target ground truth")
+    return skills
+
+
+def _validate_target_free_declarations(
+    episode: Path, rows: list[dict[str, Any]], mission_config: dict[str, Any] | None,
+    skills: list[str], evidence: dict[str, Any] | None,
+) -> None:
+    plans = [mission["plan"] for row in rows
+             if isinstance(mission := ((row.get("labels") or {}).get("onboard") or {}).get("mission"), dict)
+             and "plan" in mission]
+    if not plans or any(_geographic_plan_skills(plan) != skills for plan in plans):
+        raise ValueError("target-free mission plan declarations disagree")
+    package_raw = (mission_config or {}).get("mission_package")
+    if package_raw is None:
+        return
+    from multidetect.autonomy.mission_package import load_mission_package
+    from multidetect.autonomy.mission_plan import validate_mission_plan
+
+    if isinstance(package_raw, (str, Path)):
+        package_raw = Path(package_raw)
+        if not package_raw.is_absolute():
+            package_raw = ROOT / package_raw
+    package = load_mission_package(package_raw)
+    package_skills = [step.skill for step in package.plan.steps] if package.plan else []
+    if not _geographic_skills(package_skills) or package_skills != skills:
+        raise ValueError("uploaded package requires a different or target-required plan")
+    if not evidence or evidence.get("onboard_log_exists") is not True or evidence.get("mission_plan_skills") != skills:
+        raise ValueError("target-free package needs valid durable plan evidence")
+    path = episode.parent.parent / f"{episode.name}-onboard-frames" / "mission_log/mission.jsonl"
+    starts = [record["plan"] for line in path.read_text(encoding="utf-8").splitlines()
+              if (record := json.loads(line)).get("kind") == "mission_started"]
+    if not starts:
+        raise ValueError("target-free package has no durable started plan")
+    for raw in starts:
+        plan = validate_mission_plan(raw)
+        package.validate_plan(plan)
+        if [step.skill for step in plan.steps] != skills:
+            raise ValueError("durable package steps disagree with target-free plan")
+
+
 def score_episode(
     episode: Path,
     truth: dict[str, Any],
@@ -855,7 +1076,9 @@ def score_episode(
         for line in (episode / "steps.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    target = _true_target(truth)
+    # Geographic missions may intentionally have no identity ground truth.
+    # Keep malformed / untagged target sets on the existing strict path.
+    target = None if truth["targets"] == [] else _true_target(truth)
     confirmed_row = None
     slow_calls, remembered_verdicts, slow_latency, fast_latency, flown = 0, 0, [], [], 0.0
     previous = None
@@ -922,6 +1145,7 @@ def score_episode(
             and result.get("safety_pass") is True
         )
         result["success"] = result["negative_task_passed"]
+    evidence = None
     if mission_config and mission_config.get("mission_package") is not None:
         evidence = _supervisor_evidence(episode)
         result["mission_supervisor"] = evidence
@@ -929,6 +1153,31 @@ def score_episode(
             result["mission_plan_skills"] = evidence["mission_plan_skills"]
         if evidence["original_mission_completed"] is not None:
             result["mission_completed"] = evidence["original_mission_completed"]
+    if target is None:
+        skills = result.get("mission_plan_skills")
+        expected_skills = expect.get("skills")
+        configured_mission = (mission_config or {}).get("mission")
+        if (
+            negative
+            or not _geographic_skills(skills)
+            or (expected_skills is not None and not _geographic_skills(expected_skills))
+            or configured_mission not in (None, "from_text", "survey", "return_home", "package")
+            or (configured_mission == "package" and (mission_config or {}).get("mission_package") is None)
+        ):
+            _true_target(truth)  # Preserve rejection for target-required missions.
+        _validate_target_free_declarations(episode, rows, mission_config, skills, evidence)
+        result["target_scoring_applicable"] = False
+        # ``success`` retains its legacy identity-confirmation meaning. Mission
+        # completion, coverage, safety and supervisor expectations stay separate.
+        # A target-free plan has no legitimate identity to carry into returning.
+        # Do not let the legacy returning-state filter hide an unexpected claim.
+        unexpected_confirmation = any(
+            ((row.get("labels") or {}).get("onboard") or {}).get("confirmed")
+            for row in rows
+        )
+        result["confirmed"] = unexpected_confirmation
+        result["false_confirm"] = unexpected_confirmation
+        return result
     if confirmed_row is None:
         return result
     confirmed = confirmed_row["labels"]["onboard"]["confirmed"]

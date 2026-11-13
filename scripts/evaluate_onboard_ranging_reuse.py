@@ -28,6 +28,7 @@ from multidetect.multimodal_ranging import (  # noqa: E402
 )
 from multidetect.rgb_slam_range import RgbSlamRangeEstimator  # noqa: E402
 from multidetect.simulator.camera_projection import (  # noqa: E402
+    pixel_camera_ray,
     pixel_ground_point,
     project_target_bbox,
 )
@@ -113,15 +114,39 @@ def triangulation_quality(samples, point):
     baseline = max(baselines, default=0.0)
     angle = max(angles, default=0.0)
     residual = max(residuals, default=float("inf"))
+    from multidetect.autonomy.step_triangulation import triangulation_residual_gain
+
+    gain = triangulation_residual_gain(direction for _, direction in samples)
+    if gain is None:
+        return None
     sigma = max(
         0.5,
-        residual
+        residual * gain
         + 1.5 * math.dist(point, samples[-1][0]) * 0.002 / max(math.sin(math.radians(angle)), 0.05),
     )
     return baseline, angle, residual, front, sigma
 
 
 def ray(ob, u, v):
+    # New recordings carry the composed per-frame camera pose.  Use it for
+    # ranging; retain the historical multimodal calibration path for old
+    # fixed-camera episodes so their numbers remain byte-for-byte stable.
+    joint_state = ob.get("gimbal_joint_state")
+    has_recorded_gimbal = (
+        isinstance(ob.get("camera_pose"), dict)
+        or isinstance(ob.get("gimbal_state"), dict)
+        or (isinstance(joint_state, dict) and joint_state.get("source") not in {"fixed_mount", "unavailable"})
+    )
+    if has_recorded_gimbal:
+        result = pixel_camera_ray(
+            u,
+            v,
+            pose=ob,
+            camera_info=ob.get("camera_info"),
+            image_size=(int(ob["camera_info"]["width"]), int(ob["camera_info"]["height"])),
+        )
+        if result is not None:
+            return result[1]
     cal = load_camera_calibration(
         ROOT / "simulation/gazebo/calibration/gazebo-multirotor-front-camera-v1.json"
     )
@@ -363,9 +388,7 @@ def main(argv=None):
     depth_target_buckets = defaultdict(list)
     tri_cov = [[], []]
     depth_status = "not_loaded"
-    model_path = Path(
-        "D:/Projects/Multi-Detect/artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx"
-    )
+    model_path = ROOT / "artifacts/evaluation/depth-anything-v2-metric-outdoor-small.onnx"
     depth_sha = (
         hashlib.sha256(model_path.read_bytes()).hexdigest() if model_path.is_file() else None
     )

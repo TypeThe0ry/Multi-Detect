@@ -34,13 +34,22 @@ from typing import Any
 
 from multidetect.clock import Clock, HighResolutionSystemClock, SystemClock
 from multidetect.product_version import PRODUCT_VERSION
+from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_udpin_endpoint
 from multidetect.runtime import RuntimeMode
 from multidetect.simulation import load_runtime_scenario, load_scenario_manifest
 
 try:  # run as a script (scripts/ on sys.path) or imported as scripts.<module>
-    from run_simulator_docker import SIM_SENSOR_PARAMETERS, SIM_STARTUP_PATCHES
+    from run_simulator_docker import (
+        SIM_SENSOR_PARAMETERS,
+        SIM_STARTUP_PATCHES,
+        resolve_px4_daemon_mode,
+    )
 except ImportError:  # pragma: no cover - package-style import
-    from scripts.run_simulator_docker import SIM_SENSOR_PARAMETERS, SIM_STARTUP_PATCHES
+    from scripts.run_simulator_docker import (
+        SIM_SENSOR_PARAMETERS,
+        SIM_STARTUP_PATCHES,
+        resolve_px4_daemon_mode,
+    )
 
 try:
     from pymavlink import mavutil
@@ -77,17 +86,25 @@ class VtolAcceptanceError(RuntimeError):
 
 
 def _startup_command(mavlink_port: int) -> str:
-    return (
-        "set -eu; "
+    # Docker Desktop routes host.docker.internal to the host loopback.  On Linux,
+    # send to the exact address the host listens on; the PX4 image has no `ip`.
+    docker_host_ip = (
         'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal '
         "| awk '/STREAM/ {print $1; exit}')\"; "
-        'test -n "$DOCKER_HOST_IP"; '
+        if os.name == "nt"
+        else f'DOCKER_HOST_IP="{sim_listen_host(sim_docker_network())}"; '
+    )
+    return (
+        "set -eu; "
+        + docker_host_ip
+        + 'test -n "$DOCKER_HOST_IP"; '
         'sed -i "s/mavlink start -x -u \\$udp_gcs_port_local.*/'
         f"mavlink start -x -t $DOCKER_HOST_IP -u \\$udp_gcs_port_local -o {mavlink_port} "
         '-r 4000000 -f \\$mavlink_network_interface_arg/" '
         "/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; "
         + SIM_STARTUP_PATCHES
         + "exec /opt/px4-gazebo/bin/px4 -s etc/init.d-posix/rcS"
+        + (" -d" if resolve_px4_daemon_mode() else "")
     )
 
 
@@ -116,8 +133,12 @@ def _docker_run_command(
         container_name,
         "--label",
         "multidetect.purpose=vtol-sitl-scenario-acceptance",
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "--network",
+        sim_docker_network(),
         "--publish",
-        f"{mavlink_port}:{mavlink_port}/udp",
+        f"127.0.0.1:{mavlink_port}:{mavlink_port}/udp",
         "--mount",
         f"type=bind,source={model_root},target={CONTAINER_MODEL_ROOT},readonly",
         "--workdir",
@@ -221,6 +242,7 @@ def _assert_owned_container(
     expected_source = _normalized_host_path(model_root)
     runtime_mount = runtime_mounts[0] if len(runtime_mounts) == 1 else {}
     requested_mount = requested_mounts[0] if len(requested_mounts) == 1 else {}
+    selected_network = sim_docker_network()
     mount_whitelisted = (
         runtime_mount.get("Type") == "bind"
         and _normalized_host_path(runtime_mount.get("Source")) == expected_source
@@ -229,7 +251,10 @@ def _assert_owned_container(
         and _normalized_host_path(requested_mount.get("Source")) == expected_source
         and requested_mount.get("Target") == CONTAINER_MODEL_ROOT
     )
-    expected_binding = {f"{port}/udp": [{"HostIp": "", "HostPort": str(port)}]}
+    expected_bindings = (
+        {"HostIp": "127.0.0.1", "HostPort": str(port)},
+        {"HostIp": "", "HostPort": str(port)},
+    )
     checks = {
         "running": state.get("Running") is True,
         "pinned_image": config.get("Image") == image,
@@ -243,7 +268,8 @@ def _assert_owned_container(
             f"exact_px4_param_{name.lower()}": f"PX4_PARAM_{name}={value}" in env
             for name, value in SIM_SENSOR_PARAMETERS
         },
-        "bridge_network": host_config.get("NetworkMode") in {"default", "bridge"},
+        "bridge_network": host_config.get("NetworkMode")
+        in {selected_network, "default" if selected_network == "bridge" else selected_network},
         "not_privileged": host_config.get("Privileged") is not True,
         "model_root_mount_whitelisted": mount_whitelisted,
         "model_root_mount_readonly": (
@@ -252,7 +278,10 @@ def _assert_owned_container(
             and requested_mount.get("ReadOnly") is True
         ),
         "no_additional_mounts": len(runtime_mounts) == 1 and len(requested_mounts) == 1,
-        "exact_udp_binding": bindings == expected_binding,
+        "exact_udp_binding": bindings in (
+            {f"{port}/udp": [expected_bindings[0]]},
+            {f"{port}/udp": [expected_bindings[1]]},
+        ),
     }
     failed = tuple(name for name, passed in checks.items() if not passed)
     if failed:
@@ -848,7 +877,7 @@ def run_acceptance(
             model_root=model_root,
         )
         connection = mavutil.mavlink_connection(
-            f"udpin:0.0.0.0:{mavlink_port}",
+            sim_udpin_endpoint(mavlink_port),
             source_system=GCS_SOURCE_SYSTEM,
             source_component=GCS_SOURCE_COMPONENT,
             autoreconnect=False,
@@ -1026,7 +1055,7 @@ def run_acceptance(
                 "container_log": str(container_log),
             },
             "mavlink": {
-                "endpoint": f"udpin:0.0.0.0:{mavlink_port}",
+                "endpoint": sim_udpin_endpoint(mavlink_port),
                 "source_system": GCS_SOURCE_SYSTEM,
                 "source_component": GCS_SOURCE_COMPONENT,
                 "heartbeat": heartbeat,
@@ -1081,7 +1110,7 @@ def run_acceptance(
             "fault_timeline": fault_timeline,
             "phases": phase_events,
             "mavlink": {
-                "endpoint": f"udpin:0.0.0.0:{mavlink_port}",
+                "endpoint": sim_udpin_endpoint(mavlink_port),
                 "command_events": command_events,
                 "message_count": len(collector.messages) if collector is not None else 0,
             },

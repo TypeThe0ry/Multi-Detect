@@ -1,6 +1,7 @@
 """Run all SIM mission suites sequentially and merge their reports."""
 from __future__ import annotations
-import argparse, json, os, shutil, signal, subprocess, sys, time
+import argparse, json, os, re, shutil, signal, subprocess, sys, time
+from contextlib import nullcontext as _null_context
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,13 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
-DEFAULT_LOCK = Path(r"D:\Projects\mdwt\_scratch\sitl.lock")
+from scripts.sitl_lock import (
+    SitlLock,
+    available_memory_gb as _available_memory_gb,
+    default_lock_path,
+    sitl_lock_context,
+)
+DEFAULT_LOCK = default_lock_path()
 DEFAULT_SUITES = {
     "main": ROOT / "configs/onboard/suite-main.json",
     "airframes": ROOT / "configs/onboard/suite-airframes.json",
@@ -16,71 +23,44 @@ DEFAULT_SUITES = {
     "robustness": ROOT / "configs/onboard/suite-robustness.json",
     "e2e": ROOT / "configs/onboard/suite-e2e-operator.json",
 }
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+MODEL_SET_SUITES = {
+    "default": DEFAULT_SUITES,
+    "r21idr3-r24plan": {
+        "main": ROOT / "configs/onboard/suite-main-r21idr3-r24plan.json",
+        "airframes": ROOT / "configs/onboard/suite-airframes-r21idr3-r24plan.json",
+        "follow": ROOT / "configs/onboard/suite-follow-r21idr3-r24plan.json",
+        "robustness": ROOT / "configs/onboard/suite-robustness-r21idr3-r24plan.json",
+        "gimbal": ROOT / "configs/onboard/suite-gimbal-r21idr3-r24plan.json",
+    },
+}
+SIM_ENV_KEYS = (
+    "MULTIDETECT_SIM_GPU",
+    "MULTIDETECT_SIM_IMAGE",
+    "MULTIDETECT_SIM_GPU_DEVICES",
+    "MULTIDETECT_SIM_GPU_AVOID",
+    "MULTIDETECT_SIM_NETWORK",
+    "MULTIDETECT_SITL_LOCK",
+    "MULTIDETECT_SITL_SLOTS",
+)
+SIM_CONTROL_PORT = 14540
+SIM_TELEMETRY_PORT = 14541
+FAILURE_CATEGORIES = (
+    "offboard_timeout", "land_timeout", "disarm_rejected", "telemetry_stall",
+    "sensor_stream_eof", "preflight_health", "plan_refused", "other",
+)
 
 
 def pid_alive(pid: int) -> bool:
-    # Never os.kill(pid, 0) here: on Windows signal 0 is CTRL_C_EVENT, which
-    # interrupts the holder's console group instead of probing it.  The shell
-    # lock (sitl_lock.sh) records the holder's Windows PID, so psutil can see it.
-    if pid <= 0 or pid == os.getpid():
-        return pid == os.getpid()
+    """Compatibility probe used by older callers without sending a signal."""
+    if pid <= 0:
+        return False
     import psutil
 
     return psutil.pid_exists(pid)
 
 
-class SitlLock:
-    def __init__(self, path: Path = DEFAULT_LOCK, label: str = "nightly-regression", retry_s: int = 60, stale_s: int = 120):
-        self.path, self.label, self.retry_s, self.stale_s = Path(path), label, retry_s, stale_s
-        self.owner = self.path / "owner"
-        self.acquired = False
-        self.owner_text = ""
-
-    def acquire(self, wait: bool = True) -> None:
-        while True:
-            if self.owner.exists():
-                try:
-                    fields = self.owner.read_text(encoding="utf-8").split()
-                    pid = int(fields[1]) if len(fields) > 1 else -1
-                    age = time.time() - self.owner.stat().st_mtime
-                    if age > self.stale_s and not pid_alive(pid):
-                        shutil.rmtree(self.path, ignore_errors=True)
-                except (OSError, ValueError):
-                    pass
-            try:
-                self.path.mkdir(parents=False)
-            except FileExistsError:
-                if not wait:
-                    raise RuntimeError(f"SITL lock busy: {self.path}")
-                time.sleep(self.retry_s)
-                continue
-            self.owner_text = f"{self.label} {os.getpid()} {now_iso()}"
-            self.owner.write_text(self.owner_text + "\n", encoding="utf-8")
-            self.acquired = True
-            return
-
-    def release(self) -> None:
-        if not self.acquired:
-            return
-        try:
-            current = self.owner.read_text(encoding="utf-8").strip()
-            if current == self.owner_text:
-                self.owner.unlink(missing_ok=True)
-                self.path.rmdir()
-        except OSError:
-            pass
-        self.acquired = False
-
-    def __enter__(self):
-        self.acquire()
-        return self
-
-    def __exit__(self, *_):
-        self.release()
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def disk_free_gb(path: Path) -> float:
@@ -88,14 +68,7 @@ def disk_free_gb(path: Path) -> float:
 
 
 def available_memory_gb() -> float:
-    try:
-        import psutil
-        return psutil.virtual_memory().available / 1_000_000_000
-    except ImportError:
-        if os.name == "nt":
-            out = subprocess.check_output(["powershell", "-NoProfile", "-Command", "[int](Get-Counter '\\Memory\\Available MBytes').CounterSamples[0].CookedValue"], text=True)
-            return float(out.strip()) / 1024
-        return float(os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")) / 1_000_000_000
+    return _available_memory_gb()
 
 
 def preflight(min_free_disk_gb: float, root: Path = ROOT) -> None:
@@ -142,48 +115,338 @@ def load_suite_report(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def final_campaign_exception(log: Path) -> tuple[str | None, str, str | None]:
+    """Return the last traceback's exception and context, never a JSON event error."""
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return None, "", f"{type(exc).__name__}: {exc}"
+    traces = list(re.finditer(r"^Traceback \(most recent call last\):[ \t]*$", text, re.MULTILINE))
+    if not traces:
+        return None, "", None
+    # Unindented exception classes distinguish the terminal line from frames,
+    # source code, chained causes and the collector's JSON diagnostics.
+    context = text[traces[-1].end():]
+    match = re.search(
+        r"^(?:[\w]+\.)*[A-Z][\w]*(?::[^\r\n]*)?$", context, re.MULTILINE
+    )
+    if not match:
+        return None, context, None
+    message = [match.group()]
+    for line in context[match.end():].splitlines():
+        if not line.strip() and not message[1:]:
+            continue
+        if not line.strip() or line.startswith(("{", "Traceback ")):
+            break
+        message.append(line)
+    return "\n".join(message), context[:match.end()], None
+
+
+def failure_category(exception: str | None, context: str = "", *, row: dict[str, Any]) -> str:
+    """Prefer the final exception; only use structured plan evidence if absent."""
+    text = (exception or "").lower()
+    timeout = any(word in text for word in ("timeout", "timed out", "deadline"))
+    if "telemetry" in text and any(word in text for word in ("stall", "stale", "timeout", "timed out")):
+        return "telemetry_stall"
+    if "offboard" in text and timeout:
+        return "offboard_timeout"
+    if "disarm" in text and any(word in text for word in ("reject", "denied", "refused")):
+        return "disarm_rejected"
+    if re.search(r"\bland(?:ing)?\b|landing_timeout", text) and timeout and "disarm" not in text:
+        return "land_timeout"
+    sensor = any(word in text for word in ("sensor stream", "sensor_stream", "mdgz"))
+    eof = any(word in text for word in ("eof", "end of file", "ended unexpectedly", "broken pipe"))
+    if (sensor and eof) or (
+        any(word in text for word in ("brokenpipeerror", "eoferror"))
+        and "sim_teacher/streams.py" in context.replace("\\", "/")
+        and ("_fresh_sensor_snapshot" in context or "request_stream.write" in context)
+    ):
+        return "sensor_stream_eof"
+    if any(word in text for word in ("preflight", "pre-flight", "pre-arm health", "prearm health")):
+        return "preflight_health"
+    if "plan" in text and any(word in text for word in ("refus", "reject")):
+        return "plan_refused"
+    if not exception:
+        if row.get("planned_skills") == ["refuse"] or any(
+            step.get("reason") == "plan_refused" for step in (row.get("step_outcomes") or [])
+        ):
+            return "plan_refused"
+    return "other"
+
+
+def _episode_container_failure(suite_out: Path, row: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        episode_index = int(row["episode"]) - 1
+    except (KeyError, TypeError, ValueError):
+        return None
+    episode_root = suite_out / str(row.get("id", "")) / "campaign" / str(row.get("world", "")) / "episodes"
+    matches = []
+    for episode_path in episode_root.glob("episode-*/episode.json"):
+        try:
+            episode = json.loads(episode_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if episode.get("episode_index") != episode_index:
+            continue
+        diagnostics = episode.get("container_failure_diagnostics")
+        if isinstance(diagnostics, dict):
+            matches.append((float(episode.get("finished_wall_time") or 0), diagnostics))
+    return max(matches, key=lambda item: item[0])[1] if matches else None
+
+
+def mission_triage(report: dict[str, Any], suite_out: Path) -> list[dict[str, Any]]:
+    rows = []
+    logs = {}
+    for row in report.get("missions", []):
+        log = suite_out / row["id"] / "campaign" / f"{row['world']}.log"
+        if log not in logs:
+            logs[log] = final_campaign_exception(log)
+        exception, context, log_error = logs[log]
+        failed = [name for name, passed in row.get("expectation_checks", {}).items() if not passed]
+        complete = row.get("status") == "complete"
+        is_failure = not complete or bool(failed) or row.get("expectations_passed") is False
+        container_failure = _episode_container_failure(suite_out, row) if is_failure else None
+        rows.append({
+            "id": row["id"], "world": row["world"], "episode": row.get("episode"),
+            "complete": complete, "mission_completed": bool(row.get("mission_completed", False)),
+            "final_exception": exception, "failed_expectations": failed,
+            "failure_category": failure_category(exception, context, row=row) if is_failure else None,
+            "failure_class": (container_failure or {}).get("failure_class"),
+            "container_failure_diagnostics": container_failure,
+            "campaign_log": str(log), "log_error": log_error,
+        })
+    return rows
+
+
+def _markdown_cell(value: Any) -> str:
+    if value is None:
+        return "—"
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(
+        ">", "&gt;"
+    ).replace("|", "&#124;").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
+def write_nightly_report(merged: dict[str, Any], out: Path) -> None:
+    records = merged["suites"]
+    histogram = {category: 0 for category in FAILURE_CATEGORIES}
+    for record in records:
+        for row in record.get("missions", []):
+            if row["failure_category"] is not None:
+                histogram[row["failure_category"]] += 1
+    merged["failure_categories"] = histogram
+    lines = ["# SIM 夜间回归合并报告", "", f"生成时间：{merged['generated_at']}", "", "| 套件 | 起止 | 退出码 | 预期通过率 | 计划准确率 | 关键指标 |", "| --- | --- | ---: | ---: | ---: | --- |"]
+    for r in records:
+        s = r["summary"]
+        values = (r["name"], f"{r.get('started_at') or '—'} → {r.get('ended_at') or '—'}", r["exit_code"], s.get("expectation_pass_rate"), s.get("plan_accuracy"), json.dumps(r["metrics"], ensure_ascii=False))
+        lines.append("| " + " | ".join(_markdown_cell(value) for value in values) + " |")
+    lines += ["", "## 逐任务失败分诊", "",
+              "complete 表示采集状态为 complete；任务完成对应 mission_completed，安全中止可能为 no。",
+              "异常取该任务、该世界 campaign 日志中的最后一条 traceback；同一 campaign 的多架次共享此诊断，不代表逐架次异常定位。",
+              "分类仅统计采集不完整或预期未通过的记录；无失败为 —。日志缺失会显式标注，无法归类的失败为 other。容器字段来自 episode 失败时快照；旧记录没有快照时显示 —。", "",
+              "| 套件 | 任务 | 世界 | 架次 | complete | 任务完成 | 最终异常（类 + 消息） | 失败预期 | 失败分类 | 容器失败类 | 容器 | PX4 宿主 PID | PX4 存活（失败/清理） | ExitCode / OOMKilled / FinishedAt（失败/清理） | 失败时 load avg | GPU 显存 MiB（已用/总量） |",
+              "| --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for r in records:
+        for row in r.get("missions", []):
+            exception = row["final_exception"]
+            if row["log_error"]:
+                exception = f"日志不可读：{row['log_error']}"
+            diagnostics = row.get("container_failure_diagnostics") or {}
+            failure_state = diagnostics.get("failure_state") or {}
+            container_state = failure_state.get("state") or {}
+            cleanup_state_snapshot = diagnostics.get("cleanup_state") or {}
+            cleanup_state = cleanup_state_snapshot.get("state") or {}
+            container = diagnostics.get("container_name")
+            if diagnostics.get("container_id"):
+                container = f"{container or '—'} ({diagnostics['container_id']})"
+            px4_pids = failure_state.get("px4_host_pids")
+            px4_pid_text = ", ".join(str(pid) for pid in px4_pids) if px4_pids else None
+            def state_summary(label: str, state: dict[str, Any]) -> str | None:
+                if not state:
+                    return None
+                return (
+                    f"{label}: ExitCode={state.get('exit_code')}; "
+                    f"OOMKilled={state.get('oom_killed')}; "
+                    f"FinishedAt={state.get('finished_at')}"
+                )
+
+            state_summaries = [
+                summary
+                for summary in (
+                    state_summary("failure", container_state),
+                    state_summary("cleanup", cleanup_state),
+                )
+                if summary
+            ]
+            state_text = " | ".join(state_summaries) or None
+            px4_states = []
+            if "px4_process_alive" in failure_state:
+                px4_states.append(f"failure={failure_state['px4_process_alive']}")
+            if "px4_process_alive" in cleanup_state_snapshot:
+                px4_states.append(f"cleanup={cleanup_state_snapshot['px4_process_alive']}")
+            px4_text = "; ".join(px4_states) or None
+            load = failure_state.get("host_load_average")
+            gpu_memory = failure_state.get("gpu_memory_mib")
+            gpu_summary = None
+            if isinstance(gpu_memory, list):
+                gpu_summary = ", ".join(
+                    f"GPU{gpu.get('index')}: {gpu.get('used_mib')}/{gpu.get('total_mib')}"
+                    for gpu in gpu_memory
+                    if isinstance(gpu, dict)
+                ) or None
+            values = (r["name"], row["id"], row["world"], row["episode"],
+                      "yes" if row["complete"] else "no", "yes" if row["mission_completed"] else "no",
+                      exception, ", ".join(row["failed_expectations"]) or None, row["failure_category"],
+                      row.get("failure_class"), container, px4_pid_text, px4_text, state_text, load, gpu_summary)
+            lines.append("| " + " | ".join(_markdown_cell(value) for value in values) + " |")
+    lines += ["", "## 失败分类直方图", "", "按失败记录计数（每任务 × 架次一条）；成功记录不计入。", "",
+              "| 分类 | 数量 |", "| --- | ---: |"]
+    lines += [f"| {category} | {count} |" for category, count in histogram.items()]
+    lines += ["", "## 回退", ""]
+    lines += [f"- {x['suite']} {x['metric']}: {x['previous']} → {x['current']} (Δ{x['delta']})" for x in merged["regressions"]] or ["- 未发现回退。"]
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "nightly-report.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (out / "nightly-report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--suites", nargs="+", default=list(DEFAULT_SUITES), choices=list(DEFAULT_SUITES))
+    p.add_argument("--model-set", choices=list(MODEL_SET_SUITES), default=os.environ.get("MULTIDETECT_MODEL_SET", "default"))
+    p.add_argument("--suites", nargs="+", default=None)
+    p.add_argument(
+        "--custom-suite", action="append", default=[], metavar="NAME=PATH",
+        help="add a suite JSON path to this run (may be repeated)",
+    )
     p.add_argument("--episodes", type=int, default=1)
+    p.add_argument("--workers", type=int, default=1)
     p.add_argument("--suite-episodes", action="append", default=[], metavar="NAME=N")
     p.add_argument("--fire-hydrant-episodes", type=int, default=None)
     p.add_argument("--out", type=Path, default=None)
+    p.add_argument("--report-only", type=Path, nargs="+", metavar="SUITE_DIR",
+                   help="read existing suite outputs without running collectors; requires a separate --out")
     p.add_argument("--previous-report", type=Path, default=None)
     p.add_argument("--lock-path", type=Path, default=DEFAULT_LOCK)
     p.add_argument("--min-free-disk-gb", type=float, default=0.0)
     p.add_argument("--disk-check-every", type=int, default=1)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--gpu-render", action=argparse.BooleanOptionalAction, default=None)
+    p.add_argument("--sim-image", default=None, metavar="IMAGE")
+    p.add_argument(
+        "--keep-px4-ulog",
+        action="store_true",
+        help="copy PX4 .ulg flight logs into each collector job before cleanup",
+    )
     args = p.parse_args(argv)
+    if args.report_only:
+        if args.out is None:
+            p.error("--report-only requires --out outside the input suite directories")
+        sources = [source.resolve() for source in args.report_only]
+        out = args.out.resolve()
+        if any(out == source or source in out.parents for source in sources):
+            p.error("--out must be outside the input suite directories")
+        if len({source.name for source in sources}) != len(sources):
+            p.error("--report-only suite directory names must be unique")
+        records = []
+        for source in sources:
+            report_path = source / "suite-report.json"
+            report = load_suite_report(report_path)
+            records.append({"name": source.name, "started_at": None, "ended_at": None,
+                            "exit_code": None, "error": None, "summary": report.get("summary", {}),
+                            "metrics": _metric_summary(report.get("missions", [])),
+                            "missions": mission_triage(report, source), "report": str(report_path)})
+        merged = {"generated_at": now_iso(), "suites": records,
+                  "provenance": build_provenance(root=ROOT, command=sys.argv)}
+        previous = load_suite_report(args.previous_report) if args.previous_report else None
+        merged["regressions"] = compare_reports(merged, previous)
+        write_nightly_report(merged, out)
+        return 0
+    if args.model_set not in MODEL_SET_SUITES:
+        p.error(f"unknown --model-set: {args.model_set}")
+    suite_paths = dict(MODEL_SET_SUITES[args.model_set])
+    for item in args.custom_suite:
+        name, sep, raw_path = item.partition("=")
+        if not sep or not re.fullmatch(r"[A-Za-z0-9_-]+", name) or not raw_path:
+            p.error(f"invalid --custom-suite: {item}; expected NAME=PATH")
+        if name in suite_paths:
+            p.error(f"custom suite name already exists: {name}")
+        config = Path(raw_path).expanduser().resolve()
+        if not config.is_file():
+            p.error(f"custom suite config does not exist: {config}")
+        suite_paths[name] = config
+    suites = [name for name in suite_paths if name != "gimbal"] if args.suites is None else args.suites
+    unknown_suites = sorted(set(suites) - set(suite_paths))
+    if unknown_suites:
+        p.error(f"unknown suites for model set {args.model_set}: {', '.join(unknown_suites)}")
     if args.episodes < 1: p.error("--episodes must be positive")
-    counts = {name: args.episodes for name in args.suites}
+    if args.workers < 1: p.error("--workers must be positive")
+    try:
+        slot_count = int(os.environ.get("MULTIDETECT_SITL_SLOTS", "1"))
+    except ValueError:
+        p.error("MULTIDETECT_SITL_SLOTS must be a positive integer")
+    if slot_count < 1 or args.workers > slot_count:
+        p.error(f"--workers must be between 1 and MULTIDETECT_SITL_SLOTS ({slot_count})")
+    counts = {name: args.episodes for name in suites}
     for item in args.suite_episodes:
         name, sep, value = item.partition("=")
         if name not in counts or not sep or int(value) < 1: p.error(f"invalid --suite-episodes: {item}")
         counts[name] = int(value)
-    if args.fire_hydrant_episodes is not None: counts["robustness"] = args.fire_hydrant_episodes
+    if args.fire_hydrant_episodes is not None:
+        if "robustness" not in counts:
+            p.error("--fire-hydrant-episodes requires the robustness suite")
+        counts["robustness"] = args.fire_hydrant_episodes
+    child_env = os.environ.copy()
+    if args.gpu_render is not None:
+        child_env["MULTIDETECT_SIM_GPU"] = "1" if args.gpu_render else "0"
+    if args.sim_image is not None:
+        child_env["MULTIDETECT_SIM_IMAGE"] = args.sim_image
+    lock_path = args.lock_path.expanduser().resolve()
+    child_env["MULTIDETECT_SITL_LOCK"] = str(lock_path)
+    # Nightly work is latency-sensitive and should move ahead of background
+    # r15 collection at the shared fair lock queue.
+    child_env["MULTIDETECT_SITL_PRIORITY"] = os.environ.get("MULTIDETECT_SITL_NIGHTLY_PRIORITY", "100")
+    forwarded_sim_env = {key: child_env[key] for key in SIM_ENV_KEYS if key in child_env}
     out = (args.out or (ROOT.parent / "_scratch" / "cx-nightly" / ("nightly-" + datetime.now().strftime("%Y%m%d-%H%M%S")))).resolve()
     out.mkdir(parents=True, exist_ok=True)
     previous_path = args.previous_report or (out.parent / "nightly-report.json")
     plans = []
-    for name in args.suites:
-        config = DEFAULT_SUITES[name]
+    for name in suites:
+        config = suite_paths[name]
         if name == "e2e" and not (config.exists() and (ROOT / "scripts/run_e2e_operator_suite.py").exists()):
             continue
         suite_out = out / name
         cmd = [sys.executable, str(ROOT / "scripts/run_mission_suite.py"), "--suite", str(config), "--out", str(suite_out), "--episodes", str(counts[name]), "--min-free-disk-gb", str(args.min_free_disk_gb), "--disk-check-every", str(args.disk_check_every)]
+        if args.keep_px4_ulog:
+            cmd.append("--keep-px4-ulog")
+        if args.workers > 1:
+            cmd += ["--workers", str(args.workers)]
         if name == "e2e": cmd = [sys.executable, str(ROOT / "scripts/run_e2e_operator_suite.py"), "--suite", str(config), "--out", str(suite_out), "--episodes", str(counts[name])]
+        # Reusing a campaign output must collect any episode left without a
+        # final status after an interrupted process. Completed episodes remain
+        # reusable inside the campaign runner.
+        if name != "e2e":
+            cmd.append("--retry-failed-episodes")
         plans.append((name, cmd, suite_out))
     if args.dry_run:
+        print(json.dumps({
+            "model_set": args.model_set,
+            "lock_path": str(lock_path),
+            "sim_control_port": SIM_CONTROL_PORT,
+            "sim_telemetry_port": SIM_TELEMETRY_PORT,
+            "sim_environment": forwarded_sim_env,
+        }, ensure_ascii=False))
         for name, cmd, _ in plans: print(json.dumps({"suite": name, "episodes": counts[name], "command": cmd}, ensure_ascii=False))
         return 0
     records = []
-    with SitlLock(args.lock_path):
+    # Mission workers acquire their own slot locks. The parent only coordinates
+    # suites and writes the aggregate nightly report.
+    with _null_context():
         for name, cmd, suite_out in plans:
             started = now_iso(); code = 0; error = None
             try:
                 preflight(args.min_free_disk_gb); suite_out.mkdir(parents=True, exist_ok=True)
-                completed = runner(cmd, cwd=ROOT, check=False)
+                run_env = dict(child_env)
+                if name == "e2e":
+                    run_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
+                completed = runner(cmd, cwd=ROOT, check=False, env=run_env)
                 code = completed if isinstance(completed, int) else getattr(completed, "returncode", 0)
             except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
                 code = getattr(exc, "returncode", 1) or 1; error = str(exc)
@@ -193,18 +456,12 @@ def run(argv: list[str] | None = None, runner=subprocess.run) -> int:
             report = {}
             rp = suite_out / "suite-report.json"
             if rp.exists(): report = load_suite_report(rp)
-            records.append({"name": name, "started_at": started, "ended_at": now_iso(), "exit_code": code, "error": error, "summary": report.get("summary", {}), "metrics": _metric_summary(report.get("missions", [])), "report": str(rp)})
+            records.append({"name": name, "started_at": started, "ended_at": now_iso(), "exit_code": code, "error": error, "summary": report.get("summary", {}), "metrics": _metric_summary(report.get("missions", [])), "missions": mission_triage(report, suite_out), "report": str(rp)})
     merged = {"generated_at": now_iso(), "suites": records,
-              "provenance": build_provenance(root=ROOT, config_paths=[DEFAULT_SUITES[n] for n in args.suites if DEFAULT_SUITES[n].is_file()], command=sys.argv)}
+              "provenance": build_provenance(root=ROOT, config_paths=[suite_paths[n] for n in suites if suite_paths[n].is_file()], command=sys.argv)}
     previous = load_suite_report(previous_path) if previous_path.exists() else None
     merged["regressions"] = compare_reports(merged, previous)
-    (out / "nightly-report.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    lines = ["# SIM 夜间回归合并报告", "", f"生成时间：{merged['generated_at']}", "", "| 套件 | 起止 | 退出码 | 预期通过率 | 计划准确率 | 关键指标 |", "| --- | --- | ---: | ---: | ---: | --- |"]
-    for r in records:
-        s=r["summary"]; lines.append(f"| {r['name']} | {r['started_at']} → {r['ended_at']} | {r['exit_code']} | {s.get('expectation_pass_rate','—')} | {s.get('plan_accuracy','—')} | {json.dumps(r['metrics'],ensure_ascii=False)} |")
-    lines += ["", "## 回退", ""]
-    lines += [f"- {x['suite']} {x['metric']}: {x['previous']} → {x['current']} (Δ{x['delta']})" for x in merged["regressions"]] or ["- 未发现回退。"]
-    (out / "nightly-report.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
+    write_nightly_report(merged, out)
     return int(any(r["exit_code"] for r in records))
 
 if __name__ == "__main__": raise SystemExit(run())

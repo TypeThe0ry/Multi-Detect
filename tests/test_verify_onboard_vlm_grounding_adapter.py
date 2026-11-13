@@ -57,8 +57,9 @@ def tiny_adapter():
 
 @pytest.fixture
 def adapter_state():
-    import peft
-    import torch
+    peft = pytest.importorskip("peft", reason="CPU LoRA fixture requires optional peft")
+    torch = pytest.importorskip("torch", reason="CPU LoRA fixture requires optional torch")
+    pytest.importorskip("transformers", reason="CPU LoRA fixture requires optional transformers")
 
     model = tiny_adapter()
     with torch.no_grad():
@@ -271,7 +272,8 @@ def test_locate_rejects_duplicate_identity():
         verification.locate([record, record], "a" * 64, "report.json")
 
 
-def test_existing_output_refused_before_any_input_read_or_model_load(tmp_path):
+def test_existing_output_refused_before_any_input_read_or_model_load(tmp_path, monkeypatch):
+    monkeypatch.setattr(verification.probe, "require_d_storage", lambda path: path.resolve())
     output = tmp_path / "preserved"
     output.mkdir()
     original = output / "evidence.json"
@@ -311,7 +313,9 @@ def test_adapter_config_identity_unchanged_and_no_visual_target_repair():
 
 
 def test_actual_saved_checkpoint_reconstructs_original_trained_digest_without_gpu():
-    from safetensors.torch import load_file
+    load_file = pytest.importorskip(
+        "safetensors.torch", reason="saved checkpoint check requires optional safetensors and torch"
+    ).load_file
 
     directory = (
         Path(verification.__file__).parents[1]

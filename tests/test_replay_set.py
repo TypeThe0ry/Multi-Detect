@@ -762,6 +762,7 @@ def test_replay_annotation_workspace_cli_create_inspect_finalize_verify(tmp_path
     assert json.loads(verified.stdout)["annotations_reviewed"] is True
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_replay_annotation_workbench_serves_verified_images_and_tokenized_mutations(
     tmp_path: Path,
 ) -> None:

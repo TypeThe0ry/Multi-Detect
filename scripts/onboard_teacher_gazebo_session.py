@@ -23,7 +23,7 @@ import socket
 import subprocess
 import sys
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -34,6 +34,13 @@ PURPOSE_LABEL = "multidetect.teacher-session-purpose"
 PURPOSE = "truth-free-teacher-observation"
 MAX_CAPTURE_BYTES = 128 * 1024 * 1024
 _ID = re.compile(r"[0-9a-f]{64}")
+
+
+
+def _sim_udpin_endpoint(port: int) -> str:
+    from multidetect.sim_network import sim_udpin_endpoint
+
+    return sim_udpin_endpoint(port)
 
 
 class TeacherSessionError(RuntimeError):
@@ -74,12 +81,28 @@ class TeacherSessionPlan:
     height: int = 960
 
     def __post_init__(self):
-        from scripts.run_simulator_docker import PINNED_IMAGE, DockerSimulatorPlan
+        from scripts.run_simulator_docker import DockerSimulatorPlan
+        from multidetect.simulator.px4_image import DEFAULT_GPU_IMAGE, PINNED_IMAGE
 
         if not isinstance(self.docker_plan, DockerSimulatorPlan):
             raise TypeError("Repository DockerSimulatorPlan required")
-        if self.docker_plan.image != PINNED_IMAGE:
-            raise ValueError("Exact repository pinned image required")
+        qualified_image = self.docker_plan.image == PINNED_IMAGE or (
+            self.docker_plan.gpu_render and self.docker_plan.image == DEFAULT_GPU_IMAGE
+        )
+        if not qualified_image and self.docker_plan.gpu_render:
+            receipt = self.docker_plan.runtime_image_verification
+            if (
+                isinstance(receipt, dict)
+                and receipt.get("status") == "content_verified"
+                and receipt.get("image_id") == self.docker_plan.image
+                and self.docker_plan.requested_image == DEFAULT_GPU_IMAGE
+            ):
+                # A caller-provided receipt alone cannot loosen the whitelist.
+                from multidetect.simulator.runtime_image import verify_gpu_runtime_image
+                verify_gpu_runtime_image(self.docker_plan.image)
+                qualified_image = True
+        if not qualified_image:
+            raise ValueError("Exact repository source image or qualified GPU runtime required")
         if self.docker_plan.airframe_profile_id != "px4_multirotor_gazebo_v1":
             raise ValueError("Teacher observation seam is multirotor-only")
         for port in (self.docker_plan.host_control_port, self.docker_plan.host_telemetry_port):
@@ -210,7 +233,7 @@ def _camera_backend(plan, container_id, clock):
                 "stack_plan_sha256": docker.stack_plan_sha256,
             }
         ),
-        container_image_sha256=docker.image.rsplit("@sha256:", 1)[-1],
+        container_image_sha256=docker.image.rsplit("sha256:", 1)[-1],
         stream_script_sha256=capture._sha256(docker.scripts_root / "gazebo_sensor_stream.py"),
         model_assets_sha256=assets["assets_sha256"],
         terrain_dem=capture.load_local_dem_grid(docker.dem_path),
@@ -413,7 +436,7 @@ class OwnedTeacherGazeboSession:
             **self.report,
             "clock": self.clock.identity(),
             "control_endpoint": self.control_endpoint,
-            "telemetry_endpoint": f"udpin:127.0.0.1:{self.plan.docker_plan.host_telemetry_port}",
+            "telemetry_endpoint": _sim_udpin_endpoint(self.plan.docker_plan.host_telemetry_port),
             "flight_authority": False,
         }
 
@@ -495,6 +518,11 @@ class OwnedTeacherGazeboSession:
             from scripts.run_simulator_docker_acceptance import _validate_owned_container
 
             docker = self.plan.docker_plan
+            from scripts.run_simulator_docker import freeze_runtime_plan
+            frozen = freeze_runtime_plan(docker, runner=lambda argv, **kwargs: self._run(argv[1:]))
+            if frozen is not docker:
+                self.plan = replace(self.plan, docker_plan=frozen)
+                docker = frozen
             if self._inspect(docker.container_name) is not None:
                 raise TeacherSessionError("Pre-existing container not owned; not touched")
             image = self._run(["image", "inspect", docker.image])
@@ -511,7 +539,7 @@ class OwnedTeacherGazeboSession:
                 },
             )
             self.connection = self._connect(
-                f"udpin:127.0.0.1:{docker.host_telemetry_port}",
+                _sim_udpin_endpoint(docker.host_telemetry_port),
                 source_system=250,
                 source_component=191,
                 autoreconnect=False,

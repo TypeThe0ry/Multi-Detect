@@ -25,8 +25,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
-SCRATCH = Path(os.environ.get("MULTIDETECT_E2E_SCRATCH", r"D:\Projects\mdwt\_scratch\cx-e2e-multi"))
-LOCK_DIR = Path(os.environ.get("MULTIDETECT_SITL_LOCK", r"D:\Projects\mdwt\_scratch\sitl.lock"))
+from multidetect.host_paths import host_path
+from scripts.sitl_lock import sitl_lock_context
+SCRATCH = host_path("MULTIDETECT_E2E_SCRATCH", r"D:\Projects\mdwt\_scratch\cx-e2e-multi", ROOT / ".tmp/cx-e2e-multi")
+LOCK_DIR = host_path("MULTIDETECT_SITL_LOCK", r"D:\Projects\mdwt\_scratch\sitl.lock", ROOT / ".tmp/sitl.lock")
 
 
 def _json(path: Path) -> Any:
@@ -251,11 +253,15 @@ def run_suite(
         print(render_dry_run(cases, output_root))
         return 0
     output_root.mkdir(parents=True, exist_ok=True)
-    results: list[dict[str, Any]] = []
     lock = SitlLock(owner=f"e2e-suite {os.getpid()}")
-    try:
-        lock.acquire(lock_timeout)
-        for case in cases:
+    with sitl_lock_context(lock, lock_timeout):
+        return _run_suite_locked(cases, output_root, suite_path)
+
+
+def _run_suite_locked(cases: list[dict[str, Any]], output_root: Path, suite_path: Path) -> int:
+    """Run cases while ``sitl_lock_context`` owns or inherits the SITL lock."""
+    results: list[dict[str, Any]] = []
+    for case in cases:
             case_root = output_root / str(case["id"])
             run_dir = case_root
             if run_dir.exists():
@@ -326,8 +332,6 @@ def run_suite(
                     "checks": checks,
                 }
             )
-    finally:
-        lock.release()
     provenance = build_provenance(root=ROOT, command=sys.argv)
     (output_root / "suite-results.json").write_text(
         json.dumps({"results": results, "provenance": provenance}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

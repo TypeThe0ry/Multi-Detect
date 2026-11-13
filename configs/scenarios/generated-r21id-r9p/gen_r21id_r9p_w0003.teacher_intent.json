@@ -1,0 +1,97 @@
+{
+  "confuser_observation": {
+    "camera_altitude_m": 12.0,
+    "camera_pitch_rad": -0.411516846067488,
+    "confuser_projected_short_edge_px": 12.33,
+    "confuser_slant_distance_m": 30.0,
+    "max_detection_range_m": 35.0,
+    "observation_frames": 8,
+    "observation_waypoint": {
+      "x_east_m": 29.44,
+      "y_north_m": 0.0,
+      "z_up_m": 0.0
+    },
+    "standoff_m": 12.0,
+    "views": [
+      {
+        "observation_waypoint": {
+          "x_east_m": 29.44,
+          "y_north_m": 0.0,
+          "z_up_m": 0.0
+        },
+        "view": "front"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 30.983,
+          "y_north_m": 9.083,
+          "z_up_m": 0.0
+        },
+        "view": "oblique"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 30.983,
+          "y_north_m": -9.083,
+          "z_up_m": 0.0
+        },
+        "view": "edge_truncated"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 29.874,
+          "y_north_m": 4.871,
+          "z_up_m": 0.0
+        },
+        "view": "recovery"
+      }
+    ],
+    "visible_face": "broad_front"
+  },
+  "kind": "find_and_observe",
+  "observation": {
+    "camera_altitude_m": 24.0,
+    "camera_pitch_rad": -0.4221417063622861,
+    "max_detection_range_m": 63.577,
+    "observation_frames": 8,
+    "observation_waypoint": {
+      "x_east_m": 0.0,
+      "y_north_m": 0.0,
+      "z_up_m": 0.0
+    },
+    "views": [
+      {
+        "observation_waypoint": {
+          "x_east_m": 106.87,
+          "y_north_m": -0.0,
+          "z_up_m": 0.0
+        },
+        "view": "front"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 97.206,
+          "y_north_m": -30.649,
+          "z_up_m": 0.0
+        },
+        "view": "oblique"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 53.435,
+          "y_north_m": -53.435,
+          "z_up_m": 0.0
+        },
+        "view": "edge_truncated"
+      },
+      {
+        "observation_waypoint": {
+          "x_east_m": 9.664,
+          "y_north_m": -30.649,
+          "z_up_m": 0.0
+        },
+        "view": "recovery"
+      }
+    ]
+  }
+}

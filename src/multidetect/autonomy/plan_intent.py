@@ -22,6 +22,9 @@ measured false-block rates):
     table) appears in the text, or the query's object word has a known Chinese
     name that appears in the text.  A query whose words are all outside the
     tables is *undecided* and passes, so an unknown object never blocks a plan.
+    A validated mission-package preset may authorize its own non-placeholder
+    query for the same skill; free-text and model-authored plans still require
+    task grounding.
     ``patrol``/``monitor`` must carry a query even when the task names no
     object, so for them the same finding is only a warning when the task does
     ask to patrol/watch (and blocks when the whole step is invented).
@@ -311,29 +314,123 @@ def _object_words(query: str) -> list[str]:
     ]
 
 
+_QUERY_NEGATION_EN = re.compile(
+    r"\b(?:do\s+not|don't|dont|never|not\s+(?:a|an|the|invent))\b"
+    r"(?:\s+[\w'-]+){0,3}\s*$",
+    re.I,
+)
+_QUERY_NEGATION_ZH = re.compile(r"(?:不要|别|勿|禁止|不是|无需|无须|不准|拒绝)")
+# A Chinese negation only scopes over a short verb phrase ("不要凭空检查救护车");
+# one earlier in a long clause ("不要停留直接找红车") must not negate the target.
+_ZH_NEGATION_WINDOW = 8
+
+
+def _prefix_negated(clause: str, position: int) -> bool:
+    """Whether an explicit negation occurs shortly before this particular mention."""
+    prefix = clause[:position]
+    return bool(
+        _QUERY_NEGATION_EN.search(prefix)
+        or _QUERY_NEGATION_ZH.search(prefix[-_ZH_NEGATION_WINDOW:])
+    )
+
+
+def _query_phrase_negation(query: str, task_text: str) -> tuple[bool, bool]:
+    """Return (affirmed occurrence, negated occurrence) for the query phrase."""
+    phrase = str(query or "").strip().lower()
+    if not phrase:
+        return False, False
+    affirmed = negated = False
+    for clause in _clauses(task_text):
+        position = clause.lower().find(phrase)
+        if position >= 0:
+            if _prefix_negated(clause, position):
+                negated = True
+            else:
+                affirmed = True
+    return affirmed, negated
+
+
+def _term_grounded(term: str, task_text: str, *, chinese_names: Sequence[str] = ()) -> bool:
+    """Whether a term has an occurrence outside an explicit negation clause."""
+    for clause in _clauses(task_text):
+        lowered = clause.lower()
+        target_stem = _stem(term)
+        for match in re.finditer(r"[a-z][a-z0-9'-]*", lowered):
+            if _stem(match.group(0)) == target_stem and not _prefix_negated(clause, match.start()):
+                return True
+        for name in chinese_names:
+            position = clause.find(name)
+            if position >= 0 and not _prefix_negated(clause, position):
+                return True
+    return False
+
+
+_COLOUR_ZH: dict[str, tuple[str, ...]] = {
+    "red": ("红", "赤"), "blue": ("蓝",), "white": ("白",),
+    "black": ("黑",), "orange": ("橙", "桔"), "yellow": ("黄",),
+    "green": ("绿",), "purple": ("紫",), "brown": ("棕", "褐"),
+}
+
+
+def _negated_coloured_query(query: str, task_text: str) -> bool:
+    words = _words(query)
+    colours = [word for word in words if word in _COLOUR_ZH]
+    objects = [word for word in _object_words(query)]
+    if not colours or not objects:
+        return False
+    for clause in _clauses(task_text):
+        for colour in colours:
+            colour_position = next(
+                (clause.find(name) for name in _COLOUR_ZH[colour] if name in clause), -1
+            )
+            if colour_position < 0:
+                continue
+            for obj in objects:
+                names = ZH_NAMES.get(obj, ())
+                position = next(
+                    (
+                        clause.find(name, colour_position + 1)
+                        for name in names
+                        if clause.find(name, colour_position + 1) >= 0
+                    ),
+                    -1,
+                )
+                if position >= 0 and _prefix_negated(clause, position):
+                    return True
+    return False
+
+
 def query_grounding(query: str, task_text: str) -> str:
     """``grounded``, ``ungrounded`` or ``undecided`` for a plan query against the task."""
     query = str(query or "").strip()
     lowered = query.lower()
     if not query:
         return "ungrounded"
-    if lowered in task_text.lower():
-        return "grounded"
     if lowered in PLACEHOLDER_QUERIES:
         return "ungrounded"
+    phrase_affirmed, phrase_negated = _query_phrase_negation(query, task_text)
+    if phrase_negated and not phrase_affirmed:
+        return "ungrounded"
+    if _negated_coloured_query(query, task_text):
+        return "ungrounded"
+    if lowered in task_text.lower():
+        return "grounded"
     words = _object_words(query)
     if not words:
         return "undecided"
-    text_stems = {_stem(w) for w in _words(task_text)}
     for word in words:
-        if word in text_stems or any(_stem(s) in text_stems for s in EN_SYNONYMS.get(word, ())):
+        synonyms = (word, *EN_SYNONYMS.get(word, ()))
+        if any(
+            _term_grounded(_stem(candidate), task_text)
+            for candidate in synonyms
+        ):
             return "grounded"
     known_zh = False
     for word in words:
         names = ZH_NAMES.get(word)
         if names:
             known_zh = True
-            if any(name in task_text for name in names):
+            if _term_grounded(word, task_text, chinese_names=names):
                 return "grounded"
     if not _CJK.search(task_text):
         # An English task is judged on its own words (with the synonym table).
@@ -502,6 +599,17 @@ def _steps(plan: Any) -> list[Any]:
     return [s for s in steps or () if isinstance(s, Mapping) or hasattr(s, "skill")]
 
 
+def _declared_queries(plan: Any) -> set[tuple[str, str]]:
+    """Return non-placeholder queries declared by a trusted preset plan."""
+    declared: set[tuple[str, str]] = set()
+    for step in reachable_steps(plan):
+        skill = str(_get(step, "skill") or "")
+        query = str((_get(step, "params") or {}).get("query") or "").strip().lower()
+        if skill and query and query not in PLACEHOLDER_QUERIES:
+            declared.add((skill, query))
+    return declared
+
+
 def reachable_steps(plan: Any) -> list[Any]:
     """Steps reachable from the first step over on_success/on_fail, in plan order."""
     steps = _steps(plan)
@@ -523,15 +631,23 @@ def reachable_steps(plan: Any) -> list[Any]:
 
 
 def check_plan_intent(
-    plan: Any, task_text: str, refs: Iterable[str] | Mapping[str, Any] | None = None
+    plan: Any,
+    task_text: str,
+    refs: Iterable[str] | Mapping[str, Any] | None = None,
+    *,
+    declared_plan: Any | None = None,
 ) -> list[IntentFinding]:
     """Findings where ``plan`` (MissionPlan or plan document) contradicts the task text.
 
     ``refs`` are the known places offered to the planner (optionally labelled,
     ``"poi:gate (大门 / the gate)"``); without them the place rule is skipped.
+    ``declared_plan`` is an optional trusted mission-package preset. Its exact
+    non-placeholder query is accepted for the same skill because the package
+    declares the object independently of a generic regression sentence.
     """
     findings: list[IntentFinding] = []
     reachable = reachable_steps(plan)
+    declared_queries = _declared_queries(declared_plan)
     labels = parse_ref_labels(refs)
     if labels:
         conflicts = _alias_conflicts(labels)
@@ -541,7 +657,8 @@ def check_plan_intent(
                     IntentFinding(
                         "place_alias_conflict",
                         "",
-                        f"place alias '{term}' is shared by {', '.join(sorted(owners))}; alias disabled",
+                        f"place alias '{term}' is shared by {', '.join(sorted(owners))}; "
+                        "alias disabled",
                         blocking=False,
                     )
                 )
@@ -595,7 +712,12 @@ def check_plan_intent(
         query = (_get(step, "params") or {}).get("query")
         if skill == "record" and str(query).strip().lower() in VIEW_QUERIES:
             continue
-        if query is None or query_grounding(str(query), task_text) != "ungrounded":
+        if query is None:
+            continue
+        query_text = str(query).strip().lower()
+        if query_grounding(query_text, task_text) != "ungrounded":
+            continue
+        if (str(skill), query_text) in declared_queries:
             continue
         findings.append(
             IntentFinding(

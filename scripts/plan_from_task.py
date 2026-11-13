@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy.mission_plan import MissionPlan  # noqa: E402
+from multidetect.host_paths import executable_name  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
     PLAN_PROMPT_VARIANTS,
     compile_mission_plan,
@@ -34,8 +35,9 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 from multidetect.autonomy.plan_intent import check_plan_intent  # noqa: E402
 from multidetect.autonomy.capability_contract import capability_violations  # noqa: E402
 from multidetect.autonomy.mission_package import MissionPackage  # noqa: E402
-from multidetect.autonomy.mission_plan import validate_mission_plan  # noqa: E402
+from multidetect.autonomy.mission_plan import validate_mission_plan, validate_plan_decision  # noqa: E402
 from multidetect.autonomy.plan_validation import validate_plan_for_execution  # noqa: E402
+from multidetect.autonomy.plan_pregate import preflight_plan_task  # noqa: E402
 
 GGUF_DIR = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
@@ -57,16 +59,31 @@ def success_path(plan: MissionPlan) -> list[str]:
 def compile_task(
     post, task: str, refs: tuple[str, ...], schema: dict[str, Any],
     *, prompt_variant: str = "default", capabilities: frozenset[str] = frozenset(),
-    airframe: str | None = None,
+    airframe: str | None = None, decision_contract: bool = False,
+    plan_pregate: bool = False,
 ):
+    if plan_pregate:
+        decision = preflight_plan_task(task, refs, capabilities, airframe)
+        if decision is not None:
+            raw = json.dumps({
+                "plan_version": decision.plan_version,
+                "decision": decision.decision,
+                "reason_code": decision.reason_code,
+                "reason": decision.reason,
+                "missing_capabilities": list(decision.missing_capabilities),
+                "unresolved_refs": list(decision.unresolved_refs),
+                "question": decision.question,
+            }, ensure_ascii=False)
+            return decision, raw, [0.0], None
     plan, report = compile_mission_plan(
         post, task, refs=refs, schema=schema, prompt_variant=prompt_variant,
         capabilities=capabilities, airframe=airframe,
+        include_decision_contract=decision_contract,
     )
     return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
 
 
-def _capability_validation(plan: MissionPlan, item: dict[str, Any], prompt: str):
+def _execution_validation(plan: MissionPlan, item: dict[str, Any], prompt: str):
     capabilities = frozenset(item.get("capabilities", ()))
     package = MissionPackage(
         document={
@@ -90,13 +107,53 @@ def _capability_validation(plan: MissionPlan, item: dict[str, Any], prompt: str)
     return validate_plan_for_execution(plan, package, prompt, capabilities=capabilities)
 
 
-def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> dict[str, Any]:
+def score_task(
+    item: dict[str, Any], plan: MissionPlan | None, outcome: Any, *, raw: str | None = None,
+) -> dict[str, Any]:
     """Score a sequence, or a host rejection/repair to the safe home fallback.
 
     Invalid tasks carry ``expect_invalid: true`` and may omit ``skills``. A
     repaired operational plan is not a refusal, even if its references changed.
     An unmodified home plan alone is also not evidence of host rejection.
     """
+    decision = None
+    if raw is not None:
+        try:
+            decision = validate_plan_decision(raw)
+        except (TypeError, ValueError, KeyError):
+            pass
+    if decision is not None:
+        valid_code = item.get("reason_code")
+        if valid_code is None:
+            expected_findings = item.get("expected_findings", ())
+            if expected_findings:
+                valid_code = next(iter(expected_findings))
+            else:
+                valid_code = {
+                    "missing_payload_drop": "missing_capability",
+                    "capability": "missing_capability",
+                    "unknown_place": "unknown_place",
+                    "unknown_location": "unknown_place",
+                    "query_ungrounded": "ungrounded_query",
+                    "ungrounded_query": "ungrounded_query",
+                    "ambiguous_task": "ambiguous_task",
+                    "unsafe_request": "unsafe_request",
+                }.get(str(item.get("category", "")))
+        correct = bool(item.get("expect_invalid", False)) and decision.decision in {"reject", "clarify"} and (valid_code is None or valid_code == decision.reason_code)
+        return {"expected": item.get("skills", []), "predicted": [], "valid": True,
+                "exact": correct, "same_skills": correct, "expect_invalid": bool(item.get("expect_invalid", False)),
+                "correct_rejection": correct, "decision": decision.decision,
+                "reason_code": decision.reason_code, "validator_decision": decision.decision,
+                "intent_violations": 0, "capability_violations": 0}
+    # The compiler may repair an ungrounded query in its final attempt. Score
+    # the original model candidate so live evaluation matches offline replay.
+    if raw is not None and item.get("expect_invalid", False):
+        try:
+            plan = validate_mission_plan(
+                raw, capabilities=frozenset(item.get("capabilities", ()))
+            )
+        except (TypeError, ValueError, KeyError):
+            plan = None
     path = success_path(plan) if plan is not None else None
     expected = item.get("skills", [])
     intent = check_plan_intent(plan, item.get("text", ""), item.get("refs")) if plan else []
@@ -105,12 +162,18 @@ def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> 
         plan, caps, airframe="airframe:fixed_wing" if "airframe:fixed_wing" in caps else None
     ) if plan else []
     if item.get("expect_invalid", False):
-        capability_category = item.get("category") in {
-            "fixed_wing_hover", "fixed_wing_target_land", "missing_payload_drop"
+        validator_categories = {
+            "fixed_wing_hover",
+            "fixed_wing_target_land",
+            "missing_payload_drop",
+            "query_ungrounded",
         }
-        validation = _capability_validation(plan, item, item.get("text", "")) if (
-            capability_category and plan is not None
-        ) else None
+        uses_execution_validator = item.get("category") in validator_categories
+        validation = (
+            _execution_validation(plan, item, item.get("text", ""))
+            if uses_execution_validator and plan
+            else None
+        )
         correctly_blocked = bool(
             validation and validation.decision in {"reject", "clarify"}
         )
@@ -120,7 +183,7 @@ def score_task(item: dict[str, Any], plan: MissionPlan | None, outcome: Any) -> 
             and isinstance(outcome, list)
             and bool(outcome)
         )
-        if capability_category and plan is not None:
+        if uses_execution_validator and plan is not None:
             accepted = correctly_blocked
         return {
             "expected": expected, "predicted": path, "valid": plan is not None,
@@ -218,9 +281,13 @@ def main(argv: list[str] | None = None) -> int:
         "--prompt-variant", choices=PLAN_PROMPT_VARIANTS, default="default",
         help="experimental prompt ablation (default keeps the exact training prompt)",
     )
+    parser.add_argument("--decision-contract", action="store_true",
+                        help="enable structured reject/clarify output (default: legacy MissionPlan)")
+    parser.add_argument("--plan-pregate", action="store_true",
+                        help="run deterministic host preflight before starting the model")
     parser.add_argument(
         "--llama-server", type=Path,
-        default=ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe",
+        default=ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server"),
         help="existing llama-server executable (no downloads)",
     )
     parser.add_argument("--device", default="cuda:0", help="cpu or cuda[:index]")
@@ -248,17 +315,28 @@ def main(argv: list[str] | None = None) -> int:
     if not document["tasks"]:
         parser.error("the task file must contain at least one task")
     refs = tuple(document.get("refs", ()))
-    schema = plan_json_schema()
+    schema = plan_json_schema(include_decision_contract=args.decision_contract)
     if args.sorted_keys:
         from scripts.slow_system_runtime import trained_key_order_schema
 
         schema = trained_key_order_schema(schema)
-    server = LlamaServerRunner(
-        args.gguf, None if args.no_mmproj else args.mmproj,
-        executable=args.llama_server, port=args.port,
-        max_new_tokens=768, device=args.device, cache_ram_mib=args.cache_ram_mib,
-        log_dir=args.log_dir or (args.output.parent / "llama-server-logs"),
-        keep_logs=args.keep_server_logs,
+    needs_model = not args.plan_pregate or any(
+        preflight_plan_task(
+            item["text"], item.get("refs", tuple(document.get("refs", ()))),
+            frozenset(item.get("capabilities", ())),
+            "airframe:fixed_wing" if "airframe:fixed_wing" in item.get("capabilities", ()) else None,
+        ) is None
+        for item in document["tasks"]
+    )
+    server = (
+        LlamaServerRunner(
+            args.gguf, None if args.no_mmproj else args.mmproj,
+            executable=args.llama_server, port=args.port,
+            max_new_tokens=768, device=args.device, cache_ram_mib=args.cache_ram_mib,
+            log_dir=args.log_dir or (args.output.parent / "llama-server-logs"),
+            keep_logs=args.keep_server_logs,
+        )
+        if needs_model else None
     )
     request_usage: list[dict[str, int | None]] = []
 
@@ -291,18 +369,30 @@ def main(argv: list[str] | None = None) -> int:
             task_refs = tuple(item.get("refs", refs))
             capabilities = frozenset(item.get("capabilities", ()))
             airframe = "airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None
-            task_schema = plan_json_schema(capabilities=capabilities)
+            task_schema = plan_json_schema(
+                capabilities=capabilities, include_decision_contract=args.decision_contract
+            )
             if args.sorted_keys:
                 task_schema = trained_key_order_schema(task_schema)
             request_usage.clear()
             plan, raw, attempts, error = compile_task(
                 post, item["text"], task_refs, task_schema, prompt_variant=args.prompt_variant,
                 capabilities=capabilities, airframe=airframe,
+                decision_contract=args.decision_contract,
+                plan_pregate=args.plan_pregate,
             )
             rows.append(
                 {
                     "text": item["text"],
-                    **score_task(item, plan, error),
+                    "source": (
+                        "host_pregate" if args.plan_pregate and not request_usage else "model"
+                    ),
+                    "planner_source": (
+                        "host_pregate" if args.plan_pregate and not request_usage else "model"
+                    ),
+                    **score_task(
+                        {**item, "refs": item.get("refs", task_refs)}, plan, error, raw=raw
+                    ),
                     "attempts_s": attempts,
                     "error": None if isinstance(error, list) else error,
                     "repairs": error if isinstance(error, list) else None,
@@ -328,10 +418,13 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
     finally:
-        server.close()
+        if server is not None:
+            server.close()
     n = len(rows)
     summary = {
         "tasks": n,
+        "host_pregate": sum(row.get("source") == "host_pregate" for row in rows),
+        "model_processed": sum(row.get("source") != "host_pregate" for row in rows),
         "valid_rate": sum(r["valid"] for r in rows) / n,
         "exact_sequence_rate": sum(r["exact"] for r in rows) / n,
         "same_skill_set_rate": sum(r["same_skills"] for r in rows) / n,

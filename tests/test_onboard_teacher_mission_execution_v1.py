@@ -729,6 +729,7 @@ def test_cancel_stops_unique_owner_and_never_sends_start(harness):
 
 
 @pytest.mark.parametrize("result", [True, "0", 0.0])
+@pytest.mark.timing(reason="RX thread and durable journals share a 200ms real-time API deadline")
 def test_malformed_source_ACK_does_not_advance(harness, result):
     h = harness
     execution = h.bind()
@@ -750,8 +751,10 @@ def session_plan(tmp_path, template):
 
 
 def test_V7_owned_lifecycle_reuses_unique_RX_for_finite_transfer_and_controls(
-    harness, session_plan, tmp_path
+    harness, session_plan, tmp_path, monkeypatch
 ):
+    # NativeDocker owns this fixture; host bridge discovery is not part of it.
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
     h = harness
     h.transport.close()
     h.receiver.stop()

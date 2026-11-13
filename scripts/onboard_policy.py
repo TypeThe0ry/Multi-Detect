@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import warnings
+from dataclasses import asdict
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -53,8 +54,10 @@ from multidetect.autonomy.mission_package import (  # noqa: E402
 from multidetect.autonomy.mission_plan import (  # noqa: E402
     MissionPlan,
     MissionStep,
+    PlanDecision,
     validate_mission_plan,
 )
+from multidetect.autonomy.plan_pregate import preflight_plan_task  # noqa: E402
 from multidetect.autonomy.mission_planner import (  # noqa: E402
     compile_mission_plan,
     plan_json_schema,
@@ -80,11 +83,33 @@ from multidetect.autonomy.onboard_mission_log import (  # noqa: E402
     DownlinkQueue,
     OnboardMissionLog,
 )
+from multidetect.autonomy.onboard_policy_parts.assembly import (  # noqa: E402
+    assemble_runtime_executor as _assemble_runtime_executor,
+    assemble_runtime_runners as _assemble_runtime_runners,
+    build_runtime_loop_factory as _build_runtime_loop_factory,
+)
 from multidetect.autonomy.onboard_policy_parts.config import (  # noqa: E402
     DEFAULTS,
     POSITION_DEFAULTS,
 )
+from multidetect.autonomy.onboard_policy_parts.helpers import (  # noqa: E402
+    _enabled,
+    _observation_timestamp_s,
+    _vehicle_receipt_s,
+    labelled_refs,
+    perception_task_text as _perception_task_text,
+)
 from multidetect.autonomy.onboard_policy_parts.proposer import YoloeProposer  # noqa: E402
+from multidetect.autonomy.onboard_policy_parts.runtime import (  # noqa: E402
+    RuntimeAdmissionMixin,
+    build_safety_envelope as _build_safety_envelope,
+    load_runtime_mission_package,
+    prepare_runtime_operator_package as _prepare_runtime_operator_package,
+)
+from multidetect.autonomy.onboard_policy_parts.simulation import (  # noqa: E402
+    SimGroundTimeline,
+    validate_sim_ground_events,
+)
 from multidetect.autonomy.onboard_policy_parts.vocabulary import VOCABULARY  # noqa: E402
 from multidetect.autonomy.plan_validation import validate_plan_for_execution  # noqa: E402
 from multidetect.autonomy.safety_envelope import SafetyEnvelope, SafetyEnvelopeConfig  # noqa: E402
@@ -106,226 +131,29 @@ from multidetect.simulator.camera_projection import (  # noqa: E402
 from multidetect.simulator.task_semantics import typical_object_size  # noqa: E402
 
 
-def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
-    """Hash a model with a size/mtime keyed cache; failures are non-fatal."""
-    candidate = Path(path)
-    try:
-        stat = candidate.stat()
-        if not candidate.is_file():
-            return "unknown"
-    except OSError:
-        return "unknown"
-    key = str(candidate.resolve())
-    cached: dict[str, Any] = {}
-    if cache_path is not None:
-        try:
-            document = json.loads(cache_path.read_text(encoding="utf-8"))
-            if isinstance(document, dict):
-                cached = document
-            entry = cached.get(key)
-            if (
-                isinstance(entry, dict)
-                and entry.get("size") == stat.st_size
-                and entry.get("mtime_ns") == stat.st_mtime_ns
-                and isinstance(entry.get("sha256"), str)
-            ):
-                return entry["sha256"]
-        except (OSError, ValueError, TypeError):
-            cached = {}
-    try:
-        digest = hashlib.sha256()
-        with candidate.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        result = digest.hexdigest()
-    except (OSError, ValueError):
-        return "unknown"
-    if cache_path is not None:
-        cached[key] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "sha256": result}
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = cache_path.with_suffix(cache_path.suffix + ".tmp")
-            temporary.write_text(json.dumps(cached, sort_keys=True), encoding="utf-8")
-            os.replace(temporary, cache_path)
-        except (OSError, TypeError, ValueError):
-            pass
-    return result
-
-
-def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str | None] | None:
-    """Normalize the optional planner model; planner prompts are text-only."""
-    if value is None or value == "":
-        return None
-    if isinstance(value, Mapping):
-        model = value.get("gguf", value.get("model", value.get("path")))
-        if model is None:
-            raise ValueError("planning_model requires gguf/model/path")
-        # The current mission-planning prompt is text-only, so a projector is
-        # unnecessary.  A caller may still provide one for a future multimodal prompt.
-        mmproj = value.get("mmproj")
-    else:
-        model, mmproj = value, None
-    model_path = Path(str(model))
-    model_path = model_path if model_path.is_absolute() else ROOT / model_path
-    if mmproj is not None:
-        mmproj_path = Path(str(mmproj))
-        mmproj = str(mmproj_path if mmproj_path.is_absolute() else ROOT / mmproj_path)
-    return str(model_path), mmproj
-
+from multidetect.autonomy.onboard_policy_parts.model_config import (  # noqa: E402
+    _model_sha256 as _model_sha256_impl,
+    _planning_model_spec as _planning_model_spec_impl,
+)
 
 MEMORY = "No prior confirmed target; search in progress."
 MAX_PROMPT_CANDIDATES = 4
 
 
-def validate_sim_ground_events(config: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Validate the SIM-only timeline before constructing any model resources."""
-    events = config.get("sim_ground_events", [])
-    if not isinstance(events, list):
-        raise ValueError("sim_ground_events must be a list")
-    if "sim_ground_events" in config and config.get("mission_package") is None:
-        raise ValueError("sim_ground_events requires a mission_package")
-    result = []
-    previous = -1.0
-    for entry in events:
-        if not isinstance(entry, dict) or set(entry) != {"t_s", "event"}:
-            raise ValueError("SIM timeline entries require exactly t_s and event")
-        stamp = entry["t_s"]
-        if (
-            isinstance(stamp, bool)
-            or not isinstance(stamp, (int, float))
-            or not math.isfinite(stamp)
-            or stamp < 0
-            or stamp < previous
-        ):
-            raise ValueError("SIM timeline t_s must be finite, nonnegative and ordered")
-        if not isinstance(entry["event"], str) or entry["event"] not in {
-            "link_lost",
-            "link_restored",
-            "abort",
-            "pause",
-            "resume",
-        }:
-            raise ValueError("unknown SIM timeline event")
-        previous = stamp
-        result.append(dict(entry))
-    return result
+def _model_sha256(path: str | Path, *, cache_path: Path | None = None) -> str:
+    return _model_sha256_impl(
+        path, cache_path=cache_path, path_type=Path, sha256_factory=hashlib.sha256
+    )
 
 
-class SimGroundTimeline:
-    """Drive supervisor time from SIM frames, never inference or startup latency.
-
-    A nonempty timeline models a healthy link until link_lost stops heartbeats.
-    An empty timeline emits no ground events at all. Loss becomes observable
-    after heartbeat_timeout_s; the policy silence timer uses the last heartbeat.
-    Events crossed between frames are delivered once, in order, at their time.
-    """
-
-    def __init__(self, events: list[dict[str, Any]]) -> None:
-        self.events = events
-        self.now = 0.0
-        self.origin_ns: int | None = None
-        self.index = 0
-        self.link_up = bool(events)
-
-    def advance(
-        self,
-        observation: Mapping[str, Any],
-        supervisor: MissionSupervisor,
-        pose_ned: Sequence[float] | None = None,
-    ) -> None:
-        stamp = observation.get("frame_sensor_stamp_ns")
-        if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp < 0:
-            raise ValueError("SIM timeline requires frame_sensor_stamp_ns")
-        if self.origin_ns is None:
-            self.origin_ns = stamp
-        target = (stamp - self.origin_ns) / 1_000_000_000
-        if target < self.now:
-            raise ValueError("SIM frame clock moved backwards")
-
-        def heartbeat():
-            supervisor.ground_event(
-                {"mission_id": supervisor.package.mission_id, "type": "heartbeat"}
-            )
-
-        while self.index < len(self.events) and self.events[self.index]["t_s"] <= target:
-            entry = self.events[self.index]
-            self.now = float(entry["t_s"])
-            if self.link_up:
-                heartbeat()
-            # Latch an expired silence/pause before a later resume/reconnect.  The
-            # vehicle's pose goes with it: without one the energy model has no return
-            # geometry and orders an immediate return (every SIM safety mission did).
-            supervisor.evaluate(pose_ned=pose_ned)
-            kind = entry["event"]
-            supervisor.log.append("sim_ground_event", self.now, event=kind, t_s=self.now)
-            if kind == "link_lost":
-                self.link_up = False
-            elif kind == "link_restored":
-                self.link_up = True
-                heartbeat()
-            else:
-                supervisor.ground_event({"mission_id": supervisor.package.mission_id, "type": kind})
-            self.index += 1
-        self.now = target
-        if self.link_up:
-            heartbeat()
+def _planning_model_spec(value: Any, *, identity_mmproj: str) -> tuple[str, str | None] | None:
+    return _planning_model_spec_impl(
+        value, identity_mmproj=identity_mmproj, root=ROOT, path_type=Path
+    )
 
 
-def _observation_timestamp_s(observation: Mapping[str, Any]) -> float | None:
-    """Use the collector's pose/Gazebo simulation stamps, never receive time."""
-    for key, units_per_s in (
-        ("pose_time_boot_ms", 1_000.0),
-        ("pose_sim_stamp_ns", 1_000_000_000.0),
-        ("frame_sensor_stamp_ns", 1_000_000_000.0),
-    ):
-        value = observation.get(key)
-        if (
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-            and value >= 0
-        ):
-            return value / units_per_s
-    return None
-
-
-def _vehicle_receipt_s(sample: Mapping[str, Any]) -> float | None:
-    """Vehicle (PX4 boot) clock at a telemetry sample's receipt, if stamped."""
-    value = sample.get("received_vehicle_s")
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    value = float(value)
-    return value if math.isfinite(value) and value >= 0 else None
-
-
-def _enabled(value: object) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return value is True
-
-
-def perception_task_text(step: MissionStep, original: str) -> str:
-    """Use a plan query for slow perception unless the query is non-ASCII."""
-    query = step.params.get("query") if step is not None else None
-    if isinstance(query, str) and query.isascii():
-        return task_text_for(step)
-    return original
-
-
-def labelled_refs(
-    refs: Mapping[str, Any] | Sequence[str] | None, labels: Mapping[str, Any]
-) -> tuple[str, ...]:
-    """Planner refs with slash-separated aliases kept in the package string."""
-    rendered = []
-    for ref in refs or ():
-        if ref not in labels:
-            rendered.append(str(ref))
-            continue
-        value = labels[ref]
-        if isinstance(value, (list, tuple)):
-            value = " / ".join(str(item).strip() for item in value if str(item).strip())
-        rendered.append(f"{ref} ({value})")
-    return tuple(rendered)
+def perception_task_text(step, original: str) -> str:
+    return _perception_task_text(step, original, task_text_for=task_text_for)
 
 
 def build_mission_from_text(
@@ -338,9 +166,24 @@ def build_mission_from_text(
     attempts: int = 2,
     capabilities: frozenset[str] = frozenset(),
     airframe: Any = None,
-) -> tuple[MissionPlan, dict[str, Any]]:
-    """Compile a free task sentence, falling back to a validated return-home plan."""
-    schema = plan_json_schema(capabilities=capabilities)
+    include_decision_contract: bool = False,
+    enable_plan_pregate: bool = False,
+) -> tuple[MissionPlan | PlanDecision, dict[str, Any]]:
+    """Compile a task; explicit reject/clarify results never get a flight fallback."""
+    if enable_plan_pregate:
+        decision = preflight_plan_task(task_text, refs, capabilities, airframe)
+        if decision is not None:
+            return decision, {
+                "error": None,
+                "decision": decision,
+                "source": "host_pregate",
+                "raw": None,
+                "attempts": [],
+                "repairs": [],
+            }
+    schema = plan_json_schema(
+        capabilities=capabilities, include_decision_contract=include_decision_contract
+    )
     if sorted_keys:
         from scripts.slow_system_runtime import trained_key_order_schema
 
@@ -355,7 +198,10 @@ def build_mission_from_text(
         plan_checker=plan_checker,
         capabilities=capabilities,
         airframe=airframe,
+        include_decision_contract=include_decision_contract,
     )
+    if isinstance(plan, PlanDecision):
+        return plan, report
     if plan is None:
         plan = validate_mission_plan(
             {
@@ -376,7 +222,19 @@ def build_mission_from_text(
     return plan, report
 
 
-class OnboardPolicy:
+def _runtime_runner_type() -> Callable[..., Any]:
+    from scripts.eval_slow_system import LlamaServerRunner
+
+    return LlamaServerRunner
+
+
+def _runtime_http_json() -> Callable[..., Any]:
+    from scripts.eval_slow_system import _http_json
+
+    return _http_json
+
+
+class OnboardPolicy(RuntimeAdmissionMixin):
     # Optional subsystems default to "absent" (tests build bare instances).
     supervisor: MissionSupervisor | None = None
     downlink: DownlinkQueue | None = None
@@ -408,6 +266,21 @@ class OnboardPolicy:
             **{k: (str(v) if v is not None else None) for k, v in DEFAULTS.items()},
             **(config or {}),
         }
+        # Most historical defaults are stringified above. Keep this image-size
+        # contract typed, and reject values that int() would silently truncate.
+        identity_max_side = (config or {}).get(
+            "identity_max_side", DEFAULTS["identity_max_side"]
+        )
+        if type(identity_max_side) is not int or identity_max_side <= 0:
+            raise ValueError("identity_max_side must be a positive integer")
+        if slow_runner is not None and "identity_max_side" in (config or {}):
+            if type(getattr(slow_runner, "max_side", None)) is not int or slow_runner.max_side != identity_max_side:
+                raise ValueError("identity_max_side must match the supplied slow_runner.max_side")
+        options["identity_max_side"] = identity_max_side
+        if type(options.get("planning_decision_contract", False)) is not bool:
+            raise ValueError("planning_decision_contract must be a boolean")
+        if type(options.get("planning_pregate", False)) is not bool:
+            raise ValueError("planning_pregate must be a boolean")
         # Profile resolution is deliberately early: an unknown aircraft must
         # fail closed before models, mission plans, or vehicle I/O are started.
         self.motion_adapter = AirframeMotionAdapter(
@@ -461,130 +334,41 @@ class OnboardPolicy:
         # Hover-mode VTOLs plan like a multirotor; only their commands differ.
         plans_like_multirotor = self.motion_adapter.is_multirotor or hover_ops
         effective_runtime_mode = runtime_mode or options.get("runtime_mode")
+        sim_climb_timeout_injection = options.get("sim_climb_timeout_injection", False)
+        if type(sim_climb_timeout_injection) is not bool:
+            raise ValueError("sim_climb_timeout_injection must be a boolean")
+        if sim_climb_timeout_injection and effective_runtime_mode != "sim":
+            raise ValueError("sim_climb_timeout_injection is only available in SIM runtime")
         self.config = options
         self.runtime_mode = effective_runtime_mode
         sim_events = validate_sim_ground_events(options)
         self.sim_timeline = (
             SimGroundTimeline(sim_events) if "sim_ground_events" in options else None
         )
-        package_raw = options.get("mission_package")
-        if (
-            effective_runtime_mode
-            and str(effective_runtime_mode).lower() in {"real", "flight", "hil", "live"}
-            and package_raw is None
-        ):
-            raise ValueError("real/flight runtime requires a signed mission_package")
-        security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        mission_key_setting = options.get("mission_package_verify_key") or security.get(
-            "mission_package_verify_key"
-        )
-        legacy_key_setting = (
-            options.get("operator_key_path")
-            or options.get("mission_key_path")
-            or options.get("mission_signing_key_path")
-            or security.get("key_path")
-        )
-        key_setting = mission_key_setting or legacy_key_setting
-        if legacy_key_setting is not None and mission_key_setting is None:
-            warnings.warn(
-                "operator_key_path is deprecated; use mission_package_verify_key",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        ground_key_setting = (
-            options.get("ground_command_verify_key")
-            or security.get("ground_command_verify_key")
-            or legacy_key_setting
-        )
-        self._ground_key_setting = ground_key_setting
-        if isinstance(key_setting, str):
-            key_path = Path(key_setting)
-            key_setting = key_path if key_path.is_absolute() else ROOT / key_path
-        if isinstance(package_raw, str):
-            package_path = Path(package_raw)
-            package_raw = package_path if package_path.is_absolute() else ROOT / package_path
-        # ``mission_package`` is supplied by the admission layer when the
-        # comms-free entry is used.  Reusing that exact object prevents a
-        # second load from observing a different path/file after admission.
-        self.mission_package = mission_package or (
-            load_mission_package(
-                package_raw,
-                key_path=key_setting,
-                require_signature=key_setting is not None,
-                mode=effective_runtime_mode,
-            )
-            if package_raw is not None
-            else None
-        )
-        if self.mission_package is not None:
-            package = self.mission_package
-            options["refs"] = package.refs
-            options["ref_labels"] = package.document.get("ref_labels", {})
-            options["task_text"] = package.document.get("task_text") or package.plan.goal
-            options["mission"] = "package" if package.plan is not None else "from_text"
-            area = package.document["operating_area"]
-            if not area["min_altitude_m"] <= altitude_m <= area["max_altitude_m"]:
-                raise ValueError("launch altitude outside mission package limits")
-        configured_capabilities = set(options.get("capabilities", ()))
-        if _enabled(options.get("payload_capability")):
-            configured_capabilities.add("payload_drop")
-        self.airframe_capabilities = capabilities_for_airframe(
-            self.airframe_profile, configured_capabilities
-        )
-        package_capabilities = (
-            normalize_capabilities(self.mission_package.document.get("capabilities", ()))
-            if self.mission_package is not None
-            else None
-        )
-        effective_airframe_capabilities = effective_capabilities(
-            self.airframe_capabilities, package_capabilities
+        (
+            self.mission_package,
+            self._ground_key_setting,
+            self.airframe_capabilities,
+            effective_airframe_capabilities,
+        ) = load_runtime_mission_package(
+            options,
+            runtime_mode=effective_runtime_mode,
+            mission_package=mission_package,
+            altitude_m=altitude_m,
+            airframe_profile=self.airframe_profile,
+            enabled=_enabled,
+            root=ROOT,
         )
         self.ground_projection = ground_projection_from_config(
             options.get("ground_model"), base_dir=ROOT
         )
-        # One final arbiter is shared by SIM and onboard callers.  Package
-        # geometry is authoritative for the home and operating rectangle;
-        # explicit safety_envelope settings may tighten it further.
-        envelope_source = dict(options)
-        if self.airframe_profile.category != "multirotor":
-            dynamics = self.motion_adapter.safety.vehicle
-            envelope_source["vehicle"] = {
-                "category": dynamics.category,
-                "can_hover": dynamics.can_hover,
-                "min_airspeed_mps": dynamics.min_airspeed_mps,
-                "cruise_airspeed_mps": dynamics.cruise_airspeed_mps,
-                "max_airspeed_mps": dynamics.max_airspeed_mps,
-                "min_turn_radius_m": dynamics.min_turn_radius_m,
-                "max_bank_deg": dynamics.max_bank_deg,
-                "climb_rate_mps": dynamics.climb_rate_mps,
-                "descent_rate_mps": dynamics.descent_rate_mps,
-            }
-            # The 15 m default step bound is multirotor-sized: a plane's search leg
-            # or turn-off leg would be clipped, and a clipped high-level command is
-            # refused into a loiter.  Use the profile's per-step bound instead
-            # (explicit safety settings still win).
-            envelope_source.setdefault(
-                "max_translation_m", self.airframe_profile.limits.max_step_distance_m
-            )
-        if self.mission_package is not None:
-            area = self.mission_package.document["operating_area"]
-            package_polygon = (
-                (float(area["north_min_m"]), float(area["east_min_m"])),
-                (float(area["north_max_m"]), float(area["east_min_m"])),
-                (float(area["north_max_m"]), float(area["east_max_m"])),
-                (float(area["north_min_m"]), float(area["east_max_m"])),
-            )
-            envelope_source.setdefault("operating_polygon", package_polygon)
-            envelope_source.setdefault("min_altitude_m", float(area["min_altitude_m"]))
-            envelope_source.setdefault("max_altitude_m", float(area["max_altitude_m"]))
-        package_home = None
-        if self.mission_package is not None:
-            raw_home = tuple(float(v) for v in self.mission_package.document["home"])
-            package_home = raw_home if len(raw_home) == 3 else (*raw_home, 0.0)
-        self.safety_envelope = SafetyEnvelope(
-            SafetyEnvelopeConfig.from_mapping(envelope_source),
-            home_ned=(tuple(float(v) for v in home_ned) if home_ned is not None else package_home),
-            ground_model=getattr(self.ground_projection, "model", None),
+        self.safety_envelope = _build_safety_envelope(
+            options,
+            self.airframe_profile,
+            self.motion_adapter,
+            self.mission_package,
+            home_ned,
+            self.ground_projection,
         )
         # Keep the adapter on the same envelope instance so a rejection has a
         # single counter/event stream and fixed-wing recovery becomes loiter.
@@ -624,364 +408,27 @@ class OnboardPolicy:
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.image_size = image_size
+        self._search_camera_pose: Mapping[str, object] | None = None
         if frame_format not in {"png", "jpeg"}:
             raise ValueError("frame_format must be png or jpeg")
         self.frame_format = frame_format
         self.frame_quality = int(frame_quality)
         self.ground_projector = ground_projector
-        # The x500 camera is pitched 0.18 rad down; other airframes carry their
-        # own mount (the rc_cessna camera looks straight ahead).  Projecting a
-        # fixed-wing frame with the x500 pitch puts every ground point ~10 deg
-        # too steep, i.e. tens of metres short at 30 m altitude.
-        # A hover-mode VTOL's loop sees the world through its MC (level) attitude.
-        mc_mount_pitch = float(
-            options.get(
-                "camera_pitch_down_rad",
-                0.18
-                if self.motion_adapter.is_multirotor
-                else profile_mount_pitch_down_rad(
-                    self.airframe_profile,
-                    0.18,
-                    mode="mc" if (hover_ops or hybrid_vtol) else None,
-                ),
-            )
+        make_loop = _build_runtime_loop_factory(
+            self,
+            options=options,
+            task_text=task_text,
+            world_path=world_path,
+            altitude_m=altitude_m,
+            camera_info=camera_info,
+            image_size=image_size,
+            home_ned=home_ned,
+            hover_ops=hover_ops,
+            hybrid_vtol=hybrid_vtol,
+            plans_like_multirotor=plans_like_multirotor,
+            near_depth_enabled=near_depth_enabled,
+            position_defaults=POSITION_DEFAULTS,
         )
-        fw_mount_pitch = (
-            float(
-                options.get(
-                    "camera_pitch_down_rad",
-                    profile_mount_pitch_down_rad(self.airframe_profile, 0.18, mode="fw"),
-                )
-            )
-            if hybrid_vtol
-            else mc_mount_pitch
-        )
-        mount_pitch = fw_mount_pitch if hybrid_vtol else mc_mount_pitch
-        self.camera_pitch_down_rad = mount_pitch
-        search_pattern = str(options.get("search_pattern", "current"))
-        if search_pattern not in {"current", "lawnmower", "spiral", "two_altitude"}:
-            raise ValueError(
-                "search_pattern must be one of current, lawnmower, spiral, two_altitude"
-            )
-        low_search_altitude = None
-        obstacles = load_sdf_obstacles(world_path) if world_path else ()
-        # Keep the final arbiter on the same typed clearance source as the
-        # executor/loop.  Optional depth sources can be composed by callers
-        # before runtime construction; an empty map remains byte-compatible.
-        self.safety_envelope.obstacle_source = CompositeSource((StaticMapSource(obstacles),))
-        # Size-aware search altitude: low enough that an object of the task's typical
-        # size spans about min_search_px pixels at a mid-image depression angle.
-        if search_pattern == "two_altitude":
-            low_search_setting = float(options.get("low_search_altitude_m", 12.0))
-            if not math.isfinite(low_search_setting) or low_search_setting <= 0:
-                raise ValueError("low_search_altitude_m must be finite and positive")
-
-        def size_aware_altitude(text: str) -> float | None:
-            if not options.get("size_aware_search"):
-                return None
-            size = typical_object_size(text)
-            depression = mount_pitch + math.radians(20.0)
-            needed = size * float(camera_info["fx"]) / float(options.get("min_search_px", 14.0))
-            search_altitude = max(
-                float(options.get("min_search_altitude_m", 8.0)),
-                min(altitude_m, needed * math.sin(depression)),
-            )
-            # Never search below the known obstacles: at 7.9 m over a counting
-            # site with a 7.2 m house the forward legs were blocked twice, the
-            # loop stopped searching and a cone was never seen again.
-            if obstacles:
-                clearance = float(options.get("search_obstacle_clearance_m", 2.0))
-                if not math.isfinite(clearance) or clearance < 0:
-                    raise ValueError("search_obstacle_clearance_m must be finite and >= 0")
-                floor = max(obstacle.height_m for obstacle in obstacles) + clearance
-                search_altitude = max(search_altitude, min(float(altitude_m), floor))
-            return search_altitude
-
-        def fixed_wing_search(home, radius_m):
-            # Aircraft that cannot hover fly lawnmower lanes instead of turning in place.
-            profile = self.airframe_profile
-            return FixedWingSearch(
-                home_ned=home,
-                radius_m=radius_m,
-                footprint_width_m=camera_footprint_width_m(
-                    camera_info, self.search_altitude_m or altitude_m, fw_mount_pitch
-                ),
-                turn_radius_m=profile.min_turn_radius_m or profile.orbit_radius(),
-                max_leg_m=profile.limits.max_step_distance_m,
-                camera_pitch_rad=fw_mount_pitch,
-                max_search_calls=100,
-                return_reserve_calls=40,
-                coverage_enabled=True,
-            )
-
-        def build_search(text: str) -> None:
-            """Derive the task-size search altitude and the shared search policies."""
-            nonlocal low_search_altitude
-            self.search_altitude_m = size_aware_altitude(text)
-            if search_pattern == "two_altitude":
-                low_search_altitude = min(
-                    low_search_setting, self.search_altitude_m or float(altitude_m)
-                )
-            # The search pattern is target-blind; a target placed far outside the
-            # detection range keeps ExpertSearchPolicy in its search/scan states.
-            self._search_mc = ExpertSearchPolicy(
-                target_ned=(1.0e7, 1.0e7, 0.0),
-                intrinsics=camera_info,
-                image_size=image_size,
-                altitude_m=self.search_altitude_m or altitude_m,
-                obstacles=obstacles,
-                home_ned=home_ned or (0.0, 0.0, 0.0),
-                camera_pitch_rad=mc_mount_pitch,
-                search_pattern=search_pattern,
-                **(
-                    {"low_altitude_m": low_search_altitude}
-                    if low_search_altitude is not None
-                    else {}
-                ),
-            )
-            self._search_fw = fixed_wing_search(
-                home_ned or (0.0, 0.0, 0.0), self._search_mc.search_radius_m
-            )
-            if not plans_like_multirotor:
-                self._search = self._search_fw
-            elif hybrid_vtol:
-                self._search = self._search_fw
-            else:
-                self._search = self._search_mc
-
-        build_search(self.task_text)
-        camera = CameraModel(
-            fx=float(camera_info["fx"]),
-            fy=float(camera_info["fy"]),
-            cx=float(camera_info["cx"]),
-            cy=float(camera_info["cy"]),
-            width=image_size[0],
-            height=image_size[1],
-            pitch_down_rad=mount_pitch,
-        )
-        confirm_min_side_px = float(options.get("confirm_min_side_px", 20.0))
-        second_look = options.get("second_look_after_steps")
-        loop_defaults: dict[str, Any] = {
-            "confirm_min_side_px": confirm_min_side_px,
-            "contradiction_relook_enabled": True,
-            # A VTOL's back-transition climbs (the SITL tailsitter rose from 30 m to
-            # 60 m): a hover-mode search first settles back to the mission altitude.
-            "search_altitude_m": (
-                float(altitude_m)
-                if hover_ops and self.search_altitude_m is None
-                else self.search_altitude_m
-            ),
-            "near_depth": near_depth_enabled,
-            **POSITION_DEFAULTS,
-        }
-        # The task semantics table is onboard-available and already drives the
-        # size-aware search.  Reuse it for the large-object ground-anchor
-        # correction; an unknown task leaves the correction disabled.
-        typical_size = typical_object_size(self.task_text, default=0.0)
-        loop_defaults["ground_extent_size_m"] = typical_size or None
-        # Keep the original types: LoopConfig strictly rejects strings, bools
-        # masquerading as integers, fractional view counts and non-finite sigma.
-        for key in (
-            "step_triangulation",
-            "step_triangulation_max_views",
-            "ground_height_sigma_m",
-            "step_triangulation_sigma_scale",
-            "step_triangulation_ground_gate_m",
-            "step_triangulation_ground_gate_sigma",
-            "step_triangulation_parallax_deg_per_m",
-            "step_triangulation_min_ray_angle_deg",
-            "ground_extent_correction",
-            "ground_extent_size_m",
-            "ground_extent_min_m",
-        ):
-            if key in options:
-                loop_defaults[key] = options[key]
-        if "small_reject_recheck_px" in options:
-            value = options["small_reject_recheck_px"]
-            loop_defaults["small_reject_recheck_px"] = None if value is None else float(value)
-        if "small_reject_recheck_max" in options:
-            loop_defaults["small_reject_recheck_max"] = int(options["small_reject_recheck_max"])
-        for key, convert in (
-            ("contradiction_relook_max", int),
-            ("contradiction_relook_views", int),
-            ("contradiction_relook_bearing_deg", float),
-            ("static_ground_veto_min_m", float),
-            ("static_ground_veto_gates", float),
-            ("static_verdict_max_shift_m", float),
-        ):
-            if key in options:
-                loop_defaults[key] = convert(options[key])
-        if "contradiction_relook_enabled" in options:
-            value = options["contradiction_relook_enabled"]
-            loop_defaults["contradiction_relook_enabled"] = (
-                value.strip().lower() in {"1", "true", "yes", "on"}
-                if isinstance(value, str)
-                else bool(value)
-            )
-        if "proposal_min_side_px" in options:
-            min_side = float(options["proposal_min_side_px"])
-            if not math.isfinite(min_side) or min_side <= 0:
-                raise ValueError("proposal_min_side_px must be finite and positive")
-            loop_defaults["min_box_side_px"] = min_side
-        if second_look is not None:
-            loop_defaults["second_look_after_steps"] = int(second_look)
-        if options.get("confirm_max_range_m") is not None:
-            loop_defaults["confirm_max_range_m"] = float(options["confirm_max_range_m"])
-        if "closest_view_identity_matches" in options:
-            value = options["closest_view_identity_matches"]
-            loop_defaults["closest_view_identity_matches"] = None if value is None else int(value)
-        if options.get("second_look_max_confidence") is not None:
-            loop_defaults["second_look_max_confidence"] = float(
-                options["second_look_max_confidence"]
-            )
-        if "memory_enabled" in options:
-            value = options["memory_enabled"]
-            loop_defaults["memory_enabled"] = (
-                value.strip().lower() in {"1", "true", "yes", "on"}
-                if isinstance(value, str)
-                else bool(value)
-            )
-        if hybrid_vtol:
-            loop_defaults["vtol_fw_reentry_min_mc_steps"] = int(
-                options.get("vtol_fw_reentry_min_mc_steps", 3)
-            )
-            loop_defaults["vtol_fw_transition_budget"] = int(
-                options.get("vtol_fw_transition_budget", 3)
-            )
-            loop_defaults["vtol_fw_reentry_candidate_max_steps"] = int(
-                options.get("vtol_fw_reentry_candidate_max_steps", 3)
-            )
-        for key, convert in (
-            ("ground_reid_radius_m", float),
-            ("appearance_size_ratio", float),
-            ("appearance_aspect_ratio", float),
-            ("appearance_color_distance", float),
-            ("memory_radius_m", float),
-            ("memory_footprint_factor", float),
-            ("memory_min_verdicts", int),
-            ("memory_max_range_ratio", float),
-        ):
-            if key in options:
-                loop_defaults[key] = convert(options[key])
-        if "ground_reid_max_steps" in options:
-            value = options["ground_reid_max_steps"]
-            loop_defaults["ground_reid_max_steps"] = None if value is None else int(value)
-        if not self.motion_adapter.is_multirotor:
-            # An aircraft that cannot hover never settles on home: the autopilot's
-            # RTL flies it home and lands once the loop has nothing left to do.  A
-            # VTOL hands it over too: PX4's VTOL RTL transitions, flies home and
-            # lands vertically, which the 15 m multirotor home legs would not.
-            loop_defaults["autopilot_return"] = True
-        if self.airframe_profile.category == "fixed_wing":
-            # A plane cannot turn toward a candidate in place: it flies fly-by
-            # passes sized from its turn radius and the forward camera's FOV.
-            loop_defaults["fixed_wing_pass"] = True
-            loop_defaults["fw_min_turn_radius_m"] = self.airframe_profile.loiter_radius_m()
-            for key, convert in (
-                ("fw_pass_view_range_m", float),
-                ("fw_pass_fov_margin_deg", float),
-                ("fw_pass_max_laps", float),
-                ("fw_pass_max_steps", int),
-            ):
-                if key in options:
-                    loop_defaults[key] = convert(options[key])
-
-        def make_loop(task_text: str, region=None, **overrides: Any) -> OnboardLoop:
-            restart_route = bool(overrides.pop("restart_route", True))
-            search = self._search
-            search_mc = self._search_mc
-            for policy in (search, search_mc):
-                if isinstance(policy, ExpertSearchPolicy):
-                    # One shared policy serves every mission step: start each
-                    # step's route afresh (a finished count left its waypoint
-                    # index and coverage_complete outcome for the next step).
-                    policy.reset()
-                    policy.restart_route = restart_route
-            obstacle_source = StaticMapSource(obstacles)
-            if region is not None and (not plans_like_multirotor or hybrid_vtol):
-                search = fixed_wing_search(
-                    (float(region[0]), float(region[1]), 0.0), float(region[2])
-                )
-                if hybrid_vtol:
-                    search_mc = ExpertSearchPolicy(
-                        target_ned=(1.0e7, 1.0e7, 0.0),
-                        intrinsics=camera_info,
-                        image_size=image_size,
-                        altitude_m=self.search_altitude_m or altitude_m,
-                        obstacles=obstacles,
-                        home_ned=(float(region[0]), float(region[1]), 0.0),
-                        search_radius_m=float(region[2]),
-                        camera_pitch_rad=mc_mount_pitch,
-                        search_pattern=search_pattern,
-                        **(
-                            {"low_altitude_m": low_search_altitude}
-                            if low_search_altitude is not None
-                            else {}
-                        ),
-                    )
-            elif region is not None:
-                # A bounded zone: the same target-blind pattern, centred on the zone.
-                search = ExpertSearchPolicy(
-                    target_ned=(1.0e7, 1.0e7, 0.0),
-                    intrinsics=camera_info,
-                    image_size=image_size,
-                    altitude_m=self.search_altitude_m or altitude_m,
-                    obstacles=obstacles,
-                    home_ned=(float(region[0]), float(region[1]), 0.0),
-                    search_radius_m=float(region[2]),
-                    camera_pitch_rad=mc_mount_pitch,
-                    search_pattern=search_pattern,
-                    restart_route=restart_route,
-                    **(
-                        {"low_altitude_m": low_search_altitude}
-                        if low_search_altitude is not None
-                        else {}
-                    ),
-                )
-            loop = OnboardLoop(
-                camera=camera,
-                search_action=lambda pose, yaw: self._active_search(search, search_mc).next_action(
-                    pose_ned=pose, yaw_deg=yaw
-                ),
-                search_outcome=lambda: getattr(
-                    self._active_search(search, search_mc), "search_outcome", None
-                ),
-                segment_clear=lambda pose, n, e: segment_clear_of_obstacles(
-                    pose, (n, e, pose[2]), max(0.0, -float(pose[2])), obstacles
-                ),
-                obstacle_source=obstacle_source,
-                config=LoopConfig(**{**loop_defaults, **overrides}),
-            )
-            if home_ned is not None:
-                loop.home = home_ned[:2]
-                loop.cruise_altitude_m = altitude_m
-            if loop.config.fixed_wing_pass:
-                # Plan fly-by orbits inside the same fences the final arbiter
-                # enforces, so a pass is shrunk instead of refused into a loiter.
-                loop.pass_clear = self.safety_envelope.leg_allowed
-            return loop
-
-        def retarget_search(text: str) -> None:
-            """Size the search for a task that arrives after start-up.
-
-            An operator-link policy starts on a placeholder sentence ("operator
-            link mission"), so the size-aware search fell back to the 2 m
-            default object: e2e run10 counted cones from 13.0 m on 24 m rings
-            where the suite, sized for a 0.5 m cone, flew 11.3 m and 20 m.
-            """
-            build_search(text)
-            loop_defaults["search_altitude_m"] = (
-                float(altitude_m)
-                if hover_ops and self.search_altitude_m is None
-                else self.search_altitude_m
-            )
-            if "ground_extent_size_m" not in options:
-                loop_defaults["ground_extent_size_m"] = (
-                    typical_object_size(text, default=0.0) or None
-                )
-
-        self._retarget_search = retarget_search
-        self.loop = make_loop(task_text)
         mission = options.get("mission")
         if mission not in {
             None,
@@ -994,571 +441,36 @@ class OnboardPolicy:
         }:
             raise ValueError(f"unknown mission template {mission!r}")
         self._step = 0
-        self.proposer = (
-            proposer
-            if proposer is not None
-            else YoloeProposer(
-                Path(options["yoloe_weights"]),
-                confidence=float(options.get("confidence", 0.05)),
-                imgsz=int(options.get("imgsz", 1280)),
-                tiled=options.get("proposer_tiled", False),
-                tile_overlap=float(options.get("proposer_tile_overlap", 0.2)),
-                merge_iou=float(options.get("proposer_merge_iou", 0.5)),
-            )
+        # Keep facade bindings live during later restart and planning callbacks.
+        runner_state = _assemble_runtime_runners(
+            self,
+            options=options,
+            mission=mission,
+            proposer=proposer,
+            slow_runner=slow_runner,
+            proposer_factory=lambda *args, **kwargs: YoloeProposer(*args, **kwargs),
+            health_monitor_factory=lambda **kwargs: HealthMonitor(**kwargs),
+            path_type=lambda *args: Path(*args),
+            planning_model_spec=lambda *args, **kwargs: _planning_model_spec(*args, **kwargs),
+            model_sha256=lambda *args, **kwargs: _model_sha256(*args, **kwargs),
+            load_runner_type=_runtime_runner_type,
         )
-        from scripts.eval_slow_system import LlamaServerRunner
-
-        identity_port = int(options.get("port", 9941))
-        self._identity_port = identity_port
-        planning_spec = _planning_model_spec(
-            options.get("planning_model"), identity_mmproj=options["mmproj"]
+        _assemble_runtime_executor(
+            self,
+            options=options,
+            mission=mission,
+            capabilities=effective_airframe_capabilities,
+            make_loop=make_loop,
+            altitude_m=altitude_m,
+            home_ned=home_ned,
+            runtime_mode=effective_runtime_mode,
+            runner_state=runner_state,
+            build_mission_from_text=lambda *args, **kwargs: build_mission_from_text(*args, **kwargs),
+            perception_task_text=lambda *args: perception_task_text(*args),
+            load_http_json=_runtime_http_json,
+            load_runner_type=_runtime_runner_type,
+            enabled=_enabled,
         )
-        split_planning = mission in {"from_text", "operator_link"} and planning_spec is not None
-        startup_planning = mission == "from_text" and planning_spec is not None
-        self._model_split = bool(split_planning)
-        self._model_lock = threading.RLock()
-        self._model_shutdown = threading.Event()
-        self._model_switching = False
-        self._planning_model_path = planning_spec[0] if planning_spec else None
-        self._planning_mmproj = planning_spec[1] if planning_spec else None
-        model_hash_cache = self.work_dir / ".model-hash-cache.json"
-        self._model_runtime: dict[str, Any] = {
-            "enabled": bool(split_planning),
-            "planning_model_path": planning_spec[0] if planning_spec else None,
-            "planning_model_sha256": (
-                _model_sha256(planning_spec[0], cache_path=model_hash_cache)
-                if split_planning
-                else None
-            ),
-            "identity_model_path": options["gguf"],
-            "identity_model_sha256": (
-                _model_sha256(options["gguf"], cache_path=model_hash_cache)
-                if split_planning
-                else None
-            ),
-            "planning_fallback_to_identity": False,
-            "swap_duration_s": None,
-            "swap_completed_monotonic_s": None,
-        }
-
-        # llama-server keeps evicted prompt states in host RAM (8 GiB by default).
-        # Every identity call carries a new crop, so the cache never hits and only
-        # grows: it starved a 32 GB SITL host until CUDA launches failed, and an
-        # 8 GB Jetson cannot hold it at all.  0 turns it off.
-        cache_ram_mib = int(options.get("llama_cache_ram_mib", 0))
-        llama_batch_size = options.get("llama_batch_size")
-        llama_ubatch_size = options.get("llama_ubatch_size")
-
-        initial_startup_timeout_s = float(
-            (options.get("health") or {}).get("slow_initial_startup_timeout_s", 180.0)
-            if isinstance(options.get("health"), dict)
-            else 180.0
-        )
-        restart_startup_timeout_s = float(
-            (options.get("health") or {}).get("slow_restart_startup_timeout_s", 30.0)
-            if isinstance(options.get("health"), dict)
-            else 30.0
-        )
-
-        def make_identity_runner(startup_timeout_s: float):
-            health_opts = options.get("health") if isinstance(options.get("health"), dict) else {}
-            return LlamaServerRunner(
-                Path(options["gguf"]),
-                Path(options["mmproj"]),
-                executable=Path(options["llama_server"]),
-                port=identity_port,
-                max_new_tokens=128 if split_planning else (768 if mission == "from_text" else 128),
-                crop_policy="candidate_zoom_v2",
-                identity_only=True,
-                logprobs=True,
-                fast_identity=str(options.get("fast_identity", False)).lower()
-                in {"1", "true", "yes"},
-                cache_ram_mib=cache_ram_mib,
-                log_dir=Path(options.get("llama_log_dir", self.work_dir / "mission_log")),
-                keep_logs=int(options.get("llama_keep_logs", 3)),
-                startup_timeout_s=startup_timeout_s,
-                batch_size=llama_batch_size,
-                ubatch_size=llama_ubatch_size,
-            )
-
-        self._make_identity_runner = lambda: make_identity_runner(restart_startup_timeout_s)
-
-        def start_identity_runner():
-            if slow_runner is not None:
-                return slow_runner
-            deadline = time.monotonic() + 10.0
-            while True:
-                try:
-                    return make_identity_runner(initial_startup_timeout_s)
-                except Exception as exc:
-                    address_busy = (
-                        "address already in use" in str(exc).lower()
-                        or "address in use" in str(exc).lower()
-                    )
-                    if not address_busy or time.monotonic() >= deadline:
-                        health = getattr(self, "health", None)
-                        if health is not None:
-                            health.record_planning_failure()
-                        raise
-                    time.sleep(0.1)
-
-        planner_start_error: Exception | None = None
-        if startup_planning:
-            try:
-                self.slow = LlamaServerRunner(
-                    Path(planning_spec[0]),
-                    Path(planning_spec[1]) if planning_spec[1] is not None else None,
-                    executable=Path(options["llama_server"]),
-                    port=identity_port,
-                    max_new_tokens=768,
-                    crop_policy="none",
-                    identity_only=False,
-                    logprobs=False,
-                    wait_port_free=True,
-                    cache_ram_mib=cache_ram_mib,
-                    log_dir=Path(options.get("llama_log_dir", self.work_dir / "mission_log")),
-                    keep_logs=int(options.get("llama_keep_logs", 3)),
-                    batch_size=llama_batch_size,
-                    ubatch_size=llama_ubatch_size,
-                )
-            except Exception as exc:
-                planner_start_error = exc
-                self._model_runtime["planning_fallback_to_identity"] = True
-                self.slow = start_identity_runner()
-        elif slow_runner is None:
-            self.slow = make_identity_runner(initial_startup_timeout_s)
-        else:
-            self.slow = slow_runner
-        health_options = options.get("health") if isinstance(options.get("health"), dict) else {}
-        self._health_labels_enabled = bool(health_options.get("enabled", False))
-        self.slow_call_timeout_s = float(health_options.get("slow_timeout_s", 15.0))
-        # Seconds to keep trying to revive the identity runner after a slow
-        # call failed (transport fault or crash).  0 keeps the previous
-        # behaviour: the failure propagates immediately.
-        self.slow_restart_budget_s = float(health_options.get("slow_restart_budget_s", 2.0))
-        self.slow_restart_limit = max(0, int(health_options.get("slow_restart_limit", 1)))
-        self.slow_restart_interval_s = float(health_options.get("slow_restart_interval_s", 5.0))
-        self._slow_restart_attempts = 0
-        self._slow_restart_next_retry = 0.0
-        self._slow_restart_startup_timeout_s = restart_startup_timeout_s
-        self._slow_restart_thread = None
-        self._slow_restart_result = None
-        self._slow_restart_error = None
-        self._slow_restart_generation = 0
-        self._slow_restart_shutdown_timeout_s = float(
-            ((options.get("health") or {}).get("slow_restart_shutdown_timeout_s", 5.0))
-            if isinstance(options.get("health"), dict) else 5.0
-        )
-        # The policy owns retry decisions so a request timeout cannot trigger
-        # LlamaServerRunner's generic three-failure restart behavior.
-        self.slow.max_restarts = 0
-        self.slow.request_timeout_s = self.slow_call_timeout_s
-        health_defaults = {
-            "enabled": True,
-            "slow_failure_limit": 1,
-            "escalate_after_s": 10.0,
-        }
-        health_defaults.update(health_options)
-        self.health = HealthMonitor(
-            config=HealthConfig(
-                **{
-                    k: v
-                    for k, v in health_defaults.items()
-                    if k in HealthConfig.__dataclass_fields__
-                }
-            ),
-            runner=self.slow,
-            disk_path=self.work_dir,
-        )
-        self._slow_failed_current = False
-        self._slow_skipped_current = False
-        self._slow_unavailable_reason = None
-        self._health_recovery_executor = None
-        self.mission_plan: MissionPlan | None = None
-        self.mission_plan_report: dict[str, Any] | None = None
-        self._mission_plan_labeled = False
-        # Optional multi-skill mode: a MissionPlan compiled from the complete task sentence.
-        self.executor: MissionExecutor | MissionSupervisor | None = None
-        self.operator_link_waiting = False
-        self.supervisor: MissionSupervisor | None = None
-        self.downlink: DownlinkQueue | None = None
-        executor_config = ExecutorConfig(
-            step_budget=int(options.get("step_budget", 60)),
-            count_budget_max=int(options.get("count_budget_max", 4096)),
-            runtime_step_limit=(
-                None if options.get("runtime_step_limit") is None else int(options["runtime_step_limit"])
-            ),
-            alert_min_identity_matches=int(options.get("alert_min_identity_matches", 1)),
-            alert_require_majority=(
-                options.get("alert_require_majority", False)
-                if not isinstance(options.get("alert_require_majority", False), str)
-                else options["alert_require_majority"].strip().lower() in {"1", "true", "yes", "on"}
-            ),
-            alert_cluster_radius_m=float(options.get("alert_cluster_radius_m", 4.0)),
-            # Patrol/monitor closer looks and grown small-rejection re-asks
-            # (0 / null turn them off for an A/B run).
-            alert_look_attempts=int(options.get("alert_look_attempts", 3)),
-            alert_grown_reask_ratio=(
-                None
-                if options.get("alert_grown_reask_ratio", 1.25) is None
-                else float(options.get("alert_grown_reask_ratio", 1.25))
-            ),
-            deliver_min_altitude_m=float(options.get("deliver_min_altitude_m", 1.0)),
-            deliver_max_altitude_m=float(options.get("deliver_max_altitude_m", 5.0)),
-            deliver_altitude_m=float(options.get("deliver_altitude_m", 2.0)),
-            deliver_position_tolerance_m=float(options.get("deliver_position_tolerance_m", 1.0)),
-            deliver_hold_s=float(options.get("deliver_hold_s", 2.0)),
-            deliver_ack_timeout_s=float(options.get("deliver_ack_timeout_s", 10.0)),
-        )
-        capabilities = effective_airframe_capabilities
-        if mission:
-            if mission == "operator_link":
-                # Keep a valid executor shape for the collector while the
-                # authenticated operator link waits for its first package.
-                self.operator_link_waiting = True
-                plan = plan_for_find_task("operator mission")
-            elif mission == "package":
-                if self.mission_package is None:
-                    raise ValueError("mission=package requires mission_package")
-                plan = self.mission_package.plan
-                self.mission_plan = plan
-                report = {"error": None, "source": "package", "repairs": []}
-            elif mission == "find":
-                plan = plan_for_find_task("target")
-            elif mission == "count":
-                plan = plan_for_count_task("target", region=str(options.get("region", "zone:all")))
-            elif mission == "find_and_inspect":
-                plan = plan_for_find_and_inspect(
-                    "target",
-                    views=int(options.get("inspect_views", 4)),
-                    standoff_m=float(options.get("inspect_standoff_m", 12.0)),
-                )
-            elif mission == "from_text":
-                from scripts.eval_slow_system import _http_json
-
-                refs = options.get("refs") or {}
-
-                labels = options.get("ref_labels") or {}
-                retry_setting = options.get(
-                    "retry_on_package_violation",
-                    options.get(
-                        "retry_on_package_violations",
-                        options.get("mission_package_retry", False),
-                    ),
-                )
-                package_retry = (
-                    retry_setting.strip().lower() in {"1", "true", "yes", "on"}
-                    if isinstance(retry_setting, str)
-                    else bool(retry_setting)
-                )
-                plan_checker = (
-                    (
-                        lambda candidate: check_plan_against_package(
-                            candidate,
-                            self.mission_package,
-                            capabilities=capabilities,
-                            executor_config=executor_config,
-                        )
-                    )
-                    if package_retry and self.mission_package is not None
-                    else None
-                )
-
-                def compile_once(runner):
-                    post_attempted = False
-
-                    def post(prompt: str, schema: dict[str, Any]) -> str:
-                        nonlocal post_attempted
-                        post_attempted = True
-                        body = {
-                            "model": "local",
-                            "temperature": 0,
-                            "max_tokens": 768,
-                            "messages": [{"role": "user", "content": prompt}],
-                            "response_format": {
-                                "type": "json_schema",
-                                "json_schema": {
-                                    "name": "mission_plan",
-                                    "strict": True,
-                                    "schema": schema,
-                                },
-                            },
-                        }
-                        started = time.perf_counter()
-                        try:
-                            response = _http_json(
-                                f"http://127.0.0.1:{runner.port}/v1/chat/completions",
-                                body,
-                                timeout=self.slow_call_timeout_s,
-                            )
-                        except Exception:
-                            self.health.record_slow_call(time.perf_counter() - started, ok=False)
-                            raise
-                        self.health.record_slow_call(time.perf_counter() - started, ok=True)
-                        return response["choices"][0]["message"].get("content", "")
-
-                    try:
-                        candidate, candidate_report = build_mission_from_text(
-                            self.task_text,
-                            labelled_refs(refs, labels),
-                            post,
-                            sorted_keys=bool(options.get("plan_sorted_keys", True)),
-                            plan_checker=plan_checker,
-                            capabilities=capabilities,
-                        )
-                    except Exception:
-                        # ``post`` records HTTP outcomes; do not count an
-                        # exception a second time as a slow fault.
-                        self.health.record_planning_failure()
-                        if not post_attempted:
-                            self.health.record_slow_call(0.0, ok=False)
-                        raise
-                    return candidate, candidate_report
-
-                if split_planning:
-                    planner_error = planner_start_error
-                    swap_close_started = None
-                    if planner_error is not None:
-                        self._model_runtime["planning_fallback_to_identity"] = True
-                        self.health.record_planning_failure()
-                        self.health.record_slow_call(0.0, ok=False)
-                        self.health.runner = self.slow
-                        plan, report = compile_once(self.slow)
-                    else:
-                        try:
-                            plan, report = compile_once(self.slow)
-                            if report.get("error"):
-                                self.health.record_planning_failure()
-                                raise ValueError(
-                                    f"mission plan compilation failed: {report['error']}"
-                                )
-                        except Exception:
-                            self._model_runtime["planning_fallback_to_identity"] = True
-                            swap_close_started = time.monotonic()
-                            close = getattr(self.slow, "close", None)
-                            if close is not None:
-                                close()
-                            self.slow = start_identity_runner()
-                            self.health.runner = self.slow
-                            try:
-                                plan, report = compile_once(self.slow)
-                            except Exception:
-                                close = getattr(self.slow, "close", None)
-                                if close is not None:
-                                    close()
-                                raise
-                        else:
-                            swap_close_started = time.monotonic()
-                            close = getattr(self.slow, "close", None)
-                            if close is not None:
-                                close()
-                            self.slow = start_identity_runner()
-                            self.health.runner = self.slow
-                    swap_completed = time.monotonic()
-                    self._model_runtime["swap_duration_s"] = (
-                        swap_completed - swap_close_started
-                        if swap_close_started is not None
-                        else None
-                    )
-                    self._model_runtime["swap_completed_monotonic_s"] = swap_completed
-                else:
-                    try:
-                        plan, report = compile_once(self.slow)
-                    except Exception:
-                        raise
-                self.mission_plan, self.mission_plan_report = plan, report
-                if report.get("error"):
-                    if split_planning:
-                        self.health.record_planning_failure()
-                    if self.mission_package is not None:
-                        package_violations = report.get("package_violations", [])
-                        if package_violations:
-                            self._refuse_package_plan(package_violations)
-                        close = getattr(self.slow, "close", None)
-                        if callable(close):
-                            close()
-                        raise ValueError(
-                            f"mission package plan compilation failed: {report['error']}"
-                        )
-                    raise ValueError(f"mission plan compilation failed: {report['error']}")
-            else:
-                raise ValueError(f"unknown mission template {mission!r}")
-            if self.mission_package is not None:
-                try:
-                    self.mission_package.validate_plan(plan)
-                except ValueError as exc:
-                    # The admission layer may safely clamp a small altitude
-                    # overshoot; retain all other package reference failures.
-                    if "altitude outside operating limits" not in str(exc):
-                        self.slow.close()
-                        raise
-                admission = validate_plan_for_execution(
-                    plan,
-                    self.mission_package,
-                    self.task_text,
-                    capabilities=capabilities,
-                )
-                report["validation"] = {
-                    "decision": admission.decision,
-                    "reasons_zh": list(admission.reasons_zh),
-                    "questions_zh": list(admission.questions_zh),
-                    "repairs": list(admission.repairs),
-                }
-                if admission.decision in {"accept", "repair"} and admission.plan is not None:
-                    plan = self.mission_plan = admission.plan
-                    report["repairs"] = list(report.get("repairs", ())) + list(admission.repairs)
-                else:
-                    refusal = [{
-                        "code": f"PLAN_{admission.decision.upper()}",
-                        "step_id": None,
-                        "message_zh": "；".join(admission.reasons_zh or ("计划需要操作员确认",)),
-                        "message_en": "; ".join(admission.questions_zh or admission.reasons_zh),
-                        "questions_zh": list(admission.questions_zh),
-                    }]
-                    self.mission_plan_report = report
-                    self._refuse_package_plan(refusal)
-                violations = check_plan_against_package(
-                    plan,
-                    self.mission_package,
-                    capabilities=capabilities,
-                    executor_config=executor_config,
-                )
-                if violations:
-                    self._refuse_package_plan(violations)
-                try:
-                    self.mission_package.validate_plan(plan)
-                except ValueError:
-                    close = getattr(self.slow, "close", None)
-                    if callable(close):
-                        close()
-                    raise
-            self.executor = MissionExecutor(
-                plan,
-                loop_factory=make_loop,
-                refs={str(k): tuple(v) for k, v in (options.get("refs") or {}).items()},
-                capabilities=capabilities,
-                mission_package=self.mission_package,
-                no_fly_zones=(
-                    self.mission_package.no_fly_zones if self.mission_package is not None else ()
-                ),
-                release_authorized=_enabled(options.get("release_authorized")),
-                task_text=(
-                    (lambda step: perception_task_text(step, self.task_text))
-                    if mission in {"from_text", "package"}
-                    else (lambda step: self.task_text)
-                ),
-                config=executor_config,
-                airframe_adapter=self.motion_adapter,
-            )
-            # When no package is loaded, use the executor's configured home if
-            # it provides one; never infer home from the first observed pose.
-            if self.safety_envelope.home_ned is None and self.executor.home is not None:
-                self.safety_envelope.set_home((*self.executor.home, 0.0))
-            # Set home on the executor itself, before any supervisor wraps it.
-            if home_ned is not None:
-                self.executor.home = home_ned[:2]
-                self.executor.cruise_altitude_m = altitude_m
-            if self.mission_package is not None:
-                self.executor.cruise_altitude_m = altitude_m
-                log = OnboardMissionLog(
-                    self.work_dir / "mission_log", self.mission_package.mission_id
-                )
-                self.downlink = DownlinkQueue(log, sender=None)
-                self.supervisor = MissionSupervisor(
-                    self.executor,
-                    self.mission_package,
-                    log=log,
-                    downlink=self.downlink,
-                    **self._supervisor_link_options(),
-                    energy_config=EnergyConfig.from_budget(
-                        self.mission_package.document["budget"], options.get("energy_model")
-                    ),
-                    runtime_mode=effective_runtime_mode,
-                    checkpoint_path=self.work_dir / "crash_resume" / "checkpoint.json",
-                )
-                if self._model_split:
-                    self.downlink.log.append(
-                        "model_swap",
-                        self.sim_timeline.now
-                        if self.sim_timeline is not None
-                        else time.monotonic(),
-                        model_runtime=dict(self._model_runtime),
-                    )
-                # Fallback for telemetry without a vehicle-clock stamp: readers
-                # stamp receipts with host monotonic time, while SIM timelines run
-                # on the simulation clock. Stamped SIM samples bypass this offset
-                # (see _energy_vehicle_estimator); it drifts when the sim is slow.
-                self._energy_receipt_clock_offset = self.supervisor._now - time.monotonic()
-                self.executor = self.supervisor
-                for event in options.get("ground_events", []):
-                    self.supervisor.ground_event(event)
-        self.slow_calls = 0
-
-    def _supervisor_link_options(self) -> dict[str, Any]:
-        """Clock and ground-command security settings shared by every MissionSupervisor."""
-        options = self.config
-        security = options.get("security") if isinstance(options.get("security"), dict) else {}
-        key = self._ground_key_setting
-        return {
-            **({"clock": lambda: self.sim_timeline.now} if self.sim_timeline else {}),
-            "security_key_path": str(key) if key is not None else None,
-            "timestamp_window_s": float(
-                options.get(
-                    "command_timestamp_window_s",
-                    security.get("timestamp_window_s", 30.0),
-                )
-            ),
-            "clock_skew_s": float(
-                options.get("command_clock_skew_s", security.get("clock_skew_s", 5.0))
-            ),
-            "rate_limit": int(options.get("command_rate_limit", security.get("rate_limit", 20))),
-            "rate_window_s": float(
-                options.get("command_rate_window_s", security.get("rate_window_s", 10.0))
-            ),
-        }
-
-    def _refuse_package_plan(
-        self,
-        violations: Sequence[Mapping[str, Any]],
-        package: MissionPackage | None = None,
-        *,
-        close_runner: bool = True,
-    ) -> None:
-        """Persist a fail-closed admission decision before raising to the caller.
-
-        An operator-link package is refused with ``close_runner=False``: the
-        running mission and its slow runner must stay untouched.
-        """
-        package = package if package is not None else self.mission_package
-        if package is None:
-            raise ValueError("mission plan violates package policy")
-        log = None
-        try:
-            log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
-            now = self.sim_timeline.now if self.sim_timeline is not None else time.monotonic()
-            log.append(
-                "mission_refused",
-                now,
-                reason="package_policy_violation",
-                violations=list(violations),
-            )
-            log.finish(
-                now,
-                {
-                    "status": "refused",
-                    "reason": "package_policy_violation",
-                    "violations": list(violations),
-                },
-            )
-        finally:
-            close = getattr(self.slow, "close", None) if close_runner else None
-            if close is not None:
-                close()
-        details = "; ".join(
-            f"{item.get('code')}: {item.get('message_zh')} / {item.get('message_en')}"
-            for item in violations
-        )
-        raise ValueError(f"mission plan refused by package policy: {details}")
 
     def admit_operator_package(self, package: MissionPackage) -> MissionSupervisor:
         """Compile and install a package (both steps; tests and legacy hosts)."""
@@ -1574,215 +486,14 @@ class OnboardPolicy:
         candidate through :meth:`install_operator_package` only after its own
         checks, a fresh preflight read and setting the plan-approval gate.
         """
-        if self.executor is None:
-            raise RuntimeError("operator package arrived before policy initialization")
-        capabilities = effective_capabilities(
-            getattr(self, "airframe_capabilities", frozenset()),
-            normalize_capabilities(package.document.get("capabilities", ())),
-        )
-        if package.plan is not None:
-            plan = package.plan
-            report: dict[str, Any] = {"error": None, "source": "package"}
-        else:
-            from scripts.eval_slow_system import _http_json
-            from scripts.eval_slow_system import LlamaServerRunner
-
-            planning_runner = None
-
-            def post(prompt: str, schema: dict[str, Any]) -> str:
-                runner = planning_runner or self.slow
-                if runner is None:
-                    raise ConnectionRefusedError("慢模型不可用: planner runner unavailable")
-                response = _http_json(
-                    f"http://127.0.0.1:{runner.port}/v1/chat/completions",
-                    {
-                        "model": "local",
-                        "temperature": 0,
-                        "max_tokens": 768,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "response_format": {
-                            "type": "json_schema",
-                            "json_schema": {
-                                "name": "mission_plan",
-                                "strict": True,
-                                "schema": schema,
-                            },
-                        },
-                    },
-                    timeout=self.slow_call_timeout_s,
-                )
-                return response["choices"][0]["message"].get("content", "")
-
-            restore_model = None
-            if self._model_split:
-                active_supervisor = getattr(self, "supervisor", None)
-                if active_supervisor is not None:
-                    active_supervisor.planned_model_switch = True
-                with self._model_lock:
-                    self._model_switching = True
-                self._cancel_slow_restart()
-                restart_thread = self._slow_restart_thread
-                if restart_thread is not None and restart_thread.is_alive():
-                    with self._model_lock:
-                        self._model_switching = False
-                    raise RuntimeError("慢模型重建仍在运行，暂不切换规划模型")
-                with self._model_lock:
-                    started = time.monotonic()
-                    identity = self.slow
-                    planner = None
-                    try:
-                        identity_close = getattr(identity, "close", None)
-                        if callable(identity_close):
-                            identity_close()
-                        planner = LlamaServerRunner(
-                            Path(self._planning_model_path),
-                            Path(self._planning_mmproj) if self._planning_mmproj else None,
-                            executable=Path(self.config["llama_server"]), port=self._identity_port,
-                            max_new_tokens=768, crop_policy="none", identity_only=False,
-                            logprobs=False, wait_port_free=True,
-                            cache_ram_mib=int(self.config.get("llama_cache_ram_mib", 0)),
-                        )
-                        self.slow = planner
-                        planning_runner = planner
-                        self.health.runner = planner
-                        if self._model_shutdown.is_set():
-                            raise RuntimeError("operator package planning cancelled")
-                        plan, report = build_mission_from_text(
-                            str(package.document["task_text"]),
-                            labelled_refs(package.refs, package.document.get("ref_labels") or {}),
-                            post, capabilities=capabilities,
-                            plan_checker=lambda candidate: check_plan_against_package(
-                                candidate, package, capabilities=capabilities,
-                                executor_config=self.executor.config,
-                            ),
-                        )
-                        if report.get("error"):
-                            raise ValueError(f"operator task planning failed: {report['error']}")
-                        if self._model_shutdown.is_set():
-                            raise RuntimeError("operator package planning cancelled")
-                    except Exception:
-                        if self._model_shutdown.is_set():
-                            if planner is not None:
-                                planner.close()
-                                self.slow = None
-                            raise RuntimeError("operator package planning cancelled")
-                        self._model_runtime["planning_fallback_to_identity"] = True
-                        self.health.record_planning_failure()
-                        if planner is not None:
-                            planner_close = getattr(planner, "close", None)
-                            if callable(planner_close):
-                                planner_close()
-                        self.slow = self._make_identity_runner()
-                        planning_runner = self.slow
-                        self.health.runner = self.slow
-                        plan, report = build_mission_from_text(
-                            str(package.document["task_text"]),
-                            labelled_refs(package.refs, package.document.get("ref_labels") or {}),
-                            post, capabilities=capabilities,
-                            plan_checker=lambda candidate: check_plan_against_package(
-                                candidate, package, capabilities=capabilities,
-                                executor_config=self.executor.config,
-                            ),
-                        )
-                    else:
-                        planner_close = getattr(planner, "close", None)
-                        if callable(planner_close):
-                            planner_close()
-                        self.slow = self._make_identity_runner()
-                        planning_runner = self.slow
-                        self.health.runner = self.slow
-                    finally:
-                        completed = time.monotonic()
-                        self._model_runtime["swap_duration_s"] = completed - started
-                        self._model_runtime["swap_completed_monotonic_s"] = completed
-                        self._model_switching = False
-                        if active_supervisor is not None:
-                            active_supervisor.planned_model_switch = False
-            else:
-                plan, report = build_mission_from_text(
-                str(package.document["task_text"]),
-                # The same labelled references as a start-up from_text mission.
-                # Bare names lost the link from the operator's words to the zone:
-                # "数一数场地里…" with "zone:site" alone planned zone:all (e2e
-                # run10: a 150 m search, budget exhausted); with "zone:site
-                # (场地 / the site)" both planner models choose zone:site.
-                labelled_refs(package.refs, package.document.get("ref_labels") or {}),
-                post,
-                capabilities=capabilities,
-                plan_checker=lambda candidate: check_plan_against_package(
-                    candidate,
-                    package,
-                    capabilities=capabilities,
-                    executor_config=self.executor.config,
-                ),
-                )
-            if report.get("error"):
-                raise ValueError(f"operator task planning failed: {report['error']}")
-        # The same package policy as a package loaded at start-up, whether the
-        # plan came with the package or was compiled here.
-        violations = check_plan_against_package(
-            plan, package, capabilities=capabilities, executor_config=self.executor.config
-        )
-        if violations:
-            self._refuse_package_plan(violations, package, close_runner=False)
-        package.validate_plan(plan)
-        executor = MissionExecutor(
-            plan,
-            loop_factory=self.executor.loop_factory,
-            refs=package.refs,
-            capabilities=capabilities,
-            mission_package=package,
-            config=self.executor.config,
-            task_text=lambda step: perception_task_text(
-                step, package.document.get("task_text", plan.goal)
-            ),
-            airframe_adapter=self.motion_adapter,
-        )
-        executor.home = self.executor.home
-        executor.cruise_altitude_m = self.executor.cruise_altitude_m
-        log = OnboardMissionLog(self.work_dir / "mission_log", package.mission_id)
-        downlink = DownlinkQueue(log, sender=None)
-        supervisor = MissionSupervisor(
-            executor,
+        return _prepare_runtime_operator_package(
+            self,
             package,
-            log=log,
-            downlink=downlink,
-            requires_approval=bool(self.config.get("operator_requires_approval", False)),
-            runtime_mode=self.runtime_mode,
-            **self._supervisor_link_options(),
-            # The same onboard energy model as a package loaded at start-up.
-            energy_config=EnergyConfig.from_budget(
-                package.document["budget"], self.config.get("energy_model")
-            ),
-        )
-        supervisor.plan_report = report
-        return supervisor
-
-    def install_operator_package(self, supervisor: MissionSupervisor) -> None:
-        """Make a prepared operator-link candidate the policy's mission."""
-        if not isinstance(supervisor, MissionSupervisor):
-            raise TypeError("operator package candidate must be a MissionSupervisor")
-        self.mission_package, self.mission_plan = supervisor.package, supervisor.executor.plan
-        self.mission_plan_report = getattr(supervisor, "plan_report", None)
-        # The package's sentence is now the mission's task, as for a package
-        # loaded at start-up: it sizes the search and titles the summary.
-        task_text = str(supervisor.package.document.get("task_text") or self.mission_plan.goal)
-        self.task_text = task_text
-        retarget = getattr(self, "_retarget_search", None)
-        if retarget is not None:
-            queries = [
-                str(step.params["query"])
-                for step in self.mission_plan.steps
-                if isinstance(step.params.get("query"), str)
-            ]
-            retarget(" ".join([task_text, *queries]))
-        self.supervisor, self.executor, self.downlink = supervisor, supervisor, supervisor.downlink
-        self.operator_link_waiting = False
-
-    def acknowledge_payload_release(self, request_id: str, *, released: bool = True) -> bool:
-        """Forward a host receipt; this policy has no payload hardware driver."""
-        return self.executor is not None and self.executor.acknowledge_payload_release(
-            request_id, released=released
+            build_mission_from_text=lambda *args, **kwargs: build_mission_from_text(*args, **kwargs),
+            perception_task_text=lambda *args: perception_task_text(*args),
+            path_type=lambda *args: Path(*args),
+            load_runner_type=_runtime_runner_type,
+            load_http_json=_runtime_http_json,
         )
 
     def close(self) -> None:
@@ -1835,6 +546,24 @@ class OnboardPolicy:
     def ground_event(self, event: dict[str, Any]) -> bool:
         """Optional transport adapter: timestamps are local receipt times."""
         return self.supervisor.ground_event(event) if self.supervisor is not None else False
+
+    def report_primitive_outcome(self, action, status: str, *, before, after) -> bool:
+        """Feed PX4 execution evidence back to active return-home recovery."""
+        supervisor = self.supervisor
+        executor = supervisor if supervisor is not None else self.executor
+        check = getattr(executor, "report_primitive_outcome", None)
+        return bool(callable(check) and check(action, status, before=before, after=after))
+
+    def active_mission_skill(self) -> str | None:
+        """Return the skill whose primitive the collector is about to execute."""
+        supervisor = self.supervisor
+        if supervisor is not None and supervisor.action in {"return_now", "land_now"}:
+            recovery = getattr(supervisor, "_recovery", None)
+            if recovery is not None:
+                step = recovery.current_step
+                return step.skill if step is not None else None
+        step = self.executor.current_step if self.executor is not None else None
+        return step.skill if step is not None else None
 
     def set_downlink_sender(self, sender: Callable[[dict[str, Any]], object] | None) -> None:
         """Attach an optional acknowledged transport; delivery runs in the queue worker."""
@@ -2325,6 +1054,9 @@ class OnboardPolicy:
                 )
 
     def _act_impl(self, observation: dict[str, Any], *, pose_ned, yaw_deg: float):
+        # Replace on every frame, including missing feedback: a gimbal search
+        # must never count coverage using the previous frame's camera pose.
+        self._search_camera_pose = observation.get("camera_pose")
         self._sync_vehicle_mode(observation)
         if getattr(self, "motion_adapter", None) is not None:
             self._set_active_camera_mode(self.motion_adapter.mode)
@@ -2517,6 +1249,11 @@ class OnboardPolicy:
                 ),
                 profile=self.airframe_profile,
                 mode=self.motion_adapter.mode,
+                gimbal_angles_deg=(
+                    observation.get("gimbal", {}).get("angles_deg")
+                    if isinstance(observation.get("gimbal"), Mapping)
+                    else None
+                ),
             )
             return base[0], direction
 
@@ -2546,6 +1283,14 @@ class OnboardPolicy:
                 landed=observation.get("landed"),
                 timestamp_s=_observation_timestamp_s(observation),
                 camera_info=camera_info,
+                vote_frame_path=frame_path,
+                view_pitch_deg=(
+                    float(observation.get("gimbal", {}).get("angles_deg", {}).get("pitch"))
+                    if isinstance(observation.get("gimbal"), Mapping)
+                    and isinstance(observation.get("gimbal", {}).get("angles_deg"), Mapping)
+                    and observation.get("gimbal", {}).get("angles_deg", {}).get("pitch") is not None
+                    else None
+                ),
                 **({"camera_ray": camera_ray} if ranging_enabled else {}),
             )
             if self._slow_failed_current:
@@ -2574,6 +1319,14 @@ class OnboardPolicy:
                 verdict = self.loop.remembered_verdict(track.track_id)
                 if verdict is None:
                     verdict = self._slow_identity(frame_path, current, track)
+                verdict = {
+                    **verdict,
+                    "frame_id": verdict.get("frame_id", frame_path.name),
+                    "frame_path": verdict.get("frame_path", str(frame_path)),
+                    "camera_pose_ned": verdict.get("camera_pose_ned", list(pose_ned)),
+                    "observation_source": verdict.get("observation_source", "onboard_rgb"),
+                    "observation_pitch_deg": verdict.get("observation_pitch_deg", None),
+                }
                 if verdict.get("error"):
                     self._slow_failed_current = True
                     record_error = getattr(self.supervisor, "record_perception_error", None)
@@ -2587,6 +1340,9 @@ class OnboardPolicy:
                     verdict.get("confidence"),
                     remembered=verdict.get("remembered", False),
                 )
+                vote = getattr(track, "identity_votes", ())
+                if vote:
+                    verdict.update(vote[-1])
                 slow.append(verdict)
         new_rejection = len(getattr(self.loop, "_rejections", ())) > rejection_count_before
         self._hybrid_candidate_visible = self._hybrid_candidate_blocks_reentry(current)
@@ -2644,6 +1400,7 @@ class OnboardPolicy:
                         "identity_verdict_history": list(
                             getattr(t, "identity_verdict_history", ())
                         ),
+                        "identity_votes": list(getattr(t, "identity_votes", ())),
                     }
                     for t in current
                 ],
@@ -2942,6 +1699,8 @@ class OnboardPolicy:
         timestamp_s=None,
         camera_ray=None,
         camera_info=None,
+        view_pitch_deg=None,
+        vote_frame_path=None,
     ):
         executor = self.executor
         step = executor.current_step
@@ -2963,6 +1722,10 @@ class OnboardPolicy:
                 if camera_ray is not None
                 else {}
             ),
+            frame_id=frame_path.name,
+            frame_path=str(vote_frame_path or frame_path),
+            observation_source="onboard_rgb",
+            view_pitch_deg=view_pitch_deg,
         )
         current = list(executor.current_tracks)
         slow = []
@@ -2977,6 +1740,14 @@ class OnboardPolicy:
             )
             if verdict is None:
                 verdict = self._slow_identity(frame_path, current, track, perception_text)
+            verdict = {
+                **verdict,
+                "frame_id": verdict.get("frame_id", frame_path.name),
+                "frame_path": verdict.get("frame_path", str(frame_path)),
+                "camera_pose_ned": verdict.get("camera_pose_ned", list(pose_ned)),
+                "observation_source": verdict.get("observation_source", "onboard_rgb"),
+                "observation_pitch_deg": verdict.get("observation_pitch_deg", view_pitch_deg),
+            }
             if verdict.get("remembered", False):
                 executor.apply_verdict(track.track_id, verdict["decision"], remembered=True)
             else:
@@ -2989,9 +1760,25 @@ class OnboardPolicy:
                         record_error(track.track_id, verdict["error"])
                     slow.append(verdict)
                     break
-                executor.apply_verdict(
-                    track.track_id, verdict.get("decision"), verdict.get("confidence")
-                )
+                try:
+                    executor.apply_verdict(
+                        track.track_id,
+                        verdict.get("decision"),
+                        verdict.get("confidence"),
+                        frame_id=frame_path.name,
+                        frame_path=str(vote_frame_path or frame_path),
+                        observation_source="onboard_rgb",
+                        view_pitch_deg=view_pitch_deg,
+                    )
+                except TypeError as exc:
+                    if "unexpected keyword argument" not in str(exc):
+                        raise
+                    executor.apply_verdict(
+                        track.track_id, verdict.get("decision"), verdict.get("confidence")
+                    )
+                vote = getattr(track, "identity_votes", ())
+                if vote:
+                    verdict.update(vote[-1])
                 record_error = getattr(
                     getattr(self, "supervisor", None), "record_perception_error", None
                 )
@@ -3097,6 +1884,7 @@ class OnboardPolicy:
                         "identity_verdict_history": list(
                             getattr(t, "identity_verdict_history", ())
                         ),
+                        "identity_votes": list(getattr(t, "identity_votes", ())),
                     }
                     for t in current
                 ],
@@ -3148,8 +1936,13 @@ def build_onboard_policy(
     frame_quality: int = 90,
     airframe: str | None = None,
     runtime_step_limit: int | None = None,
+    runtime_mode: str | None = None,
+    camera_mount: dict[str, Any] | None = None,
 ) -> OnboardPolicy:
     config = json.loads(config_path.read_text(encoding="utf-8")) if config_path else None
+    if camera_mount is not None:
+        config = {**(config or {})}
+        config.setdefault("camera_mount", camera_mount)
     if airframe is not None:
         # The collector flies a specific airframe; the policy must plan for it.
         config = {**(config or {}), "airframe": airframe}
@@ -3165,6 +1958,7 @@ def build_onboard_policy(
         config=config,
         frame_format=frame_format,
         frame_quality=frame_quality,
+        runtime_mode=runtime_mode,
     )
 
 

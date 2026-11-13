@@ -21,6 +21,7 @@ from multidetect.gr01_release_handoff import (
 from multidetect.gr01_release_plan import create_gr01_release_session_plan
 
 ROOT = Path(__file__).resolve().parents[1]
+PYTHON = Path(sys.executable).resolve()
 SCHEMA = ROOT / "configs" / "schemas" / "gr01-release-session-handoff.schema.json"
 
 
@@ -49,7 +50,7 @@ def _source_plan(
         maximum_attempts=3,
         maximum_evidence_age_s=900.0,
         repository_root=ROOT,
-        python_path=sys.executable,
+        python_path=PYTHON,
         output_root=ROOT / "tmp",
     )
     return plan, identity
@@ -77,7 +78,7 @@ def _create(
         receipt,
         source_plan=plan,
         target_repository_root=ROOT,
-        target_python=sys.executable,
+        target_python=PYTHON,
         target_output_root=ROOT / "tmp",
         host_id="FIELD-GCS-01",
     )
@@ -187,7 +188,7 @@ def test_handoff_reports_target_source_mismatch_fail_closed(
             receipt,
             source_plan=plan,
             target_repository_root=ROOT,
-            target_python=sys.executable,
+            target_python=PYTHON,
             target_output_root=ROOT / "tmp",
             host_id="FIELD-GCS-02",
         )
@@ -232,7 +233,7 @@ def test_handoff_rejects_malformed_source_identity_before_writing(
                 receipt,
                 source_plan=plan,
                 target_repository_root=ROOT,
-                target_python=sys.executable,
+                target_python=PYTHON,
                 target_output_root=ROOT / "tmp",
                 host_id="FIELD-GCS-INVALID",
             )
@@ -274,7 +275,6 @@ def test_portable_handoff_recomputes_stored_target_checks(
 
 
 def test_handoff_is_write_new_and_target_output_must_stay_in_repository(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="gr01-handoff-write-", dir=ROOT / "tmp") as name:
@@ -284,7 +284,7 @@ def test_handoff_is_write_new_and_target_output_must_stay_in_repository(
                 receipt,
                 source_plan=plan,
                 target_repository_root=ROOT,
-                target_python=sys.executable,
+                target_python=PYTHON,
                 target_output_root=ROOT / "tmp",
                 host_id="FIELD-GCS-01",
             )
@@ -293,8 +293,8 @@ def test_handoff_is_write_new_and_target_output_must_stay_in_repository(
                 Path(name) / "outside.json",
                 source_plan=plan,
                 target_repository_root=ROOT,
-                target_python=sys.executable,
-                target_output_root=tmp_path,
+                target_python=PYTHON,
+                target_output_root=ROOT.parent,
                 host_id="FIELD-GCS-01",
             )
 
@@ -316,7 +316,7 @@ def test_handoff_cli_create_allows_diagnostic_receipt_and_verify_is_strict(
                     "--repository-root",
                     str(ROOT),
                     "--python",
-                    sys.executable,
+                    str(PYTHON),
                     "--output-root",
                     str(ROOT / "tmp"),
                     "--host-id",

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Start an interactive PX4/Gazebo session in Docker Desktop.
+"""Start an interactive PX4/Gazebo session in Docker.
 
 The session owns one container and removes it on Ctrl+C.  It deliberately
 reuses ``run_simulator_docker`` for the pinned image and repository asset
-contract, then adds the WSLg display bindings needed by Gazebo's client.
+contract, then adds the container-side browser viewer.
 """
 
 from __future__ import annotations
@@ -33,14 +33,24 @@ from scripts.run_simulator_docker import (  # noqa: E402
     PINNED_IMAGE,
     DockerSimulatorPlan,
     build_docker_simulator_plan,
+    resolve_px4_daemon_mode,
+    resolve_px4_logger_mode,
 )
+from scripts.platform_paths import default_llama_server
+from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context
+from multidetect.sim_network import sim_listen_host, sim_udpin_endpoint
 
 DEFAULT_WORLD = "urban_inspection_multirotor_001.sdf"
 DEFAULT_AIRFRAME_WORLDS = {
     "x500": DEFAULT_WORLD,
     "x500_mono_cam": DEFAULT_WORLD,
+    "x500_gimbal": DEFAULT_WORLD,
     "standard_vtol": "river_rescue_vtol_001.sdf",
     "quadtailsitter": "quadtailsitter_mono_cam_001.sdf",
+    "delta_tailsitter": "delta_tailsitter_mono_cam_001.sdf",
+    "delta_tailsitter_mono_cam": "delta_tailsitter_mono_cam_001.sdf",
+    "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal_cam_001.sdf",
+    "delta_tailsitter_gimbal": "delta_tailsitter_gimbal_cam_001.sdf",
     "tiltrotor": "tiltrotor_mono_cam_001.sdf",
     "rc_cessna": "coastal_patrol_fixed_wing_001.sdf",
     "rc_cessna_mono_cam": "coastal_patrol_fixed_wing_001.sdf",
@@ -48,7 +58,7 @@ DEFAULT_AIRFRAME_WORLDS = {
 BASE_IMAGE_SHORT = PINNED_IMAGE.split("sha256:", 1)[1][:12]
 VIEWER_IMAGE = f"multidetect/px4-gazebo-viewer:{BASE_IMAGE_SHORT}"
 RESOLVED_FUEL_CACHE = ROOT / "artifacts/cache/gz-fuel/resolved"
-DEFAULT_LLAMA_SERVER = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+DEFAULT_LLAMA_SERVER = default_llama_server(ROOT)
 # Onboard-policy defaults for --onboard-task (the r18 mission-suite defaults).
 # Values starting with "artifacts/" resolve against --artifacts-root.
 DEFAULT_ONBOARD_DEFAULTS = ROOT / "configs/onboard/sim-session-r18-defaults.json"
@@ -72,10 +82,19 @@ WORLD_SCENARIOS.update(
 AIRFRAME_SCENARIOS = {
     "x500": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
     "x500_mono_cam": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
+    "x500_gimbal": WORLD_SCENARIOS["urban_inspection_multirotor_001.sdf"],
     "standard_vtol": WORLD_SCENARIOS["river_rescue_vtol_001.sdf"],
     "tiltrotor": ROOT / "configs/scenarios/airframes/tiltrotor_mono_cam_001.scenario.json",
     "quadtailsitter": ROOT
     / "configs/scenarios/airframes/quadtailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter_mono_cam": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_mono_cam_001.scenario.json",
+    "delta_tailsitter_gimbal_cam": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_gimbal_cam_001.scenario.json",
+    "delta_tailsitter_gimbal": ROOT
+    / "configs/scenarios/airframes/delta_tailsitter_gimbal_cam_001.scenario.json",
     "rc_cessna": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_mono_cam": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
     "rc_cessna_runway": WORLD_SCENARIOS["coastal_patrol_fixed_wing_001.sdf"],
@@ -85,10 +104,19 @@ AIRFRAME_SCENARIOS = {
 WORLD_SCENARIOS.update(
     {
         "quadtailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["quadtailsitter"],
+        "delta_tailsitter_mono_cam_001.sdf": AIRFRAME_SCENARIOS["delta_tailsitter"],
+        "delta_tailsitter_gimbal_cam_001.sdf": AIRFRAME_SCENARIOS["delta_tailsitter_gimbal_cam"],
         "tiltrotor_mono_cam_001.sdf": AIRFRAME_SCENARIOS["tiltrotor"],
     }
 )
-VTOL_AIRFRAMES = ("standard_vtol", "quadtailsitter", "tiltrotor")
+VTOL_AIRFRAMES = (
+    "standard_vtol",
+    "quadtailsitter",
+    "delta_tailsitter",
+    "delta_tailsitter_gimbal_cam",
+    "delta_tailsitter_gimbal",
+    "tiltrotor",
+)
 FIXED_WING_TAKEOFFS = ("runway", "hand", "catapult")
 
 
@@ -99,6 +127,9 @@ def _canonical_airframe(value: str) -> str:
         "multirotor": "x500_mono_cam",
         "standard_vtol_mono_cam": "standard_vtol",
         "quadtailsitter_mono_cam": "quadtailsitter",
+        "delta_tailsitter_mono_cam": "delta_tailsitter",
+        "delta_tailsitter_gimbal_cam": "delta_tailsitter_gimbal_cam",
+        "delta_tailsitter_gimbal": "delta_tailsitter_gimbal_cam",
         "tiltrotor_mono_cam": "tiltrotor",
         "rc_cessna": "rc_cessna_mono_cam",
         "rc_cessna_runway": "rc_cessna_mono_cam",
@@ -112,6 +143,8 @@ def _vehicle_family(value: str | None) -> str | None:
     """Coarse vehicle family of an airframe id or a runtime vehicle model."""
     text = str(value or "").lower()
     for token, family in (
+        ("delta_tailsitter_gimbal", "delta_tailsitter_gimbal"),
+        ("delta_tailsitter", "delta_tailsitter"),
         ("quadtailsitter", "quadtailsitter"),
         ("tiltrotor", "tiltrotor"),
         ("vtol", "standard_vtol"),
@@ -250,7 +283,7 @@ def _scenario_for(world: Path, airframe: str) -> Path:
     except KeyError as exc:
         raise ValueError(
             f"airframe {airframe!r} has no known scenario; use x500, standard_vtol, "
-            "quadtailsitter, tiltrotor, or rc_cessna"
+            "quadtailsitter, delta_tailsitter, tiltrotor, or rc_cessna"
         ) from exc
 
 
@@ -298,14 +331,16 @@ def build_session_command(
         control_port=control_port,
         telemetry_port=telemetry_port,
         image=PINNED_IMAGE,
+        gpu_render=False,
         dry_run=False,
+        airframe_profile_id=canonical,
     )
     command = list(plan.command)
     _replace_world_mount(command, world_path)
     image_index = command.index(plan.image)
     command[image_index] = VIEWER_IMAGE
     if viewer != "novnc":
-        raise ValueError("the browser viewer is the only supported viewer on docker-desktop")
+        raise ValueError("the browser viewer is the only supported viewer")
     env = ["HEADLESS=1", "DISPLAY=:99", "LIBGL_ALWAYS_SOFTWARE=1", f"VIEWER_PORT={viewer_port}"]
     if gcs_port is not None:
         if not 1024 <= gcs_port <= 65535 or gcs_port == control_port:
@@ -360,7 +395,7 @@ def _heartbeat(port: int, timeout: float = 20.0) -> bool:
     except ImportError:
         return False
     try:
-        connection = mavutil.mavlink_connection(f"udpin:127.0.0.1:{port}", autoreconnect=False)
+        connection = mavutil.mavlink_connection(sim_udpin_endpoint(port), autoreconnect=False)
     except OSError as exc:
         print(f"PX4 heartbeat socket unavailable on UDP {port}: {exc}", file=sys.stderr)
         return False
@@ -377,7 +412,7 @@ def _heartbeat_details(port: int, timeout: float) -> dict[str, object] | None:
     try:
         from pymavlink import mavutil
 
-        connection = mavutil.mavlink_connection(f"udpin:0.0.0.0:{port}", autoreconnect=False)
+        connection = mavutil.mavlink_connection(sim_udpin_endpoint(port), autoreconnect=False)
         try:
             message = connection.wait_heartbeat(timeout=timeout)
         finally:
@@ -402,6 +437,68 @@ def _session_log(path: Path | None, phase: str, **fields: object) -> None:
     row = {"ts": time.time(), "phase": phase, **fields}
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _container_runtime_snapshot(docker: str, container: str) -> dict[str, object]:
+    snapshot: dict[str, object] = {
+        "captured_wall_time": time.time(),
+        "container_name": container,
+        "container_id": None,
+        "state": None,
+        "px4_process_alive": None,
+        "px4_host_pids": [],
+    }
+    try:
+        inspected = subprocess.run(
+            [docker, "inspect", "--format", "{{json .}}", container],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if inspected.returncode != 0:
+            snapshot["container_inspect_error"] = (
+                inspected.stderr or inspected.stdout or f"docker inspect exited {inspected.returncode}"
+            ).strip()
+            return snapshot
+        details = json.loads(inspected.stdout)
+        state = details.get("State") or {}
+        snapshot["container_id"] = details.get("Id")
+        snapshot["state"] = {
+            "running": state.get("Running"),
+            "exit_code": state.get("ExitCode"),
+            "oom_killed": state.get("OOMKilled"),
+            "finished_at": state.get("FinishedAt"),
+        }
+        if state.get("Running") is False:
+            snapshot["px4_process_alive"] = False
+            return snapshot
+        if state.get("Running") is True:
+            top = subprocess.run(
+                [docker, "top", container, "-eo", "pid,comm"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if top.returncode == 0:
+                pids = []
+                for line in top.stdout.splitlines()[1:]:
+                    fields = line.strip().split(None, 1)
+                    if len(fields) != 2 or not fields[0].isdigit():
+                        continue
+                    process_name = fields[1].strip().split(None, 1)[0].rsplit("/", 1)[-1]
+                    if process_name.lower() == "px4":
+                        pids.append(int(fields[0]))
+                snapshot["px4_host_pids"] = pids
+                snapshot["px4_process_alive"] = bool(pids)
+            else:
+                snapshot["px4_process_error"] = (
+                    top.stderr or top.stdout or f"docker top exited {top.returncode}"
+                ).strip()
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as error:
+        snapshot["container_inspect_error"] = str(error)
+    return snapshot
 
 
 def _snapshot(
@@ -474,7 +571,7 @@ def validate_runtime_prerequisites(*, onboard: bool = False) -> None:
         raise RuntimeError(
             "resolved Gazebo Fuel cache is missing: "
             f"{RESOLVED_FUEL_CACHE}. Create the repository artifacts "
-            "junction/cache before starting."
+            "asset cache before starting."
         )
     if onboard and not DEFAULT_LLAMA_SERVER.is_file():
         raise RuntimeError(
@@ -560,6 +657,9 @@ def _run_task(
         "onboard",
         "--attach-container",
         container_name,
+        "--image",
+        VIEWER_IMAGE,
+        "--no-gpu-render",
         "--control-port",
         str(port),
         "--telemetry-port",
@@ -640,6 +740,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--container-name")
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
+    parser.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.snapshot_interval <= 0 or args.check_heartbeat < 0:
         parser.error("snapshot-interval must be positive and check-heartbeat non-negative")
@@ -663,14 +764,23 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.error(str(exc))
     docker = plan.docker_executable or shutil.which("docker")
     if not docker:
-        parser.error("Docker Desktop executable not found")
+        parser.error("Docker executable not found")
     ensure_viewer_image(docker, force=args.build_viewer)
     command[0] = docker
     snapshot_dir = args.snapshot_dir.resolve() if args.snapshot_dir else None
     if snapshot_dir:
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         (snapshot_dir / "session-provenance.json").write_text(
-            json.dumps(build_provenance(root=ROOT, world_paths=[world], command=sys.argv), ensure_ascii=False, indent=2) + "\n",
+            json.dumps(
+                {
+                    **build_provenance(root=ROOT, world_paths=[world], command=sys.argv),
+                    "px4_logger_mode": resolve_px4_logger_mode(),
+                    "px4_daemon_mode": resolve_px4_daemon_mode(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
     session_log = args.session_log.resolve() if args.session_log else None
@@ -678,18 +788,17 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(f"Gazebo world: {world}")
     print(
         f"PX4 control UDP: 127.0.0.1:{args.control_port}; "
-        f"telemetry: 127.0.0.1:{args.telemetry_port}"
+        f"telemetry: {sim_listen_host()}:{args.telemetry_port}"
     )
     if args.gcs_port:
         print(f"GCS UDP: 127.0.0.1:{args.gcs_port}")
     print(f"Browser viewer: http://127.0.0.1:{args.viewer_port}/vnc.html?autoconnect=1")
+    sitl_lock = SitlLock(args.sitl_lock_path, label="sim-session", min_memory_gb=5.0)
+    lock_context = sitl_lock_context(sitl_lock)
+    lock_context.__enter__()
+    task_failure_reason = None
     try:
         subprocess.run(command, cwd=ROOT, check=True)
-    except (OSError, subprocess.CalledProcessError):
-        subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
-        subprocess.run([docker, "rm", plan.container_name], check=False)
-        raise
-    try:
         _session_log(session_log, "container_started", container=plan.container_name)
         for _ in range(60):
             state = subprocess.run(
@@ -710,6 +819,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
         if not ready:
             raise RuntimeError("PX4/Gazebo world did not become ready within 240 seconds")
+        _session_log(
+            session_log,
+            "container_ready_snapshot",
+            container_snapshot=_container_runtime_snapshot(docker, plan.container_name),
+        )
         if spawned:
             _session_log(session_log, "vehicle_spawned")
         if snapshot_dir:
@@ -766,6 +880,8 @@ def main(argv: Iterable[str] | None = None) -> int:
                 exit_code=code,
                 summary_path=str(summary) if summary else None,
             )
+            if code:
+                task_failure_reason = f"onboard task exited with code {code}"
             if snapshot_dir:
                 _snapshot(docker, plan.container_name, snapshot_dir, label="task-end")
             stop_snapshots.set()
@@ -780,8 +896,28 @@ def main(argv: Iterable[str] | None = None) -> int:
         print("Stopping owned simulator container...")
     finally:
         _session_log(session_log, "teardown", container=plan.container_name)
+        container_snapshot = _container_runtime_snapshot(docker, plan.container_name)
+        failure = sys.exc_info()[1]
+        if failure is not None or task_failure_reason is not None:
+            reason = (
+                f"{type(failure).__name__}: {failure}"
+                if failure is not None
+                else task_failure_reason
+            )
+            _session_log(
+                session_log,
+                "container_failure_snapshot",
+                reason=reason,
+                container_snapshot=container_snapshot,
+            )
+        _session_log(
+            session_log, "container_cleanup_before_stop", container_snapshot=container_snapshot
+        )
         subprocess.run([docker, "stop", "--timeout", "2", plan.container_name], check=False)
+        cleanup_snapshot = _container_runtime_snapshot(docker, plan.container_name)
+        _session_log(session_log, "container_cleanup", container_snapshot=cleanup_snapshot)
         subprocess.run([docker, "rm", plan.container_name], check=False)
+        lock_context.__exit__(*sys.exc_info())
     return 0
 
 
@@ -789,4 +925,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["build_session_command", "resolve_world", "main"]
+__all__ = ["build_session_command", "resolve_world", "_container_runtime_snapshot", "main"]

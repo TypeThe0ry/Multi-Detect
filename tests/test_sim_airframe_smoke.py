@@ -23,6 +23,33 @@ def test_non_multirotor_runtime_is_accepted_for_explicit_airframe() -> None:
     assert data["vehicle"]["model"] == "advanced_plane_mono_cam"
 
 
+@pytest.mark.parametrize("airframe", ["x500_mono_cam", "x500_gimbal"])
+def test_multirotor_runtime_is_accepted_for_fixed_and_gimbal_profiles(airframe: str) -> None:
+    runtime = ROOT / "configs/scenarios/generated-r15/gen_r15_w0000.runtime_input.json"
+    data = collector._validate_runtime(runtime, airframe)
+    assert data["vehicle"]["model"] == "px4_multirotor_standard"
+
+
+@pytest.mark.parametrize(
+    ("runtime", "airframe"),
+    [
+        (
+            ROOT / "configs/scenarios/generated-r15/gen_r15_w0000.runtime_input.json",
+            "vtol",
+        ),
+        (
+            ROOT / "configs/scenarios/river_rescue_vtol_001.runtime.json",
+            "fixed_wing",
+        ),
+    ],
+)
+def test_profileless_airframe_alias_does_not_enforce_runtime_category(
+    runtime: Path, airframe: str
+) -> None:
+    data = collector._validate_runtime(runtime, airframe)
+    assert data["vehicle"]["model"]
+
+
 def test_smoke_plan_has_vtol_transition_and_airframe_speed_gate() -> None:
     profile = smoke.profile_for("standard_vtol_mono_cam")
     scenario = ROOT / "configs/scenarios/river_rescue_vtol_001.scenario.json"
@@ -188,7 +215,11 @@ def test_closed_loop_motion_commands_wait_like_primitives(monkeypatch) -> None:
     positions = iter([(0.0, 0.0, -30.0), (0.0, 0.0, -30.0), (50.0, 0.0, -30.0), (99.0, 0.0, -30.0)])
     monkeypatch.setattr(collector, "_state_position", lambda state: next(positions))
     monkeypatch.setattr(collector.time, "sleep", lambda s: None)
-    reader = type("R", (), {"state": None, "raise_if_failed": lambda self: None})()
+    reader = type(
+        "R",
+        (),
+        {"state": {"ATTITUDE": SimpleNamespace(yaw=0.0)}, "raise_if_failed": lambda self: None},
+    )()
     reposition = MotionCommand(
         "reposition", target_ned=(100.0, 0.0, -30.0), action=ActionPrimitive.translate(100.0, 0.0)
     )
@@ -293,3 +324,36 @@ def test_confuser_teacher_falls_back_to_forced_look_alikes() -> None:
     truth = Path("configs/scenarios/generated-r15/gen_r15_w0014.truth.json")
     _, label = collector._truth_target(truth, select="confuser", seed=0)
     assert "pickup" in label
+
+
+def test_gimbal_smoke_mounts_calibrated_camera_overlay(monkeypatch, tmp_path, capsys) -> None:
+    commands = []
+
+    class FakePopen:
+        returncode = 1
+
+        def __init__(self, command, **kwargs):
+            commands.append(command)
+
+        def communicate(self):
+            return "", "test stops before flight"
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(smoke.subprocess, "Popen", FakePopen)
+    scenario = ROOT / "configs/scenarios/urban_inspection_multirotor_001.scenario.json"
+    smoke.main(["--airframe", "x500_gimbal", "--scenario", str(scenario), "--out", str(tmp_path)])
+    capsys.readouterr()
+    assert len(commands) == 1
+    assert "--segmentation" in commands[0]
+    assert commands[0][commands[0].index("--airframe") + 1] == "x500_gimbal"
+
+
+def test_requested_takeoff_height_is_not_measured_climb_evidence(tmp_path) -> None:
+    (tmp_path / "episode.json").write_text(json.dumps({"takeoff_altitude_m": 40}))
+    (tmp_path / "mavlink.jsonl").write_text(json.dumps({
+        "message_type": "LOCAL_POSITION_NED", "x": 0, "y": 0, "z": -0.05,
+    }) + "\n")
+    result = smoke.evaluate_episode(tmp_path, smoke.profile_for("x500_mono_cam"))
+    assert result["takeoff_success"] is False

@@ -18,8 +18,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Any, Protocol, runtime_checkable
 
-from multidetect.sim_teacher.executor import SetpointStreamer
-from multidetect.sim_teacher.streams import MavlinkReader
+from multidetect.sim_teacher.executor import (
+    GIMBAL_MANAGER_DEVICE_ID,
+    GIMBAL_MANAGER_FLAGS_PITCH_LOCK,
+    GIMBAL_MANAGER_FLAGS_ROLL_LOCK,
+    GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME,
+    MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+    MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+    SetpointStreamer,
+)
+from multidetect.sim_teacher.streams import MavlinkReader, gimbal_angles_from_status
+from multidetect.gimbal_controller import GimbalManagerSession, Px4GimbalController, parse_gimbal_device_attitude_status
+from multidetect.camera_mount import CameraMount
 
 from .fw_vtol_commands import (
     CommandSpec,
@@ -113,6 +123,9 @@ class VehicleState:
     landed_state: int | None = None
     nav_state: str | None = None
     time_boot_ms: int | None = None
+    gimbal_angles_deg: Vector3 | None = None
+    gimbal_observed_monotonic: float | None = None
+    gimbal_attitude_rad: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +190,11 @@ class FixedWingVtolVehicle(VehicleInterface, Protocol):
 
     def fw_land(self, method: str = "runway", **kwargs: Any) -> CommandResult: ...
 
+    def gimbal_control(
+        self, *, pitch_deg: float, yaw_deg: float = 0.0, roll_deg: float = 0.0,
+        timeout_s: float = 1.0,
+    ) -> CommandResult: ...
+
 
 
 @runtime_checkable
@@ -240,7 +258,7 @@ class PymavlinkVehicle:
     encode_custom_mode = staticmethod(encode_custom_mode)
     parse_custom_mode = staticmethod(parse_custom_mode)
     _INTERVALS = ((32, 50_000), (30, 50_000), (33, 200_000),
-                  (242, 1_000_000), (245, 200_000), (1, 1_000_000),
+                  (242, 1_000_000), (245, 200_000), (285, 200_000), (1, 1_000_000),
                   (147, 1_000_000), (230, 200_000))
 
     def __init__(
@@ -251,8 +269,10 @@ class PymavlinkVehicle:
         connection: Any = None,
         target_system: int | None = None,
         target_component: int | None = None,
+        request_gimbal_attitude_stream: bool = False,
         write_timeout_s: float = 0.05,
         clock: Callable[[], float] = _precise_monotonic,
+        gimbal_yaw_correction_deg: float = 0.0,
     ) -> None:
         if not isinstance(endpoint, str) or not endpoint.strip():
             raise ValueError("MAVLink endpoint must be nonempty")
@@ -265,17 +285,23 @@ class PymavlinkVehicle:
                 raise ValueError("target MAVLink IDs must be in 1..255")
         if not math.isfinite(write_timeout_s) or write_timeout_s <= 0:
             raise ValueError("write_timeout_s must be positive and finite")
+        if not isinstance(request_gimbal_attitude_stream, bool):
+            raise ValueError("request_gimbal_attitude_stream must be boolean")
         self.endpoint = endpoint
         self.baud = baud
         self.connection = connection
         self.target_system = target_system
         self.target_component = target_component
+        self.request_gimbal_attitude_stream = request_gimbal_attitude_stream
         self._clock = clock
+        self._gimbal_yaw_correction_deg = float(gimbal_yaw_correction_deg)
         self._write_timeout_s = write_timeout_s
         self._state = VehicleState()
         self._state_lock = threading.Lock()
         self._send_lock = threading.Lock()
         self._reader: MavlinkReader | None = None
+        self._gimbal_session: GimbalManagerSession | None = None
+        self._gimbal_control_lock = threading.Lock()
         self._closed = False
         self._streams_requested = False
         self._heartbeat_sent_at = float("-inf")
@@ -397,6 +423,32 @@ class PymavlinkVehicle:
                                    attitude_monotonic=stamp)
                 if message.get("time_boot_ms") is not None:
                     updates["time_boot_ms"] = int(message["time_boot_ms"])
+            elif kind == "GIMBAL_DEVICE_ATTITUDE_STATUS":
+                angles = gimbal_angles_from_status(message)
+                flags = int(message.get("flags", 0) or 0)
+                if angles is not None and flags & 64 and state.attitude_deg is not None:
+                    angles = dict(angles)
+                    angles["yaw"] = (
+                        angles["yaw"] - state.attitude_deg[2]
+                        + self._gimbal_yaw_correction_deg + 180.0
+                    ) % 360.0 - 180.0
+                if angles is not None and (
+                    state.gimbal_observed_monotonic is None
+                    or stamp >= state.gimbal_observed_monotonic
+                ):
+                    updates.update(
+                        gimbal_angles_deg=(
+                            angles["roll"], angles["pitch"], angles["yaw"]
+                        ),
+                        gimbal_observed_monotonic=stamp,
+                    )
+                gimbal = parse_gimbal_device_attitude_status(message)
+                if gimbal is not None:
+                    updates["gimbal_attitude_rad"] = (
+                        gimbal.roll_rad,
+                        gimbal.pitch_rad,
+                        gimbal.yaw_rad,
+                    )
             elif kind == "HOME_POSITION":
                 home = _vector(message, ("latitude", "longitude", "altitude"))
                 if state.home_monotonic is None or stamp >= state.home_monotonic:
@@ -598,6 +650,88 @@ class PymavlinkVehicle:
         except (RuntimeError, TimeoutError, OSError, ValueError) as exc:
             return CommandResult("failed", spec.command, detail=str(exc))
 
+    def gimbal_control(
+        self,
+        *,
+        pitch_deg: float,
+        yaw_deg: float = 0.0,
+        roll_deg: float = 0.0,
+        timeout_s: float = 1.0,
+    ) -> CommandResult:
+        """Command a MAVLink mount and wait for a fresh attitude readback."""
+        with self._gimbal_control_lock:
+            if self._gimbal_session is not None:
+                return CommandResult("failed", MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, detail="onboard gimbal session already active")
+            return self._gimbal_control_direct(pitch_deg=pitch_deg, yaw_deg=yaw_deg, roll_deg=roll_deg, timeout_s=timeout_s)
+
+    def _gimbal_control_direct(
+        self, *, pitch_deg: float, yaw_deg: float = 0.0, roll_deg: float = 0.0,
+        timeout_s: float = 1.0,
+    ) -> CommandResult:
+        values = (float(pitch_deg), float(roll_deg), float(yaw_deg))
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("gimbal angles must be finite")
+        mav = getattr(self.connection, "mav", None)
+        identity = (getattr(mav, "srcSystem", None), getattr(mav, "srcComponent", None))
+        if any(type(value) is not int or not 1 <= value <= 255 for value in identity):
+            return CommandResult("failed", MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, detail="MAVLink connection has no valid source identity")
+        started = self._clock()
+        configure = self._command_with_ack(
+            CommandSpec(
+                MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+                (float(identity[0]), float(identity[1]), -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID)),
+                "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE",
+            ), timeout_s=min(timeout_s, 5.0),
+        )
+        if not configure.ok:
+            return configure
+        configure_started_ns = int(started * 1_000_000_000)
+        deadline = self._clock() + min(max(timeout_s, 0.1), 2.0)
+        manager_owned = False
+        while self._clock() < deadline:
+            reader = self._reader
+            state = getattr(reader, "state", None)
+            manager = state.get("GIMBAL_MANAGER_STATUS") if state is not None else None
+            received = getattr(state, "received_monotonic_ns", {}) if state is not None else {}
+            manager_ns = received.get("GIMBAL_MANAGER_STATUS", -1) if isinstance(received, dict) else -1
+            primary = manager.get("primary_control_sysid", 0) if isinstance(manager, dict) else getattr(manager, "primary_control_sysid", 0)
+            primary_component = manager.get("primary_control_compid", 0) if isinstance(manager, dict) else getattr(manager, "primary_control_compid", 0)
+            if (manager is not None and manager_ns >= configure_started_ns
+                    and (int(primary or 0), int(primary_component or 0)) == identity):
+                manager_owned = True
+                break
+            time.sleep(0.02)
+        if not manager_owned:
+            return CommandResult(
+                "rejected", MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+                detail=f"gimbal manager ownership was not confirmed (primary={int(primary or 0)}/{int(primary_component or 0)})",
+            )
+        result = self._command_with_ack(
+            CommandSpec(
+                MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
+                (float(pitch_deg), float(yaw_deg), math.nan, math.nan,
+                 float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK | GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+                 0.0, float(GIMBAL_MANAGER_DEVICE_ID)),
+                "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
+            ), timeout_s=timeout_s,
+        )
+        if not result.ok or timeout_s <= 0:
+            return result
+        deadline = self._clock() + float(timeout_s)
+        while self._clock() < deadline:
+            state = self.snapshot()
+            actual = state.gimbal_angles_deg
+            if actual is not None and state.gimbal_observed_monotonic is not None and state.gimbal_observed_monotonic >= started:
+                error = {
+                    "pitch": abs((actual[1] - float(pitch_deg) + 180.0) % 360.0 - 180.0),
+                    "roll": abs((actual[0] - float(roll_deg) + 180.0) % 360.0 - 180.0),
+                    "yaw": abs((actual[2] - float(yaw_deg) + 180.0) % 360.0 - 180.0),
+                }
+                if max(error.values()) <= 4.0:
+                    return result
+            time.sleep(0.02)
+        return CommandResult("timeout", MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, detail="GIMBAL_DEVICE_ATTITUDE_STATUS readback timeout")
+
     def read_parameter(self, name: str, *, timeout_s: float = 1.0, retries: int = 3) -> float:
         """Read one parameter.
 
@@ -687,9 +821,42 @@ class PymavlinkVehicle:
     def request_home_position(self) -> None:
         self._command(512, 242.0)
 
+    def send_gimbal_pitch_yaw(
+        self,
+        pitch_down_rad: float,
+        yaw_world_rad: float,
+        *,
+        mode: str = "lock-horizon",
+        vehicle_yaw_rad: float = 0.0,
+    ) -> None:
+        """Point the gimbal in earth frame using MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW."""
+        if not all(math.isfinite(value) for value in (pitch_down_rad, yaw_world_rad, vehicle_yaw_rad)):
+            raise ValueError("gimbal angles must be finite")
+        if mode not in {"follow-body", "lock-horizon", "follow-yaw"}:
+            raise ValueError("unsupported gimbal mode")
+        if self.connection is None or self._reader is None:
+            raise RuntimeError("vehicle telemetry reader is not started")
+        if self._gimbal_session is None:
+            if not self._gimbal_control_lock.acquire(blocking=False):
+                raise RuntimeError("direct gimbal control is already active")
+            try:
+                if self._gimbal_session is None:
+                    self._gimbal_session = GimbalManagerSession(self.connection, self._reader, self._command, target=self._target())
+            finally:
+                self._gimbal_control_lock.release()
+        controller = Px4GimbalController(
+            CameraMount.gimbal(), lambda command, params: self._gimbal_session.command(command, *params)
+        )
+        controller.command_pitch_yaw(pitch_down_rad, yaw_world_rad, mode=mode, vehicle_yaw_rad=vehicle_yaw_rad)
+
+    def poll_gimbal(self) -> str | None:
+        return self._gimbal_session.poll() if self._gimbal_session is not None else None
+
     def _request_streams(self) -> None:
         self._streams_requested = True
         for message_id, interval_us in self._INTERVALS:
+            if message_id == 285 and self.request_gimbal_attitude_stream:
+                interval_us = 50_000
             self._command(511, float(message_id), float(interval_us))
         if not self._autopilot_version_requested:
             self._autopilot_version_requested = True
@@ -874,6 +1041,8 @@ class PymavlinkVehicle:
         if self._closed:
             return
         self._closed = True
+        if self._gimbal_session is not None:
+            self._gimbal_session.close()
         if self._reader is not None:
             self._reader.stop()
         if self.connection is not None:

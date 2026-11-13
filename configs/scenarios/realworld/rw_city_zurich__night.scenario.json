@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_zurich__night",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_zurich__night.runtime.json",
+   "sha256": "9e8349037c634fb693b03bd06eb7aa1c6fb4d6eb8280292ff746e6e8330d2656"
+  },
+  "truth": {
+   "path": "rw_city_zurich__night.truth.json",
+   "sha256": "d7e25caec239900b34525d3b5a67c0b77ac9e635c82449378d7577532781532e"
+  },
+  "expectations": {
+   "path": "rw_city_zurich__night.expectations.json",
+   "sha256": "fe47673fb8734dbf52145b46c9a786e83f3d262ea0240c63343ef8c54942d0e4"
+  }
+ }
+}

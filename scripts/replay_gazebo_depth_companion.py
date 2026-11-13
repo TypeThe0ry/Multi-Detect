@@ -12,7 +12,7 @@ import argparse
 import hashlib
 import json
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import cv2
@@ -68,7 +68,14 @@ def _verify_manifest(path: Path) -> dict[str, Any]:
 
 
 def _resolve_child(root: Path, value: object, *, label: str) -> Path:
-    if not isinstance(value, str) or not value or Path(value).name != value:
+    if (
+        not isinstance(value, str)
+        or not value
+        or "/" in value
+        or "\\" in value
+        or PureWindowsPath(value).name != value
+        or Path(value).name != value
+    ):
         raise DepthCompanionReplayError(f"{label} must be a file name")
     resolved = (root / value).resolve()
     if resolved.parent != root.resolve():

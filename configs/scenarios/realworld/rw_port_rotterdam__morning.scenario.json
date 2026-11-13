@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_port_rotterdam__morning",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_port_rotterdam__morning.runtime.json",
+   "sha256": "bc8286314459c4bb2493800ab0574c76b975ad97af5bba00a15f70b0262d733b"
+  },
+  "truth": {
+   "path": "rw_port_rotterdam__morning.truth.json",
+   "sha256": "3692bd102eef3065e83e4f2589db483b1f172611171bd52a892a5763a44205b7"
+  },
+  "expectations": {
+   "path": "rw_port_rotterdam__morning.expectations.json",
+   "sha256": "f7d5055d585075901dc90b40639684e739d9c0bab297ef5c15d95b4eb6275971"
+  }
+ }
+}

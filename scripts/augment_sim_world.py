@@ -2,7 +2,8 @@
 # ruff: noqa: E501
 """为 Gazebo 世界生成可复现的风、光照、噪声、演员和地形变体。
 
-变体只写入 ``simulation/gazebo/worlds/variants``，不会改写输入世界。
+SDF 写入 ``--out-dir``（默认 ``simulation/gazebo/worlds/variants``），不会改写输入世界。
+注册 index 时同时在 index 目录保存 SDF 副本和完整的场景通道。
 风只写 world ``<wind>`` 和一条阵风注释；世界里一旦声明任何 ``<plugin>``，
 Gazebo 就不再加载默认系统、世界永远无法就绪。WindEffects 由容器启动补丁
 （``run_simulator_docker._ENABLE_WIND_EFFECTS``）按需加入 server config。
@@ -31,7 +32,14 @@ def _child(parent: ET.Element, tag: str, text: str | None = None) -> ET.Element:
     return node
 
 
-def _suffix(args: argparse.Namespace) -> str:
+def variant_world_id(source_stem: str, variant: dict) -> str:
+    """Use the same naming/defaults for suite previews and generated worlds."""
+    args = argparse.Namespace(**{
+        "wind_mps": None, "gust_mps": None, "gust_period": 5.0,
+        "camera_noise": None, "time_of_day": None, "fog": False,
+        "actors": 0, "terrain": None,
+        **{key: value for key, value in variant.items() if value is not None and value is not False},
+    })
     bits = []
     if args.wind_mps is not None:
         bits.append(f"wind{args.wind_mps:g}")
@@ -47,7 +55,34 @@ def _suffix(args: argparse.Namespace) -> str:
         bits.append(f"actors{args.actors}")
     if args.terrain:
         bits.append(args.terrain)
-    return "__" + "_".join(bits or ["base"])
+    return source_stem + "__" + "_".join(bits or ["base"])
+
+
+def scenario_files(index: Path, entry: dict) -> dict[str, Path]:
+    """Resolve both legacy indexes and explicit file/channel bindings.
+
+    The scenario manifest is authoritative for its channels. Normalize Windows
+    separators on Linux, just as the runtime channel loader does.
+    """
+    stem = Path(entry["world_file"].replace("\\", "/")).stem
+    binding = (entry.get("files") or {}).get("scenario", f"{stem}.scenario.json")
+
+    def resolve(base: Path, reference: dict | str) -> Path:
+        relative = reference["path"] if isinstance(reference, dict) else reference
+        path = base / relative.replace("\\", "/")
+        if not path.is_file():
+            raise FileNotFoundError(f"source scenario file not found: {path}")
+        return path
+
+    scenario = resolve(index.parent, binding)
+    payload = json.loads(scenario.read_text(encoding="utf-8"))
+    return {
+        "scenario": scenario,
+        **{
+            name: resolve(scenario.parent, payload["channels"][name])
+            for name in ("runtime_input", "truth", "expectations")
+        },
+    }
 
 
 def _add_wind(world: ET.Element, speed: float, gust: float | None, period: float) -> None:
@@ -198,11 +233,13 @@ def transform(source: Path, output: Path, args: argparse.Namespace) -> dict[str,
     }
 
 
-def register_variant(index: Path, source_name: str, variant_name: str) -> None:
+def register_variant(
+    index: Path, source_name: str, variant_name: str, *, world_path: Path
+) -> None:
     data = json.loads(index.read_text(encoding="utf-8"))
     worlds = data.setdefault("worlds", [])
     source = next((item for item in worlds if item.get("world_file") == source_name), None)
-    source_dir = index.parent
+    source_index = index
     target_dir = index.parent
     if source is None:
         fallback = ROOT / "configs/scenarios/generated-count-site/index.json"
@@ -212,38 +249,39 @@ def register_variant(index: Path, source_name: str, variant_name: str) -> None:
                 (item for item in base.get("worlds", []) if item.get("world_file") == source_name),
                 None,
             )
-            source_dir = fallback.parent
+            source_index = fallback
     if source is None:
         raise ValueError(f"source world not found in {index}: {source_name}")
+    # Missing inputs must fail before advertising an unusable variant. Legacy
+    # generated indexes omit `files`, but still have all four sibling JSONs.
+    sources = scenario_files(source_index, source)
+    payloads = {
+        name: json.loads(path.read_text(encoding="utf-8"))
+        for name, path in sources.items()
+    }
+    if not world_path.is_file():
+        raise FileNotFoundError(f"variant world not found: {world_path}")
     entry = dict(source)
     entry["world_file"] = variant_name
     entry["world_id"] = Path(variant_name).stem
     entry["variant_of"] = source_name
     variant_stem = Path(variant_name).stem
     source_stem = Path(source_name).stem
-    for suffix in (".scenario.json", ".runtime_input.json", ".truth.json", ".expectations.json"):
-        source_file = source_dir / f"{source_stem}{suffix}"
-        target_file = target_dir / f"{variant_stem}{suffix}"
-        if source_file.is_file():
-            payload = json.loads(source_file.read_text(encoding="utf-8"))
-            if isinstance(payload, dict):
-                payload["scenario_id"] = variant_stem
-                if suffix == ".scenario.json":
-                    payload["channels"] = {
-                        name: {"path": f"{variant_stem}.{name}.json"}
-                        for name in ("expectations", "runtime_input", "truth")
-                    }
-                if suffix == ".runtime_input.json":
-                    payload.setdefault("world", {})["world_asset"] = (
-                        f"builtin://gazebo/{variant_stem}"
-                    )
-                    payload["world"]["map_asset"] = f"builtin://maps/{variant_stem}.geojson"
-                    payload["world"]["dem_asset"] = f"builtin://terrain/{variant_stem}.dem.json"
-                target_file.write_text(
-                    json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-                )
-            else:
-                shutil.copyfile(source_file, target_file)
+    for name, payload in payloads.items():
+        payload["scenario_id"] = variant_stem
+        if name == "runtime_input":
+            payload["world"]["world_asset"] = f"builtin://gazebo/{variant_stem}"
+            payload["world"]["map_asset"] = f"builtin://maps/{variant_stem}.geojson"
+            payload["world"]["dem_asset"] = f"builtin://terrain/{variant_stem}.dem.json"
+        (target_dir / f"{variant_stem}.{name}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    # builtin:// still resolves from the shared simulation asset tree. The
+    # index-relative world binding must also exist, including local sidecars.
+    for path in (world_path, world_path.parent / "actor_box.dae", world_path.parent / "terrain.pgm"):
+        target = target_dir / path.name
+        if path.is_file() and path.resolve() != target.resolve():
+            shutil.copyfile(path, target)
     for asset_kind, suffix in (("maps", ".geojson"), ("terrain", ".dem.json")):
         original = ROOT / "simulation" / asset_kind / f"{source_stem}{suffix}"
         target = ROOT / "simulation" / asset_kind / f"{variant_stem}{suffix}"
@@ -331,10 +369,10 @@ def main() -> int:
     if args.gust_period <= 0 or args.actors < 0:
         parser.error("gust period and actors must be non-negative (period > 0)")
     source = args.source.resolve()
-    output = args.out_dir.resolve() / f"{source.stem}{_suffix(args)}.sdf"
+    output = args.out_dir.resolve() / f"{variant_world_id(source.stem, vars(args))}.sdf"
     report = transform(source, output, args)
     if args.register_index:
-        register_variant(args.register_index.resolve(), source.name, output.name)
+        register_variant(args.register_index.resolve(), source.name, output.name, world_path=output)
     print(json.dumps({"output": str(output), **report}, ensure_ascii=False))
     return 0
 

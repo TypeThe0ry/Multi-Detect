@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_singapore__windy",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_city_singapore__windy.runtime.json",
+   "sha256": "b0d40cd90723880bf1a0d503f2f58843a353a677ed01fd08cf0c48de5bfa97a3"
+  },
+  "truth": {
+   "path": "rw_city_singapore__windy.truth.json",
+   "sha256": "b5a8fe26f69b6f66bbe0c46b6755a6d209e7a43408c2ebb91b79db4e863ecd88"
+  },
+  "expectations": {
+   "path": "rw_city_singapore__windy.expectations.json",
+   "sha256": "cd4af72071e5fd1ecc59c357c749c524bc3e137b4f78ab2d5b04ba22468b5714"
+  }
+ }
+}

@@ -1,8 +1,9 @@
 import json
+import sys
 
 import pytest
 
-from scripts.eval_r21id_identity import _merge, calculate_metrics, evaluate, markdown_report
+from scripts.eval_r21id_identity import _merge, calculate_metrics, evaluate, main, markdown_report
 
 
 def _rows(target="t1", category="fire_hydrant"):
@@ -40,6 +41,37 @@ def test_evaluate_failure_names_r18_retention(tmp_path):
     assert "保留 r18" in markdown_report(result)
 
 
+def test_cli_records_failed_acceptance_and_exits_success(tmp_path, monkeypatch):
+    rows = _rows()
+    dataset = tmp_path / "test.jsonl"
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    reject_all = [{"sample_id": row["sample_id"], "decision": "reject_track"} for row in rows]
+    baseline = tmp_path / "baseline.json"
+    candidate = tmp_path / "candidate.json"
+    baseline.write_text(json.dumps({"rows": reject_all}), encoding="utf-8")
+    candidate.write_text(json.dumps({"rows": reject_all}), encoding="utf-8")
+    output_json = tmp_path / "identity-report.json"
+    output_md = tmp_path / "identity-report.md"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "eval_r21id_identity.py",
+            "--dataset", str(dataset),
+            "--baseline", str(baseline),
+            "--candidate", str(candidate),
+            "--output-json", str(output_json),
+            "--output-md", str(output_md),
+        ],
+    )
+
+    assert main() == 0
+    report = json.loads(output_json.read_text(encoding="utf-8"))
+    assert report["candidate_pass"] is False
+    assert report["decision"] == "保留 r18"
+    assert "不通过原因" in output_md.read_text(encoding="utf-8")
+
+
 def test_rows_without_target_id_are_skipped_not_scored():
     # search_region / no-candidate rows name no instance.
     assert _merge([{"sample_id": "x"}], [{"sample_id": "x", "decision": "search_region"}]) == []
@@ -72,3 +104,21 @@ def test_null_view_rows_are_counted_and_incomplete_instances_reported(tmp_path):
     result = evaluate(ds, first, second)
     assert result["null_view_rows"] == {"r18": 1, "candidate": 1}
     assert result["incomplete_instances"] == {"r18": 1, "candidate": 1}
+
+
+def test_custom_model_labels_are_used_in_report(tmp_path):
+    rows = _rows()
+    ds = tmp_path / "test.jsonl"
+    ds.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    predictions = [{"sample_id": r["sample_id"], "decision": r["expected"]} for r in rows]
+    baseline, candidate = tmp_path / "r3.json", tmp_path / "r4.json"
+    baseline.write_text(json.dumps({"rows": predictions}), encoding="utf-8")
+    candidate.write_text(json.dumps({"rows": predictions}), encoding="utf-8")
+
+    report = evaluate(ds, baseline, candidate, baseline_label="r21id-r3", candidate_label="r21id-r4")
+    rendered = markdown_report(report)
+
+    assert report["baseline_label"] == "r21id-r3"
+    assert report["candidate_label"] == "r21id-r4"
+    assert "| 指标 | r21id-r3 | r21id-r4 | 门槛 |" in rendered
+    assert report["decision"] == "保留 r21id-r3"

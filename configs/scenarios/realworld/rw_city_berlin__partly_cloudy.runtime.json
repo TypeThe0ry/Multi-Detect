@@ -1,0 +1,59 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_berlin__partly_cloudy",
+ "scenario_version": 1,
+ "seed": 91000,
+ "world": {
+  "world_asset": "builtin://gazebo/rw_city_berlin__partly_cloudy",
+  "map_asset": "builtin://maps/rw_city_berlin__partly_cloudy.geojson",
+  "dem_asset": "builtin://terrain/rw_city_berlin__partly_cloudy.dem.json",
+  "wind_north_mps": 0.0,
+  "wind_east_mps": 0.0,
+  "gust_mps": 0.0
+ },
+ "vehicle": {
+  "model": "x500_mono_cam",
+  "airframe_profile_id": "px4_multirotor_gazebo_v1",
+  "spawn_id": "urban_home_multirotor"
+ },
+ "sensors": [
+  {
+   "sensor_id": "front-camera",
+   "kind": "rgb_camera",
+   "stream_uri": "gazebo://rw_city_berlin__partly_cloudy/front-camera",
+   "calibration_id": "gazebo-multirotor-front-camera-v1"
+  },
+  {
+   "sensor_id": "px4-telemetry",
+   "kind": "mavlink_telemetry",
+   "stream_uri": "udp://127.0.0.1:14541"
+  },
+  {
+   "sensor_id": "downward-depth",
+   "kind": "depth_camera",
+   "stream_uri": "gazebo://rw_city_berlin__partly_cloudy/downward-depth",
+   "calibration_id": "gazebo-multirotor-depth-v1"
+  }
+ ],
+ "faults": [
+  {
+   "event_id": "gps-dropout-001",
+   "at_s": 35.0,
+   "kind": "gps_dropout",
+   "duration_s": 4.0
+  },
+  {
+   "event_id": "wind-gust-001",
+   "at_s": 80.0,
+   "kind": "wind_gust",
+   "duration_s": 5.0,
+   "magnitude": 2.0
+  },
+  {
+   "event_id": "camera-loss-001",
+   "at_s": 120.0,
+   "kind": "camera_dropout",
+   "duration_s": 4.0
+  }
+ ]
+}

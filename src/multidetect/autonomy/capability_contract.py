@@ -17,7 +17,15 @@ SKILL_REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 KNOWN_CAPABILITIES = frozenset(
-    {"payload_drop", "winch", "spotlight", "speaker", "landing_on_target", "hover"}
+    {
+        "payload_drop",
+        "winch",
+        "spotlight",
+        "speaker",
+        "landing_on_target",
+        "hover",
+        "gimbal_control",
+    }
 )
 
 
@@ -47,6 +55,9 @@ def capabilities_for_airframe(profile: Any, configured: Any = ()) -> frozenset[s
         method in {"multirotor", "vtol"} for method in landing
     ):
         result.add("landing_on_target")
+    gimbal = getattr(getattr(profile, "camera", None), "gimbal", {})
+    if isinstance(gimbal, Mapping) and bool(gimbal.get("enabled")):
+        result.add("gimbal_control")
     return frozenset(result)
 
 
@@ -59,14 +70,89 @@ def effective_capabilities(airframe: Any, package: Any = None) -> frozenset[str]
     return frozenset(base & declared)
 
 
-def capability_violations(plan: Any, capabilities: Any, *, airframe: Any = None) -> list[dict[str, Any]]:
+def capability_violations(
+    plan: Any, capabilities: Any, *, airframe: Any = None
+) -> list[dict[str, Any]]:
     """Return stable planner violations for physically unsupported skills."""
     available = normalize_capabilities(capabilities)
     findings: list[dict[str, Any]] = []
     steps = plan.get("steps", ()) if isinstance(plan, Mapping) else getattr(plan, "steps", ())
-    for step in steps:
+    step_list = list(steps)
+
+    # A fixed-wing aircraft cannot stop and descend vertically at an arbitrary
+    # point.  On the successful execution path, ``goto(target) -> land`` is
+    # therefore target landing even when the land step omits target_ref.  A
+    # return_home in between is the explicit runway/home landing sequence and
+    # clears the target-landing interpretation.
+    by_id = {
+        str(step.get("id") if isinstance(step, Mapping) else getattr(step, "id", "")): step
+        for step in step_list
+    }
+    current = step_list[0] if step_list else None
+    seen: set[str] = set()
+    last_goto_target = False
+    while current is not None:
+        current_id = str(
+            current.get("id") if isinstance(current, Mapping) else getattr(current, "id", "")
+        )
+        if current_id in seen:
+            break
+        seen.add(current_id)
+        skill = (
+            current.get("skill")
+            if isinstance(current, Mapping)
+            else getattr(current, "skill", None)
+        )
+        params = (
+            current.get("params", {})
+            if isinstance(current, Mapping)
+            else getattr(current, "params", {})
+        )
+        if skill == "return_home":
+            last_goto_target = False
+        elif skill == "goto":
+            last_goto_target = bool((params or {}).get("target_ref"))
+        elif skill == "land" and last_goto_target and (
+            airframe == "airframe:fixed_wing" or "airframe:fixed_wing" in available
+        ) and "landing_on_target" not in available:
+            step_id = current_id or None
+            if not any(
+                finding["step_id"] == step_id
+                and "landing_on_target" in finding["message_en"]
+                for finding in findings
+            ):
+                findings.append(
+                    {
+                        "code": "missing_capability",
+                        "step_id": step_id,
+                        "message_zh": (
+                            f"步骤 {step_id or ''} 使用 land，固定翼在 goto 目标后降落"
+                            "缺少能力 landing_on_target"
+                        ),
+                        "message_en": (
+                            f"step {step_id or ''} lands after goto(target) on fixed-wing; "
+                            "missing capability landing_on_target"
+                        ),
+                        "message": (
+                            "缺少能力 landing_on_target / missing capability landing_on_target"
+                        ),
+                        "blocking": True,
+                    }
+                )
+        next_id = (
+            current.get("on_success")
+            if isinstance(current, Mapping)
+            else getattr(current, "on_success", None)
+        )
+        current = by_id.get(str(next_id)) if next_id is not None else None
+
+    for step in step_list:
         skill = step.get("skill") if isinstance(step, Mapping) else getattr(step, "skill", None)
-        params = step.get("params", {}) if isinstance(step, Mapping) else getattr(step, "params", {})
+        params = (
+            step.get("params", {})
+            if isinstance(step, Mapping)
+            else getattr(step, "params", {})
+        )
         step_id = step.get("id") if isinstance(step, Mapping) else getattr(step, "id", None)
         required = set(SKILL_REQUIRED_CAPABILITIES.get(skill, ()))
         if skill == "hover" and airframe is None and "airframe:fixed_wing" not in available:
@@ -83,7 +169,10 @@ def capability_violations(plan: Any, capabilities: Any, *, airframe: Any = None)
                         "code": "missing_capability",
                         "step_id": step_id,
                         "message_zh": f"步骤 {step_id or ''} 使用 {skill}，缺少能力 {capability}",
-                        "message_en": f"step {step_id or ''} uses {skill}; missing capability {capability}",
+                        "message_en": (
+                            f"step {step_id or ''} uses {skill}; "
+                            f"missing capability {capability}"
+                        ),
                         "message": f"缺少能力 {capability} / missing capability {capability}",
                         "blocking": True,
                     }

@@ -3,6 +3,7 @@
 import io
 import struct
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,12 +17,17 @@ from scripts.gazebo_segmentation_wire import (
     normalize_labels_map,
     read_segmentation_wire_frame,
 )
+from scripts.gazebo_depth_wire import ROTOR_VELOCITY_SLOWDOWN
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from scripts.sim_teacher_frame_server import (  # noqa: E402
+    ODOMETRY_VELOCITY_BOUND_ERROR,
     Candidate,
     ExactSegmentationPairer,
     LatestCandidate,
+    OdometrySamplePolicy,
+    _frame_joint_state,
+    _joint_sample_from_message,
     encode_candidate,
 )
 
@@ -69,6 +75,27 @@ def test_join_requires_exact_stamp_and_handles_both_callback_orders(seg_first):
     assert latest.latest.stamp_ns == 100
 
 
+def test_one_odometry_velocity_spike_is_dropped_then_stream_recovers() -> None:
+    policy = OdometrySamplePolicy(max_consecutive_rejections=3)
+
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "drop"
+    assert policy.velocity_rejections == 1
+    policy.accepted()
+    assert policy.consecutive_rejections == 0
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "drop"
+    assert policy.velocity_rejections == 2
+
+
+def test_persistent_odometry_velocity_spikes_fail_closed() -> None:
+    policy = OdometrySamplePolicy(max_consecutive_rejections=3)
+
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "drop"
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "drop"
+    assert policy.reject(ValueError(ODOMETRY_VELOCITY_BOUND_ERROR)) == "fail"
+    assert policy.velocity_rejections == 3
+    assert policy.max_observed_consecutive_rejections == 3
+
+
 def test_raw_labels_map_strips_padding_without_channel_swap():
     message = SimpleNamespace(width=2, height=1, step=8, pixel_format_type=3,
                               data=bytes([255, 1, 42, 2, 0, 43, 99, 99]))
@@ -92,8 +119,130 @@ def test_optional_companion_roundtrip_and_identical_nearest_resize():
     # Disabled mode still parses exactly the existing RGB/depth record.
     record = encode_candidate(_candidate(), 0, _contract(), (2, 1), (2, 1), "FLOAT32_M")
     reader = SensorStreamReader(io.BytesIO(record), depth_binding=_contract(), max_frames=1).start()
-    assert reader.wait_first_frame(2).segmentation is None
+    sample = reader.wait_first_frame(2)
+    assert sample.segmentation is None
+    assert sample.joint_state is None
     reader.stop()
+
+
+def test_gazebo_joint_state_is_bound_to_rgb_stamp_and_roundtrips():
+    joints = []
+    values = {
+        "rotor_0_joint": (0.1, 11.0),
+        "rotor_1_joint": (0.2, -12.0),
+        "rotor_2_joint": (0.3, 13.0),
+        "rotor_3_joint": (0.4, -14.0),
+        "cgo3_camera_joint": (-0.5, 0.6),
+        "cgo3_vertical_arm_joint": (0.7, -0.8),
+        "cgo3_horizontal_arm_joint": (0.9, 1.0),
+    }
+    for name, (position, velocity) in values.items():
+        joints.append(
+            SimpleNamespace(
+                name=name,
+                axis1=SimpleNamespace(position=position, velocity=velocity),
+            )
+        )
+    message = SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=0, nsec=95)),
+        joint=joints,
+    )
+    state = _frame_joint_state(_joint_sample_from_message(message), 100)
+    assert state is not None
+    assert state["timestamp_ns"] == 100
+    assert state["source_timestamp_ns"] == 95
+    assert state["source_skew_ns"] == 5
+    assert state["gimbal_joint_state"]["position_rad"] == {
+        "pitch": -0.5,
+        "yaw": 0.7,
+        "roll": 0.9,
+    }
+    assert state["propeller_joint_state"]["angles_rad"] == [0.1, 0.2, 0.3, 0.4]
+    assert state["propeller_joint_state"]["spin_rad_s"] == [11.0, -12.0, 13.0, -14.0]
+    assert state["propeller_joint_state"]["velocity_slowdown"] == ROTOR_VELOCITY_SLOWDOWN
+    physical_spin = (
+        state["propeller_joint_state"]["spin_rad_s"][0]
+        * state["propeller_joint_state"]["velocity_slowdown"]
+    )
+    assert physical_spin == 110.0
+
+    record = encode_candidate(
+        replace(_candidate(), joint_state=state), 0, _contract(), (2, 1), (2, 1), "FLOAT32_M"
+    )
+    reader = SensorStreamReader(io.BytesIO(record), depth_binding=_contract(), max_frames=1).start()
+    sample = reader.wait_first_frame(2)
+    assert sample.joint_state == state
+    reader.stop()
+
+    invalid_propellers = dict(state["propeller_joint_state"])
+    invalid_propellers["angles_rad"] = [float("nan"), 0.2, 0.3, 0.4]
+    invalid_state = {**state, "propeller_joint_state": invalid_propellers}
+    with pytest.raises(ValueError, match="finite"):
+        encode_candidate(
+            replace(_candidate(), joint_state=invalid_state),
+            1,
+            _contract(),
+            (2, 1),
+            (2, 1),
+            "FLOAT32_M",
+        )
+
+    invalid_propellers = dict(state["propeller_joint_state"])
+    invalid_propellers["velocity_slowdown"] = ROTOR_VELOCITY_SLOWDOWN / 2
+    invalid_state = {**state, "propeller_joint_state": invalid_propellers}
+    with pytest.raises(ValueError, match="velocity_slowdown"):
+        encode_candidate(
+            replace(_candidate(), joint_state=invalid_state),
+            1,
+            _contract(),
+            (2, 1),
+            (2, 1),
+            "FLOAT32_M",
+        )
+
+
+def test_joint_state_omits_incomplete_or_stale_actuator_samples():
+    sample = {
+        "stamp_ns": 100,
+        "joints": {"rotor_0_joint": {"position_rad": 0.0, "velocity_rad_s": 0.0}},
+    }
+    assert _frame_joint_state(sample, 100 + 100_000_001) is None
+    assert _frame_joint_state(sample, 100) is None
+
+
+def test_c11_complete_frame_requires_all_gimbal_and_rotor_joints():
+    joints = {
+        "rotor_0_joint": {"position_rad": 0.1, "velocity_rad_s": 11.0},
+        "rotor_1_joint": {"position_rad": 0.2, "velocity_rad_s": -12.0},
+        "rotor_2_joint": {"position_rad": 0.3, "velocity_rad_s": 13.0},
+        "rotor_3_joint": {"position_rad": 0.4, "velocity_rad_s": -14.0},
+        "c11_yaw_joint": {"position_rad": 0.5, "velocity_rad_s": 0.6},
+        "c11_roll_joint": {"position_rad": 0.7, "velocity_rad_s": -0.8},
+        "c11_pitch_joint": {"position_rad": 0.9, "velocity_rad_s": 1.0},
+    }
+    sample = {"stamp_ns": 95, "joints": joints}
+    state = _frame_joint_state(sample, 100, require_complete=True)
+    assert state is not None
+    assert state["gimbal_joint_state"]["position_rad"] == {
+        "yaw": 0.5,
+        "roll": 0.7,
+        "pitch": 0.9,
+    }
+    assert state["propeller_joint_state"]["angles_rad"] == [0.1, 0.2, 0.3, 0.4]
+
+    missing_rotor = {**joints}
+    del missing_rotor["rotor_3_joint"]
+    assert _frame_joint_state(
+        {"stamp_ns": 95, "joints": missing_rotor}, 100, require_complete=True
+    ) is None
+
+    missing_axis = {**joints}
+    del missing_axis["c11_roll_joint"]
+    assert _frame_joint_state(
+        {"stamp_ns": 95, "joints": missing_axis}, 100, require_complete=True
+    ) is None
+
+    assert _frame_joint_state(sample, 100 + 100_000_001, require_complete=True) is None
 
 
 def test_companion_rejects_stale_missing_corrupt_or_wrong_rgb():
@@ -131,3 +280,107 @@ def test_collector_overlay_and_channel_are_opt_in(tmp_path, monkeypatch):
     )
     assert "model-overlays" in command[command.index("--mount") + 1]
     assert "--segmentation" in collector._camera_stream_command(enabled, environment)
+    command = collector._camera_stream_command(
+        replace(enabled, airframe="x500_gimbal"), environment
+    )
+    assert command[command.index("--segmentation-topic") + 1] == (
+        "/multidetect/teacher/segmentation/labels_map"
+    )
+    assert collector._has_registered_depth_camera("x500_gimbal")
+    assert "--depth-contract-json" in command
+    assert not collector._has_registered_depth_camera("x500_mono_cam")
+
+
+@pytest.mark.parametrize("airframe,smoke,timeout", [
+    ("x500_mono_cam", False, 17.0),
+    ("delta_tailsitter", False, 17.0),
+    ("delta_tailsitter", True, 122.0),
+])
+def test_merged_city_startup_wait_preserves_scoped_delta_smoke_budget(
+    tmp_path, monkeypatch, airframe, smoke, timeout
+):
+    import json
+    from scripts import collect_sim_teacher_episodes as collector
+
+    runtime = tmp_path / "runtime.json"
+    runtime.write_text(json.dumps({"sensors": [{"kind": "rgb_camera"}]}))
+    plan = collector.CollectionPlan("scenario", str(runtime), "truth", "explore", 1, 1, 0, "out")
+    monkeypatch.setenv("MULTIDETECT_SIM_FIRST_FRAME_WAIT_S", "180")
+    command = collector._camera_stream_command(
+        replace(plan, airframe=airframe, smoke_flight=smoke), SimpleNamespace(name="episode")
+    )
+    assert float(command[command.index("--request-timeout-s") + 1]) == timeout
+    assert float(command[command.index("--first-frame-timeout-s") + 1]) == 180
+
+
+def test_gimbal_segmentation_overlay_targets_image_model_root(tmp_path):
+    from scripts.collect_sim_teacher_episodes import CollectionPlan, docker_command
+    from scripts.run_simulator_docker import CONTAINER_IMAGE_MODEL_ROOT
+
+    root = Path(__file__).resolve().parents[1]
+    scenario = root / "configs/scenarios/generated-v2/gen_v2_w0038.scenario.json"
+    runtime = scenario.parent / "gen_v2_w0038.runtime_input.json"
+    truth = scenario.parent / "gen_v2_w0038.truth.json"
+    plan = CollectionPlan(
+        str(scenario),
+        str(runtime),
+        str(truth),
+        "expert_search",
+        1,
+        1,
+        0,
+        str(tmp_path),
+        airframe="x500_gimbal",
+        segmentation=True,
+    )
+
+    command = docker_command(plan, name="gimbal-overlay-test")
+    mounts = [command[index + 1] for index, token in enumerate(command) if token == "--mount"]
+    overlay = next(mount for mount in mounts if "x500_gimbal_seg" in mount)
+
+    assert "target=/opt/px4-gazebo/share/gz/models/x500_gimbal,readonly" in overlay
+    assert "target=/opt/multidetect-gazebo-models/x500_gimbal,readonly" not in overlay
+    gimbal_camera = next(
+        mount
+        for mount in mounts
+        if "target=/opt/px4-gazebo/share/gz/models/gimbal/model.sdf,readonly" in mount
+    )
+    assert "x500_gimbal_seg/gimbal/model.sdf" in gimbal_camera
+    environment = {
+        command[index + 1].split("=", 1)[0]: command[index + 1].split("=", 1)[1]
+        for index, token in enumerate(command)
+        if token == "--env"
+    }
+    assert environment["PX4_GZ_MODELS"] == CONTAINER_IMAGE_MODEL_ROOT
+    assert CONTAINER_IMAGE_MODEL_ROOT in environment["GZ_SIM_RESOURCE_PATH"].split(":")
+    startup = command[-1]
+    assert f"export PX4_GZ_MODELS={CONTAINER_IMAGE_MODEL_ROOT};" in startup
+    assert "model://gimbal" in (
+        root / "simulation/gazebo/model-overlays/x500_gimbal_seg/model.sdf"
+    ).read_text(encoding="utf-8")
+
+
+def test_x500_overlays_publish_actual_rotor_and_gimbal_joints():
+    root = Path(__file__).resolve().parents[1]
+    fixed = ET.parse(root / "simulation/gazebo/model-overlays/x500_mono_cam_seg/model.sdf")
+    gimbal = ET.parse(root / "simulation/gazebo/model-overlays/x500_gimbal_seg/model.sdf")
+
+    def joint_publisher(document):
+        plugins = [
+            plugin
+            for plugin in document.findall(".//plugin")
+            if plugin.get("name") == "gz::sim::systems::JointStatePublisher"
+        ]
+        assert len(plugins) == 1
+        assert plugins[0].get("filename") == "gz-sim-joint-state-publisher-system"
+        assert plugins[0].find("topic") is None
+        assert float(plugins[0].findtext("update_rate")) == 100.0
+        return {element.text for element in plugins[0].findall("joint_name")}
+
+    rotors = {f"rotor_{index}_joint" for index in range(4)}
+    assert joint_publisher(fixed) == rotors
+    assert joint_publisher(gimbal) == rotors | {
+        "cgo3_camera_joint",
+        "cgo3_vertical_arm_joint",
+        "cgo3_horizontal_arm_joint",
+    }

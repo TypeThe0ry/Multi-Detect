@@ -174,6 +174,13 @@ class VehicleTelemetry:
     mission_item_reached_sequence: int | None = None
     mission_item_reached_observed_at_s: float = nan
     attitude_observed_at_s: float = nan
+    # Optional articulated-camera state.  NaN means that the vehicle carries
+    # no gimbal or the status sample was unavailable; fixed-camera consumers
+    # continue to use their configured mount matrix.
+    gimbal_yaw_deg: float = nan
+    gimbal_roll_deg: float = nan
+    gimbal_pitch_deg: float = nan
+    gimbal_observed_at_s: float = nan
     # Optional one-sigma attitude uncertainty at ``attitude_observed_at_s``.
     # Producers must publish all three axes plus a non-empty source together;
     # ranging treats partial tuples as malformed instead of silently mixing

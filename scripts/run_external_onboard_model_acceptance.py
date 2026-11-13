@@ -1782,7 +1782,7 @@ def run_acceptance(
     container_name: str = DEFAULT_CONTAINER_NAME,
     control_port: int = DEFAULT_CONTROL_PORT,
     telemetry_port: int = DEFAULT_TELEMETRY_PORT,
-    image: str = PINNED_IMAGE,
+    image: str | None = None,
     runner: Callable[..., object] | None = None,
     sensor_frame_count: int = 0,
     sensor_width: int = 1280,
@@ -2142,7 +2142,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--container-name", default=DEFAULT_CONTAINER_NAME)
     parser.add_argument("--control-port", type=int, default=DEFAULT_CONTROL_PORT)
     parser.add_argument("--telemetry-port", type=int, default=DEFAULT_TELEMETRY_PORT)
-    parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument("--image", default=None)
     parser.add_argument("--docker", type=Path)
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--sensor-frames", type=int, default=0)

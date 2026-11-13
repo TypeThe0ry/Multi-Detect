@@ -26,6 +26,12 @@ def shard_row(path, raw=b"bounded parquet fixture"):
 def exact_source(fixture_source, monkeypatch):  # noqa: F811
     value = fixture_source
     monkeypatch.setattr(exact, "ROOT", value.root)
+    original_version = exact.importlib.metadata.version
+    monkeypatch.setattr(
+        exact.importlib.metadata,
+        "version",
+        lambda name: "0.0.0-fixture" if name == "huggingface_hub" else original_version(name),
+    )
     leaf, _publication, probe, _acquisition, _planner, fetch, _builder = exact.helpers()
     for name in exact.SOURCE_FILES:
         write(value.root / name, b"new metadata-only fixture source\n")

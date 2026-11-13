@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import os
+import queue
 import random
 import shutil
 import subprocess
@@ -26,9 +27,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.provenance import build_provenance
+from multidetect.autonomy.airframe_profile import airframe_profile_category
+from multidetect.simulator.cpu import resolve_cpu_isolation
+from multidetect.sim_network import sim_network_mode
+from scripts.platform_paths import default_llama_server
+from scripts.sitl_lock import SitlLock, configured_slot_count, default_lock_path
+from scripts.run_simulator_docker import gpu_assignment_for_worker
 BUCKETS = ("<12", "12-16", "16-20", "20-32", ">=32")
 STAGES = ("collect", "annotate", "build_sft", "train", "export", "eval", "report")
 R15_EPISODES_PER_WORLD = 4
+MAX_COLLECT_WORKERS = 8
 # Collection plan requires a continuous far-to-near pass through roughly
 # 14-16 m, 9 m, 6 m and 4.5 m, plus 80 frames below 4 m. At 20 FPS, four
 # 80-frame observation windows are the smallest round-number budget that
@@ -98,6 +106,35 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def recorded_episode_is_complete(record: dict) -> bool:
+    """Trust a saved collection completion only while its artifact still verifies."""
+    if record.get("status") != "complete":
+        return False
+    path_value = record.get("path")
+    expected_hash = record.get("sha256")
+    if not path_value or not expected_hash:
+        return False
+    path = Path(path_value)
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        return metadata.get("status") == "complete" and sha256(path) == expected_hash
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def incomplete_episode_artifacts(target: Path) -> list[str]:
+    """Find earlier collector outputs without a final complete status."""
+    paths = []
+    for path in sorted(target.glob("attempt-*/**/episode-*/episode.json")):
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            metadata = {}
+        if not isinstance(metadata, dict) or metadata.get("status") != "complete":
+            paths.append(str(path))
+    return paths
+
+
 def bucket(short_side: float) -> str:
     for edge, name in zip((12, 16, 20, 32), BUCKETS, strict=False):
         if short_side < edge:
@@ -116,6 +153,65 @@ def content_digest(row: dict) -> str:
     return hashlib.sha256(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def decision_conflict_key(row: dict) -> str:
+    candidates = row.get("candidates") or []
+    focus = row.get("focus_track_id")
+    focused = next(
+        (candidate for candidate in candidates if candidate.get("track_id") == focus),
+        candidates[0] if candidates else None,
+    )
+    return json.dumps(
+        [row.get("image_path"), row.get("task_text"), focused],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def validate_no_conflicting_decisions(rows: list[dict]) -> int:
+    decisions: dict[str, str] = {}
+    conflicts = 0
+    for row in rows:
+        key = decision_conflict_key(row)
+        decision = str((row.get("assistant_target") or {}).get("decision", "unknown"))
+        previous = decisions.get(key)
+        if previous is not None and previous != decision:
+            conflicts += 1
+        else:
+            decisions[key] = decision
+    if conflicts:
+        raise ValueError(f"conflicting decisions for identical model input ({conflicts} groups)")
+    return conflicts
+
+
+def drop_legacy_conflicting_confusable_positives(rows: list[dict]) -> tuple[list[dict], int]:
+    """Remove historical alias positives superseded by an original label.
+
+    Older replay sets contain ``confusable_positive`` rows for a task/candidate
+    that already has a true-target or counterfactual label.  They are semantic
+    duplicates, so retaining both would make the new post-merge conflict gate
+    reject an otherwise clean r6 additions set.
+    """
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        groups.setdefault(decision_conflict_key(row), []).append(row)
+    kept: list[dict] = []
+    dropped = 0
+    protected_labels = {"true_target", "proposal_true", "counterfactual", "proposal_counterfactual"}
+    for group in groups.values():
+        labels = {str(row.get("label_type")) for row in group}
+        decisions = {str((row.get("assistant_target") or {}).get("decision")) for row in group}
+        if len(decisions) > 1 and "confusable_positive" in labels and labels & protected_labels:
+            for row in group:
+                if row.get("label_type") == "confusable_positive":
+                    dropped += 1
+                else:
+                    kept.append(row)
+        else:
+            kept.extend(group)
+    return kept, dropped
 
 
 def merge_without_copies(base: list[dict], additions: list[dict]) -> list[dict]:
@@ -154,6 +250,25 @@ def distribution(rows: list[dict]) -> dict:
         )
         stats[(cls, size, polarity)] += 1
     return {"|".join(key): value for key, value in sorted(stats.items())}
+
+
+def effective_view_counts(rows: list[dict]) -> dict:
+    identity: Counter = Counter()
+    hard_pairs: Counter = Counter()
+    positive = {"confirm_target", "approach_track"}
+    for row in rows:
+        view = str(row.get("view") or "missing")
+        decision = str((row.get("assistant_target") or {}).get("decision", "unknown"))
+        polarity = "positive" if decision in positive else "negative" if decision == "reject_track" else "other"
+        category = str(row.get("task_category") or row.get("target_class") or "unknown")
+        identity[(category, polarity, view)] += 1
+        pair = row.get("confusable_pair_type")
+        if pair and row.get("label_type") == "confusable_negative" and decision == "reject_track":
+            hard_pairs[(str(pair), view)] += 1
+    return {
+        "task_category_polarity_view": {"|".join(key): value for key, value in sorted(identity.items())},
+        "confusable_negative_pair_view": {"|".join(key): value for key, value in sorted(hard_pairs.items())},
+    }
 
 
 def r21id_r2_breakdown(rows: list[dict]) -> dict:
@@ -647,6 +762,50 @@ def round_world_ids(index: Path) -> list[str]:
     return [str(item["world_id"]) for item in doc.get("worlds", []) if item.get("world_id")]
 
 
+def selected_episode_metadata(
+    keys_file: Path | None, key_roots: list[Path], data_root: Path
+) -> list[Path]:
+    """Resolve audited logical keys through each root's final round-state path."""
+    if keys_file is None:
+        if key_roots:
+            raise ValueError("--episode-key-root requires --episode-keys-file")
+        return []
+    if not key_roots:
+        raise ValueError("--episode-keys-file requires at least one --episode-key-root")
+    keys = [line.strip() for line in keys_file.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    if len(keys) != len(set(keys)):
+        raise ValueError("episode key list contains duplicates")
+    found: dict[str, Path] = {}
+    for root_arg in key_roots:
+        root = root_arg if root_arg.is_absolute() else data_root / root_arg
+        state_path = root / "pipeline" / "round-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        for key in keys:
+            record = state.get("episodes", {}).get(key)
+            if record is None:
+                continue
+            if record.get("status") != "complete" or not record.get("path"):
+                raise ValueError(f"episode key {key} is not complete in {state_path}")
+            metadata = Path(record["path"])
+            if not metadata.is_absolute():
+                metadata = root / metadata
+            metadata = metadata.resolve(strict=True)
+            episode = json.loads(metadata.read_text(encoding="utf-8"))
+            world = next((part for part in metadata.parts if part.startswith("gen_")), None)
+            ep_parent = next((part for part in metadata.parts if part.startswith("ep-")), None)
+            if episode.get("status") not in (None, "complete") or f"{world}:{ep_parent[3:]}" != key:
+                raise ValueError(f"episode key/path/status mismatch for {key}: {metadata}")
+            if key in found:
+                raise ValueError(f"episode key {key} appears in multiple key roots")
+            found[key] = metadata.parent
+    missing = sorted(set(keys) - found.keys())
+    if missing:
+        raise ValueError(f"episode keys absent from complete round-state paths: {missing}")
+    print(f"[episode-keys] selected {len(found)} audited logical episodes")
+    return [found[key] for key in keys]
+
+
 def filter_collection_options(options: dict, categories: set[str] | None = None) -> dict:
     """Select scenario options by resolved airframe category."""
     selected = set(categories or ())
@@ -669,6 +828,29 @@ def frame_key_root(episodes: Path) -> Path:
             return parent
     raise RuntimeError(f"采集目录 {resolved} 不在任何 git 仓库内，build_sft 无法生成相对帧路径")
 
+
+
+def with_worker_slot(cmd: list[str], slot: int) -> list[str]:
+    """Rewrite a planned collector command onto collection worker ``slot``."""
+    values = {
+        "--container-prefix": f"r15-worker-{slot}",
+        "--worker-index": str(slot),
+        "--control-port": str(R15_BASE_CONTROL_PORT + slot * 10),
+        "--telemetry-port": str(R15_BASE_TELEMETRY_PORT + slot * 10),
+        "--sim-instance": str(slot),
+    }
+    out = list(cmd)
+    for index, token in enumerate(out[:-1]):
+        if token in values:
+            out[index + 1] = values[token]
+    return out
+
+
+def worker_gpu_assignments(worker_count: int) -> tuple[tuple[int, str | None], ...]:
+    """Resolve the GPU selected for each runtime worker slot without launching Docker."""
+    if isinstance(worker_count, bool) or not isinstance(worker_count, int) or worker_count < 1:
+        raise ValueError("worker_count must be a positive integer")
+    return tuple((slot, gpu_assignment_for_worker(slot)) for slot in range(worker_count))
 
 class Round:
     def __init__(self, args):
@@ -919,12 +1101,17 @@ class Round:
             )
         )
 
-    def _collect_one(self, key: str, cmd: list[str], target: Path) -> dict:
+    def _collect_one(self, key: str, cmd: list[str], target: Path, *, env=None) -> dict:
         # Each attempt writes to its own directory so a failed or partial attempt can
         # never be mistaken for this key's episode (or another key's).
         prefix = cmd[cmd.index("--container-prefix") + 1]
         attempt = 0
-        try_index = 0
+        existing_attempts = [
+            int(path.name.removeprefix("attempt-"))
+            for path in target.glob("attempt-*")
+            if path.is_dir() and path.name.removeprefix("attempt-").isdigit()
+        ]
+        try_index = max(existing_attempts, default=-1) + 1
         docker_outages = 0
         while attempt <= self.a.retries:
             if getattr(self, "_docker_abort", None) and self._docker_abort.is_set():
@@ -939,7 +1126,7 @@ class Round:
             try_index += 1
             attempt_cmd = [*cmd[:-1], str(attempt_dir)]
             _remove_worker_containers(prefix)
-            completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True)
+            completed = subprocess.run(attempt_cmd, cwd=ROOT, capture_output=True, text=True, env=env)
             output = "\n".join(
                 part for part in (getattr(completed, "stdout", ""), getattr(completed, "stderr", "")) if part
             )
@@ -990,6 +1177,13 @@ class Round:
         raise AssertionError("unreachable")
 
     def collect(self):
+        # Validate all globally leaseable CPU blocks before any container or
+        # retries, even when this round uses fewer workers than global slots.
+        cpu_assignments = [
+            cpu.to_mapping()
+            for slot in range(configured_slot_count())
+            if (cpu := resolve_cpu_isolation(slot_index=slot)) is not None
+        ]
         # Read IDs from the supplied index so fresh rounds can use an isolated
         # prefix (for example ``gen_r19_w``) without touching r15 worlds.
         world_ids = round_world_ids(self.a.r15_index)
@@ -1010,18 +1204,7 @@ class Round:
         for scenario in scenarios:
             try:
                 airframe, takeoff, _ = self._collection_airframe(scenario)
-                from scripts.collect_sim_teacher_episodes import _airframe_profile
-
-                profile = _airframe_profile(airframe, takeoff)
-                category = str(getattr(profile, "category", ""))
-                if not category:
-                    normalized_airframe = airframe.lower().replace("-", "_")
-                    category = (
-                        "multirotor" if normalized_airframe in {"x500", "x500_mono_cam", "multirotor"}
-                        else "fixed_wing" if normalized_airframe in {"fixed_wing", "fw"}
-                        else "vtol" if normalized_airframe == "vtol"
-                        else ""
-                    )
+                category = airframe_profile_category(airframe, takeoff, base_dir=ROOT)
                 if category not in {"multirotor", "fixed_wing", "vtol"}:
                     raise ValueError(f"airframe {airframe!r} has unsupported category {category!r}")
                 collection_options[scenario] = (airframe, takeoff, category)
@@ -1036,6 +1219,7 @@ class Round:
             )
         # Only the worlds that survived the category filter are planned and dispatched.
         scenarios = [scenario for scenario in scenarios if scenario in collection_options]
+        selected_sim_network = sim_network_mode(getattr(self.a, "sim_network", None))
         # Build the same collector/docker plan used by workers before dispatch,
         # including the resolved airframe and fixed-wing takeoff method.
         from scripts.collect_sim_teacher_episodes import CollectionPlan, docker_command
@@ -1050,6 +1234,7 @@ class Round:
                     self.a.steps_per_episode, 20261016, str(self.a.out / "preflight"),
                     airframe=airframe, takeoff_method=takeoff_method,
                     control_port=R15_BASE_CONTROL_PORT, telemetry_port=R15_BASE_TELEMETRY_PORT,
+                    sim_network=getattr(self.a, "sim_network", None),
                 ), name=f"r15-preflight-{scenario.stem}")
             except Exception as exc:
                 raise RuntimeError(f"场景 {scenario} 无法构建 SIM stack：{exc}") from exc
@@ -1059,8 +1244,15 @@ class Round:
             airframe, takeoff_method, _category = collection_options[scenario]
             for idx in range(getattr(self.a, "episodes_per_world", R15_EPISODES_PER_WORLD)):
                 key = f"{world}:{idx}"
-                if self.state["episodes"].get(key, {}).get("status") == "complete":
+                prior = self.state["episodes"].get(key, {})
+                if recorded_episode_is_complete(prior):
                     continue
+                if prior.get("status") == "complete":
+                    prior["resume_action"] = "rerun_unverified_completion"
+                    self.state["episodes"][key] = prior
+                    print(
+                        f"[collect] {key}: saved completion has no verified final episode; rerunning"
+                    )
                 worker = idx % self.a.workers
                 target = self.a.episodes / world / f"ep-{idx}"
                 cmd = [
@@ -1090,11 +1282,13 @@ class Round:
                     "--min-free-gb",
                     str(self.collector_min_free_gb()),
                     "--timeout-s",
-                    "900",
+                    str(getattr(self.a, "episode_timeout_s", 900)),
                     "--max-episode-s",
-                    "900",
+                    str(getattr(self.a, "episode_timeout_s", 900)),
                     "--container-prefix",
                     f"r15-worker-{worker}",
+                    "--worker-index",
+                    str(worker),
                     "--control-port",
                     str(R15_BASE_CONTROL_PORT + worker * 10),
                     "--telemetry-port",
@@ -1106,6 +1300,10 @@ class Round:
                     "--out",
                     str(target),
                 ]
+                if getattr(self.a, "sim_network", None) is not None:
+                    cmd[-2:-2] = ["--sim-network", selected_sim_network]
+                if selected_sim_network == "host":
+                    cmd[-2:-2] = ["--sim-instance", str(worker)]
                 if takeoff_method is not None:
                     cmd[-2:-2] = ["--takeoff-method", takeoff_method]
                 if getattr(self.a, "low_disk", False):
@@ -1125,10 +1323,55 @@ class Round:
             f"低磁盘={getattr(self.a, 'low_disk', False)}"
         )
         if self.a.dry_run:
+            assignments = ", ".join(
+                f"slot {slot}->GPU {gpu if gpu is not None else 'off'}"
+                for slot, gpu in worker_gpu_assignments(self.a.workers)
+            )
+            print(f"[dry-run] GPU worker slots: {assignments}")
+            if cpu_assignments:
+                print(f"[dry-run] CPU slot allocations: {json.dumps(cpu_assignments, sort_keys=True)}")
             return
         self._docker_abort = threading.Event()
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.a.workers)
-        futures = {pool.submit(self._collect_one, key, cmd, target): key for key, cmd, target in jobs}
+        active_workers = min(self.a.workers, configured_slot_count())
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=active_workers)
+        # Each job's ports/container prefix were planned from its episode index,
+        # which can repeat across concurrently running jobs.  Lease a free worker
+        # slot at run time instead so two live containers never share ports.
+        slots: queue.Queue[int] = queue.Queue()
+        for slot in range(active_workers):
+            slots.put(slot)
+
+        def run_on_free_slot(key: str, cmd: list[str], target: Path):
+            interrupted = incomplete_episode_artifacts(target)
+            if interrupted:
+                print(f"[collect] {key}: 重跑中断 episode；保留原始目录：{interrupted}")
+            slot = slots.get()
+            try:
+                lock = SitlLock(
+                    getattr(self.a, "sitl_lock_path", default_lock_path()),
+                    label=f"r15-worker-slot-{slot}",
+                    slots=configured_slot_count(),
+                    min_memory_gb=max(0.0, float(self.a.min_free_memory_gb)),
+                    priority=int(os.environ.get("MULTIDETECT_SITL_COLLECTION_PRIORITY", "0")),
+                )
+                lock.acquire()
+                try:
+                    slot = lock.slot if lock.slot is not None else slot
+                    slotted = with_worker_slot(cmd, slot)
+                    slot_env = os.environ.copy()
+                    slot_env["MULTIDETECT_SITL_LOCK_HELD"] = "1"
+                    slot_env["MULTIDETECT_SITL_SLOT"] = str(slot)
+                    result = self._collect_one(key, slotted, target, env=slot_env)
+                    if interrupted:
+                        result["resume_action"] = "reran_after_incomplete_episode"
+                        result["interrupted_episodes"] = interrupted
+                    return result
+                finally:
+                    lock.release()
+            finally:
+                slots.put(slot)
+
+        futures = {pool.submit(run_on_free_slot, key, cmd, target): key for key, cmd, target in jobs}
         try:
             for future in concurrent.futures.as_completed(futures):
                 key = futures[future]
@@ -1181,6 +1424,13 @@ class Round:
             for world in world_ids:
                 if (root / world).is_dir():
                     cmd += ["--campaign", str(root / world)]
+        selected = selected_episode_metadata(
+            getattr(self.a, "episode_keys_file", None),
+            getattr(self.a, "episode_key_root", []),
+            getattr(self.a, "data_root", ROOT),
+        )
+        for episode_dir in selected:
+            cmd += ["--campaign", str(episode_dir)]
         if "--campaign" not in cmd and not self.a.dry_run:
             raise RuntimeError(
                 f"annotate 找不到本轮 index 中任何 world 的采集目录：{[str(r) for r in roots]}"
@@ -1216,7 +1466,10 @@ class Round:
         self.out.mkdir(parents=True, exist_ok=True)
         if self.a.stage in ("all", "collect"):
             self.guards("collect")
-            self.collect()
+            if getattr(self.a, "dry_run", False):
+                self.collect()
+            else:
+                self.collect()
         if self.a.stage in ("all", "annotate"):
             self.guards("annotate")
             cmd = self.annotate_command()
@@ -1238,6 +1491,13 @@ class Round:
                     "不能重建 SFT；请恢复原 r15-additions 或重新采集"
                 )
             extra = [arg for root in self.a.extra_episodes for arg in ("--campaign", str(root))]
+            selected = selected_episode_metadata(
+                getattr(self.a, "episode_keys_file", None),
+                getattr(self.a, "episode_key_root", []),
+                getattr(self.a, "data_root", ROOT),
+            )
+            for episode_dir in selected:
+                extra.extend(("--campaign", str(episode_dir)))
             cmd = [
                 sys.executable,
                 "scripts/build_slow_system_sft.py",
@@ -1261,6 +1521,20 @@ class Round:
             ]
             if getattr(self.a, "r21id_r2_filter", False):
                 cmd.append("--confusable-negatives")
+            elif getattr(self.a, "confusable_negatives", False):
+                cmd.append("--confusable-negatives")
+            if getattr(self.a, "task_text_variants", False):
+                cmd.append("--task-text-variants")
+            task_variant_positive_cap = getattr(self.a, "task_variant_positive_cap", None)
+            if task_variant_positive_cap is not None:
+                cmd.extend(("--task-variant-positive-cap", str(task_variant_positive_cap)))
+            if getattr(self.a, "balance_identity_views", False):
+                cmd.append("--balance-identity-views")
+            if getattr(self.a, "balance_confusable_negative_views", False):
+                cmd.append("--balance-confusable-negative-views")
+            max_upsample = getattr(self.a, "max_upsample", None)
+            if max_upsample is not None:
+                cmd.extend(("--max-upsample", str(max_upsample)))
             self.run(
                 "build_sft",
                 cmd,
@@ -1392,7 +1666,7 @@ class Round:
             )
             mmproj = self.data_path(self.a.mmproj, "artifacts/models/mmproj.gguf")
             llama_server = self.data_path(
-                self.a.llama_server, "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+                self.a.llama_server, str(default_llama_server(ROOT, prefer_tools=True))
             )
             for label, dataset in datasets:
                 cmd = [
@@ -1645,6 +1919,8 @@ def merge_cli(args):
                 rows, {row_key(row) for row in full}, target_ratio, seed=args.seed
             )
             trim_report["r12_negative_top_up"] = top_up_count
+        rows, legacy_conflicts_dropped = drop_legacy_conflicting_confusable_positives(rows)
+        validate_no_conflicting_decisions(rows)
         (out / f"{split}.jsonl").write_text(
             "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows),
             encoding="utf-8",
@@ -1655,6 +1931,10 @@ def merge_cli(args):
             "r15_additions": len(added),
             "merged": len(rows),
             "classes_size_polarity": distribution(rows),
+            "effective_rows": len(rows),
+            "balance_copy_rows": sum(1 for row in rows if row.get("balance_copy_index") is not None),
+            "legacy_conflicting_confusable_positives_dropped": legacy_conflicts_dropped,
+            "effective_view_counts": effective_view_counts(rows),
         }
         if addition_filter is not None:
             stats[split]["r21id_r2_filter"] = addition_filter
@@ -1763,8 +2043,16 @@ def main():
             "52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
         ),
     )
-    p.add_argument("--llama-server", type=Path, default=ROOT / "tools/llama.cpp/llama-server.exe")
+    p.add_argument(
+        "--llama-server", type=Path, default=default_llama_server(ROOT, prefer_tools=True)
+    )
     p.add_argument("--min-free-gb", type=float, default=30)
+    p.add_argument(
+        "--episode-timeout-s",
+        type=int,
+        default=900,
+        help="collector --timeout-s/--max-episode-s per episode; software rendering needs more",
+    )
     p.add_argument(
         "--collector-min-free-gb",
         type=float,
@@ -1807,7 +2095,7 @@ def main():
         "--r12-adapter",
         type=Path,
         default=Path(
-            "D:/Projects/Multi-Detect/artifacts/models/slow-system-lora-v2-r12-multi/adapter"
+            str(ROOT / "artifacts/models/slow-system-lora-v2-r12-multi/adapter")
         ),
     )
     p.add_argument(
@@ -1823,10 +2111,11 @@ def main():
         "--source-root",
         type=Path,
         default=None,
-        help="YOLOE 缓存键的根：保存 episodes 的仓库根（如 D:/Projects/Multi-Detect）；"
+        help="YOLOE 缓存键的根：保存 episodes 的仓库根；"
         "默认自动推断",
     )
     p.add_argument("--workers", type=int, default=R15_WORKERS)
+    p.add_argument("--sim-network", choices=("bridge", "host"), default=None)
     p.add_argument("--steps-per-episode", type=int, default=R15_STEPS_PER_EPISODE)
     p.add_argument("--episodes-per-world", type=int, default=R15_EPISODES_PER_WORLD,
                    help="collection episodes per world (default 4)")
@@ -1835,6 +2124,7 @@ def main():
         "--docker-wait-minutes", type=float, default=20,
         help="Docker daemon 不可用时等待恢复的分钟数（每 30 秒检查）",
     )
+    p.add_argument("--sitl-lock-path", type=Path, default=default_lock_path())
     p.add_argument(
         "--extra-episodes",
         type=Path,
@@ -1842,6 +2132,10 @@ def main():
         default=[],
         help="more campaign roots (e.g. confuser flights) to annotate and build from",
     )
+    p.add_argument("--episode-keys-file", type=Path, default=None,
+                   help="audited logical episode keys, one per line")
+    p.add_argument("--episode-key-root", type=Path, action="append", default=[],
+                   help="round root whose pipeline/round-state.json resolves selected keys")
     p.add_argument(
         "--teacher-target",
         choices=("true", "confuser"),
@@ -1858,6 +2152,20 @@ def main():
         "--r21id-keep-small-true-targets", action="store_true",
         help="with --r21id-r2-filter, do not down-weight true-target positives below 16 px",
     )
+    p.add_argument("--balance-identity-views", action="store_true",
+                   help="pass through build_slow_system_sft.py --balance-identity-views")
+    p.add_argument("--balance-confusable-negative-views", action="store_true",
+                   help="pass through build_slow_system_sft.py --balance-confusable-negative-views")
+    p.add_argument("--max-upsample", type=int, default=None,
+                   help="pass through build_slow_system_sft.py --max-upsample")
+    p.add_argument("--confusable-negatives", action="store_true",
+                   help="pass through build_slow_system_sft.py --confusable-negatives")
+    p.add_argument("--task-text-variants", action="store_true",
+                   help="pass through build_slow_system_sft.py --task-text-variants")
+    p.add_argument(
+        "--task-variant-positive-cap", type=float, default=None, metavar="RATIO",
+        help="pass through build_slow_system_sft.py --task-variant-positive-cap only when set",
+    )
     p.add_argument("--learning-rate", type=float, default=1e-4)
     a = p.parse_args()
     if a.no_category_holdout:
@@ -1873,8 +2181,10 @@ def main():
         p.error("--retries must be >= 0")
     if a.docker_wait_minutes < 0:
         p.error("--docker-wait-minutes must be >= 0")
-    if not 1 <= a.workers <= 2:
-        p.error("--workers must be 1 or 2")
+    # The old 8 GB dev box capped this at 2; ports are spaced by 10 per worker
+    # and host-network workers get their own PX4 instance and GZ_PARTITION.
+    if not 1 <= a.workers <= MAX_COLLECT_WORKERS:
+        p.error(f"--workers must be between 1 and {MAX_COLLECT_WORKERS}")
     if a.steps_per_episode < 1:
         p.error("--steps-per-episode must be positive")
     if (a.collector_min_free_gb is not None and a.collector_min_free_gb < 0) or a.min_free_gb < 0:

@@ -37,6 +37,11 @@ def test_companion_replay_manifest_requires_canonical_hash(tmp_path: Path) -> No
         _verify_manifest(tampered)
 
 
-def test_companion_replay_rejects_manifest_child_escape(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["..\\outside.bin", "../outside.bin", "C:outside.bin"])
+def test_companion_replay_rejects_manifest_child_escape(tmp_path: Path, name: str) -> None:
     with pytest.raises(DepthCompanionReplayError, match="file name"):
-        _resolve_child(tmp_path, "..\\outside.bin", label="payload")
+        _resolve_child(tmp_path, name, label="payload")
+
+
+def test_companion_replay_resolves_a_plain_file_name(tmp_path: Path) -> None:
+    assert _resolve_child(tmp_path, "payload.bin", label="payload") == tmp_path / "payload.bin"

@@ -1,0 +1,52 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_city_zurich__clear_noon",
+ "scenario_version": 1,
+ "seed": 91000,
+ "world": {
+  "world_asset": "builtin://gazebo/rw_city_zurich__clear_noon",
+  "map_asset": "builtin://maps/rw_city_zurich__clear_noon.geojson",
+  "dem_asset": "builtin://terrain/rw_city_zurich__clear_noon.dem.json",
+  "wind_north_mps": 0.0,
+  "wind_east_mps": 0.0,
+  "gust_mps": 0.0
+ },
+ "vehicle": {
+  "model": "standard_vtol_mono_cam",
+  "airframe_profile_id": "px4_vtol_gazebo_v1",
+  "spawn_id": "river_home_vtol"
+ },
+ "sensors": [
+  {
+   "sensor_id": "front-camera",
+   "kind": "rgb_camera",
+   "stream_uri": "gazebo://rw_city_zurich__clear_noon/front-camera",
+   "calibration_id": "gazebo-front-camera-v1"
+  },
+  {
+   "sensor_id": "front-depth",
+   "kind": "depth_camera",
+   "stream_uri": "gazebo://rw_city_zurich__clear_noon/front-depth",
+   "calibration_id": "gazebo-front-depth-v1"
+  },
+  {
+   "sensor_id": "px4-telemetry",
+   "kind": "mavlink_telemetry",
+   "stream_uri": "udp://127.0.0.1:14541"
+  }
+ ],
+ "faults": [
+  {
+   "event_id": "camera-loss-001",
+   "at_s": 180.0,
+   "kind": "camera_dropout",
+   "duration_s": 8.0
+  },
+  {
+   "event_id": "battery-drop-001",
+   "at_s": 260.0,
+   "kind": "battery_step_drop",
+   "magnitude": 12.0
+  }
+ ]
+}

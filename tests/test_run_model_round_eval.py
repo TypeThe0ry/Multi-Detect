@@ -266,6 +266,8 @@ def test_build_stages_planning_uses_requested_model_paths(tmp_path, monkeypatch)
         min_free_disk_gb=30,
         disk_check_every=30,
         retry_failed_episodes=False,
+        decision_contract=False,
+        plan_pregate=False,
         episodes=1,
         index=tmp_path / "index.json",
         onboard_config=tasks,
@@ -278,6 +280,24 @@ def test_build_stages_planning_uses_requested_model_paths(tmp_path, monkeypatch)
     assert str(args.gguf) in command
     assert str(args.mmproj) in command
     assert stages[0].expected == 1
+    assert "--decision-contract" not in command
+
+
+def test_build_stages_planning_can_enable_decision_contract(tmp_path, monkeypatch):
+    monkeypatch.setattr(round_eval, "ROOT", tmp_path)
+    tasks = tmp_path / "configs/onboard/plan-eval-tasks.json"
+    tasks.parent.mkdir(parents=True)
+    tasks.write_text(json.dumps({"tasks": [{"task": "one"}]}), encoding="utf-8")
+    args = SimpleNamespace(
+        out=tmp_path / "out", data_root=tmp_path, model="r26", gguf=tmp_path / "r26.gguf",
+        mmproj=tmp_path / "mmproj.gguf", llama_server=tmp_path / "llama-server.exe",
+        stages=["planning"], min_free_disk_gb=30, disk_check_every=30,
+        retry_failed_episodes=False, decision_contract=True,
+        plan_pregate=True,
+    )
+    command = round_eval.build_stages(args)[0].command
+    assert "--decision-contract" in command
+    assert "--plan-pregate" in command
 
 
 def test_round_runs_sequentially_stops_at_invalid_and_saves_failure(tmp_path, monkeypatch):
@@ -424,3 +444,20 @@ def test_outputs_may_be_spelled_under_a_nested_junction_in_the_shared_tree(tmp_p
     assert out == (evaluation / "r22-planner-round").resolve()
     with pytest.raises(ValueError, match="inside this worktree"):
         round_eval.local_output(evaluation / "r22-planner-round")
+
+
+def test_gpu_guard_only_inspects_cuda_visible_devices(monkeypatch):
+    seen = []
+
+    def runner(command, **kwargs):
+        seen.append(command)
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    guard.check_gpu(runner=runner)
+    assert seen[-1][1:3] == ["-i", "2"]
+
+    for value in ("", "GPU-1234", "0,MIG-1"):
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", value)
+        guard.check_gpu(runner=runner)
+        assert "-i" not in seen[-1]

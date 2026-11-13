@@ -197,15 +197,27 @@ def _pass(metrics: dict[str, Any]) -> tuple[bool, list[str]]:
     return not reasons, reasons
 
 
-def evaluate(dataset: Path, baseline: Path, candidate: Path) -> dict[str, Any]:
+def evaluate(
+    dataset: Path,
+    baseline: Path,
+    candidate: Path,
+    baseline_label: str = "r18",
+    candidate_label: str = "候选",
+) -> dict[str, Any]:
     rows = _load_jsonl(dataset)
     baseline_rows = _merge(rows, _load_predictions(baseline))
     candidate_rows = _merge(rows, _load_predictions(candidate))
     baseline_targets = {row["target_id"] for row in baseline_rows}
     candidate_targets = {row["target_id"] for row in candidate_rows}
     if baseline_targets != candidate_targets:
-        raise ValueError("r18 and candidate predictions do not cover the same target_id set")
-    result = {"baseline": calculate_metrics([row for row in baseline_rows if row["view"] is not None]), "candidate": calculate_metrics([row for row in candidate_rows if row["view"] is not None]), "thresholds": THRESHOLDS}
+        raise ValueError("baseline and candidate predictions do not cover the same target_id set")
+    result = {
+        "baseline_label": baseline_label,
+        "candidate_label": candidate_label,
+        "baseline": calculate_metrics([row for row in baseline_rows if row["view"] is not None]),
+        "candidate": calculate_metrics([row for row in candidate_rows if row["view"] is not None]),
+        "thresholds": THRESHOLDS,
+    }
     result["incomplete_instances"] = {
         "r18": sum(1 for rows_for_model in (baseline_rows,) for target in {row["target_id"] for row in rows_for_model} if {row["view"] for row in rows_for_model if row["target_id"] == target} != set(VIEWS)),
         "candidate": sum(1 for rows_for_model in (candidate_rows,) for target in {row["target_id"] for row in rows_for_model} if {row["view"] for row in rows_for_model if row["target_id"] == target} != set(VIEWS)),
@@ -222,13 +234,16 @@ def evaluate(dataset: Path, baseline: Path, candidate: Path) -> dict[str, Any]:
     }
     if not result["distractor_gate_vs_r18"]["pass"]:
         result["candidate_pass"] = False
-        result["reasons"].append("候选干扰物接受率高于 r18 或缺少可比较样本")
-    result["decision"] = "接受 r21id" if result["candidate_pass"] else "保留 r18"
+        result["reasons"].append(f"{candidate_label}干扰物接受率高于 {baseline_label} 或缺少可比较样本")
+    accepted_decision = "接受 r21id" if candidate_label == "候选" else f"接受 {candidate_label}"
+    result["decision"] = accepted_decision if result["candidate_pass"] else f"保留 {baseline_label}"
     return result
 
 
 def markdown_report(report: dict[str, Any]) -> str:
-    lines = ["# r21id identity 专项评测", "", f"**结论：{report['decision']}**", "", "真目标拒绝率越低越好；干扰物接受率越低越好。置信区间以 target_id 为 bootstrap 抽样单位。", "", f"无 target_id（不计分）行数：{report.get('no_target_rows', 0)}；view=null 行数：r18 {report['null_view_rows']['r18']}，候选 {report['null_view_rows']['candidate']}；不完整实例数：r18 {report['incomplete_instances']['r18']}，候选 {report['incomplete_instances']['candidate']}。", "", "| 指标 | r18 | 候选 | 门槛 |", "|---|---:|---:|---:|"]
+    baseline_label = report.get("baseline_label", "r18")
+    candidate_label = report.get("candidate_label", "候选")
+    lines = ["# r21id identity 专项评测", "", f"**结论：{report['decision']}**", "", "真目标拒绝率越低越好；干扰物接受率越低越好。置信区间以 target_id 为 bootstrap 抽样单位。", "", f"无 target_id（不计分）行数：{report.get('no_target_rows', 0)}；view=null 行数：{baseline_label} {report['null_view_rows']['r18']}，{candidate_label} {report['null_view_rows']['candidate']}；不完整实例数：{baseline_label} {report['incomplete_instances']['r18']}，{candidate_label} {report['incomplete_instances']['candidate']}。", "", f"| 指标 | {baseline_label} | {candidate_label} | 门槛 |", "|---|---:|---:|---:|"]
     keys = [("multiview_consistency", "实例级跨视角一致率", ">= 0.90"), ("recovery_rate", "拒绝后恢复率", ">= 0.85"), ("average_recovery_observations", "平均恢复观察次数", "<= 2"), ("true_target_false_reject", "真目标总体拒绝率", "<= 0.08"), ("fire_hydrant_false_reject", "消防栓小目标拒绝率", "<= 0.12"), ("distractor_false_accept", "显式干扰物接受率", "<= 0.026")]
     for key, name, gate in keys:
         base = report["baseline"].get(key); cand = report["candidate"].get(key)
@@ -245,22 +260,28 @@ def markdown_report(report: dict[str, Any]) -> str:
             cand = {"value": cand, "ci95": report["candidate"].get("average_recovery_observations_ci95")}
         lines.append(f"| {name} | {fmt(base)} | {fmt(cand)} | {gate} |")
     if report["reasons"]:
-        lines.extend(["", "不通过原因：" + "；".join(report["reasons"]) + "。明确保留 r18。"])
+        lines.extend(["", "不通过原因：" + "；".join(report["reasons"]) + f"。明确保留 {baseline_label}。"])
     return "\n".join(lines) + "\n"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, required=True)
-    parser.add_argument("--baseline", type=Path, required=True, help="r18 prediction JSON")
+    parser.add_argument("--baseline", type=Path, required=True, help="baseline prediction JSON")
     parser.add_argument("--candidate", type=Path, required=True)
+    parser.add_argument("--baseline-label", default="r18")
+    parser.add_argument("--candidate-label", default="候选")
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-md", type=Path, required=True)
     args = parser.parse_args()
-    report = evaluate(args.dataset, args.baseline, args.candidate)
+    report = evaluate(args.dataset, args.baseline, args.candidate, args.baseline_label, args.candidate_label)
     args.output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     args.output_md.write_text(markdown_report(report), encoding="utf-8")
-    return 0 if report["candidate_pass"] else 1
+    # A completed evaluation is a successful job even when the candidate is
+    # rejected.  The verdict and reasons are persisted above; callers can
+    # continue with later evaluation sets while still reading the acceptance
+    # result from the report.  Runtime/input/output errors still raise/fail.
+    return 0
 
 
 if __name__ == "__main__":

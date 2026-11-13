@@ -1,0 +1,7 @@
+ARG BASE_IMAGE=multidetect/px4-sitl-gazebo@sha256:445d17a7ae7e34dbddc826b68c08c705d4892a3b3997e3f3a0bb44072a5ef8f2
+FROM ${BASE_IMAGE}
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential ninja-build git libgtest-dev libopencv-dev python3-dev python3-pip python3-venv libxml2-utils rsync zip unzip && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv --system-site-packages /opt/px4-build-venv && /opt/px4-build-venv/bin/pip install --no-cache-dir 'empy>=3.3,<4' jinja2 kconfiglib packaging jsonschema pyros-genmsg pyyaml future lxml sympy numpy 'setuptools<=81' toml pyserial psutil cerberus
+ENV PATH=/opt/px4-build-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUN apt-get update && apt-get install -y --no-install-recommends cppzmq-dev && rm -rf /var/lib/apt/lists/*

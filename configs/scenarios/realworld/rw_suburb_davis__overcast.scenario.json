@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_suburb_davis__overcast",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_suburb_davis__overcast.runtime.json",
+   "sha256": "6b46f54c167664097bfcd23e59faf5d5140cb3878ff6f8936502da9e03d30c0e"
+  },
+  "truth": {
+   "path": "rw_suburb_davis__overcast.truth.json",
+   "sha256": "0715d7dd4e2f327c5522cf94d234e5fafd6725c20519a18ee3edf02c9bf04ce3"
+  },
+  "expectations": {
+   "path": "rw_suburb_davis__overcast.expectations.json",
+   "sha256": "3c70f914f7bf4104274a35858eb5c2dc26dec0b56abc776cfc19a16a0d1eaa26"
+  }
+ }
+}

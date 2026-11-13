@@ -4,6 +4,8 @@ import json
 import socket
 from pathlib import Path
 
+import pytest
+
 from multidetect.simulator import SimulatorOrchestrator, SimulatorProcessSpec
 from multidetect.simulator.orchestrator import _safe_process_pid, _safe_process_poll
 
@@ -17,6 +19,7 @@ def _free_udp_port() -> int:
         return int(channel.getsockname()[1])
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_orchestrator_applies_signed_throttle_mode_with_default_endpoint(
     tmp_path: Path,
 ) -> None:
@@ -65,6 +68,7 @@ def test_process_evidence_helpers_tolerate_minimal_or_broken_doubles() -> None:
     assert _safe_process_poll(None) is None
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_orchestrator_serializes_process_without_pid_or_poll(tmp_path: Path) -> None:
     class MinimalProcess:
         returncode: int | None = None
@@ -108,6 +112,7 @@ def test_orchestrator_serializes_process_without_pid_or_poll(tmp_path: Path) -> 
     assert process.returncode == 0
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_orchestrator_closes_parent_log_handle_after_process_start(tmp_path: Path) -> None:
     class MinimalProcess:
         returncode: int | None = None

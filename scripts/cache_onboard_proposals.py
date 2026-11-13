@@ -30,7 +30,12 @@ def _frames(campaign: Path):
         for line in steps.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            row = json.loads(line)
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                # An attempt killed mid-write (e.g. host reboot) leaves a NUL-padded tail.
+                print(f"[cache] skip unreadable line in {steps}", file=sys.stderr)
+                break
             for side in ("before", "after"):
                 obs = row.get(f"obs_{side}")
                 if isinstance(obs, dict) and isinstance(obs.get("rgb_path"), str):

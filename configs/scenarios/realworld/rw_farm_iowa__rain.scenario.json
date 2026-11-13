@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_farm_iowa__rain",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_farm_iowa__rain.runtime.json",
+   "sha256": "a368a5eb271499b4679116d828092c253e85b2c3ce0a3891d866ac757daeca3c"
+  },
+  "truth": {
+   "path": "rw_farm_iowa__rain.truth.json",
+   "sha256": "06580abc0b41f2fb34f65245b633b363cb45ee776dd533ad0bd8fa196796343a"
+  },
+  "expectations": {
+   "path": "rw_farm_iowa__rain.expectations.json",
+   "sha256": "476e2b529540d66ad3322acada66f830e3d24e38d07f3f01494c87e7cc9cf034"
+  }
+ }
+}

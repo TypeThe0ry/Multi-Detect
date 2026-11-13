@@ -4,13 +4,12 @@ import os
 import subprocess
 import sys
 
-
 ROOT = os.path.dirname(os.path.dirname(__file__))
 
 
 def _run_with_hook(value: str, endpoint: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env.update(PYTHONPATH="src;.", PYTHONUTF8="1")
+    env.update(PYTHONPATH=os.pathsep.join(("src", ".")), PYTHONUTF8="1")
     env["MULTIDETECT_ONBOARD_TEST_HOOK"] = value
     return subprocess.run(
         [
@@ -57,7 +56,7 @@ def test_loopback_endpoint_forms_are_accepted():
 def test_no_hook_environment_does_not_activate_hook():
     env = os.environ.copy()
     env.pop("MULTIDETECT_ONBOARD_TEST_HOOK", None)
-    env.update(PYTHONPATH="src;.", PYTHONUTF8="1")
+    env.update(PYTHONPATH=os.pathsep.join(("src", ".")), PYTHONUTF8="1")
     result = subprocess.run(
         [sys.executable, "scripts/onboard_main.py", "real", "--failsafe", "land"],
         cwd=ROOT,

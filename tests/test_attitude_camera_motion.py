@@ -32,6 +32,9 @@ def _telemetry(
     roll_deg: float = 0.0,
     pitch_deg: float = 0.0,
     heading_deg: float = 0.0,
+    gimbal_yaw_deg: float = math.nan,
+    gimbal_roll_deg: float = math.nan,
+    gimbal_pitch_deg: float = math.nan,
 ) -> VehicleTelemetry:
     return VehicleTelemetry(
         altitude_agl_m=10.0,
@@ -46,6 +49,9 @@ def _telemetry(
         release_zone_clear=None,
         heading_deg=heading_deg,
         attitude_observed_at_s=observed_at_s,
+        gimbal_yaw_deg=gimbal_yaw_deg,
+        gimbal_roll_deg=gimbal_roll_deg,
+        gimbal_pitch_deg=gimbal_pitch_deg,
     )
 
 
@@ -83,6 +89,19 @@ def test_attitude_homography_carries_roll_and_pitch_as_a_full_projective_transfo
     assert abs(motion.rotation_deg) > 1.0
     x, y = motion.transform_point(0.15, 0.80)
     assert math.isfinite(x) and math.isfinite(y)
+
+
+def test_attitude_homography_includes_live_gimbal_angles_when_available() -> None:
+    estimator = AttitudeCameraMotionEstimator(_calibration())
+    estimator.update(
+        _telemetry(observed_at_s=25.0, gimbal_yaw_deg=0.0, gimbal_roll_deg=0.0, gimbal_pitch_deg=-20.0), captured_at_s=25.0
+    )
+    motion = estimator.update(
+        _telemetry(observed_at_s=25.05, gimbal_yaw_deg=0.0, gimbal_roll_deg=0.0, gimbal_pitch_deg=-40.0), captured_at_s=25.05
+    )
+    assert motion is not None
+    assert motion.homography is not None
+    assert abs(motion.dy) > 0.01
 
 
 @pytest.mark.parametrize(

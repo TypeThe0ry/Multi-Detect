@@ -3,3 +3,5 @@
 # when a contributor has core.autocrlf=true.
 *.py text eol=lf
 *.pyi text eol=lf
+# Unified diff context has a required leading space; preserve upstream patches verbatim.
+simulation/px4/patches/*.patch text eol=lf -whitespace

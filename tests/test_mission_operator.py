@@ -432,6 +432,7 @@ def test_telemetry_stop_wait_ack_retry_and_persistent_log_cursor(tmp_path):
     adapter.close()
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_signed_mavlink_udp_endpoint_dispatches_mission_messages(tmp_path):
     pytest.importorskip("pymavlink")
     from multidetect.operator_mavlink import OperatorMavlinkEndpoint, OperatorMavlinkTunnelAdapter
@@ -549,6 +550,7 @@ def test_priority_log_does_not_wait_behind_a_due_status(tmp_path, kind, first):
         worker.join(2)
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_telemetry_acks_have_their_own_rate_bucket(tmp_path):
     pytest.importorskip("pymavlink")
     from multidetect.operator_mavlink import OperatorMavlinkEndpoint, OperatorMavlinkTunnelAdapter

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan a pinned Docker Desktop PX4/Gazebo SIM run without starting Docker.
+"""Plan a pinned Docker PX4/Gazebo SIM run without starting Docker.
 
 The repository already contains a full VTOL acceptance script which executes
 Docker.  This companion is intentionally the *planning* boundary: it resolves
@@ -11,12 +11,15 @@ Docker CLI, opens a socket, or creates a container.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
 import sys
-from dataclasses import dataclass
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -25,6 +28,13 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(_repository_source))
 
 from multidetect.autonomy.serialization import canonical_sha256
+from multidetect.runtime import RuntimeMode
+from multidetect.sim_network import sim_docker_network, sim_listen_host, sim_network_mode
+from multidetect.simulation import load_runtime_scenario
+from multidetect.simulator.cpu import SimulatorCpuIsolation, resolve_cpu_isolation
+from multidetect.simulator.delta_tailsitter import select_visual_mesh
+from multidetect.simulator.px4_image import DEFAULT_GPU_IMAGE, PINNED_IMAGE, resolve_runtime_image
+from multidetect.simulator.runtime_image import verify_gpu_runtime_image
 from multidetect.simulator.stack import (
     SimulatorStackError,
     SimulatorStackPorts,
@@ -33,16 +43,38 @@ from multidetect.simulator.stack import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
-PINNED_IMAGE = (
-    "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
-)
 CONTAINER_MODEL_ROOT = "/opt/multidetect-gazebo-models"
 CONTAINER_WORLD_ROOT = "/opt/px4-gazebo/share/gz/worlds"
 CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"
 CONTAINER_IMAGE_MODEL_ROOT = "/opt/px4-gazebo/share/gz/models"
 CONTAINER_IMAGE_WORLD_ROOT = CONTAINER_WORLD_ROOT
 CONTAINER_SCRIPT_ROOT = "/workspace/scripts"
+DEFAULT_GPU_DEVICES = ("0", "1")
+DEFAULT_GPU_AVOID = ("2", "3")
+NVIDIA_EGL_VENDOR_FILE = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+PX4_LOGGER_MODE_ENV = "MULTIDETECT_PX4_LOGGER_MODE"
+PX4_DAEMON_MODE_ENV = "MULTIDETECT_PX4_DAEMON"
+
+
+def resolve_px4_logger_mode(value: str | None = None) -> str:
+    """Resolve and validate the logger setting used by every simulator plan."""
+    mode = os.environ.get(PX4_LOGGER_MODE_ENV, "off") if value is None else value
+    mode = str(mode).strip().lower()
+    if mode not in {"default", "off"}:
+        raise DockerSimulatorPlanError(f"{PX4_LOGGER_MODE_ENV} must be default or off")
+    return mode
+
+
+def resolve_px4_daemon_mode(value: str | int | bool | None = None) -> bool:
+    """Resolve whether PX4 should run without the interactive ``pxh`` shell."""
+    raw = os.environ.get(PX4_DAEMON_MODE_ENV, "1") if value is None else value
+    normalized = str(raw).strip().lower()
+    if normalized not in {"0", "1"}:
+        raise DockerSimulatorPlanError(f"{PX4_DAEMON_MODE_ENV} must be 0 or 1")
+    return normalized == "1"
+
+
 # SIM-only PX4 parameters, applied by rcS from PX4_PARAM_* before
 # px4-rc.gzsim starts the simulated sensors.  Without them EKF2's attitude
 # drifted from Gazebo's ground truth in banked flight (fixed-wing loiters:
@@ -167,8 +199,10 @@ def _docker_binary() -> str | None:
     found = shutil.which("docker")
     if found:
         return found
-    candidate = Path(r"C:\Program Files\Docker\Docker\resources\bin\docker.exe")
-    return str(candidate) if candidate.is_file() else None
+    if sys.platform == "win32":
+        candidate = Path(r"C:\Program Files\Docker\Docker\resources\bin\docker.exe")
+        return str(candidate) if candidate.is_file() else None
+    return None
 
 
 def _command_has_option(command: tuple[str, ...], option: str, value: str) -> bool:
@@ -178,6 +212,101 @@ def _command_has_option(command: tuple[str, ...], option: str, value: str) -> bo
         token == option and index + 1 < len(command) and command[index + 1] == value
         for index, token in enumerate(command)
     )
+
+
+def _split_gpu_list(value: str | None, *, label: str) -> tuple[str, ...]:
+    """Parse a comma-separated list of non-negative CUDA device ordinals."""
+
+    if value is None or not str(value).strip():
+        return ()
+    result: list[str] = []
+    for raw in str(value).split(","):
+        item = raw.strip()
+        if not item.isdigit():
+            raise DockerSimulatorPlanError(f"{label} must contain only GPU numbers")
+        normalized = str(int(item))
+        if normalized not in result:
+            result.append(normalized)
+    return tuple(result)
+
+
+def _resolve_gpu_selection(
+    *,
+    gpu_render: bool | None,
+    gpu_device: str | int | None,
+    gpu_devices: tuple[str, ...] | None,
+    worker_index: int,
+) -> tuple[bool, str | None, tuple[str, ...]]:
+    """Resolve explicit options and environment defaults for one worker."""
+
+    env_selector = os.environ.get("MULTIDETECT_SIM_GPU", "").strip()
+    env_devices = os.environ.get("MULTIDETECT_SIM_GPU_DEVICES")
+    if gpu_render is None:
+        if not env_selector:
+            enabled = False
+        elif env_selector.lower() in {"0", "false", "no", "off"}:
+            enabled = False
+        else:
+            enabled = True
+    else:
+        enabled = bool(gpu_render)
+    explicit_device = None if gpu_device is None else str(gpu_device).strip()
+    if explicit_device:
+        if not explicit_device.isdigit():
+            raise DockerSimulatorPlanError("gpu_device must be a non-negative GPU number")
+        enabled = True
+    elif (
+        gpu_render in (None, True)
+        and env_selector.isdigit()
+        and gpu_devices is None
+        and not env_devices
+    ):
+        explicit_device = str(int(env_selector))
+        enabled = True
+    if isinstance(worker_index, bool) or not isinstance(worker_index, int) or worker_index < 0:
+        raise DockerSimulatorPlanError("worker_index must be a non-negative integer")
+    if gpu_devices is None:
+        configured = _split_gpu_list(
+            os.environ.get("MULTIDETECT_SIM_GPU_DEVICES"),
+            label="MULTIDETECT_SIM_GPU_DEVICES",
+        )
+        if not configured:
+            configured = DEFAULT_GPU_DEVICES
+    else:
+        configured = tuple(str(item) for item in gpu_devices)
+    configured = _split_gpu_list(",".join(configured), label="gpu_devices")
+    avoid = _split_gpu_list(
+        os.environ.get("MULTIDETECT_SIM_GPU_AVOID", ",".join(DEFAULT_GPU_AVOID)),
+        label="MULTIDETECT_SIM_GPU_AVOID",
+    )
+    if not configured:
+        raise DockerSimulatorPlanError("gpu_devices must contain at least one GPU")
+    if enabled and (
+        any(device not in {"0", "1"} for device in configured)
+        or (explicit_device is not None and explicit_device not in {"0", "1"})
+    ):
+        raise DockerSimulatorPlanError("Workstation SITL permits only GPU0/1; GPU2/3 and other devices are forbidden")
+    if not enabled:
+        # CPU execution must not depend on a later ambient GPU avoidance policy.
+        return False, None, configured
+    if explicit_device is None:
+        candidates = tuple(device for device in configured if device not in avoid)
+        if not candidates:
+            raise DockerSimulatorPlanError("gpu_devices is empty after applying gpu avoid list")
+        explicit_device = candidates[worker_index % len(candidates)]
+    return enabled, explicit_device if enabled else None, configured
+
+
+def gpu_assignment_for_worker(worker_index: int) -> str | None:
+    """Return the configured GPU for a worker slot, or ``None`` if disabled."""
+
+    enabled, device, _devices = _resolve_gpu_selection(
+        gpu_render=None,
+        gpu_device=None,
+        gpu_devices=None,
+        worker_index=worker_index,
+    )
+    return device if enabled else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +352,17 @@ class DockerSimulatorPlan:
     model_root_assets_sha256: str = ""
     # Resolved Fuel model cache bind-mounted read-only, or None when absent.
     fuel_resolved_root: Path | None = None
+    gpu_render: bool = False
+    gpu_device: str | None = None
+    gpu_devices: tuple[str, ...] = ()
+    worker_index: int = 0
+    cpu_isolation: SimulatorCpuIsolation | None = None
+    custom_airframe_path: Path | None = None
+    custom_airframe_sha256: str = ""
+    staged_model_sdf: Path | None = None
+    staged_model_sha256: str = ""
+    requested_image: str | None = None
+    runtime_image_verification: dict | None = None
 
     @property
     def command_text(self) -> str:
@@ -254,7 +394,7 @@ class DockerSimulatorPlan:
         cap_drop_all = self.cap_drop_all
         no_new_privileges = self.no_new_privileges
         container_security_gate_passed = self.container_security_gate_passed
-        return {
+        document = {
             "schema_version": 1,
             "event": "simulator_docker_plan",
             "scenario_id": self.scenario_id,
@@ -297,6 +437,16 @@ class DockerSimulatorPlan:
                 "airframe_profile_id": self.airframe_profile_id,
             },
             "environment": dict(self.environment),
+            "px4_logger_mode": dict(self.environment).get(PX4_LOGGER_MODE_ENV, "off"),
+            "px4_daemon_mode": dict(self.environment).get(PX4_DAEMON_MODE_ENV, "1") == "1",
+            "requested_image": self.requested_image or self.image,
+            "image_identity_status": "content_verified" if self.runtime_image_verification else "planned_reference",
+            "runtime_image_verification": self.runtime_image_verification,
+            "gpu_render": self.gpu_render,
+            "gpu_device": self.gpu_device,
+            "gpu_devices": list(self.gpu_devices),
+            "worker_index": self.worker_index,
+            **({"cpu_isolation": self.cpu_isolation.to_mapping()} if self.cpu_isolation else {}),
             "container_network_mode": self.container_network_mode,
             "container_security": {
                 "cap_drop_all": cap_drop_all,
@@ -358,6 +508,30 @@ class DockerSimulatorPlan:
                 "container_security_gate_passed": container_security_gate_passed,
             },
         }
+        if self.container_network_mode == "host":
+            ports = document["ports"]
+            ports["control"]["published"] = False
+            ports["telemetry"]["publication"] = "host_network"
+            ports["container_target"] = "127.0.0.1"
+            ports["container_target_is_loopback"] = True
+            document["validation"]["container_bridge_target_explicit"] = False
+        if self.custom_airframe_path is not None:
+            document["mounts"]["custom_airframe"] = {
+                "host": str(self.custom_airframe_path),
+                "container": (
+                    f"/opt/px4-gazebo/etc/init.d-posix/airframes/{self.custom_airframe_path.name}"
+                ),
+                "readonly": True,
+                "sha256": self.custom_airframe_sha256,
+            }
+        if self.staged_model_sdf is not None:
+            document["mounts"]["cad_model_sdf"] = {
+                "host": str(self.staged_model_sdf),
+                "container": f"{CONTAINER_MODEL_ROOT}/delta_tailsitter/model.sdf",
+                "readonly": True,
+                "sha256": self.staged_model_sha256,
+            }
+        return document
 
     def to_mapping_with_hash(self) -> dict[str, object]:
         result = self.to_mapping()
@@ -381,8 +555,31 @@ class DockerSimulatorPlan:
         return target
 
 
+def freeze_runtime_plan(plan: DockerSimulatorPlan, *, docker: str | None = None, runner=None) -> DockerSimulatorPlan:
+    """Launch boundary: validate the default's content and eliminate tag races.
+
+    Pure build_docker_simulator_plan stays offline. Every repository execution
+    seam calls this before docker run. Explicit A/B overrides remain explicit.
+    """
+    if plan.image != DEFAULT_GPU_IMAGE:
+        return plan
+    receipt = verify_gpu_runtime_image(plan.image, docker=docker or plan.docker_executable or "docker", runner=runner)
+    command = list(plan.command)
+    if command.count(plan.image) != 1:
+        raise DockerSimulatorPlanError("Runtime image is ambiguous in Docker argv")
+    command[command.index(plan.image)] = receipt["image_id"]
+    return replace(plan, image=receipt["image_id"], command=tuple(command),
+                   requested_image=plan.image, runtime_image_verification=receipt)
+
+
 def _is_pinned_image(image: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}", image))
+    # Docker also accepts a complete immutable local image ID. It is distinct
+    # from a registry manifest digest, which still requires the repository.
+    return bool(re.fullmatch(r"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@)?sha256:[0-9a-f]{64}", image))
+
+
+def _is_local_gpu_image(image: str) -> bool:
+    return bool(re.fullmatch(r"multidetect/px4-sitl-gazebo:[A-Za-z0-9_.-]+", image))
 
 
 def _quote(value: str) -> str:
@@ -399,13 +596,35 @@ def build_docker_simulator_plan(
     container_name: str = "multidetect-sim",
     control_port: int = 14540,
     telemetry_port: int = 14541,
-    image: str = PINNED_IMAGE,
+    image: str | None = None,
     dry_run: bool = True,
+    gpu_render: bool | None = None,
+    gpu_device: str | int | None = None,
+    gpu_devices: tuple[str, ...] | None = None,
+    worker_index: int = 0,
+    sim_network: str | None = None,
+    sim_instance: int = 0,
+    airframe_profile_id: str | None = None,
+    px4_logger_mode: str | None = None,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
-    if not _is_pinned_image(image):
-        raise DockerSimulatorPlanError("image must be pinned by a 64-hex sha256 digest")
+    try:
+        cpu_isolation = resolve_cpu_isolation(worker_index)
+    except ValueError as exc:
+        raise DockerSimulatorPlanError(str(exc)) from exc
+    gpu_render, selected_gpu, resolved_gpu_devices = _resolve_gpu_selection(
+        gpu_render=gpu_render,
+        gpu_device=gpu_device,
+        gpu_devices=gpu_devices,
+        worker_index=worker_index,
+    )
+    image = resolve_runtime_image(image, gpu_render=gpu_render)
+    if not _is_pinned_image(image) and not (gpu_render and _is_local_gpu_image(image)):
+        raise DockerSimulatorPlanError(
+            "image must be pinned by a 64-hex sha256 digest, or a local GPU variant "
+            "multidetect/px4-sitl-gazebo:<tag>"
+        )
     if not isinstance(container_name, str) or _SAFE_NAME.fullmatch(container_name) is None:
         raise DockerSimulatorPlanError("container_name contains unsupported characters")
     control_port = _port(control_port, label="control_port")
@@ -413,6 +632,10 @@ def build_docker_simulator_plan(
     if control_port == telemetry_port:
         raise DockerSimulatorPlanError("control and telemetry ports must differ")
     root = _path(repository_root or ROOT, label="repository_root")
+    selected_network_mode = sim_network_mode(sim_network)
+    if isinstance(sim_instance, bool) or not isinstance(sim_instance, int) or sim_instance < 0:
+        raise DockerSimulatorPlanError("sim_instance must be a non-negative integer")
+    container_network = "host" if selected_network_mode == "host" else sim_docker_network()
     output_job = _path(
         job_dir or root / "artifacts" / "evaluation" / f"docker-{container_name}",
         label="job_dir",
@@ -423,8 +646,14 @@ def build_docker_simulator_plan(
         px4_telemetry_port=telemetry_port,
     )
     try:
+        # Suite-generated manifests live under --out, which can be outside a
+        # pinned worktree. The runtime loader contains channel paths and checks
+        # their hashes; build_stack_plan still binds all assets to `root`.
+        source = scenario
+        if not Path(scenario).expanduser().resolve().is_relative_to(root):
+            source = load_runtime_scenario(scenario, mode=RuntimeMode.SIM)
         stack = build_stack_plan(
-            scenario,
+            source,
             repository_root=root,
             ports=ports,
             tool_capabilities={"px4": False, "gazebo": False},
@@ -435,6 +664,18 @@ def build_docker_simulator_plan(
     resolved_root = (root / "artifacts" / "cache" / "gz-fuel" / "resolved").resolve()
     has_resolved_root = resolved_root.is_dir()
     world_path = stack.world_path.resolve()
+    if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
+        from scripts.gimbal_gz_resources import FUEL, preflight
+
+        configured = os.environ.get("MD_GIMBAL_FUEL_ROOT", "")
+        if configured != str(FUEL) or not FUEL.is_dir() or FUEL.is_symlink():
+            raise DockerSimulatorPlanError("candidate fuel root missing or mismatched")
+        try:
+            preflight(world_path, FUEL)
+        except (OSError, ValueError, ET.ParseError) as exc:
+            raise DockerSimulatorPlanError(f"candidate Gazebo resources invalid: {exc}") from exc
+        resolved_root = FUEL
+        has_resolved_root = True
     scripts_root = (root / "scripts").resolve()
     dem_path = stack.dem_path.resolve()
     if not (scripts_root / "gazebo_sensor_stream.py").is_file():
@@ -447,6 +688,43 @@ def build_docker_simulator_plan(
     # PX4/Gazebo model selection.
     stack_environment = stack.environment_mapping
     model_name = stack.model_name
+    custom_airframe = None
+    custom_airframe_sha256 = ""
+    staged_model_sdf = None
+    staged_model_sha256 = ""
+    extra_mounts: tuple[str, ...] = ()
+    if model_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}:
+        # 沿用原来的 rcS -> SYS_AUTOSTART 路径，只挂入一份自定义脚本。
+        custom_airframe = root / "simulation/px4/airframes" / (
+            "4051_gz_delta_tailsitter_gimbal"
+            if model_name == "delta_tailsitter_gimbal_cam"
+            else "4050_gz_delta_tailsitter"
+        )
+        extra_mounts += (
+            "--mount",
+            _mount(custom_airframe,
+                   f"/opt/px4-gazebo/etc/init.d-posix/airframes/{custom_airframe.name}"),
+        )
+        if model_name == "delta_tailsitter_gimbal_cam":
+            # 4051 在 rcS 里 source 4050 的飞行参数，基础脚本也要一并挂入。
+            base_airframe = root / "simulation/px4/airframes/4050_gz_delta_tailsitter"
+            extra_mounts += (
+                "--mount",
+                _mount(base_airframe,
+                       f"/opt/px4-gazebo/etc/init.d-posix/airframes/{base_airframe.name}"),
+            )
+        custom_airframe_sha256 = hashlib.sha256(custom_airframe.read_bytes()).hexdigest()
+        selected = select_visual_mesh(model_root / "delta_tailsitter")
+        if selected is not None:
+            # SDF 没有条件几何：将 CAD 外观版写入本次作业，再只读覆盖基础 SDF。
+            # 它仍从同一 GZ_SIM_RESOURCE_PATH 读取网格，不改仓库和碰撞/动力学。
+            staged_model_sdf = output_job / "delta_tailsitter.model.sdf"
+            staged_model_sdf.write_text(selected[0], encoding="utf-8")
+            staged_model_sha256 = hashlib.sha256(staged_model_sdf.read_bytes()).hexdigest()
+            extra_mounts += (
+                "--mount",
+                _mount(staged_model_sdf, f"{CONTAINER_MODEL_ROOT}/delta_tailsitter/model.sdf"),
+            )
     container_environment = {
         "HEADLESS": "1" if stack.headless else "0",
         "PX4_SYS_AUTOSTART": stack_environment.get(
@@ -483,6 +761,41 @@ def build_docker_simulator_plan(
         "GZ_VERBOSE": "0",
         **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
+    logger_mode = resolve_px4_logger_mode(px4_logger_mode)
+    container_environment[PX4_LOGGER_MODE_ENV] = logger_mode
+    daemon_mode = resolve_px4_daemon_mode()
+    container_environment[PX4_DAEMON_MODE_ENV] = "1" if daemon_mode else "0"
+    if logger_mode == "off":
+        container_environment["SDLOG_BACKEND"] = "0"
+        container_environment["PX4_PARAM_SDLOG_BACKEND"] = "0"
+    if airframe_profile_id == "x500_gimbal":
+        container_environment["PX4_SYS_AUTOSTART"] = "4019"
+        container_environment["PX4_SIM_MODEL"] = "gz_x500_gimbal"
+        container_environment["PX4_GZ_MODELS"] = CONTAINER_IMAGE_MODEL_ROOT
+    # The gimbal overlay shadows the image-provided x500_gimbal model.  Keep
+    # PX4 pointed at that image model root so its model://gimbal dependency is
+    # resolved from the same upstream directory.
+    container_model_root = (
+        CONTAINER_IMAGE_MODEL_ROOT
+        if airframe_profile_id == "x500_gimbal"
+        else CONTAINER_MODEL_ROOT
+    )
+    if gpu_render:
+        # NVIDIA Container Toolkit injects the driver libraries.  EGL_PLATFORM
+        # and the vendor manifest make the selection deterministic in a
+        # display-less container; the stock PX4 rc script turns HEADLESS=1 into
+        # gz sim --headless-rendering.
+        container_environment.update(
+            {
+                "NVIDIA_DRIVER_CAPABILITIES": "graphics,utility,compute",
+                "NVIDIA_VISIBLE_DEVICES": str(selected_gpu),
+                "EGL_PLATFORM": "surfaceless",
+                "GZ_SIM_RENDER_ENGINE": "ogre2",
+                "GZ_SIM_HEADLESS_RENDERING": "1",
+                "__EGL_VENDOR_LIBRARY_FILENAMES": NVIDIA_EGL_VENDOR_FILE,
+                "LIBGL_ALWAYS_SOFTWARE": "0",
+            }
+        )
     for key in (
         "PX4_HOME_LAT",
         "PX4_HOME_LON",
@@ -491,6 +804,10 @@ def build_docker_simulator_plan(
     ):
         if key in stack_environment:
             container_environment[key] = stack_environment[key]
+    if selected_network_mode == "host":
+        container_environment["PX4_SIM_HOST"] = "127.0.0.1"
+        container_environment["GZ_PARTITION"] = container_name
+        container_environment["MD_SIM_INSTANCE"] = str(sim_instance)
     environment_tokens = tuple(sorted(container_environment.items()))
     # The stock image starts Gazebo from rcS/px4-rc.gzsim.  Patch only the
     # disposable container copy: set the explicit host-facing control port,
@@ -507,30 +824,103 @@ def build_docker_simulator_plan(
         "sed -i -E 's|^[[:space:]]*udp_gcs_port_local=.*$|"
         f'udp_gcs_port_local={control_port}|\' "$RC"; '
     )
+    mavlink_target = "127.0.0.1" if selected_network_mode == "host" else "$DOCKER_HOST_IP"
     patch_command = (
         "sed -i -E 's|^([[:space:]]*)mavlink start -x -u "
         "[$]udp_gcs_port_local.*$|"
-        "\\1mavlink start -x -t $DOCKER_HOST_IP -u $udp_gcs_port_local "
+        f"\\1mavlink start -x -t {mavlink_target} -u $udp_gcs_port_local "
         f'-o {telemetry_port} -r 4000000 -f $mavlink_network_interface_arg|\' "$RC"; '
     )
+    logger_patch = ""
+    if logger_mode == "poll":
+        logger_rc = "/opt/px4-gazebo/etc/init.d/rc.logging"
+        logger_patch = (
+            f"LRC={logger_rc}; "
+            # PX4 logger's -p argument is the numeric poll interval (ms),
+            # while -t selects the timer/semaphore path that has been
+            # observed to segfault in this pinned image.  Do not pass a
+            # uORB topic name here: the logger CLI parses -p as an integer.
+            "sed -i 's|logger start -b ${LOGGER_BUF} -t ${LOGGER_ARGS}|"
+            "logger start -b ${LOGGER_BUF} -p 100 ${LOGGER_ARGS}|' \"$LRC\"; "
+            "grep -Fq -- '-p 100' \"$LRC\" || exit 74; "
+        )
+    gpu_gz_wrapper = ""
+    if gpu_render:
+        # PX4's image starts Gazebo from its rc script.  Keep that startup path,
+        # but make the two rendering flags explicit even if a future image
+        # changes how HEADLESS is translated into gz arguments.
+        gpu_gz_wrapper = (
+            "MD_REAL_GZ=$(command -v gz); export MD_REAL_GZ; "
+            "mkdir -p /tmp/multidetect-gz-bin; "
+            "cat > /tmp/multidetect-gz-bin/gz <<'EOF'\n"
+            "#!/bin/sh\n"
+            "set -eu\n"
+            "if [ \"${1:-}\" = sim ]; then\n"
+            "  has_headless=0; has_engine=0\n"
+            "  for arg in \"$@\"; do\n"
+            "    [ \"$arg\" = --headless-rendering ] && has_headless=1\n"
+            "    [ \"$arg\" = --render-engine ] && has_engine=1\n"
+            "  done\n"
+            "  [ \"$has_headless\" -eq 1 ] || set -- \"$@\" --headless-rendering\n"
+            "  [ \"$has_engine\" -eq 1 ] || set -- \"$@\" --render-engine ogre2\n"
+            "fi\n"
+            "exec \"$MD_REAL_GZ\" \"$@\"\n"
+            "EOF\n"
+            "chmod 0755 /tmp/multidetect-gz-bin/gz; "
+            "export PATH=/tmp/multidetect-gz-bin:$PATH; "
+        )
+    # Docker Desktop routes host.docker.internal to the host loopback.  On Linux,
+    # send to the exact address the host listens on (the selected network's
+    # gateway); the PX4 image has no `ip` to discover it from inside.
+    if selected_network_mode == "host":
+        docker_host_ip = 'DOCKER_HOST_IP="127.0.0.1"; '
+    elif os.name == "nt":
+        docker_host_ip = (
+            'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal | '
+            "awk '/STREAM/ {print $1; exit}')\"; "
+        )
+    elif sim_network is None:
+        docker_host_ip = f'DOCKER_HOST_IP="{sim_listen_host(container_network)}"; '
+    else:
+        docker_host_ip = (
+            f'DOCKER_HOST_IP="{sim_listen_host(container_network, mode=selected_network_mode)}"; '
+        )
     startup = "".join(
         (
             "set -eu; ",
-            'DOCKER_HOST_IP="$(getent ahostsv4 host.docker.internal | ',
-            "awk '/STREAM/ {print $1; exit}')\"; ",
+            docker_host_ip,
             'export DOCKER_HOST_IP; test -n "$DOCKER_HOST_IP"; ',
             "RC=/opt/px4-gazebo/etc/init.d-posix/px4-rc.mavlink; ",
             patch_assignment,
             patch_command,
-            "export PX4_NET_INTERFACE=; ",
-            "export PX4_GZ_MODELS=/opt/multidetect-gazebo-models; ",
+            logger_patch,
+            (
+                "export PX4_NET_INTERFACE=lo; "
+                if selected_network_mode == "host"
+                else "export PX4_NET_INTERFACE=; "
+            ),
+            f"export PX4_GZ_MODELS={container_model_root}; ",
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
             SIM_STARTUP_PATCHES,
             "export GZ_SIM_RESOURCE_PATH=",
             ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
-            "exec /opt/px4-gazebo/bin/px4 -i 0 -s etc/init.d-posix/rcS",
+            gpu_gz_wrapper,
+            f"exec /opt/px4-gazebo/bin/px4 -i {sim_instance if selected_network_mode == 'host' else 0} -s etc/init.d-posix/rcS"
+            + (" -d" if daemon_mode else ""),
+        )
+    )
+    network_tokens = (
+        ("--network", "host")
+        if selected_network_mode == "host"
+        else (
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "--network",
+            container_network,
+            "--publish",
+            f"127.0.0.1:{control_port}:{control_port}/udp",
         )
     )
     command = (
@@ -545,12 +935,12 @@ def build_docker_simulator_plan(
         "ALL",
         "--security-opt",
         "no-new-privileges:true",
-        "--add-host",
-        "host.docker.internal:host-gateway",
-        "--publish",
-        f"127.0.0.1:{control_port}:{control_port}/udp",
+        *(cpu_isolation.docker_options if cpu_isolation else ()),
+        *(('--gpus', f'device={selected_gpu}') if gpu_render else ()),
+        *network_tokens,
         "--mount",
         _mount(model_root, CONTAINER_MODEL_ROOT),
+        *extra_mounts,
         *(
             ("--mount", _mount(resolved_root, "/opt/multidetect-gz-fuel-resolved"))
             if has_resolved_root
@@ -591,6 +981,7 @@ def build_docker_simulator_plan(
         cleanup_commands=cleanup,
         docker_executable=_docker_binary(),
         dry_run=dry_run,
+        container_network_mode=container_network,
         vehicle_model=stack.vehicle_model,
         model_name=model_name,
         airframe_profile_id=stack.airframe_profile_id,
@@ -602,6 +993,15 @@ def build_docker_simulator_plan(
         stack_assets_sha256=stack.assets.aggregate_sha256,
         model_root_assets_sha256=stack.assets.model_root.aggregate_sha256,
         fuel_resolved_root=resolved_root if has_resolved_root else None,
+        gpu_render=gpu_render,
+        gpu_device=selected_gpu,
+        gpu_devices=resolved_gpu_devices,
+        worker_index=worker_index,
+        cpu_isolation=cpu_isolation,
+        custom_airframe_path=custom_airframe,
+        custom_airframe_sha256=custom_airframe_sha256,
+        staged_model_sdf=staged_model_sdf,
+        staged_model_sha256=staged_model_sha256,
     )
 
 
@@ -611,7 +1011,7 @@ plan_simulator_docker = build_docker_simulator_plan
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Plan an isolated Docker Desktop PX4/Gazebo SIM run"
+        description="Plan an isolated Docker PX4/Gazebo SIM run"
     )
     parser.add_argument("--scenario", type=Path, default=DEFAULT_SCENARIO)
     parser.add_argument("--repository-root", "--repo-root", dest="repository_root", type=Path)
@@ -619,12 +1019,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--container-name", default="multidetect-sim")
     parser.add_argument("--control-port", type=int, default=14540)
     parser.add_argument("--telemetry-port", type=int, default=14541)
-    parser.add_argument("--image", default=PINNED_IMAGE)
+    parser.add_argument("--image", default=None, help="explicit image; otherwise environment, then GPU/CPU default")
+    parser.add_argument(
+        "--gpu-render",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="enable NVIDIA EGL/Ogre2 headless rendering (also via MULTIDETECT_SIM_GPU)",
+    )
+    parser.add_argument("--gpu-device", type=str, default=None)
+    parser.add_argument("--gpu-devices", type=str, default=None, help="comma-separated worker GPU pool")
+    parser.add_argument("--worker-index", type=int, default=0)
+    parser.add_argument("--sim-network", choices=("bridge", "host"), default=None)
+    parser.add_argument("--sim-instance", type=int, default=0)
     parser.add_argument("--out", type=Path)
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="require Docker Desktop to be discoverable",
+        help="require Docker to be discoverable",
     )
     args = parser.parse_args(argv)
     try:
@@ -637,9 +1048,17 @@ def main(argv: list[str] | None = None) -> int:
             telemetry_port=args.telemetry_port,
             image=args.image,
             dry_run=not args.strict,
+            gpu_render=args.gpu_render,
+            gpu_device=args.gpu_device,
+            gpu_devices=_split_gpu_list(args.gpu_devices, label="--gpu-devices")
+            if args.gpu_devices is not None
+            else None,
+            worker_index=args.worker_index,
+            sim_network=args.sim_network,
+            sim_instance=args.sim_instance,
         )
         if args.strict and plan.docker_executable is None:
-            raise DockerSimulatorPlanError("Docker Desktop executable not found")
+            raise DockerSimulatorPlanError("Docker executable not found")
         if args.out is not None:
             plan.write_json(args.out)
         print(json.dumps(plan.to_mapping_with_hash(), ensure_ascii=False, indent=2, sort_keys=True))

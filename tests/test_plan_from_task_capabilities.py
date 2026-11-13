@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from scripts.plan_from_task import score_task
+import json
+
 from multidetect.autonomy.mission_plan import validate_mission_plan
+from scripts.plan_from_task import score_task
 
 
 def _plan(skill: str, params: dict | None = None):
@@ -49,3 +51,45 @@ def test_missing_payload_category_keeps_safe_plan_as_not_a_rejection():
     result = score_task(item, _plan("return_home"), None)
     assert result["correct_rejection"] is False
     assert result["capability_violations"] == 0
+
+
+def test_invalid_query_task_uses_product_validator_before_awarding_rejection():
+    item = {
+        "text": "Inspect the gate and return home, but do not invent a fire truck target.",
+        "category": "query_ungrounded",
+        "expect_invalid": True,
+        "refs": ("poi:gate (gate)", "poi:pad (landing pad)", "zone:lot (parking lot)"),
+    }
+    plan = _plan("inspect", {
+        "target_ref": "poi:gate", "query": "fire truck", "views": 3,
+        "standoff_m": 10,
+    })
+    result = score_task(item, plan, None)
+
+    assert result["validator_decision"] == "clarify"
+    assert result["correct_rejection"] is True
+    assert result["exact"] is True
+
+
+def test_live_and_offline_scoring_use_the_same_raw_candidate():
+    item = {
+        "text": "Inspect the gate and return home, but do not invent a fire truck target.",
+        "category": "query_ungrounded",
+        "expect_invalid": True,
+        "refs": ("poi:gate (gate)",),
+    }
+    raw = json.dumps({
+        "plan_version": 1, "goal": "inspect", "report": [],
+        "steps": [
+            {"id": "task", "skill": "inspect", "params": {
+                "target_ref": "poi:gate", "query": "fire truck",
+                "views": 1, "standoff_m": 5,
+            }, "on_success": "home", "on_fail": "home"},
+            {"id": "home", "skill": "return_home", "params": {},
+             "on_success": None, "on_fail": None},
+        ],
+    })
+    offline = score_task(item, validate_mission_plan(json.loads(raw)), None)
+    live = score_task(item, _plan("return_home"), ["s1: dropped inspect"], raw=raw)
+    assert live == offline
+    assert live["validator_decision"] == "clarify"

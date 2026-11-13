@@ -1,0 +1,2434 @@
+{
+  "origin": {
+    "episode_id": "episode-0000-addc1cb2",
+    "raw_steps_sha256": "975c5d6f973e74cdb3a2f98798df6809dcd342d9f6ac7179cb5dcb2fb6aa5c55",
+    "raw_episode_sha256": "2ba8f31c1aaf14229a96f69d39b11ca0fc5323ae7b1fdbf383ee2582b00cdb5d",
+    "source_commit": "ef2aecb5174131d4c3a28d16a402364c437b023b",
+    "note": "Recorded labels and poses from the failed scorer flight; no truth or thresholds altered."
+  },
+  "metadata": {
+    "status": "complete"
+  },
+  "truth": {
+    "targets": []
+  },
+  "mission_config": {
+    "gguf": "artifacts/models/slow-system-lora-v2-r21id-r3-merged-gguf/slow-system-v2r21idr3-merged-Q5_K_M.gguf",
+    "planning_model": "artifacts/models/slow-system-lora-v2-r24-planner-merged-gguf/slow-system-v2r24planner-merged-Q5_K_M.gguf",
+    "planning_decision_contract": false,
+    "confirm_max_range_m": 40,
+    "fast_identity": true,
+    "yoloe_weights": "artifacts/experiments/yoloe-v3-onboard-1280/train/weights/best.pt",
+    "near_depth": false,
+    "planning_pregate": true,
+    "mission": "from_text",
+    "plan_sorted_keys": true,
+    "step_budget": 180,
+    "size_aware_search": true,
+    "runtime_step_limit": 180,
+    "task_text": "Survey the site with seventy percent photo overlap and return home.",
+    "refs": {
+      "zone:site": [
+        0,
+        0,
+        35
+      ]
+    },
+    "ref_labels": {
+      "zone:site": "the site"
+    },
+    "port": 9941
+  },
+  "rows": [
+    {
+      "step_index": 0,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            0.008829113095998764,
+            0.021526460722088813,
+            -39.50289459228516
+          ],
+          "lat_deg": 31.2395148,
+          "lon_deg": 121.5018265,
+          "alt_m": 39.4092
+        },
+        "frame_sensor_stamp_ns": 32640000000,
+        "pose_sim_stamp_ns": 32640000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -0.044475954646865525,
+            0.008050511901577314,
+            -39.530120849609375
+          ],
+          "lat_deg": 31.2395144,
+          "lon_deg": 121.5018264,
+          "alt_m": 39.43666666666667
+        },
+        "frame_sensor_stamp_ns": 34092000000,
+        "pose_sim_stamp_ns": 34092000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 1,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.5646,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [],
+            "answers": [
+              "s1:coverage:0.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": [],
+            "plan": {
+              "skills": [
+                "survey",
+                "return_home"
+              ],
+              "repairs": [],
+              "error": null,
+              "latency_s": 0.51
+            }
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 1,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -0.05821443349123001,
+            0.011174725368618965,
+            -39.54033279418945
+          ],
+          "lat_deg": 31.2395142,
+          "lon_deg": 121.5018264,
+          "alt_m": 39.447
+        },
+        "frame_sensor_stamp_ns": 34324000000,
+        "pose_sim_stamp_ns": 34324000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -10.8139279683431,
+            -9.647759755452475,
+            -39.5858408610026
+          ],
+          "lat_deg": 31.2394175,
+          "lon_deg": 121.5017248,
+          "alt_m": 39.492333333333335
+        },
+        "frame_sensor_stamp_ns": 41584000000,
+        "pose_sim_stamp_ns": 41584000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 1,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0314,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [],
+            "answers": [
+              "s1:coverage:0.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 2,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -10.855766932169596,
+            -9.680644194285074,
+            -39.587154388427734
+          ],
+          "lat_deg": 31.23941711666667,
+          "lon_deg": 121.50172441666668,
+          "alt_m": 39.494
+        },
+        "frame_sensor_stamp_ns": 41812000000,
+        "pose_sim_stamp_ns": 41812000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -22.006343364715576,
+            -19.627089500427246,
+            -39.56557273864746
+          ],
+          "lat_deg": 31.239316875,
+          "lon_deg": 121.5016198,
+          "alt_m": 39.472
+        },
+        "frame_sensor_stamp_ns": 49240000000,
+        "pose_sim_stamp_ns": 49240000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 1,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0298,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [],
+            "answers": [
+              "s1:coverage:0.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 3,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -22.03707504272461,
+            -19.661495208740234,
+            -39.56852722167969
+          ],
+          "lat_deg": 31.2393166,
+          "lon_deg": 121.5016195,
+          "alt_m": 39.475
+        },
+        "frame_sensor_stamp_ns": 49436000000,
+        "pose_sim_stamp_ns": 49436000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -26.766948699951172,
+            -23.917688369750977,
+            -39.58423614501953
+          ],
+          "lat_deg": 31.239274,
+          "lon_deg": 121.5015747,
+          "alt_m": 39.491
+        },
+        "frame_sensor_stamp_ns": 52372000000,
+        "pose_sim_stamp_ns": 52372000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 1,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0581,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [],
+            "answers": [
+              "s1:coverage:0.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 4,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -26.79413604736328,
+            -23.941214561462402,
+            -39.581077575683594
+          ],
+          "lat_deg": 31.2392738,
+          "lon_deg": 121.50157445,
+          "alt_m": 39.488
+        },
+        "frame_sensor_stamp_ns": 52604000000,
+        "pose_sim_stamp_ns": 52604000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -26.26743507385254,
+            -23.484785079956055,
+            -39.52949905395508
+          ],
+          "lat_deg": 31.2392785,
+          "lon_deg": 121.50157925,
+          "alt_m": 39.436
+        },
+        "frame_sensor_stamp_ns": 54024000000,
+        "pose_sim_stamp_ns": 54024000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 2,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.033,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png"
+            ],
+            "answers": [
+              "s1:coverage:0.17"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 5,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -26.22209882736206,
+            -23.45330810546875,
+            -39.57505989074707
+          ],
+          "lat_deg": 31.239278925,
+          "lon_deg": 121.5015796,
+          "alt_m": 39.48175
+        },
+        "frame_sensor_stamp_ns": 54220000000,
+        "pose_sim_stamp_ns": 54220000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -11.91785717010498,
+            -23.432059288024902,
+            -39.577842712402344
+          ],
+          "lat_deg": 31.23940755,
+          "lon_deg": 121.5015798,
+          "alt_m": 39.4845
+        },
+        "frame_sensor_stamp_ns": 61184000000,
+        "pose_sim_stamp_ns": 61184000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 2,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 3,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0319,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png"
+            ],
+            "answers": [
+              "s1:coverage:0.17"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 6,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -11.83577823638916,
+            -23.442276000976562,
+            -39.580841064453125
+          ],
+          "lat_deg": 31.2394083,
+          "lon_deg": 121.5015797,
+          "alt_m": 39.487
+        },
+        "frame_sensor_stamp_ns": 61416000000,
+        "pose_sim_stamp_ns": 61416000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            3.0764458179473877,
+            -23.26771354675293,
+            -39.59291076660156
+          ],
+          "lat_deg": 31.2395424,
+          "lon_deg": 121.5015815,
+          "alt_m": 39.5
+        },
+        "frame_sensor_stamp_ns": 68972000000,
+        "pose_sim_stamp_ns": 68972000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 2,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 4,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0388,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png"
+            ],
+            "answers": [
+              "s1:coverage:0.17"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 7,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            3.1330320835113525,
+            -23.26223659515381,
+            -39.602230072021484
+          ],
+          "lat_deg": 31.2395429,
+          "lon_deg": 121.5015816,
+          "alt_m": 39.509
+        },
+        "frame_sensor_stamp_ns": 69204000000,
+        "pose_sim_stamp_ns": 69204000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            18.081410090128582,
+            -23.045886993408203,
+            -39.587215423583984
+          ],
+          "lat_deg": 31.23967731666667,
+          "lon_deg": 121.5015839,
+          "alt_m": 39.494
+        },
+        "frame_sensor_stamp_ns": 76396000000,
+        "pose_sim_stamp_ns": 76396000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 2,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 3,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0447,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png"
+            ],
+            "answers": [
+              "s1:coverage:0.17"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 8,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            18.15005334218343,
+            -23.044331550598145,
+            -39.59002685546875
+          ],
+          "lat_deg": 31.239678,
+          "lon_deg": 121.5015839,
+          "alt_m": 39.497
+        },
+        "frame_sensor_stamp_ns": 76596000000,
+        "pose_sim_stamp_ns": 76596000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            26.99336051940918,
+            -22.960808563232423,
+            -39.55189056396485
+          ],
+          "lat_deg": 31.23975748,
+          "lon_deg": 121.5015848,
+          "alt_m": 39.458800000000004
+        },
+        "frame_sensor_stamp_ns": 80160000000,
+        "pose_sim_stamp_ns": 80160000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 2,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 1,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0392,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png"
+            ],
+            "answers": [
+              "s1:coverage:0.17"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 9,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            26.825685501098633,
+            -22.952152252197266,
+            -39.551429748535156
+          ],
+          "lat_deg": 31.239756,
+          "lon_deg": 121.5015849,
+          "alt_m": 39.458
+        },
+        "frame_sensor_stamp_ns": 80392000000,
+        "pose_sim_stamp_ns": 80392000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            26.018347422281902,
+            -22.960933685302734,
+            -39.601697285970054
+          ],
+          "lat_deg": 31.23974876666667,
+          "lon_deg": 121.5015848,
+          "alt_m": 39.50833333333333
+        },
+        "frame_sensor_stamp_ns": 82568000000,
+        "pose_sim_stamp_ns": 82568000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 3,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 2,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0463,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png"
+            ],
+            "answers": [
+              "s1:coverage:0.33"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 10,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            26.07076644897461,
+            -22.974767684936523,
+            -39.597328186035156
+          ],
+          "lat_deg": 31.2397492,
+          "lon_deg": 121.5015846,
+          "alt_m": 39.504
+        },
+        "frame_sensor_stamp_ns": 82832000000,
+        "pose_sim_stamp_ns": 82832000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            31.330717086791992,
+            -9.27679991722107,
+            -39.58296012878418
+          ],
+          "lat_deg": 31.2397965,
+          "lon_deg": 121.5017287,
+          "alt_m": 39.48925
+        },
+        "frame_sensor_stamp_ns": 90060000000,
+        "pose_sim_stamp_ns": 90060000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 3,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 3,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0281,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png"
+            ],
+            "answers": [
+              "s1:coverage:0.33"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 11,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            31.364924430847168,
+            -9.200756072998047,
+            -39.591400146484375
+          ],
+          "lat_deg": 31.2397968,
+          "lon_deg": 121.5017295,
+          "alt_m": 39.498
+        },
+        "frame_sensor_stamp_ns": 90324000000,
+        "pose_sim_stamp_ns": 90324000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            34.68096415201823,
+            0.03298785785833994,
+            -39.602221171061196
+          ],
+          "lat_deg": 31.23982663333333,
+          "lon_deg": 121.5018266,
+          "alt_m": 39.509
+        },
+        "frame_sensor_stamp_ns": 96660000000,
+        "pose_sim_stamp_ns": 96660000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 3,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0328,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png"
+            ],
+            "answers": [
+              "s1:coverage:0.33"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 12,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            34.70196533203125,
+            0.0770464837551117,
+            -39.602691650390625
+          ],
+          "lat_deg": 31.2398268,
+          "lon_deg": 121.5018271,
+          "alt_m": 39.509
+        },
+        "frame_sensor_stamp_ns": 96892000000,
+        "pose_sim_stamp_ns": 96892000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            34.711910247802734,
+            0.26637011766433716,
+            -39.53749084472656
+          ],
+          "lat_deg": 31.2398269,
+          "lon_deg": 121.5018291,
+          "alt_m": 39.444
+        },
+        "frame_sensor_stamp_ns": 98212000000,
+        "pose_sim_stamp_ns": 98212000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 4,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0322,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png"
+            ],
+            "answers": [
+              "s1:coverage:0.50"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 13,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            34.71493784586588,
+            0.2854115267594655,
+            -39.57242075602213
+          ],
+          "lat_deg": 31.239827,
+          "lon_deg": 121.5018293,
+          "alt_m": 39.478833333333334
+        },
+        "frame_sensor_stamp_ns": 98376000000,
+        "pose_sim_stamp_ns": 98376000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            20.330455780029297,
+            0.4584803879261017,
+            -39.595245361328125
+          ],
+          "lat_deg": 31.2396976,
+          "lon_deg": 121.5018311,
+          "alt_m": 39.502
+        },
+        "frame_sensor_stamp_ns": 105472000000,
+        "pose_sim_stamp_ns": 105472000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 4,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 1,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0371,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png"
+            ],
+            "answers": [
+              "s1:coverage:0.50"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 14,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            20.28596591949463,
+            0.456668883562088,
+            -39.59574508666992
+          ],
+          "lat_deg": 31.2396972,
+          "lon_deg": 121.5018311,
+          "alt_m": 39.502
+        },
+        "frame_sensor_stamp_ns": 105604000000,
+        "pose_sim_stamp_ns": 105604000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            5.342362403869629,
+            0.5122315287590027,
+            -39.59291076660156
+          ],
+          "lat_deg": 31.2395628,
+          "lon_deg": 121.5018317,
+          "alt_m": 39.4995
+        },
+        "frame_sensor_stamp_ns": 112764000000,
+        "pose_sim_stamp_ns": 112764000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 4,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 2,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0402,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png"
+            ],
+            "answers": [
+              "s1:coverage:0.50"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 15,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            5.297873139381409,
+            0.5145968198776245,
+            -39.59655952453613
+          ],
+          "lat_deg": 31.2395624,
+          "lon_deg": 121.5018317,
+          "alt_m": 39.503
+        },
+        "frame_sensor_stamp_ns": 112928000000,
+        "pose_sim_stamp_ns": 112928000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -9.659722328186035,
+            0.4343658834695816,
+            -39.59130668640137
+          ],
+          "lat_deg": 31.239427875,
+          "lon_deg": 121.5018308,
+          "alt_m": 39.498
+        },
+        "frame_sensor_stamp_ns": 120220000000,
+        "pose_sim_stamp_ns": 120220000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 4,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 1,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0334,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png"
+            ],
+            "answers": [
+              "s1:coverage:0.50"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 16,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -9.710429668426514,
+            0.4384688585996628,
+            -39.59195327758789
+          ],
+          "lat_deg": 31.239427425,
+          "lon_deg": 121.5018309,
+          "alt_m": 39.499
+        },
+        "frame_sensor_stamp_ns": 120388000000,
+        "pose_sim_stamp_ns": 120388000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -24.65869426727295,
+            0.4243110865354538,
+            -39.5894406636556
+          ],
+          "lat_deg": 31.239293,
+          "lon_deg": 121.5018307,
+          "alt_m": 39.496
+        },
+        "frame_sensor_stamp_ns": 127712000000,
+        "pose_sim_stamp_ns": 127712000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 4,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0288,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png"
+            ],
+            "answers": [
+              "s1:coverage:0.50"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 17,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -24.701692581176758,
+            0.4280146062374115,
+            -39.592308044433594
+          ],
+          "lat_deg": 31.2392926,
+          "lon_deg": 121.5018308,
+          "alt_m": 39.499
+        },
+        "frame_sensor_stamp_ns": 127876000000,
+        "pose_sim_stamp_ns": 127876000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -34.966599782307945,
+            0.434768408536911,
+            -39.59832255045573
+          ],
+          "lat_deg": 31.239200266666668,
+          "lon_deg": 121.5018308,
+          "alt_m": 39.505
+        },
+        "frame_sensor_stamp_ns": 134380000000,
+        "pose_sim_stamp_ns": 134380000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 4,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0449,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png"
+            ],
+            "answers": [
+              "s1:coverage:0.50"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 18,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -35.02858352661133,
+            0.4316725532213847,
+            -39.601165771484375
+          ],
+          "lat_deg": 31.2391997,
+          "lon_deg": 121.5018308,
+          "alt_m": 39.508
+        },
+        "frame_sensor_stamp_ns": 134576000000,
+        "pose_sim_stamp_ns": 134576000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -35.22623062133789,
+            0.4686921536922455,
+            -39.534034729003906
+          ],
+          "lat_deg": 31.239198,
+          "lon_deg": 121.5018312,
+          "alt_m": 39.441
+        },
+        "frame_sensor_stamp_ns": 135796000000,
+        "pose_sim_stamp_ns": 135796000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 5,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0313,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png"
+            ],
+            "answers": [
+              "s1:coverage:0.67"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 19,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -35.244441986083984,
+            0.4850979745388031,
+            -39.57951354980469
+          ],
+          "lat_deg": 31.2391978,
+          "lon_deg": 121.5018314,
+          "alt_m": 39.486
+        },
+        "frame_sensor_stamp_ns": 135996000000,
+        "pose_sim_stamp_ns": 135996000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -30.095233917236328,
+            13.907900174458822,
+            -39.58129374186198
+          ],
+          "lat_deg": 31.2392441,
+          "lon_deg": 121.50197253333333,
+          "alt_m": 39.488
+        },
+        "frame_sensor_stamp_ns": 142960000000,
+        "pose_sim_stamp_ns": 142960000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 5,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0219,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png"
+            ],
+            "answers": [
+              "s1:coverage:0.67"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 20,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -30.066007614135742,
+            13.968925476074219,
+            -39.58118438720703
+          ],
+          "lat_deg": 31.2392444,
+          "lon_deg": 121.5019732,
+          "alt_m": 39.488
+        },
+        "frame_sensor_stamp_ns": 143156000000,
+        "pose_sim_stamp_ns": 143156000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -26.43833351135254,
+            23.402732849121094,
+            -39.59119415283203
+          ],
+          "lat_deg": 31.239277,
+          "lon_deg": 121.5020724,
+          "alt_m": 39.498
+        },
+        "frame_sensor_stamp_ns": 149692000000,
+        "pose_sim_stamp_ns": 149692000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 5,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0277,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png"
+            ],
+            "answers": [
+              "s1:coverage:0.67"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 21,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -26.424203872680664,
+            23.45510768890381,
+            -39.59588050842285
+          ],
+          "lat_deg": 31.2392771,
+          "lon_deg": 121.502072975,
+          "alt_m": 39.50275
+        },
+        "frame_sensor_stamp_ns": 149888000000,
+        "pose_sim_stamp_ns": 149888000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -26.361246744791668,
+            23.626614570617676,
+            -39.56332651774088
+          ],
+          "lat_deg": 31.2392777,
+          "lon_deg": 121.5020748,
+          "alt_m": 39.46966666666666
+        },
+        "frame_sensor_stamp_ns": 150912000000,
+        "pose_sim_stamp_ns": 150912000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 6,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 1,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0445,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png"
+            ],
+            "answers": [
+              "s1:coverage:0.83"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 22,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -26.346654891967773,
+            23.638090133666992,
+            -39.5893440246582
+          ],
+          "lat_deg": 31.2392778,
+          "lon_deg": 121.5020749,
+          "alt_m": 39.49625
+        },
+        "frame_sensor_stamp_ns": 151108000000,
+        "pose_sim_stamp_ns": 151108000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -11.79002571105957,
+            23.7856502532959,
+            -39.58745574951172
+          ],
+          "lat_deg": 31.2394087,
+          "lon_deg": 121.5020765,
+          "alt_m": 39.494
+        },
+        "frame_sensor_stamp_ns": 158272000000,
+        "pose_sim_stamp_ns": 158272000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 6,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 4,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0569,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png"
+            ],
+            "answers": [
+              "s1:coverage:0.83"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 23,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -11.729092836380005,
+            23.784722805023193,
+            -39.59234809875488
+          ],
+          "lat_deg": 31.239409275,
+          "lon_deg": 121.5020764,
+          "alt_m": 39.499
+        },
+        "frame_sensor_stamp_ns": 158468000000,
+        "pose_sim_stamp_ns": 158468000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            3.2126408219337463,
+            23.775847911834717,
+            -39.59127426147461
+          ],
+          "lat_deg": 31.239543625,
+          "lon_deg": 121.502076325,
+          "alt_m": 39.498
+        },
+        "frame_sensor_stamp_ns": 165860000000,
+        "pose_sim_stamp_ns": 165860000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 6,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 6,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0505,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png"
+            ],
+            "answers": [
+              "s1:coverage:0.83"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 24,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            3.2581772804260254,
+            23.780407905578613,
+            -39.59033012390137
+          ],
+          "lat_deg": 31.239544025,
+          "lon_deg": 121.5020764,
+          "alt_m": 39.497
+        },
+        "frame_sensor_stamp_ns": 166060000000,
+        "pose_sim_stamp_ns": 166060000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            18.210881805419923,
+            23.747765731811523,
+            -39.5960189819336
+          ],
+          "lat_deg": 31.239678539999996,
+          "lon_deg": 121.5020761,
+          "alt_m": 39.5024
+        },
+        "frame_sensor_stamp_ns": 173484000000,
+        "pose_sim_stamp_ns": 173484000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 6,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 2,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0463,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png"
+            ],
+            "answers": [
+              "s1:coverage:0.83"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 25,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            18.261663913726807,
+            23.744232654571533,
+            -39.60005569458008
+          ],
+          "lat_deg": 31.239679,
+          "lon_deg": 121.502076,
+          "alt_m": 39.507
+        },
+        "frame_sensor_stamp_ns": 173680000000,
+        "pose_sim_stamp_ns": 173680000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            26.18642282485962,
+            23.75066328048706,
+            -39.57005500793457
+          ],
+          "lat_deg": 31.239750275,
+          "lon_deg": 121.5020761,
+          "alt_m": 39.477
+        },
+        "frame_sensor_stamp_ns": 178400000000,
+        "pose_sim_stamp_ns": 178400000000
+      },
+      "labels": {
+        "onboard": {
+          "waypoint": 6,
+          "step": "s1",
+          "skill": "survey",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "survey",
+          "state_before": "survey",
+          "detections": 1,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0374,
+          "confirmed": null,
+          "mission": {
+            "history": [],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png"
+            ],
+            "answers": [
+              "s1:coverage:0.83"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 26,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            26.102490425109863,
+            23.748955249786377,
+            -39.575883865356445
+          ],
+          "lat_deg": 31.2397495,
+          "lon_deg": 121.5020761,
+          "alt_m": 39.48225
+        },
+        "frame_sensor_stamp_ns": 178600000000,
+        "pose_sim_stamp_ns": 178600000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            26.158924102783203,
+            23.66780185699463,
+            -39.552120208740234
+          ],
+          "lat_deg": 31.23975,
+          "lon_deg": 121.5020752,
+          "alt_m": 39.459
+        },
+        "frame_sensor_stamp_ns": 179984000000,
+        "pose_sim_stamp_ns": 179984000000
+      },
+      "labels": {
+        "onboard": {
+          "step": "s2",
+          "skill": "return_home",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "return_home",
+          "state_before": "survey",
+          "detections": 1,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0357,
+          "confirmed": null,
+          "mission": {
+            "history": [
+              {
+                "step": "s1",
+                "skill": "survey",
+                "state": "succeeded",
+                "reason": "region_covered"
+              }
+            ],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png",
+              "frame_0026.png"
+            ],
+            "answers": [
+              "s1:coverage:1.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 27,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            26.199325561523438,
+            23.656050205230713,
+            -39.59003257751465
+          ],
+          "lat_deg": 31.239750375,
+          "lon_deg": 121.5020751,
+          "alt_m": 39.49625
+        },
+        "frame_sensor_stamp_ns": 180148000000,
+        "pose_sim_stamp_ns": 180148000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            15.771486520767212,
+            13.993774175643921,
+            -39.58002281188965
+          ],
+          "lat_deg": 31.2396566,
+          "lon_deg": 121.501973425,
+          "alt_m": 39.48675
+        },
+        "frame_sensor_stamp_ns": 186948000000,
+        "pose_sim_stamp_ns": 186948000000
+      },
+      "labels": {
+        "onboard": {
+          "step": "s2",
+          "skill": "return_home",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "return_home",
+          "state_before": "return_home",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0252,
+          "confirmed": null,
+          "mission": {
+            "history": [
+              {
+                "step": "s1",
+                "skill": "survey",
+                "state": "succeeded",
+                "reason": "region_covered"
+              }
+            ],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png",
+              "frame_0026.png"
+            ],
+            "answers": [
+              "s1:coverage:1.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 28,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            15.734911918640137,
+            13.953880310058594,
+            -39.58435821533203
+          ],
+          "lat_deg": 31.2396563,
+          "lon_deg": 121.501973,
+          "alt_m": 39.491
+        },
+        "frame_sensor_stamp_ns": 187112000000,
+        "pose_sim_stamp_ns": 187112000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            4.714095115661621,
+            3.859431266784668,
+            -39.576725006103516
+          ],
+          "lat_deg": 31.23955715,
+          "lon_deg": 121.50186685,
+          "alt_m": 39.483
+        },
+        "frame_sensor_stamp_ns": 194404000000,
+        "pose_sim_stamp_ns": 194404000000
+      },
+      "labels": {
+        "onboard": {
+          "step": "s2",
+          "skill": "return_home",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "return_home",
+          "state_before": "return_home",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0399,
+          "confirmed": null,
+          "mission": {
+            "history": [
+              {
+                "step": "s1",
+                "skill": "survey",
+                "state": "succeeded",
+                "reason": "region_covered"
+              }
+            ],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png",
+              "frame_0026.png"
+            ],
+            "answers": [
+              "s1:coverage:1.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 29,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            4.673242092132568,
+            3.8298938274383545,
+            -39.580238342285156
+          ],
+          "lat_deg": 31.2395568,
+          "lon_deg": 121.50186655,
+          "alt_m": 39.487
+        },
+        "frame_sensor_stamp_ns": 194604000000,
+        "pose_sim_stamp_ns": 194604000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -0.4595552384853363,
+            -0.7991079092025757,
+            -39.59636688232422
+          ],
+          "lat_deg": 31.2395106,
+          "lon_deg": 121.5018179,
+          "alt_m": 39.503
+        },
+        "frame_sensor_stamp_ns": 197508000000,
+        "pose_sim_stamp_ns": 197508000000
+      },
+      "labels": {
+        "onboard": {
+          "step": "s2",
+          "skill": "return_home",
+          "step_state": "running",
+          "safety": {
+            "status": "accepted",
+            "reasons": [],
+            "rejected": false,
+            "return_home": false,
+            "consecutive_rejections": 0
+          },
+          "state": "return_home",
+          "state_before": "return_home",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0497,
+          "confirmed": null,
+          "mission": {
+            "history": [
+              {
+                "step": "s1",
+                "skill": "survey",
+                "state": "succeeded",
+                "reason": "region_covered"
+              }
+            ],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png",
+              "frame_0026.png"
+            ],
+            "answers": [
+              "s1:coverage:1.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          }
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    },
+    {
+      "step_index": 30,
+      "obs_before": {
+        "pose": {
+          "local_ned_m": [
+            -0.4753154069185257,
+            -0.8284579217433929,
+            -39.59047317504883
+          ],
+          "lat_deg": 31.2395105,
+          "lon_deg": 121.5018176,
+          "alt_m": 39.497166666666665
+        },
+        "frame_sensor_stamp_ns": 197672000000,
+        "pose_sim_stamp_ns": 197672000000
+      },
+      "obs_after": {
+        "pose": {
+          "local_ned_m": [
+            -0.4534682631492615,
+            -0.8252294659614563,
+            -39.58592224121094
+          ],
+          "lat_deg": 31.2395107,
+          "lon_deg": 121.5018176,
+          "alt_m": 39.493
+        },
+        "frame_sensor_stamp_ns": 197836000000,
+        "pose_sim_stamp_ns": 197836000000
+      },
+      "labels": {
+        "onboard": {
+          "mission": {
+            "history": [
+              {
+                "step": "s1",
+                "skill": "survey",
+                "state": "succeeded",
+                "reason": "region_covered"
+              },
+              {
+                "step": "s2",
+                "skill": "return_home",
+                "state": "succeeded",
+                "reason": "arrived"
+              }
+            ],
+            "evidence": [
+              "frame_0004.png",
+              "frame_0009.png",
+              "frame_0012.png",
+              "frame_0018.png",
+              "frame_0021.png",
+              "frame_0026.png"
+            ],
+            "answers": [
+              "s1:coverage:1.00"
+            ],
+            "alerts": [],
+            "positions": [],
+            "counts": {},
+            "alert_vote_clusters": []
+          },
+          "state": "done",
+          "state_before": "return_home",
+          "detections": 0,
+          "tracks": [],
+          "slow_calls": [],
+          "alert_vote_clusters": [],
+          "fast_latency_s": 0.0538,
+          "confirmed": null
+        },
+        "safety": {
+          "status": "accepted",
+          "reasons": [],
+          "rejected": false,
+          "return_home": false,
+          "consecutive_rejections": 0
+        }
+      }
+    }
+  ]
+}

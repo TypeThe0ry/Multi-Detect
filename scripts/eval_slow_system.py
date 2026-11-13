@@ -13,6 +13,7 @@ import base64
 import ctypes
 import json
 import math
+import os
 import socket
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from multidetect.host_paths import executable_name
 
 from multidetect.autonomy.onboard_decision import (
     DECISION_JSON_SCHEMA,
@@ -51,7 +53,7 @@ DEFAULT_DATASET = ROOT / "artifacts/datasets/slow-system-sft-r1"
 DEFAULT_CACHE = (
     ROOT / "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots"
 )
-DEFAULT_LLAMA = ROOT / "artifacts/cache/llama-cpp/b11552/llama-server.exe"
+DEFAULT_LLAMA = ROOT / "artifacts/cache/llama-cpp/b11552" / executable_name("llama-server")
 
 
 def _windows_port_processes(port: int) -> list[dict[str, Any]]:
@@ -684,10 +686,28 @@ class LlamaServerRunner:
         self._command, self._cwd, self._model = command, str(executable.parent), model
         self._start()
 
+    def _http_json(self, url, body=None, timeout=180):
+        if os.environ.get("MD_GIMBAL_INVOCATION") is None:
+            return _http_json(url, body, timeout=timeout)
+        from scripts.gimbal_listener_guard import direct_json, guarded_http, verify_connected_peer
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("invalid HTTP timeout")
+        deadline = time.monotonic() + timeout
+        return guarded_http(self.port, self.process.pid, self._gimbal_startticks,
+                            self._command[0], self._gimbal_cgroup,
+                            lambda: direct_json(url, self.port, body, timeout,
+                              deadline=deadline,
+                              peer_check=lambda sock, until: verify_connected_peer(sock,self.port,self.process.pid,
+                                  self._gimbal_startticks,self._command[0],self._gimbal_cgroup,deadline=until)),
+                            deadline=deadline)
+
     def _start(self) -> None:
         self._closed = False
         self._server_failed = False
         _cleanup_orphaned_windows_server(self.port, self._model)
+        if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
+            from scripts.gimbal_listener_guard import preflight
+            preflight(self.port)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.server_log = tempfile.NamedTemporaryFile(
             prefix="llama-server-", suffix=".log", delete=False, dir=self.log_dir
@@ -701,6 +721,17 @@ class LlamaServerRunner:
             log_path = self.server_log.name
             self.close()
             raise RuntimeError(f"failed to start llama-server; log: {log_path}: {error}") from error
+        if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
+            from scripts.gimbal_listener_guard import startticks
+            try:
+                self._gimbal_startticks = startticks(self.process.pid)
+                group = Path("/proc/self/cgroup").read_text().strip()
+                if not group.startswith("0::/system.slice/md-gimbal-worker-"):
+                    raise ValueError("worker cgroup unknown")
+                self._gimbal_cgroup = group[3:]
+            except Exception:
+                self.close()
+                raise
         self._job_handle = None
         if sys.platform == "win32":
             try:
@@ -726,7 +757,7 @@ class LlamaServerRunner:
                 )
             try:
                 if (
-                    _http_json(f"http://127.0.0.1:{self.port}/health", timeout=2).get("status")
+                    self._http_json(f"http://127.0.0.1:{self.port}/health", timeout=2).get("status")
                     == "ok"
                 ):
                     return
@@ -745,7 +776,7 @@ class LlamaServerRunner:
             def tokens(text: str) -> list[int]:
                 return [
                     t["id"] if isinstance(t, dict) else t
-                    for t in _http_json(
+                    for t in self._http_json(
                         f"http://127.0.0.1:{self.port}/tokenize", {"content": text}
                     )["tokens"]
                 ]
@@ -761,7 +792,7 @@ class LlamaServerRunner:
             self._verdict_tokens[prefix] = firsts
             # Token text too, for servers whose top_logprobs carry no id.
             self._verdict_pieces[prefix] = {
-                verdict: _http_json(
+                verdict: self._http_json(
                     f"http://127.0.0.1:{self.port}/detokenize", {"tokens": [token]}
                 ).get("content")
                 for verdict, token in firsts.items()
@@ -875,7 +906,7 @@ class LlamaServerRunner:
     def _completion(self, body: dict[str, Any]) -> dict[str, Any]:
         while True:
             try:
-                response = _http_json(
+                response = self._http_json(
                     f"http://127.0.0.1:{self.port}/v1/chat/completions",
                     body,
                     timeout=float(getattr(self, "request_timeout_s", 180.0)),
@@ -956,7 +987,7 @@ class LlamaServerRunner:
         performs a bounded GET and never starts or restarts the server.
         """
         try:
-            response = _http_json(f"http://127.0.0.1:{self.port}/health", timeout=float(timeout_s))
+            response = self._http_json(f"http://127.0.0.1:{self.port}/health", timeout=float(timeout_s))
             return response.get("status") == "ok"
         except (OSError, ValueError, urllib.error.URLError, TimeoutError):
             return False
@@ -1013,6 +1044,11 @@ class LlamaServerRunner:
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if os.name != "nt":
+                # POSIX keeps the closed server's connections in TIME_WAIT; that
+                # does not hold the port.  (On Windows this flag would allow
+                # binding over a live listener, so it stays off there.)
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 probe.bind(("127.0.0.1", int(self.port)))
                 probe.close()

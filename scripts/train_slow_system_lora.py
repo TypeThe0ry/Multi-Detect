@@ -142,6 +142,49 @@ def admit_train_rows(dataset: Path) -> tuple[list[dict], str]:
             from multidetect.autonomy.mission_planner import check_plan_refs
 
             capabilities = normalize_capabilities(row.get("capabilities", ()))
+            if row["assistant_target"].get("decision") in {"reject", "clarify"}:
+                from multidetect.autonomy.mission_plan import validate_plan_decision
+                decision = validate_plan_decision(row["assistant_target"])
+                if row.get("expected_valid", True) is not False:
+                    raise ValueError(f"refusal target {row['sample_id']} must be marked expected_valid=false")
+                expected = set(row.get("expected_findings", ()))
+                if expected and expected != {decision.reason_code}:
+                    raise ValueError(f"refusal target {row['sample_id']} reason_code mismatch")
+                if not row.get("world") or not row.get("task_text"):
+                    raise ValueError("missing model input or world")
+                candidate = row.get("rejected_candidate")
+                if candidate is not None:
+                    if not isinstance(candidate, dict):
+                        raise ValueError(f"refusal audit candidate {row['sample_id']} must be an object")
+                    audit_capability_codes = {
+                        item["code"] for item in capability_violations(
+                            candidate, capabilities,
+                            airframe="airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None,
+                        )
+                    }
+                    audit_intent_codes = {
+                        item.code for item in check_plan_intent(
+                            candidate, row["task_text"], tuple(row.get("refs", ()))
+                        )
+                    }
+                    _, _, audit_unknown_refs = check_plan_refs(
+                        candidate, tuple(row.get("refs", ())), substitute=False
+                    )
+                    if audit_unknown_refs:
+                        audit_intent_codes.add("ungrounded_place")
+                    validate_mission_plan(
+                        candidate,
+                        capabilities=frozenset({"payload_drop", "hover", "landing_on_target"}),
+                    )
+                    expected_audit_code = {
+                        "unknown_place": "ungrounded_place",
+                    }.get(decision.reason_code, decision.reason_code)
+                    if expected_audit_code not in audit_capability_codes | audit_intent_codes:
+                        raise ValueError(
+                            f"refusal audit candidate {row['sample_id']} does not trigger "
+                            f"{expected_audit_code}"
+                        )
+                continue
             task_text = str(row.get("task_text", ""))
             task_fold = task_text.casefold()
             known_refs = {str(ref).split(" ", 1)[0] for ref in row.get("refs", ())}
@@ -395,9 +438,7 @@ def _accumulate_batch(
     return batch_losses
 
 
-def _save_checkpoint(output: Path, model, optimizer, state: dict) -> None:
-    import torch
-
+def _save_checkpoint(torch, output: Path, model, optimizer, state: dict) -> None:
     checkpoint = output / "checkpoint"
     checkpoint.mkdir(exist_ok=True)
     model.save_pretrained(checkpoint, safe_serialization=True)
@@ -590,12 +631,12 @@ def run(args, *, backend_factory=make_backend) -> dict:
                 log.write(json.dumps(entry, sort_keys=True) + "\n")
                 log.flush()
                 if state["optimizer_steps"] % options.checkpoint_every == 0:
-                    _save_checkpoint(output, model, optimizer, state)
+                    _save_checkpoint(torch, output, model, optimizer, state)
                 if options.max_steps and state["optimizer_steps"] >= options.max_steps:
                     break
             if cursor == len(order):
                 state.update(epoch=epoch + 1, cursor=0)
-            _save_checkpoint(output, model, optimizer, state)
+            _save_checkpoint(torch, output, model, optimizer, state)
             if options.max_steps and state["optimizer_steps"] >= options.max_steps:
                 break
     completed = state["epoch"] >= options.epochs

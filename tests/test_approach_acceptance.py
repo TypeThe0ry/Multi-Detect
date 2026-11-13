@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from multidetect.approach_acceptance import run_mode3_approach_hil_acceptance
 
 
+@pytest.mark.usefixtures("require_loopback_sockets")
 def test_mode3_arbitrary_targets_reach_advice_and_unsafe_evidence_aborts() -> None:
     report = run_mode3_approach_hil_acceptance()
 

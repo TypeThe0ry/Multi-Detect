@@ -3,8 +3,12 @@
 from collections import UserDict
 
 import pytest
-import torch
-from transformers.feature_extraction_utils import BatchFeature
+
+torch = pytest.importorskip("torch", reason="native prefix adapter tests require optional PyTorch")
+transformers = pytest.importorskip(
+    "transformers", reason="native prefix adapter tests require optional Transformers"
+)
+from transformers.feature_extraction_utils import BatchFeature  # noqa: E402
 
 from scripts.onboard_navigation_native_prefix_adapter import FIELDS, project_native_prefix
 
