@@ -5,7 +5,7 @@ import pytest
 from scripts.altair import build_dataset as bd
 
 
-def make(tmp_path, name, n, crop="none"):
+def make(tmp_path, name, n, split_worlds=("w",), crop="none"):
     d = tmp_path / name
     d.mkdir()
     rows = [{"sample_id": f"{name}-{i}", "split": "train", "world": f"{name}-tw{i % 3}"} for i in range(n)]
@@ -39,8 +39,8 @@ def test_crop_policy_mismatch_rejected(tmp_path):
 
 def test_world_leak_rejected(tmp_path):
     a = make(tmp_path, "a", 5)
-    row = {"sample_id": "x", "split": "test", "world": "a-tw0"}
-    (a / "test.jsonl").write_text(json.dumps(row))
+    rows = [{"sample_id": "x", "split": "test", "world": "a-tw0"}]
+    (a / "test.jsonl").write_text(json.dumps(rows[0]))
     with pytest.raises(ValueError, match="leak"):
         bd.mix([("a", a, 1)])
 
@@ -53,8 +53,15 @@ def test_sample_id_collision_rejected(tmp_path):
 
 
 def test_parse_source():
-    from pathlib import Path
-
-    assert bd.parse_source("p=/x/y:0.4")[0:2] == ("p", Path("/x/y"))
+    assert bd.parse_source("p=/x/y:0.4")[0:2] == ("p", __import__("pathlib").Path("/x/y"))
     with pytest.raises(ValueError):
         bd.parse_source("bad")
+
+
+def test_fixed_total_repeats_small_source(tmp_path):
+    big, small = make(tmp_path, "big", 100), make(tmp_path, "small", 10)
+    r = bd.mix([("big", big, 0.5), ("small", small, 0.5)], seed=3, total=100)
+    assert r["counts"] == {"big": 50, "small": 50}
+    ids = [row["sample_id"] for row in r["splits"]["train"]]
+    assert len(ids) == len(set(ids)) == 100
+    assert sum("#dup" in i for i in ids) == 40

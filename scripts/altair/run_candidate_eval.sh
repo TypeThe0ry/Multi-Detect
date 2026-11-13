@@ -17,6 +17,8 @@ BASE_CACHE=$A/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots
 MMPROJ=$A/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/52d6c8ffea26cc873ac5ad116f8631268d7eb503/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf
 LLAMA=$A/cache/llama-cpp/b11552/llama-server
 PORT=${PORT:-9935}
+# scripts/altair may live only in this worktree, not in the main checkout $R.
+SR=$(cd "$(dirname "$0")/../.." && pwd)
 export PYTHONPATH=$R/src:$R PYTHONUTF8=1
 mkdir -p "$OUT"
 GGUF=$OUT/gguf/slow-system-Q5_K_M.gguf
@@ -55,10 +57,10 @@ ID_FLAGS=${ID_FLAGS:---identity-only --fast-identity --crop-policy candidate_zoo
   --output "$OUT/identity-eval.json"
 
 echo "== 4/4 gate =="
-"$PY" -m scripts.altair.collect_report --planning-summary "$R24_EVAL/planning-v4.json" \
+PYTHONPATH="$SR:$R/src:$R" "$PY" -m scripts.altair.collect_report --planning-summary "$R24_EVAL/planning-v4.json" \
   --identity-eval "$ID_BASE" --output-json "$OUT/baseline-report.json" >/dev/null
-"$PY" -m scripts.altair.collect_report --planning-summary "$OUT/planning/planning-v4.json" \
+PYTHONPATH="$SR:$R/src:$R" "$PY" -m scripts.altair.collect_report --planning-summary "$OUT/planning/planning-v4.json" \
   --identity-eval "$OUT/identity-eval.json" --output-json "$OUT/candidate-report.json" >/dev/null
-"$PY" -m scripts.altair.eval_altair --baseline "$OUT/baseline-report.json" \
+PYTHONPATH="$SR:$R/src:$R" "$PY" -m scripts.altair.eval_altair --baseline "$OUT/baseline-report.json" \
   --candidate "$OUT/candidate-report.json" --output-json "$OUT/gate.json"
 echo "report dir: $OUT"
