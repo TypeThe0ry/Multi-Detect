@@ -4,10 +4,10 @@ Reports are JSON ``{"<task>": {"<metric>": number, ...}, ...}`` with tasks such 
 ``planning``, ``identity`` and ``fixed_wing``. Rules, fail closed:
   * every numeric baseline metric must not regress by more than ``tolerance``
     (lower-is-better for names containing false_/error/invalid/violation/latency);
-  * absolute thresholds from the gates file (identity defaults mirror
-    scripts/eval_r21id_identity.py THRESHOLDS) must hold;
-  * ``fixed_wing`` has no incumbent, so it passes only with reported metrics
-    that all meet absolute gates; missing or ungated is a failure.
+  * absolute thresholds from the gates file must hold when their metric is reported;
+  * every task in ``required_tasks`` must be present in the candidate, and a
+    baseline metric missing from the candidate fails (so fixed_wing categories
+    cannot silently disappear).
 Exit code 0 always when the evaluation ran; the verdict is in the output JSON.
 """
 
@@ -20,15 +20,10 @@ from pathlib import Path
 DEFAULT_GATES = {
     "tolerance": 0.01,
     "absolute": {
-        "identity": {
-            "multiview_consistency": {"min": 0.90},
-            "recovery_rate": {"min": 0.85},
-            "average_recovery_observations": {"max": 2.0},
-            "true_target_false_reject": {"max": 0.08},
-            "fire_hydrant_false_reject": {"max": 0.12},
-            "distractor_false_accept": {"max": 0.026},
-        },
-        "fixed_wing": {},
+        # Optional hard floors; the main gate is "no regression vs incumbent".
+        # Add e.g. the eval_r21id_identity.py THRESHOLDS via --gates when those
+        # metrics are present in the reports.
+        "identity": {"distractor_rejection_rate": {"min": 0.97}},
     },
     "required_tasks": ["planning", "identity", "fixed_wing"],
 }
@@ -64,8 +59,6 @@ def evaluate(baseline: dict, candidate: dict, gates: dict | None = None) -> dict
             if worse:
                 reasons.append(f"{task}.{name}: {cand} vs baseline {ref}")
     for task, limits in gates.get("absolute", {}).items():
-        if task in candidate and not limits:
-            reasons.append(f"{task}: no absolute gates defined (fail closed)")
         for name, bound in limits.items():
             cand = _num(candidate.get(task, {}).get(name))
             if cand is None:

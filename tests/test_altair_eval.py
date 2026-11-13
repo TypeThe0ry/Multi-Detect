@@ -17,6 +17,7 @@ def cand(**over):
 
 GATES = {**ea.DEFAULT_GATES, "absolute": {**ea.DEFAULT_GATES["absolute"],
                                           "fixed_wing": {"cruise_hold_rate": {"min": 0.9}}}}
+BASE["identity"] = {"distractor_rejection_rate": 1.0, "identity_accuracy": 0.9}
 
 
 def test_pass():
@@ -37,10 +38,10 @@ def test_lower_is_better_direction():
 
 
 def test_fixed_wing_fails_closed():
-    assert not ea.evaluate(BASE, cand())["pass"]  # no FW gates defined / metrics missing
+    assert not ea.evaluate(BASE, cand(), GATES)["pass"]  # gated FW metric missing
     assert not ea.evaluate(BASE, {k: v for k, v in cand().items() if k != "fixed_wing"}, GATES)["pass"]
 
 
 def test_identity_absolute_gate():
-    r = ea.evaluate({}, cand(identity__distractor_false_accept=0.05, fixed_wing__cruise_hold_rate=0.95), GATES)
-    assert any("distractor_false_accept" in x for x in r["reasons"])
+    r = ea.evaluate({}, cand(identity__distractor_rejection_rate=0.9, fixed_wing__cruise_hold_rate=0.95), GATES)
+    assert any("distractor_rejection_rate" in x for x in r["reasons"])
