@@ -495,6 +495,13 @@ class FixedWingVtolExecutor:
                 return self.execute_command(action)
             if action.kind not in {"hold", "stop"}:
                 self._loiter_captured = False
+            if action.kind == "hold" and self.airframe == "vtol" and self.mode == "MC":
+                # A hovering VTOL has no orbit state to wait for; the last position
+                # setpoint keeps it in place, so a hold is just a pause.
+                deadline = started + max(0.0, float(action.seconds))
+                while self._clock() < deadline:
+                    time.sleep(min(0.05, max(0.0, deadline - self._clock())))
+                return ExecutionResult("success", self._clock() - started, ack={"hold": "mc_hover"})
             if action.kind == "hold":
                 if self._loiter_captured:
                     result = {"status": "already_active", "ok": True}

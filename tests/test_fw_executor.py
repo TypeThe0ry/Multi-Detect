@@ -397,3 +397,14 @@ def test_fixed_wing_motion_wait_timeout_is_not_recorded_as_success() -> None:
     )
     assert updated.status == "timeout"
     assert updated.elapsed_s == pytest.approx(18.95)
+
+
+def test_hold_in_mc_hover_does_not_wait_for_an_orbit_state() -> None:
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(
+        fake, airframe="vtol", transition_after_takeoff=False, wait_for_state=lambda phase, timeout: phase != "orbit"
+    )
+    assert executor.arm_and_takeoff().status == "success"
+    result = executor.execute(ActionPrimitive.hold(0.1))
+    assert result.status == "success"
+    assert not any(call[0] == "orbit" for call in fake.calls)
