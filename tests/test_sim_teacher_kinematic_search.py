@@ -410,3 +410,60 @@ def test_fixed_yaw_lateral_spiral_regression_and_forward_leg_recovery() -> None:
         if acquired:
             break
     assert acquired
+
+
+def test_motion_offset_estimation_recovers_rotated_plant():
+    """A plant that flies translations rotated by ~100 deg still reaches the observation stations."""
+    target = (30.0, 8.0, -0.5)
+    views = tuple((target[0] + 15.0 * math.cos(a), target[1] + 15.0 * math.sin(a), -18.0) for a in (0.0, 2.0, 4.0))
+
+    def run(estimate: bool) -> int:
+        policy = ExpertSearchPolicy(
+            target_ned=target, intrinsics=DEFAULT_CAMERA_INFO, altitude_m=20.0, camera_pitch_rad=0.785,
+            max_detection_range_m=60.0, observation_frames=2, observation_waypoints=views,
+            vtol_hover_mission=True, estimate_motion_offset=estimate,
+        )
+        north, east, down, yaw = 0.0, 0.0, -20.0, 0.0
+        observed = 0
+        for _ in range(150):
+            action = policy.next_action(pose_ned=(north, east, down), yaw_deg=yaw)
+            if policy.state == "observe":
+                observed += 1
+            if action.kind == "stop":
+                break
+            if action.kind == "turn":
+                yaw += action.yaw_delta_deg
+            if action.kind == "translate":
+                dn, de, dd = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw)
+                rot = math.radians(100.0)
+                north += dn * math.cos(rot) - de * math.sin(rot)
+                east += dn * math.sin(rot) + de * math.cos(rot)
+                down += dd
+        return observed
+
+    assert run(True) >= len(views)
+    assert run(False) < len(views)
+
+
+def test_fw_cruise_observe_policy_sequences_cruise_orbit_back_transition_then_hover_observation():
+    from multidetect.sim_teacher import FwCruiseObservePolicy
+
+    target = (30.0, 8.0, -0.5)
+    inner = ExpertSearchPolicy(
+        target_ned=target, intrinsics=DEFAULT_CAMERA_INFO, altitude_m=20.0, camera_pitch_rad=0.785,
+        max_detection_range_m=60.0, observation_frames=2, vtol_hover_mission=True,
+        observation_waypoints=((target[0] + 15.0, target[1], -18.0),),
+    )
+    policy = FwCruiseObservePolicy(inner, altitude_m=40.0, legs=3)
+    assert policy.vtol_hover_mission is False and inner.vtol_hover_mission is True
+    kinds = []
+    for _ in range(6):
+        action = policy.next_action(pose_ned=(0.0, 0.0, -40.0), yaw_deg=0.0)
+        kinds.append((getattr(action, "kind", None), getattr(action, "mode", None)))
+    assert kinds[:3] == [("reposition", "FW")] * 3
+    assert kinds[3] == ("orbit", "FW") and kinds[4] == ("transition", "MC")
+    assert kinds[5][0] in {"translate", "turn", "hold", "stop"}  # the inner hover policy takes over
+    assert policy.labels(pose_ned=(0.0, 0.0, -40.0))["phase"] in {"search", "observe", "approach"}
+    # every cruise waypoint is at cruise altitude and the last one sits near the target for the back-transition
+    assert all(wp[2] == -40.0 for wp in policy._waypoints)
+    assert math.dist(policy._waypoints[-1][:2], target[:2]) == pytest.approx(60.0)

@@ -5,6 +5,7 @@ from .fw_executor import FixedWingVtolExecutor
 from .isolation import SimulationIsolationError, assert_localhost, validate_local_endpoint
 from .policies import (
     ExpertSearchPolicy,
+    FwCruiseObservePolicy,
     ExploreBounds,
     ExplorePolicy,
     HoverPolicy,
@@ -31,6 +32,7 @@ __all__ = [
     "ExploreBounds",
     "ExplorePolicy",
     "ExpertSearchPolicy",
+    "FwCruiseObservePolicy",
     "HoverPolicy",
     "SDFObstacle",
     "load_sdf_obstacles",

@@ -173,7 +173,7 @@ def static_visual_model(name: str, slug: str, x, y, z, yaw, scale=1.0) -> str:
             f'<link name="l">{inst_visuals(slug, scale)}</link></model>')
 
 
-def labelled_model(name: str, slug: str, x, y, z, yaw, label: int) -> str:
+def labelled_model(name: str, slug: str, x, y, z, yaw, label: int, emit_label: bool = False) -> str:
     a = CATALOG[slug]
     lo, hi = a["bbox_min_m"], a["bbox_max_m"]
     size = [h - l for l, h in zip(lo, hi)]
@@ -181,9 +181,12 @@ def labelled_model(name: str, slug: str, x, y, z, yaw, label: int) -> str:
     cx, cy = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
     c, s = math.cos(yaw), math.sin(yaw)
     wx, wy = x + c * cx - s * cy, y + s * cx + c * cy
+    # Label every model level: the outer bounds link has no visual, so the nested mesh model must carry it too.
+    plugin = f'<plugin filename="gz-sim-label-system" name="gz::sim::systems::Label"><label>{label}</label></plugin>'
     return (f'<model name="{name}"><static>true</static><pose>{wx:.3f} {wy:.3f} {z + size[2] / 2:.3f} 0 0 {yaw:.4f}</pose>'
             f'<link name="bounds"><collision name="bounds_collision"><geometry><box><size>{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}</size></box></geometry></collision></link>'
-            f'<model name="mesh"><pose>{-cx:.3f} {-cy:.3f} {-lo[2] - size[2] / 2:.3f} 0 0 0</pose><static>true</static><link name="link">{inst_visuals(slug)}</link></model></model>')
+            + (plugin if emit_label else "") +
+            f'<model name="mesh"><pose>{-cx:.3f} {-cy:.3f} {-lo[2] - size[2] / 2:.3f} 0 0 0</pose><static>true</static><link name="link">{inst_visuals(slug)}</link>{plugin if emit_label else ""}</model></model>')
 
 
 def _ensure_emissive_map(path: Path, seed: int) -> Path | None:
@@ -493,7 +496,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     parts.append(movers(scene["routes"], random.Random(seed + 1), scene["kind"], mover_scale))
     parts.append(boat_actor(scene))
     for k, t in enumerate(targets):
-        parts.append(labelled_model(f"rw_target_{k:02d}", t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k)))
+        parts.append(labelled_model(t.get("name", f"rw_target_{k:02d}"), t["cat"], t["x"], t["y"], t["z"], t["yaw"], t.get("label", 10 + k), emit_label=True))
     if w.get("rain"):
         parts.append(rain_emitter())
     if w.get("lamps"):
@@ -515,7 +518,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     return path
 
 
-def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> Path:
+def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000, truth_extra: dict | None = None) -> Path:
     """Scenario bundle with a real DEM, so geolocation and terrain checks see the true ground."""
     wid = world.stem
     scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
@@ -559,6 +562,7 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> 
     for sensor in runtime["sensors"]:
         sensor["stream_uri"] = sensor["stream_uri"].replace(Path(template).name, wid)
     truth = {"schema_version": 1, "scenario_id": wid, "scenario_version": 1, "targets": []}
+    truth.update(truth_extra or {})
     expect = {"schema_version": 1, "scenario_id": wid, "scenario_version": 1, "allowed_terminal_states": ["completed", "safe_rtl", "safe_land"],
               "maximum_geofence_violations": 0, "maximum_false_geolocations": 0, "maximum_unauthorized_commands": 0}
     chans = {}

@@ -126,12 +126,12 @@ def _episode_dirs(root: Path) -> list[Path]:
 
 def _world_id(ep: Path) -> str:
     for part in ep.parts:
-        if part.startswith("gen_") or part.startswith("urban_"):
+        if part.startswith(("gen_", "urban_", "rw_")):
             return part
     # campaign layouts occasionally put the world in episode.json only
     try:
         value = _load(ep / "episode.json")
-        text = str(value.get("world", ""))
+        text = str(value.get("world", "")) or Path(str(value.get("world_sdf", ""))).stem
         if text:
             return text.split(".")[0]
     except Exception:
@@ -143,7 +143,7 @@ def _find_truth(world: str, roots: list[Path]) -> Path | None:
     names = [f"{world}.truth.json"]
     if world.startswith("urban_"):
         names.append("urban_inspection_multirotor_001.truth.json")
-    for root in roots:
+    for root in [*roots, ROOT]:
         for base in (root, root / "configs", root.parent, Path.cwd()):
             for name in names:
                 for candidate in (
@@ -155,6 +155,8 @@ def _find_truth(world: str, roots: list[Path]) -> Path | None:
                     base / "scenarios" / "generated-confusers" / name,
                     base / "scenarios" / "generated-confusers-2" / name,
                     base / "scenarios" / "generated-r15" / name,
+                    base / "scenarios" / "realworld" / name,
+                    base / "scenarios" / "realworld-clusters" / name,
                 ):
                     if candidate.is_file():
                         return candidate
@@ -294,6 +296,7 @@ def build_dataset(
     truth_roots: list[Path] | None = None,
     max_frames: int | None = None,
     holdout_assets: set[str] | None = None,
+    include_incomplete: bool = False,
 ) -> dict[str, Any]:
     if not math.isfinite(float(max_sim_skew_ms)) or float(max_sim_skew_ms) < 0.0:
         raise ValueError("max_sim_skew_ms must be finite and non-negative")
@@ -323,7 +326,10 @@ def build_dataset(
     for campaign in campaign_roots:
         for episode in _episode_dirs(campaign):
             metadata_path = episode / "episode.json"
-            if not metadata_path.is_file() or _load(metadata_path).get("status") != "complete":
+            if not metadata_path.is_file():
+                continue
+            if _load(metadata_path).get("status") != "complete" and not include_incomplete:
+                # An episode that was never finalised (collector killed mid-RTL) still has usable frames.
                 continue
             world = _world_id(episode)
             if world in splits:
@@ -694,13 +700,29 @@ def build_dataset(
     return manifest
 
 
+def resolve_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Fill preset defaults; an explicit --negative-ratio always wins."""
+    if args.negative_ratio is None:
+        args.negative_ratio = 0.3 if args.preset == "cruise" else 0.15
+    if args.preset == "cruise":
+        args.include_incomplete = True
+    return args
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaign-root", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--index", type=Path, action="append", required=True)
     parser.add_argument("--min-box-px", type=float, default=4.0)
-    parser.add_argument("--negative-ratio", type=float, default=0.15)
+    parser.add_argument("--negative-ratio", type=float, default=None, help="default 0.15 (0.3 with --preset cruise)")
+    parser.add_argument(
+        "--preset",
+        choices=("hover", "cruise"),
+        default="hover",
+        help="cruise: FW-cruise episodes (high-altitude frames are mostly negatives, no target-in-view requirement): "
+        "negative ratio 0.3 and unfinished episodes are salvaged",
+    )
     parser.add_argument("--seed", type=int, default=20261011)
     parser.add_argument("--preview", type=int, default=0)
     parser.add_argument(
@@ -722,7 +744,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--truth-root", action="append", type=Path, default=[])
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--holdout-asset", action="append", default=[])
+    parser.add_argument(
+        "--include-incomplete",
+        action="store_true",
+        help="also read episodes whose episode.json has no status=complete (salvage unfinished runs)",
+    )
     args = parser.parse_args(argv)
+    resolve_preset(args)
     report = build_dataset(
         args.campaign_root,
         args.output,
@@ -739,6 +767,7 @@ def main(argv: list[str] | None = None) -> int:
         truth_roots=args.truth_root,
         max_frames=args.max_frames,
         holdout_assets=set(args.holdout_asset),
+        include_incomplete=args.include_incomplete,
     )
     print(
         json.dumps(
