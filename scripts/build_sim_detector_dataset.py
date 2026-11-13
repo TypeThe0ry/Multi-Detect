@@ -700,13 +700,29 @@ def build_dataset(
     return manifest
 
 
+def resolve_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Fill preset defaults; an explicit --negative-ratio always wins."""
+    if args.negative_ratio is None:
+        args.negative_ratio = 0.3 if args.preset == "cruise" else 0.15
+    if args.preset == "cruise":
+        args.include_incomplete = True
+    return args
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaign-root", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--index", type=Path, action="append", required=True)
     parser.add_argument("--min-box-px", type=float, default=4.0)
-    parser.add_argument("--negative-ratio", type=float, default=0.15)
+    parser.add_argument("--negative-ratio", type=float, default=None, help="default 0.15 (0.3 with --preset cruise)")
+    parser.add_argument(
+        "--preset",
+        choices=("hover", "cruise"),
+        default="hover",
+        help="cruise: FW-cruise episodes (high-altitude frames are mostly negatives, no target-in-view requirement): "
+        "negative ratio 0.3 and unfinished episodes are salvaged",
+    )
     parser.add_argument("--seed", type=int, default=20261011)
     parser.add_argument("--preview", type=int, default=0)
     parser.add_argument(
@@ -734,6 +750,7 @@ def main(argv: list[str] | None = None) -> int:
         help="also read episodes whose episode.json has no status=complete (salvage unfinished runs)",
     )
     args = parser.parse_args(argv)
+    resolve_preset(args)
     report = build_dataset(
         args.campaign_root,
         args.output,

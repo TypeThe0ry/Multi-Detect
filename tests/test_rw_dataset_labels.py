@@ -89,3 +89,14 @@ def test_gimbal_configure_is_resent_with_growing_windows_before_timing_out(monke
     result = collector._command_and_wait_gimbal(Connection(), object(), {"yaw": 0.0, "roll": 0.0, "pitch": -45.0})
     assert result["status"] == "manager_configure_ack_timeout"
     assert len(sent) == 3 and windows == [5.0, 10.0, 20.0]
+
+
+def test_cruise_preset_defaults_and_explicit_override():
+    import argparse
+
+    ns = argparse.Namespace(negative_ratio=None, preset="cruise", include_incomplete=False)
+    assert builder.resolve_preset(ns).negative_ratio == 0.3 and ns.include_incomplete
+    hover = builder.resolve_preset(argparse.Namespace(negative_ratio=None, preset="hover", include_incomplete=False))
+    assert hover.negative_ratio == 0.15 and not hover.include_incomplete
+    explicit = builder.resolve_preset(argparse.Namespace(negative_ratio=0.5, preset="cruise", include_incomplete=False))
+    assert explicit.negative_ratio == 0.5
