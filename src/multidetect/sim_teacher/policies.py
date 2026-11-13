@@ -1262,8 +1262,93 @@ class ExpertSearchPolicy:
         }
 
 
+class FwCruiseObservePolicy:
+    """Take off, cruise in FW between waypoints around the target, orbit it, transition back to MC, then observe.
+
+    A tailsitter mission that exercises the whole envelope: forward-flight legs and a high orbit
+    (gimbal frames from cruise altitude), the FW->MC back-transition, and the close-range hover
+    observation of the wrapped ``inner`` policy.  The collector sees ``vtol_hover_mission=False`` so the
+    vehicle is transitioned to FW before the first step; the inner policy keeps its hover behaviour.
+    """
+
+    vtol_hover_mission = False
+
+    def __init__(
+        self,
+        inner: ExpertSearchPolicy,
+        *,
+        altitude_m: float = 40.0,
+        ring_radius_m: float = 110.0,
+        legs: int = 4,
+        orbit_radius_m: float = 70.0,
+        orbit_s: float = 30.0,
+        cruise_speed_mps: float = 15.0,
+        approach_m: float = 60.0,
+    ) -> None:
+        if legs < 1 or altitude_m <= 0 or ring_radius_m <= 0 or orbit_radius_m <= 0 or approach_m < 0:
+            raise ValueError("legs, altitude, ring, orbit and approach must be positive")
+        self.inner = inner
+        self.altitude_m = float(altitude_m)
+        self.orbit_radius_m = float(orbit_radius_m)
+        self.orbit_s = float(orbit_s)
+        self.cruise_speed_mps = float(cruise_speed_mps)
+        north, east = float(inner.target_ned[0]), float(inner.target_ned[1])
+        start = math.atan2(-east, -north)  # first ring point on the home side of the target
+        self._centre = (north, east, -self.altitude_m)
+        self._waypoints = [
+            (
+                north + ring_radius_m * math.cos(start + k * 2.0 * math.pi / legs),
+                east + ring_radius_m * math.sin(start + k * 2.0 * math.pi / legs),
+                -self.altitude_m,
+            )
+            for k in range(legs)
+        ]
+        # The last cruise point is where the vehicle slows into the back-transition.
+        end = start + (legs - 1) * 2.0 * math.pi / legs
+        self._waypoints[-1] = (
+            north + approach_m * math.cos(end), east + approach_m * math.sin(end), -self.altitude_m
+        )
+        self._index = 0
+        self.phase = "cruise"
+
+    def __getattr__(self, name: str) -> Any:
+        if name in {"inner", "__setstate__"} or name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(self.inner, name)
+
+    def labels(self, **kwargs: Any) -> dict[str, Any]:
+        labels = self.inner.labels(**kwargs)
+        if self.phase != "observe":
+            labels["phase"] = self.phase
+            labels["cruise_leg"] = self._index
+        return labels
+
+    def next_action(self, *, pose_ned, yaw_deg: float = 0.0, camera_pose: Mapping[str, Any] | None = None):
+        from multidetect.autonomy.motion_intent import MotionCommand
+
+        if self.phase == "cruise":
+            if self._index < len(self._waypoints):
+                target = self._waypoints[self._index]
+                self._index += 1
+                return MotionCommand(
+                    "reposition", target_ned=target, speed_mps=self.cruise_speed_mps, mode="FW", reason="cruise_leg"
+                )
+            self.phase = "orbit" if self.orbit_s > 0 else "back_transition"
+        if self.phase == "orbit":
+            self.phase = "back_transition"
+            return MotionCommand(
+                "orbit", target_ned=self._centre, radius_m=self.orbit_radius_m, duration_s=self.orbit_s,
+                speed_mps=self.cruise_speed_mps, mode="FW", reason="high_orbit",
+            )
+        if self.phase == "back_transition":
+            self.phase = "observe"
+            return MotionCommand("transition", mode="MC", reason="back_transition")
+        return self.inner.next_action(pose_ned=pose_ned, yaw_deg=yaw_deg, camera_pose=camera_pose)
+
+
 __all__ = [
     "ExploreBounds",
+    "FwCruiseObservePolicy",
     "ExplorePolicy",
     "HoverPolicy",
     "ExpertSearchPolicy",

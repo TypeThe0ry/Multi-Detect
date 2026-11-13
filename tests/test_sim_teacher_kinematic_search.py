@@ -443,3 +443,27 @@ def test_motion_offset_estimation_recovers_rotated_plant():
 
     assert run(True) >= len(views)
     assert run(False) < len(views)
+
+
+def test_fw_cruise_observe_policy_sequences_cruise_orbit_back_transition_then_hover_observation():
+    from multidetect.sim_teacher import FwCruiseObservePolicy
+
+    target = (30.0, 8.0, -0.5)
+    inner = ExpertSearchPolicy(
+        target_ned=target, intrinsics=DEFAULT_CAMERA_INFO, altitude_m=20.0, camera_pitch_rad=0.785,
+        max_detection_range_m=60.0, observation_frames=2, vtol_hover_mission=True,
+        observation_waypoints=((target[0] + 15.0, target[1], -18.0),),
+    )
+    policy = FwCruiseObservePolicy(inner, altitude_m=40.0, legs=3)
+    assert policy.vtol_hover_mission is False and inner.vtol_hover_mission is True
+    kinds = []
+    for _ in range(6):
+        action = policy.next_action(pose_ned=(0.0, 0.0, -40.0), yaw_deg=0.0)
+        kinds.append((getattr(action, "kind", None), getattr(action, "mode", None)))
+    assert kinds[:3] == [("reposition", "FW")] * 3
+    assert kinds[3] == ("orbit", "FW") and kinds[4] == ("transition", "MC")
+    assert kinds[5][0] in {"translate", "turn", "hold", "stop"}  # the inner hover policy takes over
+    assert policy.labels(pose_ned=(0.0, 0.0, -40.0))["phase"] in {"search", "observe", "approach"}
+    # every cruise waypoint is at cruise altitude and the last one sits near the target for the back-transition
+    assert all(wp[2] == -40.0 for wp in policy._waypoints)
+    assert math.dist(policy._waypoints[-1][:2], target[:2]) == pytest.approx(60.0)

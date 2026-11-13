@@ -55,6 +55,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     ActionPrimitive,
     EpisodeRecorder,
     ExpertSearchPolicy,
+    FwCruiseObservePolicy,
     ExploreBounds,
     ExplorePolicy,
     HoverPolicy,
@@ -720,6 +721,7 @@ class CollectionPlan:
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
     airframe: str = "x500_mono_cam"
     vtol_hover_mission: bool | None = None
+    fw_cruise_observe: bool = False
     # "true": fly to the true target; "confuser": fly to a look-alike (hard negatives).
     teacher_target: str = "true"
     smoke_flight: bool = False
@@ -3056,12 +3058,16 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         if plan.vtol_hover_mission is None
         else bool(plan.vtol_hover_mission)
     )
+    if plan.fw_cruise_observe:
+        if not default_hover_mission or plan.vtol_hover_mission is not False:
+            raise ValueError("--fw-cruise-observe needs a delta tailsitter and --no-vtol-hover-mission")
+        vtol_hover_mission = True  # the wrapped policy observes in hover; the wrapper itself reports FW
     camera_mount = (
         profile.camera_mount.to_camera_mount()
         if profile is not None and profile.camera_mount is not None
         else None
     )
-    return ExpertSearchPolicy(
+    inner = ExpertSearchPolicy(
         target_ned=target,
         intrinsics=DEFAULT_CAMERA_INFO,
         altitude_m=altitude_m,
@@ -3093,7 +3099,10 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
             if profile is not None and profile.category == "fixed_wing"
             else None
         ),
-    ), label
+    )
+    if plan.fw_cruise_observe:
+        return FwCruiseObservePolicy(inner, altitude_m=max(altitude_m, FIXED_WING_MIN_OPERATING_ALT_M + VTOL_TRANSITION_MARGIN_M)), label
+    return inner, label
 
 
 def _hover_policy(plan: CollectionPlan, truth_path: Path):
@@ -8026,6 +8035,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="keep a tailsitter in MC for expert_search; --no-vtol-hover-mission selects FW",
     )
+    parser.add_argument(
+        "--fw-cruise-observe",
+        action="store_true",
+        help="tailsitter expert_search: take off, cruise in FW around the target, orbit, transition back to MC, then "
+        "observe from the hover stations (use with --no-vtol-hover-mission)",
+    )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument(
         "--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route"
@@ -8284,6 +8299,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         video_max_bytes=int(args.video_max_gb * 1024**3),
         airframe=args.airframe,
         vtol_hover_mission=args.vtol_hover_mission,
+        fw_cruise_observe=args.fw_cruise_observe,
         teacher_target=args.teacher_target,
         smoke_flight=args.smoke_flight,
         takeoff_method=args.takeoff_method,
