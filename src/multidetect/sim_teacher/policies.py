@@ -12,7 +12,7 @@ from typing import Any
 
 from multidetect.camera_mount import CameraMount, compose_camera_pose
 
-from .primitives import ActionPrimitive
+from .primitives import ActionPrimitive, body_to_ned
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,6 +415,12 @@ class ExpertSearchPolicy:
     fixed_wing_orbit_radius_m: float | None = None
     fixed_wing_mode: bool = False
     vtol_hover_mission: bool = False
+    # A hovering tailsitter in the delta SITL model flies translations rotated by a roughly constant
+    # angle from the NED vector commanded (PX4 tilts the thrust vector with a wrong yaw reference).
+    # When enabled, the policy measures that rotation from the pose change after each translation and
+    # pre-rotates later translations by its opposite.  Target-blind: it only uses commanded vs measured motion.
+    estimate_motion_offset: bool = False
+    motion_offset_gain: float = 0.6
 
     def __post_init__(self) -> None:
         if self.standoff_m <= 0 or self.standoff_m >= self.max_detection_range_m:
@@ -961,6 +967,37 @@ class ExpertSearchPolicy:
         return max(self.standoff_m, geometry)
 
     def next_action(
+        self,
+        *,
+        pose_ned,
+        yaw_deg: float = 0.0,
+        camera_pose: Mapping[str, Any] | None = None,
+    ) -> ActionPrimitive:
+        if not self.estimate_motion_offset:
+            return self._next_action_core(pose_ned=pose_ned, yaw_deg=yaw_deg, camera_pose=camera_pose)
+        offset = getattr(self, "_motion_offset_deg", 0.0)
+        issued = getattr(self, "_motion_issued", None)
+        if issued is not None:
+            intended, start = issued
+            moved = (float(pose_ned[0]) - start[0], float(pose_ned[1]) - start[1])
+            if math.hypot(*intended) >= 5.0 and math.hypot(*moved) >= 3.0:
+                error = math.degrees(math.atan2(moved[1], moved[0]) - math.atan2(intended[1], intended[0]))
+                error = (error + 180.0) % 360.0 - 180.0
+                offset = (offset + float(self.motion_offset_gain) * error + 180.0) % 360.0 - 180.0
+        self._motion_offset_deg = offset
+        self._motion_issued = None
+        action = self._next_action_core(pose_ned=pose_ned, yaw_deg=yaw_deg, camera_pose=camera_pose)
+        if action.kind == "translate" and math.hypot(action.forward_m, action.right_m) > 1e-6:
+            north, east, _ = body_to_ned(action.forward_m, action.right_m, 0.0, yaw_deg)
+            self._motion_issued = ((north, east), (float(pose_ned[0]), float(pose_ned[1])))
+            magnitude = math.hypot(action.forward_m, action.right_m)
+            angle = math.atan2(action.right_m, action.forward_m) - math.radians(offset)
+            action = ActionPrimitive.translate(
+                magnitude * math.cos(angle), magnitude * math.sin(angle), action.up_m
+            )
+        return action
+
+    def _next_action_core(
         self,
         *,
         pose_ned,

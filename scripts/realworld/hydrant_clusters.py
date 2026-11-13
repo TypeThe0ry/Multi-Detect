@@ -122,7 +122,7 @@ def observation_views(scene: dict, ground: Ground, cx: float, cy: float, angle: 
 def teacher_intent(views: list[dict]) -> dict:
     return {"kind": "find_and_observe", "observation": {
         "camera_altitude_m": 20.0, "camera_pitch_rad": -0.785, "max_detection_range_m": 60.0,
-        "vtol_hover_floor_m": 12.0, "observation_frames": 3,
+        "vtol_hover_floor_m": 12.0, "observation_frames": 3, "estimate_motion_frame_offset": True,
         "observation_waypoint": {"x_east_m": 0.0, "y_north_m": 0.0, "z_up_m": 0.0}, "views": views}}
 
 

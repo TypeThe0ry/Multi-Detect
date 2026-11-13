@@ -410,3 +410,36 @@ def test_fixed_yaw_lateral_spiral_regression_and_forward_leg_recovery() -> None:
         if acquired:
             break
     assert acquired
+
+
+def test_motion_offset_estimation_recovers_rotated_plant():
+    """A plant that flies translations rotated by ~100 deg still reaches the observation stations."""
+    target = (30.0, 8.0, -0.5)
+    views = tuple((target[0] + 15.0 * math.cos(a), target[1] + 15.0 * math.sin(a), -18.0) for a in (0.0, 2.0, 4.0))
+
+    def run(estimate: bool) -> int:
+        policy = ExpertSearchPolicy(
+            target_ned=target, intrinsics=DEFAULT_CAMERA_INFO, altitude_m=20.0, camera_pitch_rad=0.785,
+            max_detection_range_m=60.0, observation_frames=2, observation_waypoints=views,
+            vtol_hover_mission=True, estimate_motion_offset=estimate,
+        )
+        north, east, down, yaw = 0.0, 0.0, -20.0, 0.0
+        observed = 0
+        for _ in range(150):
+            action = policy.next_action(pose_ned=(north, east, down), yaw_deg=yaw)
+            if policy.state == "observe":
+                observed += 1
+            if action.kind == "stop":
+                break
+            if action.kind == "turn":
+                yaw += action.yaw_delta_deg
+            if action.kind == "translate":
+                dn, de, dd = body_to_ned(action.forward_m, action.right_m, action.up_m, yaw)
+                rot = math.radians(100.0)
+                north += dn * math.cos(rot) - de * math.sin(rot)
+                east += dn * math.sin(rot) + de * math.cos(rot)
+                down += dd
+        return observed
+
+    assert run(True) >= len(views)
+    assert run(False) < len(views)
