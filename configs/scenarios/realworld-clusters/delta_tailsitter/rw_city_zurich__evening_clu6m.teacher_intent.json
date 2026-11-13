@@ -6,7 +6,7 @@
   "max_detection_range_m": 60.0,
   "vtol_hover_floor_m": 12.0,
   "observation_frames": 3,
-  "estimate_motion_frame_offset": true,
+  "estimate_motion_frame_offset": false,
   "observation_waypoint": {
    "x_east_m": 0.0,
    "y_north_m": 0.0,
