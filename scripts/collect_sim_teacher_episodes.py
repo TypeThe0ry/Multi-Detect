@@ -79,7 +79,7 @@ from multidetect.sim_teacher.executor import (  # noqa: E402
 )
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor  # noqa: E402
 from multidetect.sim_teacher.isolation import validate_local_endpoint  # noqa: E402
-from multidetect.sim_teacher.policies import load_sdf_obstacles  # noqa: E402
+from multidetect.sim_teacher.policies import cruise_altitude_for_obstacles, load_sdf_obstacles  # noqa: E402
 from multidetect.sim_teacher.spawn_clearance import (  # noqa: E402
     require_spawn_clearance,
     teacher_intent_clearance_altitude,
@@ -2792,6 +2792,13 @@ def _wait_motion_command(
         leg_n, leg_e = command.target_ned[0] - start[0], command.target_ned[1] - start[1]
         leg = math.hypot(leg_n, leg_e)
         timeout = min(MOTION_REPOSITION_TIMEOUT_S, leg / max(cruise_mps, 1.0) * 1.5 + 15.0)
+        # Policies may time-slice a long leg: wait at most max_wait_s, then report "sliced" (not a timeout) so the
+        # next step can re-send the same target and record another frame.
+        slice_s = float((getattr(command, "metadata", None) or {}).get("max_wait_s") or 0.0)
+        if 0.0 < slice_s < timeout:
+            timeout = slice_s
+        else:
+            slice_s = 0.0
         distance = leg
         orbit_angle = 0.0
         previous_yaw: float | None = None
@@ -2826,7 +2833,7 @@ def _wait_motion_command(
                 }
             time.sleep(0.1)
         return {
-            "waited": "timeout",
+            "waited": "sliced" if slice_s else "timeout",
             "distance_m": distance,
             "leg_m": leg,
             "elapsed_s": time.monotonic() - started,
@@ -3113,7 +3120,13 @@ def _policy_for(plan: CollectionPlan, truth_path: Path, seed: int):
         ),
     )
     if plan.fw_cruise_observe:
-        return FwCruiseObservePolicy(inner, altitude_m=max(altitude_m, FIXED_WING_MIN_OPERATING_ALT_M + VTOL_TRANSITION_MARGIN_M)), label
+        base_altitude_m = max(altitude_m, FIXED_WING_MIN_OPERATING_ALT_M + VTOL_TRANSITION_MARGIN_M)
+        # Ring radius 110 m + high orbit 70 m + 60 m margin around the target; tall buildings inside it raise the
+        # cruise altitude or, above the cap, make the world unflyable for FW cruise (raises CruiseNotFeasible).
+        cruise_altitude_m = cruise_altitude_for_obstacles(
+            obstacles, (float(target[0]), float(target[1])), base_altitude_m=base_altitude_m, envelope_radius_m=240.0,
+        )
+        return FwCruiseObservePolicy(inner, altitude_m=cruise_altitude_m), label
     return inner, label
 
 

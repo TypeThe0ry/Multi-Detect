@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import random
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -1262,6 +1262,36 @@ class ExpertSearchPolicy:
         }
 
 
+class CruiseNotFeasible(ValueError):
+    """The tallest obstacle near the cruise ring needs a higher altitude than the cap allows."""
+
+
+def cruise_altitude_for_obstacles(
+    obstacles: Sequence[SDFObstacle],
+    centre_ne: tuple[float, float],
+    *,
+    base_altitude_m: float,
+    envelope_radius_m: float,
+    clearance_m: float = 25.0,
+    max_altitude_m: float = 120.0,
+) -> float:
+    """Lowest cruise altitude (>= base) that clears every obstacle inside the flight envelope.
+
+    The envelope is the disc around the target that the cruise ring, its chords and the high orbit sweep.
+    Raises CruiseNotFeasible when the required altitude exceeds ``max_altitude_m``.
+    """
+    needed = float(base_altitude_m)
+    for obstacle in obstacles:
+        reach = math.hypot(obstacle.size_north_m, obstacle.size_east_m) / 2.0
+        if math.hypot(obstacle.north_m - centre_ne[0], obstacle.east_m - centre_ne[1]) - reach <= envelope_radius_m:
+            needed = max(needed, obstacle.top_m + clearance_m)
+    if needed > max_altitude_m:
+        raise CruiseNotFeasible(
+            f"fw cruise needs {needed:.0f} m clearance over the cruise ring, above the {max_altitude_m:.0f} m cap"
+        )
+    return needed
+
+
 class FwCruiseObservePolicy:
     """Take off, cruise in FW between waypoints around the target, orbit it, transition back to MC, then observe.
 
@@ -1286,6 +1316,9 @@ class FwCruiseObservePolicy:
         approach_m: float = 60.0,
         min_airspeed_mps: float = 13.0,
         max_speed_retries: int = 2,
+        leg_slice_s: float = 6.0,
+        max_leg_slices: int = 10,
+        arrive_m: float = 50.0,
     ) -> None:
         if legs < 1 or altitude_m <= 0 or ring_radius_m <= 0 or orbit_radius_m <= 0 or approach_m < 0:
             raise ValueError("legs, altitude, ring, orbit and approach must be positive")
@@ -1299,6 +1332,12 @@ class FwCruiseObservePolicy:
         self.min_airspeed_mps = float(min_airspeed_mps)
         self.max_speed_retries = int(max_speed_retries)
         self._speed_retries = 0
+        # Each leg is flown in time slices: the same reposition is re-sent and the wait returns after leg_slice_s, so
+        # a long FW leg yields a frame every few seconds instead of one frame per leg.
+        self.leg_slice_s = float(leg_slice_s)
+        self.max_leg_slices = int(max_leg_slices)
+        self.arrive_m = float(arrive_m)
+        self._leg_slices = 0
         north, east = float(inner.target_ned[0]), float(inner.target_ned[1])
         start = math.atan2(-east, -north)  # first ring point on the home side of the target
         self._centre = (north, east, -self.altitude_m)
@@ -1348,10 +1387,20 @@ class FwCruiseObservePolicy:
                         mode="FW", reason="cruise_speed_recovery",
                     )
                 self._speed_retries = 0
+                if 0 < self._index and self.leg_slice_s > 0 and self._leg_slices < self.max_leg_slices:
+                    previous = self._waypoints[self._index - 1]
+                    if math.hypot(previous[0] - pose_ned[0], previous[1] - pose_ned[1]) > self.arrive_m:
+                        self._leg_slices += 1
+                        return MotionCommand(
+                            "reposition", target_ned=previous, speed_mps=self.cruise_speed_mps, mode="FW",
+                            reason="cruise_leg", metadata={"max_wait_s": self.leg_slice_s},
+                        )
+                self._leg_slices = 0
                 target = self._waypoints[self._index]
                 self._index += 1
                 return MotionCommand(
-                    "reposition", target_ned=target, speed_mps=self.cruise_speed_mps, mode="FW", reason="cruise_leg"
+                    "reposition", target_ned=target, speed_mps=self.cruise_speed_mps, mode="FW", reason="cruise_leg",
+                    metadata={"max_wait_s": self.leg_slice_s} if self.leg_slice_s > 0 else {},
                 )
             self.phase = "orbit" if self.orbit_s > 0 else "back_transition"
         if self.phase == "orbit":
@@ -1368,7 +1417,9 @@ class FwCruiseObservePolicy:
 
 __all__ = [
     "ExploreBounds",
+    "CruiseNotFeasible",
     "FwCruiseObservePolicy",
+    "cruise_altitude_for_obstacles",
     "ExplorePolicy",
     "HoverPolicy",
     "ExpertSearchPolicy",

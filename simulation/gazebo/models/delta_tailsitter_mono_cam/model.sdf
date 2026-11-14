@@ -17,6 +17,19 @@
           <iyz>0</iyz>
         </inertia>
       </inertial>
+      <visual name="c11_shell_mesh">
+        <geometry>
+          <mesh>
+            <uri>model://delta_tailsitter/meshes/c11.stl</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.3 0.35 0.4 1</ambient>
+          <diffuse>0.3 0.35 0.4 1</diffuse>
+        </material>
+        <pose>0 0 0 0 0.3490658503988659 0</pose>
+      </visual>
       <sensor name="camera" type="camera">
         <gz_frame_id>camera_link</gz_frame_id>
         <pose>0.09 0 0 0 0 0</pose>

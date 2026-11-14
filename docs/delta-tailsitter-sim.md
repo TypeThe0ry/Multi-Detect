@@ -1249,3 +1249,15 @@ skew。动力学模型通过 `include merge=true` 带入四个转子关节，但
 
 tag58 配对结果为固定版完整通过、云台版缺少完整 JointState 而失败；该轮发生在本次模型发布
 修复之前，不计作修复后连续通过轮次。门禁会在主机 shell 使用指定 SITL 槽位与 GPU 重新执行。
+
+## C11 云台外形与外参（gimbal_extrinsics=v1）
+
+云台变体 `delta_tailsitter_gimbal_cam` 不再用方块占位和大尺寸关节，改用 STEP 里的 C11 真实外形（`scripts/split_c11_gimbal_mesh.py`
+把 `c11.stl` 拆成 `c11_fixed.stl`、`c11_yaw.stl`、`c11_ball.stl`）。STEP 中 C11 是单一产品，所以拆分是几何上的：安装板和减震球固定在
+`c11_mount_link`，偏航圆柱在 `c11_yaw_link`，球体、镜头和俯仰端盖在 `camera_link`；L 形横滚臂与球是同一个连通壳体，无法单独拆出，
+`c11_roll_link` 没有外形，只保留横滚轴。关节轴方向不变（偏航 -Z、横滚 +X、俯仰 -Y），位置改为真实尺寸：偏航轴过安装点，
+横滚/俯仰轴交于球心，球心在安装点正下方 0.0505 m，镜头中心在球心前方 +X 0.033 m（旧版 v0 的相机在安装点前 0.16 m、下 0.08 m，
+即机体系约 x=0.206、z=0.308）。固定相机变体 `delta_tailsitter_mono_cam` 不变，只是 C11 外壳网格从共用底座挪到它自己的相机链节上。
+
+此前（v0）采集的云台数据相机外参与此不同，数据清单里应标 `gimbal_extrinsics=v0`，之后的新采集为 `v1`。因载荷改放在球心，云台变体的整机重心约移动
+0.2 mm、转动惯量变化小于 1e-3 kg m²，`tests/test_delta_tailsitter_assets.py` 对云台变体放宽了相应的容差。核对图见 `docs/c11_gimbal_split_check.png`。
