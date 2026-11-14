@@ -46,3 +46,11 @@ def test_run_copies_val(tmp_path):
     assert json.loads((out / "manifest.json").read_text())["crop_policy"] == "candidate_zoom_v2"
     assert len((out / "train.jsonl").read_text().splitlines()) == 4
     assert report["dropped"] == 4
+
+
+def test_trim_approach_only_keeps_confirm():
+    rows = [row(i, rd.APPROACH, 0.01 + 0.0001 * i) for i in range(60)]
+    rows += [row(100 + i, rd.CONFIRM, 0.01 + 0.0001 * i) for i in range(20)]
+    kept, _ = rd.rebalance(rows, bins=4, seed=1, trim="approach")
+    assert sum(rd.decision(r) == rd.CONFIRM for r in kept) == 20
+    assert sum(rd.decision(r) == rd.APPROACH for r in kept) <= 60
