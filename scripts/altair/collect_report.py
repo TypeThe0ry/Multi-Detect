@@ -98,11 +98,41 @@ def collect(planning_summary: dict, identity_eval: dict) -> dict:
     return {"planning": planning, "identity": identity_section(identity_eval), "fixed_wing": fixed_wing}
 
 
+def write_paired_report(
+    incumbent_identity: Path,
+    candidate_identity: Path,
+    output: Path,
+    *,
+    bootstrap: int = 10000,
+    seed: int = 7,
+    dataset: Path | None = None,
+) -> dict:
+    """Write the optional row-level paired report beside the aggregate report."""
+    from .paired_report import DEFAULT_DATASET, write_report
+
+    return write_report(
+        incumbent_identity,
+        candidate_identity,
+        output,
+        bootstrap=bootstrap,
+        seed=seed,
+        dataset=dataset or DEFAULT_DATASET,
+    )
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--planning-summary", type=Path, required=True)
     parser.add_argument("--identity-eval", type=Path, required=True)
     parser.add_argument("--output-json", type=Path, required=True)
+    parser.add_argument("--incumbent-identity", type=Path,
+                        help="optional incumbent per-sample eval JSON for a paired report")
+    parser.add_argument("--paired-output", type=Path,
+                        help="where to write the optional paired report")
+    parser.add_argument("--paired-dataset", type=Path,
+                        help="identity dataset JSONL used for area bins")
+    parser.add_argument("--paired-bootstrap", type=int, default=10000)
+    parser.add_argument("--paired-seed", type=int, default=7)
     args = parser.parse_args(argv)
     report = collect(
         load_planning_summary(args.planning_summary),
@@ -110,6 +140,16 @@ def main(argv=None) -> int:
     )
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if args.incumbent_identity:
+        paired_output = args.paired_output or args.output_json.with_name("paired-report.json")
+        write_paired_report(
+            args.incumbent_identity,
+            args.identity_eval,
+            paired_output,
+            bootstrap=args.paired_bootstrap,
+            seed=args.paired_seed,
+            dataset=args.paired_dataset,
+        )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 

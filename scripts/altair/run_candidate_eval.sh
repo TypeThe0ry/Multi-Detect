@@ -63,4 +63,9 @@ PYTHONPATH="$SR:$R/src:$R" "$PY" -m scripts.altair.collect_report --planning-sum
   --identity-eval "$OUT/identity-eval.json" --output-json "$OUT/candidate-report.json" >/dev/null
 PYTHONPATH="$SR:$R/src:$R" "$PY" -m scripts.altair.eval_altair --baseline "$OUT/baseline-report.json" \
   --candidate "$OUT/candidate-report.json" --output-json "$OUT/gate.json"
+# Row-level comparison is evidence only and must never affect the gate result.
+PYTHONPATH="$SR:$R/src:$R" "$PY" -m scripts.altair.paired_report \
+  --incumbent "$ID_BASE" --candidate "$OUT/identity-eval.json" \
+  --dataset "$ID_DATASET/test.jsonl" --output "$OUT/paired-report.json" \
+  || echo "paired report unavailable; gate remains unchanged" >&2
 echo "report dir: $OUT"
