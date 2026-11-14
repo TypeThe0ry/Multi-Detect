@@ -94,12 +94,15 @@ def rebalance(rows: list[dict], *, bins: int = 8, seed: int = 7, trim: str = "bo
         sides = grouped[b]
         keep = min(len(sides[CONFIRM]), len(sides[APPROACH]))
         labels = (CONFIRM, APPROACH) if trim == "both" else ((APPROACH,) if trim == "approach" else (CONFIRM,))
+        kept_n = {CONFIRM: len(sides[CONFIRM]), APPROACH: len(sides[APPROACH])}
         for label in labels:
             ids = sides[label]
             rng.shuffle(ids)
             drop.update(ids[keep:])
+            kept_n[label] = min(len(ids), keep)
         per_bin.append({"bin": b, "confirm_before": len(sides[CONFIRM]),
-                        "approach_before": len(sides[APPROACH]), "kept_each": keep})
+                        "approach_before": len(sides[APPROACH]),
+                        "confirm_kept": kept_n[CONFIRM], "approach_kept": kept_n[APPROACH]})
     kept = [row for i, row in enumerate(rows) if i not in drop]
     return kept, {"bins": len(grouped), "edges": edges, "kept": len(kept),
                   "dropped": len(drop), "per_bin": per_bin}

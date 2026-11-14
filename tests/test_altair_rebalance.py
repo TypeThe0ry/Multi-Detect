@@ -54,3 +54,11 @@ def test_trim_approach_only_keeps_confirm():
     kept, _ = rd.rebalance(rows, bins=4, seed=1, trim="approach")
     assert sum(rd.decision(r) == rd.CONFIRM for r in kept) == 20
     assert sum(rd.decision(r) == rd.APPROACH for r in kept) <= 60
+
+
+def test_per_bin_reports_actual_kept():
+    rows = [row(i, rd.APPROACH, 0.01 + 0.0001 * i) for i in range(60)]
+    rows += [row(100 + i, rd.CONFIRM, 0.01 + 0.0001 * i) for i in range(20)]
+    kept, report = rd.rebalance(rows, bins=4, seed=1, trim="approach")
+    assert sum(b["confirm_kept"] for b in report["per_bin"]) == sum(rd.decision(r) == rd.CONFIRM for r in kept)
+    assert sum(b["approach_kept"] for b in report["per_bin"]) == sum(rd.decision(r) == rd.APPROACH for r in kept)
