@@ -485,3 +485,21 @@ def test_fw_cruise_observe_policy_cruises_at_18_and_recovers_airspeed_before_nex
     assert all(a.reason == "cruise_speed_recovery" and a.target_ned == first.target_ned for a in slow)
     nxt = policy.next_action(pose_ned=(0.0, 0.0, -40.0), airspeed_mps=9.0)  # retries exhausted: move on
     assert nxt.reason == "cruise_leg" and nxt.target_ned != first.target_ned
+
+
+def test_cruise_altitude_clears_tall_buildings_inside_the_envelope_or_refuses():
+    from multidetect.sim_teacher.policies import CruiseNotFeasible, SDFObstacle, cruise_altitude_for_obstacles
+
+    low = SDFObstacle(100.0, 0.0, 30.0, 20.0, 20.0)
+    mid = SDFObstacle(-150.0, 50.0, 70.0, 30.0, 30.0)
+    far_tall = SDFObstacle(900.0, 900.0, 300.0, 40.0, 40.0)  # outside the envelope: ignored
+    common = dict(base_altitude_m=40.0, envelope_radius_m=240.0)
+    assert cruise_altitude_for_obstacles([low], (0.0, 0.0), **common) == pytest.approx(55.0)
+    assert cruise_altitude_for_obstacles([low, mid, far_tall], (0.0, 0.0), **common) == pytest.approx(95.0)
+    assert cruise_altitude_for_obstacles([far_tall], (0.0, 0.0), **common) == pytest.approx(40.0)
+    skyscraper = SDFObstacle(-120.0, 0.0, 261.0, 40.0, 40.0)
+    with pytest.raises(CruiseNotFeasible):
+        cruise_altitude_for_obstacles([skyscraper], (0.0, 0.0), **common)
+    # a building that only touches the envelope edge through its footprint still counts
+    edge = SDFObstacle(250.0, 0.0, 60.0, 40.0, 40.0)
+    assert cruise_altitude_for_obstacles([edge], (0.0, 0.0), **common) == pytest.approx(85.0)

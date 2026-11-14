@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import random
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -1262,6 +1262,36 @@ class ExpertSearchPolicy:
         }
 
 
+class CruiseNotFeasible(ValueError):
+    """The tallest obstacle near the cruise ring needs a higher altitude than the cap allows."""
+
+
+def cruise_altitude_for_obstacles(
+    obstacles: Sequence[SDFObstacle],
+    centre_ne: tuple[float, float],
+    *,
+    base_altitude_m: float,
+    envelope_radius_m: float,
+    clearance_m: float = 25.0,
+    max_altitude_m: float = 120.0,
+) -> float:
+    """Lowest cruise altitude (>= base) that clears every obstacle inside the flight envelope.
+
+    The envelope is the disc around the target that the cruise ring, its chords and the high orbit sweep.
+    Raises CruiseNotFeasible when the required altitude exceeds ``max_altitude_m``.
+    """
+    needed = float(base_altitude_m)
+    for obstacle in obstacles:
+        reach = math.hypot(obstacle.size_north_m, obstacle.size_east_m) / 2.0
+        if math.hypot(obstacle.north_m - centre_ne[0], obstacle.east_m - centre_ne[1]) - reach <= envelope_radius_m:
+            needed = max(needed, obstacle.top_m + clearance_m)
+    if needed > max_altitude_m:
+        raise CruiseNotFeasible(
+            f"fw cruise needs {needed:.0f} m clearance over the cruise ring, above the {max_altitude_m:.0f} m cap"
+        )
+    return needed
+
+
 class FwCruiseObservePolicy:
     """Take off, cruise in FW between waypoints around the target, orbit it, transition back to MC, then observe.
 
@@ -1368,7 +1398,9 @@ class FwCruiseObservePolicy:
 
 __all__ = [
     "ExploreBounds",
+    "CruiseNotFeasible",
     "FwCruiseObservePolicy",
+    "cruise_altitude_for_obstacles",
     "ExplorePolicy",
     "HoverPolicy",
     "ExpertSearchPolicy",
