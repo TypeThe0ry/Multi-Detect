@@ -58,6 +58,16 @@ NVIDIA_EGL_VENDOR_FILE = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 PX4_LOGGER_MODE_ENV = "MULTIDETECT_PX4_LOGGER_MODE"
 PX4_DAEMON_MODE_ENV = "MULTIDETECT_PX4_DAEMON"
+PX4_PROFILE_ENV = "MULTIDETECT_PX4_PROFILE"
+
+
+def resolve_px4_profile(value: str | None = None) -> str:
+    """Resolve the explicitly selectable PX4 parameter/asset profile."""
+    profile = os.environ.get(PX4_PROFILE_ENV, "pinned") if value is None else value
+    profile = str(profile).strip().lower()
+    if profile not in {"pinned", "main"}:
+        raise DockerSimulatorPlanError(f"{PX4_PROFILE_ENV} must be pinned or main")
+    return profile
 
 
 def resolve_px4_logger_mode(value: str | None = None) -> str:
@@ -98,11 +108,21 @@ def resolve_px4_daemon_mode(value: str | int | bool | None = None) -> bool:
 #   that mismatch rotates the velocity innovations by a few degrees, which
 #   EKF2 turns into a yaw error that outlives the turn.  Real airframes keep
 #   their measured delays; these values only describe the simulator.
-SIM_SENSOR_PARAMETERS = (
+SIM_SENSOR_PARAMETERS_PINNED = (
     ("SENS_EN_MAGSIM", "1"),
     ("SENS_GPS0_DELAY", "0"),
     ("EKF2_ASP_DELAY", "0"),
 )
+SIM_SENSOR_PARAMETERS_MAIN = (
+    ("SENS_EN_MAGSIM", "1"),
+    ("SENS_GNSS0_DELAY", "0"),
+    ("EKF2_ASP_DELAY", "0"),
+)
+SIM_SENSOR_PARAMETERS = SIM_SENSOR_PARAMETERS_PINNED
+
+
+def sim_sensor_parameters(profile: str | None = None) -> tuple[tuple[str, str], ...]:
+    return SIM_SENSOR_PARAMETERS_MAIN if resolve_px4_profile(profile) == "main" else SIM_SENSOR_PARAMETERS_PINNED
 IMAGE_SERVER_CONFIG = "/opt/px4-gazebo/share/gz/server.config"
 CONTAINER_SERVER_CONFIG = "/tmp/multidetect-gz-server.config"
 _DROP_GAZEBO_MAGNETOMETER = (
@@ -366,6 +386,9 @@ class DockerSimulatorPlan:
     cpu_isolation: SimulatorCpuIsolation | None = None
     custom_airframe_path: Path | None = None
     custom_airframe_sha256: str = ""
+    base_airframe_path: Path | None = None
+    base_airframe_sha256: str = ""
+    px4_profile: str = "pinned"
     staged_model_sdf: Path | None = None
     staged_model_sha256: str = ""
     requested_image: str | None = None
@@ -443,6 +466,11 @@ class DockerSimulatorPlan:
                 "model_name": self.model_name,
                 "airframe_profile_id": self.airframe_profile_id,
             },
+            "px4_profile": self.px4_profile,
+            "required_sim_parameters": [
+                {"name": name, "value": value}
+                for name, value in sim_sensor_parameters(self.px4_profile)
+            ],
             "environment": dict(self.environment),
             "px4_logger_mode": dict(self.environment).get(PX4_LOGGER_MODE_ENV, "off"),
             "px4_daemon_mode": dict(self.environment).get(PX4_DAEMON_MODE_ENV, "1") == "1",
@@ -531,6 +559,15 @@ class DockerSimulatorPlan:
                 "readonly": True,
                 "sha256": self.custom_airframe_sha256,
             }
+        if self.base_airframe_path is not None:
+            document["mounts"]["base_airframe"] = {
+                "host": str(self.base_airframe_path),
+                "container": (
+                    f"/opt/px4-gazebo/etc/init.d-posix/airframes/{self.base_airframe_path.name}"
+                ),
+                "readonly": True,
+                "sha256": self.base_airframe_sha256,
+            }
         if self.staged_model_sdf is not None:
             document["mounts"]["cad_model_sdf"] = {
                 "host": str(self.staged_model_sdf),
@@ -613,9 +650,11 @@ def build_docker_simulator_plan(
     sim_instance: int = 0,
     airframe_profile_id: str | None = None,
     px4_logger_mode: str | None = None,
+    px4_profile: str | None = None,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
+    profile = resolve_px4_profile(px4_profile)
     try:
         cpu_isolation = resolve_cpu_isolation(worker_index)
     except ValueError as exc:
@@ -696,13 +735,15 @@ def build_docker_simulator_plan(
     stack_environment = stack.environment_mapping
     model_name = stack.model_name
     custom_airframe = None
+    base_airframe = None
     custom_airframe_sha256 = ""
     staged_model_sdf = None
     staged_model_sha256 = ""
     extra_mounts: tuple[str, ...] = ()
     if model_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}:
         # 沿用原来的 rcS -> SYS_AUTOSTART 路径，只挂入一份自定义脚本。
-        custom_airframe = root / "simulation/px4/airframes" / (
+        airframe_root = root / "simulation/px4" / ("airframes-main" if profile == "main" else "airframes")
+        custom_airframe = airframe_root / (
             "4051_gz_delta_tailsitter_gimbal"
             if model_name == "delta_tailsitter_gimbal_cam"
             else "4050_gz_delta_tailsitter"
@@ -714,7 +755,7 @@ def build_docker_simulator_plan(
         )
         if model_name == "delta_tailsitter_gimbal_cam":
             # 4051 在 rcS 里 source 4050 的飞行参数，基础脚本也要一并挂入。
-            base_airframe = root / "simulation/px4/airframes/4050_gz_delta_tailsitter"
+            base_airframe = airframe_root / "4050_gz_delta_tailsitter"
             extra_mounts += (
                 "--mount",
                 _mount(base_airframe,
@@ -766,7 +807,7 @@ def build_docker_simulator_plan(
         "MD_SIM_SCENARIO_SHA256": stack.scenario_manifest_hash,
         "MD_SIM_SEED": str(stack.seed),
         "GZ_VERBOSE": "0",
-        **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
+        **{f"PX4_PARAM_{name}": value for name, value in sim_sensor_parameters(profile)},
     }
     logger_mode = resolve_px4_logger_mode(px4_logger_mode)
     container_environment[PX4_LOGGER_MODE_ENV] = logger_mode
@@ -779,6 +820,8 @@ def build_docker_simulator_plan(
         container_environment["PX4_SYS_AUTOSTART"] = "4019"
         container_environment["PX4_SIM_MODEL"] = "gz_x500_gimbal"
         container_environment["PX4_GZ_MODELS"] = CONTAINER_IMAGE_MODEL_ROOT
+    if profile == "main":
+        container_environment[PX4_PROFILE_ENV] = "main"
     # The gimbal overlay shadows the image-provided x500_gimbal model.  Keep
     # PX4 pointed at that image model root so its model://gimbal dependency is
     # resolved from the same upstream directory.
@@ -892,6 +935,20 @@ def build_docker_simulator_plan(
         docker_host_ip = (
             f'DOCKER_HOST_IP="{sim_listen_host(container_network, mode=selected_network_mode)}"; '
         )
+    px4_exec = (
+        f"/opt/px4-gazebo/bin/px4 -i {sim_instance if selected_network_mode == 'host' else 0} -s etc/init.d-posix/rcS"
+        + (" -d" if daemon_mode else "")
+    )
+    if profile == "main":
+        readback = "; ".join(
+            f"actual=; for _i in $(seq 1 90); do actual=$(/opt/px4-gazebo/bin/px4-param show -q {name} 2>/dev/null); "
+            f"awk -v a=\"$actual\" -v e=\"{value}\" 'BEGIN{{exit !(a != \"\" && a+0 == e+0)}}' && break; sleep 1; done; "
+            f"awk -v a=\"$actual\" -v e=\"{value}\" 'BEGIN{{exit !(a != \"\" && a+0 == e+0)}}' || {{ echo 'PX4 main parameter read-back mismatch: {name} expected {value} got' \"$actual\" >&2; kill \"$PX4_PID\"; exit 75; }}"
+            for name, value in sim_sensor_parameters(profile)
+        )
+        px4_launch = f"{px4_exec} & PX4_PID=$!; sleep 2; {readback}; wait \"$PX4_PID\""
+    else:
+        px4_launch = f"exec {px4_exec}"
     startup = "".join(
         (
             "set -eu; ",
@@ -914,8 +971,7 @@ def build_docker_simulator_plan(
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
             gpu_gz_wrapper,
-            f"exec /opt/px4-gazebo/bin/px4 -i {sim_instance if selected_network_mode == 'host' else 0} -s etc/init.d-posix/rcS"
-            + (" -d" if daemon_mode else ""),
+            px4_launch,
         )
     )
     network_tokens = (
@@ -1007,6 +1063,9 @@ def build_docker_simulator_plan(
         cpu_isolation=cpu_isolation,
         custom_airframe_path=custom_airframe,
         custom_airframe_sha256=custom_airframe_sha256,
+        base_airframe_path=base_airframe,
+        base_airframe_sha256=(hashlib.sha256(base_airframe.read_bytes()).hexdigest() if base_airframe else ""),
+        px4_profile=profile,
         staged_model_sdf=staged_model_sdf,
         staged_model_sha256=staged_model_sha256,
     )
@@ -1038,6 +1097,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--worker-index", type=int, default=0)
     parser.add_argument("--sim-network", choices=("bridge", "host"), default=None)
     parser.add_argument("--sim-instance", type=int, default=0)
+    parser.add_argument("--px4-profile", choices=("pinned", "main"), default=None)
     parser.add_argument("--out", type=Path)
     parser.add_argument(
         "--strict",
@@ -1063,6 +1123,7 @@ def main(argv: list[str] | None = None) -> int:
             worker_index=args.worker_index,
             sim_network=args.sim_network,
             sim_instance=args.sim_instance,
+            px4_profile=args.px4_profile,
         )
         if args.strict and plan.docker_executable is None:
             raise DockerSimulatorPlanError("Docker executable not found")

@@ -129,6 +129,52 @@ PARAMETERS = {
     "SIM_GZ_EN_ODOM": None,
     "EKF2_EV_CTRL": 0.0,
 }
+PARAMETERS_MAIN = {
+    **{k: v for k, v in PARAMETERS.items() if not k.startswith("SENS_GPS")},
+    "SENS_GNSS0_OFFX": 0.0,
+    "SENS_GNSS0_OFFY": 0.0,
+    "SENS_GNSS0_OFFZ": 0.0,
+    "SENS_GNSS1_OFFX": 0.0,
+    "SENS_GNSS1_OFFY": 0.0,
+    "SENS_GNSS1_OFFZ": 0.0,
+    "SENS_GNSS0_ID": None,
+    "SENS_GNSS1_ID": None,
+}
+
+
+def navigation_parameters(
+    profile: str | None = None,
+    *,
+    capture: Mapping | None = None,
+    available_names: set[str] | None = None,
+) -> dict:
+    """Return the profile-specific PX4 parameter names for navigation evidence."""
+    if profile is None and isinstance(capture, Mapping):
+        profile = ((capture.get("plan") or {}).get("docker_plan") or {}).get("px4_profile")
+    if profile is None and available_names is not None:
+        has_gps = any(name.startswith("SENS_GPS") for name in available_names)
+        has_gnss = any(name.startswith("SENS_GNSS") for name in available_names)
+        if has_gps == has_gnss:
+            raise AutonomyContractError(
+                "navigation evidence must contain exactly one SENS_GPS* or SENS_GNSS* parameter set"
+            )
+        profile = "main" if has_gnss else "pinned"
+    if profile is None:
+        import os
+        profile = os.environ.get("MULTIDETECT_PX4_PROFILE", "pinned")
+    profile = str(profile).strip().lower()
+    if profile not in {"pinned", "main"}:
+        raise AutonomyContractError("MULTIDETECT_PX4_PROFILE must be pinned or main")
+    selected = PARAMETERS_MAIN if profile == "main" else PARAMETERS
+    if available_names is not None:
+        prefix = "SENS_GNSS" if profile == "main" else "SENS_GPS"
+        required = {name for name in selected if name.startswith(prefix)}
+        if not required.issubset(available_names):
+            missing = sorted(required - available_names)
+            raise AutonomyContractError(
+                f"navigation evidence is missing required {prefix} parameters: {missing}"
+            )
+    return selected
 
 
 def _require(condition, message):
@@ -859,7 +905,13 @@ def audit_sim_navigation_reference(
     )
     # Ground magnetic alignment does not independently invalidate XYZ mapping.
     parameters = {}
-    for name, expected in PARAMETERS.items():
+    available = set()
+    for phase in ("before", "after"):
+        values = capture.get(f"parameters_{phase}")
+        if isinstance(values, Mapping):
+            available.update(values)
+    selected_parameters = navigation_parameters(capture=capture, available_names=available)
+    for name, expected in selected_parameters.items():
         values = []
         for phase in ("before", "after"):
             row = capture[f"parameters_{phase}"][name]
