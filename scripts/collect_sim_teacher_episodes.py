@@ -114,6 +114,7 @@ from scripts.run_simulator_docker import (  # noqa: E402
     build_docker_simulator_plan,
     resolve_px4_daemon_mode,
     resolve_px4_logger_mode,
+    resolve_px4_profile,
 )
 from scripts.sitl_lock import SitlLock, default_lock_path, sitl_lock_context  # noqa: E402
 
@@ -923,6 +924,7 @@ class CollectionPlan:
     requested_image: str | None = None
     runtime_image_verification: dict | None = None
     max_episode_sim_s: float | None = None
+    px4_profile: str | None = None
 
     def __post_init__(self) -> None:
         if self.max_episode_sim_s is not None and not 1.0 <= self.max_episode_sim_s <= 86400.0:
@@ -955,6 +957,7 @@ class CollectionPlan:
         result["takeoff_altitude_m"] = altitude
         result["takeoff_altitude_source"] = source
         result["px4_logger_mode"] = _effective_px4_logger_mode(self)
+        result["px4_profile"] = resolve_px4_profile(self.px4_profile)
         result["px4_daemon_mode"] = resolve_px4_daemon_mode()
         result["docker_command"] = None if self.attach_container else docker_command(self)
         if self.attach_container:
@@ -1205,6 +1208,7 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             worker_index=plan.worker_index,
             airframe_profile_id=plan.airframe,
             px4_logger_mode=_effective_px4_logger_mode(plan),
+            px4_profile=resolve_px4_profile(plan.px4_profile),
         )
     except Exception as exc:
         raise ValueError(f"unable to build simulator stack plan: {exc}") from exc
@@ -3920,11 +3924,32 @@ def _set_sim_params(
         _progress("px4_param", **row)
         if result.returncode != 0:
             raise RuntimeError(f"failed to set {parameter}={value}: {result.stderr[-500:]}")
+        if resolve_px4_profile(plan.px4_profile) == "main":
+            readback = subprocess.run(
+                [executable, "exec", environment.name, "/opt/px4-gazebo/bin/px4-param", "show", "-q", parameter],
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+            actual = (readback.stdout or "").strip()
+            _require_px4_param_readback(parameter, value, readback.returncode, actual)
+            row["readback"] = {"returncode": readback.returncode, "stdout": actual}
     return applied
 
 
+def _require_px4_param_readback(parameter: str, expected: str, returncode: int, actual: str) -> None:
+    try:
+        matches = returncode == 0 and float(actual) == float(expected)
+    except ValueError:
+        matches = False
+    if not matches:
+        raise RuntimeError(
+            f"PX4 parameter read-back mismatch for {parameter}: expected {expected}, "
+            f"got rc={returncode} output={actual!r}"
+        )
+
+
 def _delta_fw_thr_min_baseline(plan: CollectionPlan) -> str:
-    airframe = ROOT / "simulation" / "px4" / "airframes" / "4050_gz_delta_tailsitter"
+    profile = resolve_px4_profile(plan.px4_profile)
+    airframe = ROOT / "simulation" / "px4" / ("airframes-main" if profile == "main" else "airframes") / "4050_gz_delta_tailsitter"
     match = re.search(
         r"^param set-default FW_THR_MIN (\S+)$",
         airframe.read_text(encoding="utf-8"),
@@ -6293,6 +6318,7 @@ def run_episode(
     # different --episodes value.
     recorder.meta["episode_index"] = episode_index
     recorder.meta["seed"] = plan.seed + episode_index
+    recorder.meta["px4_profile"] = resolve_px4_profile(plan.px4_profile)
     altitude_m, altitude_source = _takeoff_altitude_for_plan(plan)
     recorder.meta["takeoff_altitude_m"] = altitude_m
     recorder.meta["takeoff_altitude_source"] = altitude_source
@@ -8440,6 +8466,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--telemetry-port", type=int, default=DEFAULT_TELEMETRY_PORT)
     parser.add_argument("--sim-network", choices=("bridge", "host"), default=None)
     parser.add_argument("--sim-instance", type=int, default=0)
+    parser.add_argument("--px4-profile", choices=("pinned", "main"), default=None)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
@@ -8619,6 +8646,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         ),
         worker_index=args.worker_index,
         operator_port=args.operator_port,
+        px4_profile=resolve_px4_profile(args.px4_profile),
     )
     _validate_spawn_clearance(plan)
     # Reject deterministic CPU configuration errors before contacting Docker.
