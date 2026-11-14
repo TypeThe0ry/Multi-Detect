@@ -1,0 +1,29 @@
+# Candidate A: upgrade only the gz-rendering 8.3.0 runtime packages.
+# The base retains patched gz-transport 13.5.0, PX4, gz-sensors 8.2.2,
+# and gz-sim 8.14.0 from the production runtime image.
+ARG BASE_IMAGE=multidetect/px4-sitl-gazebo:transport-frame-09266eb0eb38
+FROM ${BASE_IMAGE}
+
+# Version closure observed in the apt transaction:
+# production pins: libgz-rendering8 8.2.3; libgz-rendering8-ogre2 8.2.3;
+#                  libgz-rendering8-core-dev 8.2.3; libgz-rendering8-dev 8.2.3;
+#                  libgz-rendering8-ogre2-dev 8.2.3
+# candidate pins:  libgz-rendering8 8.3.0; libgz-rendering8-ogre2 8.3.0;
+#                  libgz-rendering8-core-dev 8.3.0; libgz-rendering8-dev 8.3.0;
+#                  libgz-rendering8-ogre2-dev 8.3.0
+# dependency upgrades: libgz-common5 5.9.0 and libgz-math7 7.7.0
+RUN apt-get update -qq \
+ && apt-get install -y --no-install-recommends --only-upgrade \
+      libgz-rendering8 \
+      libgz-rendering8-ogre2 \
+      libgz-rendering8-core-dev \
+      libgz-rendering8-dev \
+      libgz-rendering8-ogre2-dev \
+ && apt-get -s install --only-upgrade libgz-rendering8 | grep -E '^Inst' | head -0; \
+    dpkg -l | grep -E 'libgz-(rendering8|common5|math7|transport13|msgs10|sensors8|sim8) ' | awk '{print $2,$3}'; \
+    sha256sum /usr/lib/x86_64-linux-gnu/libgz-transport13.so.13.5.0; \
+    rm -rf /var/lib/apt/lists/*
+
+# The verification output must retain the patched transport digest.
+RUN echo '9c2280e005ad426f01cdffddf2114e1e4b13e26aa9f5996c4b52cdfa9e722d99  /opt/px4-gazebo/bin/px4' | sha256sum -c - \
+ && echo 'aff44fe0ab4e1452c78b65e97c76a3f99f9d132777e96840666186f3d8cc82fe  /usr/lib/x86_64-linux-gnu/libgz-transport13.so.13.5.0' | sha256sum -c -

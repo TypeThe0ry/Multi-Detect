@@ -12,7 +12,7 @@ PINNED_IMAGE = (
 
 # Versioned lookup reference, not a machine-specific Docker image/config ID.
 # Actual launch must verify the full rootfs/config contract and freeze its local ID.
-DEFAULT_GPU_IMAGE = "multidetect/px4-sitl-gazebo:transport-frame-09266eb0eb38"
+DEFAULT_GPU_IMAGE = "multidetect/px4-sitl-gazebo:gz-rendering-830-r1"
 
 
 def resolve_runtime_image(image: str | None, *, gpu_render: bool) -> str:
