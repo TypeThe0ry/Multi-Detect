@@ -29,6 +29,14 @@ CAMERA_POSE = "0.046 0 0.388 0 -0.3490658503988659 0"
 # former 1e-12 kg placeholders.  These are still conservative allocation
 # masses (the C11 shell itself is already included in ASSEMBLY_MASS_KG), but
 # have physical scale and safe inertias for the articulated solver.
+# Real C11 geometry (see scripts/split_c11_gimbal_mesh.py): the pod hangs 0.0417 m below the mount point along base -Z,
+# the ball centre (roll/pitch axes) is 0.0505 m below it and the lens centre 0.033 m in front of the ball centre.
+# gimbal_extrinsics=v1; the earlier placeholder chain (camera 0.206 m ahead) was v0.
+C11_MESH_RPY = "0 1.5707963267948966 0"  # mesh +X (pod axis, plate at -X) -> base -Z, mesh +Z (lens) -> base +X
+C11_PLATE_DROP_M = 0.0417
+C11_BALL_DROP_M = 0.0505
+C11_LENS_FORWARD_M = 0.033
+BALL_POSITION_M = (CAMERA_POSITION_M[0], CAMERA_POSITION_M[1], CAMERA_POSITION_M[2] - C11_BALL_DROP_M)
 GIMBAL_MOUNT_MASS = 0.005
 GIMBAL_YAW_MASS = 0.002
 GIMBAL_ROLL_MASS = 0.002
@@ -118,6 +126,13 @@ def _mesh_visual(link, name, uri, *, color="0.3 0.35 0.4 1", scale="1 1 1"):
     return visual
 
 
+def _c11_part_visual(link, name, mesh_name, drop_m):
+    """Mesh part of the real C11 in a link whose origin is ``drop_m`` below the mounting plate's top face."""
+    visual = _mesh_visual(link, name, f"model://delta_tailsitter/meshes/{mesh_name}", color="0.12 0.12 0.12 1")
+    _element(visual, "pose", f"0 0 {drop_m:.4f} {C11_MESH_RPY}")
+    return visual
+
+
 def _gimbal_controller(model, joint_name, topic, *, p_gain=0.8, cmd_max=0.3):
     plugin = _element(
         model,
@@ -167,15 +182,14 @@ def _gimbal(model, meshes: Path):
     fixed = _element(model, "joint", name="c11_mount_joint", type="fixed")
     _element(fixed, "parent", "base_link")
     _element(fixed, "child", "c11_mount_link")
-    if (meshes / "c11.stl").is_file():
-        _mesh_visual(mount, "c11_step_visual", "model://delta_tailsitter/meshes/c11.stl")
-    else:
-        _visual(mount, "c11_bbox_visual", (0, 0, 0), "box", {"size": "0.084 0.062 0.064"})
+    if (meshes / "c11_fixed.stl").is_file():
+        _c11_part_visual(mount, "c11_mount_mesh", "c11_fixed.stl", -C11_PLATE_DROP_M)
 
     yaw_link = _element(model, "link", name="c11_yaw_link")
     _element(yaw_link, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(yaw_link, GIMBAL_YAW_MASS, GIMBAL_CHILD_INERTIA)
-    _visual(yaw_link, "yaw_arm", (0, 0, -0.045), "box", {"size": "0.02 0.02 0.09"}, "0.12 0.12 0.12 1")
+    if (meshes / "c11_yaw.stl").is_file():
+        _c11_part_visual(yaw_link, "c11_yaw_mesh", "c11_yaw.stl", -C11_PLATE_DROP_M)
     # PX4 GZGimbal converts the Gazebo FLU quaternion to FRD as
     # q_ENU_to_NED * q_gimbal_FLU * inverse(q_FLU_to_FRD). For the relative
     # joint rotation this is S^-1 J S with S=Rx(pi): yaw -Z and pitch -Y
@@ -184,25 +198,26 @@ def _gimbal(model, meshes: Path):
     _revolute_joint(model, "c11_yaw_joint", "c11_mount_link", "c11_yaw_link", "0 0 -1", lower=-2 * math.pi, upper=2 * math.pi)
 
     roll_link = _element(model, "link", name="c11_roll_link")
-    _element(roll_link, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
+    _element(roll_link, "pose", _vector((*BALL_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(roll_link, GIMBAL_ROLL_MASS, GIMBAL_CHILD_INERTIA)
-    _visual(roll_link, "roll_arm", (0, 0, -0.08), "box", {"size": "0.08 0.02 0.02"}, "0.12 0.12 0.12 1")
-    _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "1 0 0", pose="0 0 -0.08 0 0 0", lower=-0.785398, upper=0.785398)
+    # The roll axis is the lens axis through the ball centre; the STEP has no separate L-arm body, so no visual here.
+    _revolute_joint(model, "c11_roll_joint", "c11_yaw_link", "c11_roll_link", "1 0 0", pose="0 0 0 0 0 0", lower=-0.785398, upper=0.785398)
 
     camera = _element(model, "link", name="camera_link")
     # Joint poses below are expressed in the child frame, so this link must share
     # the yaw/roll links' origin; otherwise the chain and sensor sit at base_link.
-    _element(camera, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
+    _element(camera, "pose", _vector((*BALL_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(
         camera,
         CAMERA_MASS,
         CAMERA_INERTIA,
         position=(0, 0, 0),
     )
-    _visual(camera, "camera_body", (0.11, 0, -0.08), "box", {"size": "0.08 0.06 0.05"}, "0.08 0.08 0.08 1")
-    _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 -1 0", pose="-0.04 0 -0.08 0 0 0", lower=-2.35619, upper=0.7854)
-    # The optical centre clears both the C11 shell and the camera-body visual.
-    camera_pose = "0.16 0 -0.08 0 0 0"
+    if (meshes / "c11_ball.stl").is_file():
+        _c11_part_visual(camera, "c11_ball_mesh", "c11_ball.stl", C11_BALL_DROP_M - C11_PLATE_DROP_M)
+    _revolute_joint(model, "c11_pitch_joint", "c11_roll_link", "camera_link", "0 -1 0", pose="0 0 0 0 0 0", lower=-2.35619, upper=0.7854)
+    # The optical centre sits on the lens dome of the ball (mesh +Z face), 0.033 m ahead of the ball centre.
+    camera_pose = f"{C11_LENS_FORWARD_M} 0 0 0 0 0"
     sensor = _element(camera, "sensor", name="camera", type="camera")
     _element(sensor, "gz_frame_id", "camera_link")
     _element(sensor, "pose", camera_pose)
@@ -224,7 +239,7 @@ def _gimbal(model, meshes: Path):
     _element(depth, "pose", "0 0 0 0 0 0", relative_to="camera_link")
     sensor = _element(depth, "sensor", name="depth_camera", type="depth_camera")
     _element(sensor, "gz_frame_id", "depth_camera_link")
-    _element(sensor, "pose", "0.16 0 -0.08 0 0 0")
+    _element(sensor, "pose", camera_pose)
     _element(sensor, "always_on", 1)
     _element(sensor, "update_rate", 30)
     _element(sensor, "visualize", True)
@@ -279,6 +294,8 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     mount = _element(wrapped_model, "link", name="c11_mount_link")
     _element(mount, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)), relative_to="base_link")
     _inertial(mount, GIMBAL_MOUNT_MASS, (1e-6, 1e-6, 1e-6))
+    if (meshes / "c11_fixed.stl").is_file():
+        _c11_part_visual(mount, "c11_mount_mesh", "c11_fixed.stl", -C11_PLATE_DROP_M)
     fixed = _element(wrapped_model, "joint", name="c11_mount_joint", type="fixed")
     _element(fixed, "parent", "base_link")
     _element(fixed, "child", "c11_mount_link")
@@ -316,12 +333,8 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     # Remove camera articulation and sensors from the dynamics-only model.
     for item in camera_links + camera_joints + camera_plugins:
         model.remove(item)
-    _element(base, "visual", name="c11_shell_mesh")
-    mesh_visual = base.find("visual[@name='c11_shell_mesh']")
-    assert mesh_visual is not None
-    _element(mesh_visual, "pose", _vector((*CAMERA_POSITION_M, 0, 0, 0)))
-    mesh_geo = _element(_element(mesh_visual, "geometry"), "mesh")
-    _element(mesh_geo, "uri", "model://delta_tailsitter/meshes/c11.stl")
+    # The C11 shell is no longer part of the shared base: the fixed wrapper carries the whole mesh on its camera link and
+    # the gimbal wrapper carries the split fixed/yaw/ball parts.
     for visual in list(base.findall("visual[@name='c11_shell']")):
         base.remove(visual)
     ET.indent(root, space="  ")
@@ -338,6 +351,10 @@ def _write_camera_models(model_dir: Path, meshes: Path) -> None:
     # Match the shared assembly inertia after replacing the old numeric
     # placeholders with the wrapper's rigid payload link.
     _inertial(camera, GIMBAL_MASS - DEPTH_CAMERA_MASS, (2.102e-5, 2.102e-5, 2.102e-5))
+    if (meshes / "c11.stl").is_file():
+        # Unrotated STEP shell at the mount point (the link itself is pitched -20 deg).
+        shell_visual = _mesh_visual(camera, "c11_shell_mesh", "model://delta_tailsitter/meshes/c11.stl")
+        _element(shell_visual, "pose", "0 0 0 0 0.3490658503988659 0")
     sensor = _element(camera, "sensor", name="camera", type="camera")
     _element(sensor, "gz_frame_id", "camera_link")
     _element(sensor, "pose", "0.09 0 0 0 0 0")
