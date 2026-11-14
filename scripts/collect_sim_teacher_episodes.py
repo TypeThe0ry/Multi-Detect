@@ -585,6 +585,31 @@ class _EpisodeEarlyStop(RuntimeError):
         super().__init__(reason)
 
 
+_EPISODE_RESOURCE_STOP_REASONS = frozenset(
+    {"server_rss_soft_limit", "max_episode_sim_seconds"}
+)
+
+
+def _episode_resource_stop_reason(value: Any) -> str | None:
+    """Find a resource-limit reason preserved inside an executor result."""
+    if isinstance(value, str):
+        return value if value in _EPISODE_RESOURCE_STOP_REASONS else None
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            if key in {"reason", "error"} and isinstance(nested, str):
+                if nested in _EPISODE_RESOURCE_STOP_REASONS:
+                    return nested
+            found = _episode_resource_stop_reason(nested)
+            if found is not None:
+                return found
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            found = _episode_resource_stop_reason(nested)
+            if found is not None:
+                return found
+    return None
+
+
 class VehicleLostControl(RuntimeError):
     """Recorded telemetry proves an uncommanded fall or sustained tumble."""
 
@@ -5718,6 +5743,9 @@ def _fixed_wing_or_vtol_land_and_wait(
         }
     result = executor.land()
     if result.status != "success":
+        resource_reason = _episode_resource_stop_reason(getattr(result, "ack", None))
+        if resource_reason is not None:
+            raise _EpisodeEarlyStop(resource_reason, _plain_record(result.ack))
         raise RuntimeError(f"fixed-wing/VTOL landing command failed: {_plain_record(result.ack)}")
     remaining_s = (
         max(0.0, wait_timeout_s - (clock() - started))
@@ -7511,6 +7539,7 @@ def run_episode(
             vehicle_loss_detector = VehicleLossDetector()
             # PX4 releases gimbal manager control once a land primitive starts.
             landing_started = False
+            episode_data_complete = True
             if plan.sim_pre_abort_descent_altitude_m is not None:
                 if setpoint_streamer is None:
                     raise RuntimeError(
@@ -8047,66 +8076,81 @@ def run_episode(
                 # leave the primitive loop so we do not execute redundant
                 # STOPs while still performing the normal RTL/LAND teardown.
                 if not continue_loop:
+                    episode_data_complete = index + 1 >= plan.steps_per_episode
                     _progress("policy_stop", step=index)
                     break
-            _finish_teacher_gimbal(gimbal_session, episode_watchdog.check)
-            gimbal_send_gate.close()
-            if gimbal_session is not None:
-                recorder.record_mavlink({"message_type": "collector_gimbal_send_gate",
-                                         "events": gimbal_send_gate.snapshot()})
-            mav_reader.raise_if_failed()
-            # Teardown lands in place from the hover altitude. Slow SITL lockstep can
-            # make a fixed wall-clock wait expire before PX4 reaches the ground.
-            mav_reader.raise_if_failed()
-            _progress("land")
-            if not use_multirotor_executor:
-                rtl_started_ns = time.monotonic_ns()
-                executor.rtl()
-                # Confirm PX4 is really in AUTO.RTL before anything else is sent:
-                # otherwise the landing mission upload races the mode change and
-                # PX4 may skip RTL ("No valid mission available").
-                rtl_mode = _wait_px4_mode(
-                    mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S, after_ns=rtl_started_ns
-                )
-                if not rtl_mode["confirmed"]:
+            try:
+                _finish_teacher_gimbal(gimbal_session, episode_watchdog.check)
+                gimbal_send_gate.close()
+                if gimbal_session is not None:
+                    recorder.record_mavlink({"message_type": "collector_gimbal_send_gate",
+                                             "events": gimbal_send_gate.snapshot()})
+                mav_reader.raise_if_failed()
+                # Teardown lands in place from the hover altitude. Slow SITL lockstep can
+                # make a fixed wall-clock wait expire before PX4 reaches the ground.
+                mav_reader.raise_if_failed()
+                _progress("land")
+                if not use_multirotor_executor:
+                    rtl_started_ns = time.monotonic_ns()
                     executor.rtl()
+                    # Confirm PX4 is really in AUTO.RTL before anything else is sent:
+                    # otherwise the landing mission upload races the mode change and
+                    # PX4 may skip RTL ("No valid mission available").
                     rtl_mode = _wait_px4_mode(
-                        mav_reader,
-                        (4, 5),
-                        timeout_s=RTL_MODE_CONFIRM_S,
-                        after_ns=time.monotonic_ns(),
+                        mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S, after_ns=rtl_started_ns
                     )
-                recorder.meta["rtl_mode"] = rtl_mode
-                _progress("rtl", **rtl_mode)
-                profile = _airframe_profile(plan.airframe)
-                if (
-                    profile is not None
-                    and profile.category in {"fixed_wing", "vtol"}
-                    and not (strict_delta_smoke and _delta_native_rtl_requested())
-                ):
-                    # Let RTL bring the aircraft back over home before the landing
-                    # (mission or VTOL back-transition) replaces it.
-                    _progress(
-                        "rtl_home",
-                        **_wait_near_home(
+                    if not rtl_mode["confirmed"]:
+                        executor.rtl()
+                        rtl_mode = _wait_px4_mode(
                             mav_reader,
-                            radius_m=2.0 * profile.orbit_radius() + 50.0,
-                            timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],
-                        ),
+                            (4, 5),
+                            timeout_s=RTL_MODE_CONFIRM_S,
+                            after_ns=time.monotonic_ns(),
+                        )
+                    recorder.meta["rtl_mode"] = rtl_mode
+                    _progress("rtl", **rtl_mode)
+                    profile = _airframe_profile(plan.airframe)
+                    if (
+                        profile is not None
+                        and profile.category in {"fixed_wing", "vtol"}
+                        and not (strict_delta_smoke and _delta_native_rtl_requested())
+                    ):
+                        # Let RTL bring the aircraft back over home before the landing
+                        # (mission or VTOL back-transition) replaces it.
+                        _progress(
+                            "rtl_home",
+                            **_wait_near_home(
+                                mav_reader,
+                                radius_m=2.0 * profile.orbit_radius() + 50.0,
+                                timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],
+                            ),
+                        )
+                # Fixed-wing/VTOL use their physical landing lifecycle. x500 uses
+                # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
+                if strict_delta_smoke and _delta_native_rtl_requested():
+                    land_result = _wait_native_rtl_landing(mav_reader)
+                elif use_multirotor_executor:
+                    land_result = _land_and_wait(
+                        executor,
+                        mav_reader,
+                        telemetry_connection,
+                        setpoint_streamer,
                     )
-            # Fixed-wing/VTOL use their physical landing lifecycle. x500 uses
-            # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
-            if strict_delta_smoke and _delta_native_rtl_requested():
-                land_result = _wait_native_rtl_landing(mav_reader)
-            elif use_multirotor_executor:
-                land_result = _land_and_wait(
-                    executor,
-                    mav_reader,
-                    telemetry_connection,
-                    setpoint_streamer,
-                )
-            else:
-                land_result = _fixed_wing_or_vtol_land_and_wait(executor, mav_reader)
+                else:
+                    land_result = _fixed_wing_or_vtol_land_and_wait(executor, mav_reader)
+            except _EpisodeEarlyStop as exc:
+                if not episode_data_complete or exc.reason not in _EPISODE_RESOURCE_STOP_REASONS:
+                    raise
+                land_result = {
+                    "status": "skipped",
+                    "end_reason": exc.reason,
+                    "timeout_s": None,
+                    "elapsed_s": None,
+                }
+                recorder.meta["end_reason"] = exc.reason
+                _progress("landing_skipped", reason=exc.reason)
+            if land_result.get("end_reason") in _EPISODE_RESOURCE_STOP_REASONS:
+                recorder.meta["end_reason"] = land_result["end_reason"]
             land_result["flight_state"] = _flight_state_snapshot(mav_reader.state)
             recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
             if video_writer is not None:
