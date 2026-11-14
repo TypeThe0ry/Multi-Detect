@@ -142,6 +142,20 @@ DEFAULT_MIN_FREE_GB = 15.0
 DEFAULT_DISK_CHECK_INTERVAL_STEPS = 10
 DEFAULT_VIDEO_MAX_BYTES = 8 * 1024**3
 HOST_PRESSURE_SAMPLE_INTERVAL_S = 5.0
+SERVER_RSS_SAMPLE_INTERVAL_S = 20.0
+
+
+def _env_positive_gb(name: str) -> str | None:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive number of GiB") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a positive number of GiB")
+    return raw.strip()
 
 
 def _parse_cpu_set(raw: str) -> tuple[int, ...]:
@@ -212,6 +226,139 @@ def _pressure_summary(path: str) -> dict[str, dict[str, float]] | None:
         return result or None
     except (OSError, ValueError):
         return None
+
+
+class ServerRssSampler:
+    """Best-effort in-container gz sim RSS recorder and soft-limit guard."""
+
+    def __init__(self, plan: Any, container_name: str, episode_dir: Path):
+        self.plan = plan
+        self.container_name = container_name
+        self.path = episode_dir / "server_rss.jsonl"
+        raw_limit = os.environ.get("MD_SIM_SERVER_RSS_SOFT_LIMIT_GB")
+        self.limit_gb = (float(_env_positive_gb("MD_SIM_SERVER_RSS_SOFT_LIMIT_GB"))
+                         if raw_limit is not None else None)
+        self.interval_s = SERVER_RSS_SAMPLE_INTERVAL_S
+        self.sim_clock_provider: Any | None = None
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, name="sim-server-rss", daemon=True)
+        self._lock = threading.Lock()
+        self.latest: dict[str, Any] | None = None
+        self.exceeded: dict[str, Any] | None = None
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def close(self) -> None:
+        self.stop_event.set()
+        if self.thread.is_alive():
+            self.thread.join(timeout=max(1.0, self.interval_s + 1.0))
+
+    def _sim_time_boot_ms(self) -> int | None:
+        if self.sim_clock_provider is None:
+            return None
+        try:
+            value = self.sim_clock_provider()
+            return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+        except Exception:
+            return None
+
+    def _sample_once(self) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "wall_time": time.time(),
+            "rss_mb": None,
+            "px4_sim_time_boot_ms": self._sim_time_boot_ms(),
+        }
+        try:
+            result = subprocess.run(
+                [_docker_executable(self.plan), "exec", self.container_name,
+                 "ps", "-eo", "pid=,rss=,args="],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError((result.stderr or result.stdout or "docker exec ps failed").strip())
+            rss_kb = 0
+            matched = 0
+            for line in result.stdout.splitlines():
+                fields = line.strip().split(None, 2)
+                if len(fields) < 3:
+                    continue
+                # Anchor the executable: shell wrappers and frame helpers can
+                # mention gz sim in arguments without owning the renderer.
+                command = fields[2]
+                server = re.match(r"^(?:/[^\s]+/)?gz\s+sim\b", command)
+                server = server and re.search(r"(?:^|\s)(?:-s|--server)(?:\s|$)", command)
+                if not server and not re.match(r"^(?:/[^\s]+/)?(?:gz-sim-server|gzserver)(?:\s|$)", command):
+                    continue
+                try:
+                    rss_kb += int(fields[1])
+                    matched += 1
+                except ValueError:
+                    continue
+            if matched == 0:
+                raise RuntimeError("gz sim server process not found")
+            row["rss_mb"] = rss_kb / 1024.0
+            row["processes"] = matched
+        except Exception as exc:
+            row["error"] = f"{type(exc).__name__}: {exc}"
+        with self._lock:
+            self.latest = row
+            if (
+                self.limit_gb is not None
+                and isinstance(row.get("rss_mb"), (int, float))
+                and float(row["rss_mb"]) > self.limit_gb * 1024.0
+                and self.exceeded is None
+            ):
+                self.exceeded = row
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        return row
+
+    def check(self) -> None:
+        with self._lock:
+            exceeded = dict(self.exceeded) if self.exceeded is not None else None
+        if exceeded is not None:
+            raise _EpisodeEarlyStop(
+                "server_rss_soft_limit", {"limit_gb": self.limit_gb, "sample": exceeded}
+            )
+
+    def _run(self) -> None:
+        while not self.stop_event.is_set():
+            self._sample_once()
+            self.stop_event.wait(self.interval_s)
+
+
+class EpisodeResourceGuard:
+    """Check memory and an optional vehicle-clock cap without changing wall budgets."""
+
+    def __init__(self, sampler: ServerRssSampler, max_sim_s: float | None = None):
+        self.sampler = sampler
+        self.max_sim_s = max_sim_s
+        self.sim_clock_provider: Any | None = None
+        self.sim_started_ms: int | None = None
+
+    def check(self) -> None:
+        self.sampler.check()
+        if self.max_sim_s is None or self.sim_clock_provider is None:
+            return
+        value = self.sim_clock_provider()
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value < 0):
+            return
+        vehicle_ms = int(value)
+        if self.sim_started_ms is None:
+            self.sim_started_ms = vehicle_ms
+        elapsed_s = (vehicle_ms - self.sim_started_ms) / 1000.0
+        if elapsed_s >= self.max_sim_s:
+            raise _EpisodeEarlyStop("max_episode_sim_seconds", {
+                "limit_sim_seconds": self.max_sim_s,
+                "elapsed_sim_seconds": elapsed_s,
+                "px4_sim_time_boot_ms": vehicle_ms,
+            })
 
 
 class HostPressureSampler:
@@ -427,6 +574,15 @@ def _frame_wait_diagnostics(
 
 class LowDiskSpace(RuntimeError):
     """Normal campaign stop caused by the configured free-space floor."""
+
+
+class _EpisodeEarlyStop(RuntimeError):
+    """Retain an unfinished episode and continue with a fresh container."""
+
+    def __init__(self, reason: str, details: dict[str, Any] | None = None):
+        self.reason = reason
+        self.details = details or {}
+        super().__init__(reason)
 
 
 class VehicleLostControl(RuntimeError):
@@ -741,8 +897,11 @@ class CollectionPlan:
     operator_port: int = 14580
     requested_image: str | None = None
     runtime_image_verification: dict | None = None
+    max_episode_sim_s: float | None = None
 
     def __post_init__(self) -> None:
+        if self.max_episode_sim_s is not None and not 1.0 <= self.max_episode_sim_s <= 86400.0:
+            raise ValueError("--max-episode-sim-seconds must be between 1 and 86400 seconds")
         # Bind the selected image before metadata, progress headers or Docker argv
         # are emitted. Later environment changes cannot silently change a plan.
         automatic_image = self.image is None and "MULTIDETECT_SIM_IMAGE" not in os.environ
@@ -1117,6 +1276,9 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             # the candidate's own container bound independently of that unit.
             command[at:at] = ["--label", f"md.gimbal.invocation={invocation}",
                               "--memory=64g", "--memory-swap=64g"]
+        elif os.environ.get("MD_SIM_CONTAINER_MEMORY_GB") is not None:
+            memory_gb = _env_positive_gb("MD_SIM_CONTAINER_MEMORY_GB")
+            command[at:at] = [f"--memory={memory_gb}g", f"--memory-swap={memory_gb}g"]
     return command
 
 
@@ -1913,7 +2075,7 @@ class DockerSimEnvironment:
             self.started
             and self.plan.keep_container_on_failure
             and self._exit_error is not None
-            and self._exit_error is not LowDiskSpace
+            and not issubclass(self._exit_error, (LowDiskSpace, _EpisodeEarlyStop))
         )
         if self.started and not keep_running:
             try:
@@ -2095,7 +2257,7 @@ class DockerSimEnvironment:
             keep_running = bool(
                 exc_type is not None
                 and self.plan.keep_container_on_failure
-                and exc_type is not LowDiskSpace
+                and not issubclass(exc_type, (LowDiskSpace, _EpisodeEarlyStop))
             )
             if self.started and not keep_running:
                 try:
@@ -6023,6 +6185,7 @@ def run_episode(
     *,
     free_space_fn: Any = free_space_bytes,
 ) -> Path:
+    _env_positive_gb("MD_SIM_SERVER_RSS_SOFT_LIMIT_GB")
     plan = freeze_collection_runtime(plan)
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
     initial_reason = disk_space_abort_reason(
@@ -6164,6 +6327,14 @@ def run_episode(
     host_pressure_sampler = HostPressureSampler(recorder.episode_dir, sampler_cpus)
 
     environment = DockerSimEnvironment(plan, episode_id, recorder.episode_dir)
+    server_rss_sampler = ServerRssSampler(plan, environment.name, recorder.episode_dir)
+    resource_guard = EpisodeResourceGuard(server_rss_sampler, plan.max_episode_sim_s)
+    recorder.meta["server_rss_monitor"] = {
+        "path": server_rss_sampler.path.name,
+        "interval_s": server_rss_sampler.interval_s,
+        "soft_limit_gb": server_rss_sampler.limit_gb,
+    }
+    recorder.meta["max_episode_sim_seconds"] = plan.max_episode_sim_s
 
     def record_container_failure(exc: Exception) -> None:
         failure_text = f"{type(exc).__name__}: {exc}"
@@ -6218,6 +6389,10 @@ def run_episode(
         pass
     try:
         with environment, gimbal_send_gate:
+            try:
+                server_rss_sampler.start()
+            except Exception:
+                pass
             environment.wait(_episode_budget(started, plan.max_episode_s, 20.0))
             _progress("gz_world_loaded", container=environment.name)
             _record_container_started(recorder, environment)
@@ -6282,6 +6457,11 @@ def run_episode(
             host_pressure_sampler.sim_clock_provider = (
                 lambda: mav_reader.state.vehicle_time_boot_ms
             )
+            server_rss_sampler.sim_clock_provider = (
+                lambda: mav_reader.state.vehicle_time_boot_ms
+            )
+            resource_guard.sim_clock_provider = lambda: mav_reader.state.vehicle_time_boot_ms
+            mav_reader.set_health_check(resource_guard.check)
             episode_watchdog = _EpisodeProgressWatchdog(
                 started,
                 plan.max_episode_s,
@@ -6554,7 +6734,11 @@ def run_episode(
             telemetry_watchdog = MavlinkTelemetrySilenceWatchdog(
                 mav_reader, environment, recorder
             )
-            mav_reader.set_health_check(telemetry_watchdog.check)
+            def _check_episode_health() -> None:
+                resource_guard.check()
+                telemetry_watchdog.check()
+
+            mav_reader.set_health_check(_check_episode_health)
             # The collector-owned frame server is request/response based, so
             # explicitly prime it before waiting for the first decoded frame.
             sensor_reader.request(0)
@@ -7325,6 +7509,8 @@ def run_episode(
                             }
                         )
             vehicle_loss_detector = VehicleLossDetector()
+            # PX4 releases gimbal manager control once a land primitive starts.
+            landing_started = False
             if plan.sim_pre_abort_descent_altitude_m is not None:
                 if setpoint_streamer is None:
                     raise RuntimeError(
@@ -7374,6 +7560,7 @@ def run_episode(
                     if reason is not None:
                         raise LowDiskSpace(reason)
                 mav_reader.raise_if_failed()
+                resource_guard.check()
                 episode_watchdog.check()
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
@@ -7457,7 +7644,7 @@ def run_episode(
                     _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,
                 )
                 if (camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None
-                        and not landing_started):
+                        and not locals().get("landing_started", False)):
                     if gimbal_session is not None:
                         gimbal_session.poll()
                     _dispatch_teacher_gimbal_command(
@@ -7587,6 +7774,7 @@ def run_episode(
                 execute_thread.start()
                 def _action_tick() -> None:
                     nonlocal next_video_s
+                    resource_guard.check()
                     episode_watchdog.check()
                     now = time.monotonic()
                     if video_writer is not None and now >= next_video_s:
@@ -7926,6 +8114,7 @@ def run_episode(
             _copy_mover_driver_log(plan, environment, recorder, mover_driver)
             recorder.meta["mover_driver"] = mover_driver
             recorder.mark_finished(status="complete")
+            server_rss_sampler.close()
             host_pressure_sampler.close()
             recorder.record_mavlink(
                 {"message_type": "collector_episode_complete", "container": environment.name}
@@ -7952,7 +8141,8 @@ def run_episode(
         if environment is not None and environment.evidence_index is not None:
             recorder.meta["container_evidence"] = environment.evidence_index
             recorder.episode_path.write_text(json.dumps(recorder.meta, indent=2), encoding="utf-8")
-    except LowDiskSpace as exc:
+    except (LowDiskSpace, _EpisodeEarlyStop) as exc:
+        server_rss_sampler.close()
         host_pressure_sampler.close()
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
@@ -7992,10 +8182,16 @@ def run_episode(
             recorder.meta["video"] = video_writer.close()
         if environment is not None and environment.evidence_index is not None:
             recorder.meta["container_evidence"] = environment.evidence_index
-        recorder.mark_finished(status="aborted_low_disk", failure=str(exc))
-        _progress("aborted_low_disk", episode=str(recorder.episode_dir), reason=str(exc))
+        status = "aborted_low_disk"
+        if isinstance(exc, _EpisodeEarlyStop):
+            status = "aborted_server_rss" if exc.reason == "server_rss_soft_limit" else "truncated"
+            recorder.meta["reason"] = exc.reason
+            recorder.meta["early_stop"] = exc.details
+        recorder.mark_finished(status=status, failure=str(exc))
+        _progress(status, episode=str(recorder.episode_dir), reason=str(exc))
         return recorder.episode_dir
     except Exception as exc:
+        server_rss_sampler.close()
         host_pressure_sampler.close()
         try:
             _drain_sim_operator_link(policy, timeout_s=10.0)
@@ -8204,6 +8400,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     parser.add_argument("--max-episode-s", type=float, default=None)
+    parser.add_argument(
+        "--max-episode-sim-seconds", type=float, default=None,
+        help="retain an unfinished episode at this PX4 simulation duration and start the next container",
+    )
     parser.add_argument("--heartbeat-timeout-s", type=float, default=DEFAULT_HEARTBEAT_TIMEOUT_S)
     parser.add_argument("--keep-container-on-failure", action="store_true")
     parser.add_argument(
@@ -8266,6 +8466,16 @@ def main(argv: Iterable[str] | None = None) -> int:
     max_episode_s = args.timeout_s if args.max_episode_s is None else args.max_episode_s
     if not 1.0 <= max_episode_s <= 86400.0:
         raise SystemExit("--max-episode-s must be between 1 and 86400 seconds")
+    if args.max_episode_sim_seconds is not None and not 1.0 <= args.max_episode_sim_seconds <= 86400.0:
+        raise SystemExit("--max-episode-sim-seconds must be between 1 and 86400 seconds")
+    if args.attach_container and args.max_episode_sim_seconds is not None:
+        raise SystemExit("--max-episode-sim-seconds requires disposable containers")
+    try:
+        _env_positive_gb("MD_SIM_SERVER_RSS_SOFT_LIMIT_GB")
+        if os.environ.get("MD_GIMBAL_INVOCATION") is None:
+            _env_positive_gb("MD_SIM_CONTAINER_MEMORY_GB")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not 1.0 <= args.heartbeat_timeout_s <= 86400.0:
         raise SystemExit("--heartbeat-timeout-s must be between 1 and 86400 seconds")
     if args.takeoff_altitude_m is not None:
@@ -8314,6 +8524,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         container_prefix=args.container_prefix,
         timeout_s=args.timeout_s,
         max_episode_s=max_episode_s,
+        max_episode_sim_s=args.max_episode_sim_seconds,
         heartbeat_timeout_s=args.heartbeat_timeout_s,
         keep_container_on_failure=args.keep_container_on_failure,
         control_port=args.control_port,
