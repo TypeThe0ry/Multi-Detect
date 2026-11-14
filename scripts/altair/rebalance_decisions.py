@@ -71,7 +71,9 @@ def _bin(area: float, edges: list[float]) -> int:
     return index
 
 
-def rebalance(rows: list[dict], *, bins: int = 8, seed: int = 7) -> tuple[list[dict], dict]:
+def rebalance(rows: list[dict], *, bins: int = 8, seed: int = 7, trim: str = "both") -> tuple[list[dict], dict]:
+    """trim: both = equalize both classes per bin; approach / confirm = only cut that class where it is the
+    majority of the bin, never touch the other class (keeps rare large-box rows)."""
     rng = random.Random(seed)
     cohort: list[tuple[int, str, float]] = []
     for i, row in enumerate(rows):
@@ -91,7 +93,8 @@ def rebalance(rows: list[dict], *, bins: int = 8, seed: int = 7) -> tuple[list[d
     for b in sorted(grouped):
         sides = grouped[b]
         keep = min(len(sides[CONFIRM]), len(sides[APPROACH]))
-        for label in (CONFIRM, APPROACH):
+        labels = (CONFIRM, APPROACH) if trim == "both" else ((APPROACH,) if trim == "approach" else (CONFIRM,))
+        for label in labels:
             ids = sides[label]
             rng.shuffle(ids)
             drop.update(ids[keep:])
@@ -102,9 +105,9 @@ def rebalance(rows: list[dict], *, bins: int = 8, seed: int = 7) -> tuple[list[d
                   "dropped": len(drop), "per_bin": per_bin}
 
 
-def run(source: Path, output: Path, *, bins: int, seed: int) -> dict:
+def run(source: Path, output: Path, *, bins: int, seed: int, trim: str = "both") -> dict:
     rows = [json.loads(line) for line in (source / "train.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
-    kept, report = rebalance(rows, bins=bins, seed=seed)
+    kept, report = rebalance(rows, bins=bins, seed=seed, trim=trim)
     output.mkdir(parents=True, exist_ok=True)
     text = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in kept)
     (output / "train.jsonl").write_text(text, encoding="utf-8", newline="\n")
@@ -114,7 +117,7 @@ def run(source: Path, output: Path, *, bins: int, seed: int) -> dict:
     manifest = {}
     if (source / "manifest.json").is_file():
         manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
-    manifest["rebalance"] = {"source": str(source), "bins": bins, "seed": seed, **report}
+    manifest["rebalance"] = {"source": str(source), "bins": bins, "seed": seed, "trim": trim, **report}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True),
                                           encoding="utf-8", newline="\n")
     return manifest["rebalance"]
@@ -126,8 +129,9 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--bins", type=int, default=8)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--trim", choices=["both", "approach", "confirm"], default="both")
     args = parser.parse_args(argv)
-    report = run(args.source, args.output, bins=args.bins, seed=args.seed)
+    report = run(args.source, args.output, bins=args.bins, seed=args.seed, trim=args.trim)
     print(json.dumps({k: v for k, v in report.items() if k != "per_bin"}, ensure_ascii=False))
     for item in report["per_bin"]:
         print(item)
