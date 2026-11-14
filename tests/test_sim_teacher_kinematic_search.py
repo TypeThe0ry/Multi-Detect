@@ -454,7 +454,7 @@ def test_fw_cruise_observe_policy_sequences_cruise_orbit_back_transition_then_ho
         max_detection_range_m=60.0, observation_frames=2, vtol_hover_mission=True,
         observation_waypoints=((target[0] + 15.0, target[1], -18.0),),
     )
-    policy = FwCruiseObservePolicy(inner, altitude_m=40.0, legs=3)
+    policy = FwCruiseObservePolicy(inner, altitude_m=40.0, legs=3, leg_slice_s=0.0)
     assert policy.vtol_hover_mission is False and inner.vtol_hover_mission is True
     kinds = []
     for _ in range(6):
@@ -478,7 +478,7 @@ def test_fw_cruise_observe_policy_cruises_at_18_and_recovers_airspeed_before_nex
         max_detection_range_m=60.0, observation_frames=2, vtol_hover_mission=True,
         observation_waypoints=((target[0] + 15.0, target[1], -18.0),),
     )
-    policy = FwCruiseObservePolicy(inner, altitude_m=40.0, legs=3)
+    policy = FwCruiseObservePolicy(inner, altitude_m=40.0, legs=3, leg_slice_s=0.0)
     first = policy.next_action(pose_ned=(0.0, 0.0, -40.0), airspeed_mps=17.0)
     assert first.speed_mps == 18.0 and first.reason == "cruise_leg"
     slow = [policy.next_action(pose_ned=(0.0, 0.0, -40.0), airspeed_mps=9.0) for _ in range(2)]
@@ -503,3 +503,26 @@ def test_cruise_altitude_clears_tall_buildings_inside_the_envelope_or_refuses():
     # a building that only touches the envelope edge through its footprint still counts
     edge = SDFObstacle(250.0, 0.0, 60.0, 40.0, 40.0)
     assert cruise_altitude_for_obstacles([edge], (0.0, 0.0), **common) == pytest.approx(85.0)
+
+
+def test_fw_cruise_observe_policy_time_slices_long_legs_until_arrival():
+    from multidetect.sim_teacher import FwCruiseObservePolicy
+
+    target = (30.0, 8.0, -0.5)
+    inner = ExpertSearchPolicy(
+        target_ned=target, intrinsics=DEFAULT_CAMERA_INFO, altitude_m=20.0, camera_pitch_rad=0.785,
+        max_detection_range_m=60.0, observation_frames=2, vtol_hover_mission=True,
+        observation_waypoints=((target[0] + 15.0, target[1], -18.0),),
+    )
+    policy = FwCruiseObservePolicy(inner, altitude_m=40.0, legs=3, leg_slice_s=6.0, max_leg_slices=3)
+    first = policy.next_action(pose_ned=(0.0, 0.0, -40.0), airspeed_mps=18.0)
+    assert first.metadata == {"max_wait_s": 6.0}
+    far = (-500.0, 0.0, -40.0)  # still far from the first waypoint: the same target is re-sent as a slice
+    slices = [policy.next_action(pose_ned=far, airspeed_mps=18.0) for _ in range(3)]
+    assert all(a.target_ned == first.target_ned and a.reason == "cruise_leg" for a in slices)
+    # slice budget exhausted: move on to the next leg even though the vehicle is still far
+    assert policy.next_action(pose_ned=far, airspeed_mps=18.0).target_ned != first.target_ned
+    # arrival within arrive_m advances immediately
+    second = policy._waypoints[1]
+    nxt = policy.next_action(pose_ned=(second[0], second[1], -40.0), airspeed_mps=18.0)
+    assert nxt.target_ned == policy._waypoints[2]

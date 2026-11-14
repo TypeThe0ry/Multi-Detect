@@ -2792,6 +2792,13 @@ def _wait_motion_command(
         leg_n, leg_e = command.target_ned[0] - start[0], command.target_ned[1] - start[1]
         leg = math.hypot(leg_n, leg_e)
         timeout = min(MOTION_REPOSITION_TIMEOUT_S, leg / max(cruise_mps, 1.0) * 1.5 + 15.0)
+        # Policies may time-slice a long leg: wait at most max_wait_s, then report "sliced" (not a timeout) so the
+        # next step can re-send the same target and record another frame.
+        slice_s = float((getattr(command, "metadata", None) or {}).get("max_wait_s") or 0.0)
+        if 0.0 < slice_s < timeout:
+            timeout = slice_s
+        else:
+            slice_s = 0.0
         distance = leg
         orbit_angle = 0.0
         previous_yaw: float | None = None
@@ -2826,7 +2833,7 @@ def _wait_motion_command(
                 }
             time.sleep(0.1)
         return {
-            "waited": "timeout",
+            "waited": "sliced" if slice_s else "timeout",
             "distance_m": distance,
             "leg_m": leg,
             "elapsed_s": time.monotonic() - started,
