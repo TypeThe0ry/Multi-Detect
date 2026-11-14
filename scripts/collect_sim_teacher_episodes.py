@@ -7400,8 +7400,11 @@ def run_episode(
                 pose = tuple(before["pose"]["local_ned_m"])
                 yaw = float(before["attitude"]["yaw_deg"])
                 if plan.teacher == "expert_search":
+                    _extra = {}
+                    if type(policy).__name__ == "FwCruiseObservePolicy":
+                        _extra["airspeed_mps"] = (before.get("flight_state") or {}).get("airspeed_mps")
                     action = policy.next_action(
-                        pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose")
+                        pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose"), **_extra
                     )
                     labels = policy.labels(
                         pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose")

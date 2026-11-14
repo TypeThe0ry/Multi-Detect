@@ -1282,8 +1282,10 @@ class FwCruiseObservePolicy:
         legs: int = 4,
         orbit_radius_m: float = 70.0,
         orbit_s: float = 30.0,
-        cruise_speed_mps: float = 15.0,
+        cruise_speed_mps: float = 18.0,
         approach_m: float = 60.0,
+        min_airspeed_mps: float = 13.0,
+        max_speed_retries: int = 2,
     ) -> None:
         if legs < 1 or altitude_m <= 0 or ring_radius_m <= 0 or orbit_radius_m <= 0 or approach_m < 0:
             raise ValueError("legs, altitude, ring, orbit and approach must be positive")
@@ -1292,6 +1294,11 @@ class FwCruiseObservePolicy:
         self.orbit_radius_m = float(orbit_radius_m)
         self.orbit_s = float(orbit_s)
         self.cruise_speed_mps = float(cruise_speed_mps)
+        # Below this airspeed the next leg's turn risks a stall/tumble (FW_AIRSPD_STALL 10, MIN 12): re-issue the
+        # previous leg so the vehicle speeds up first.
+        self.min_airspeed_mps = float(min_airspeed_mps)
+        self.max_speed_retries = int(max_speed_retries)
+        self._speed_retries = 0
         north, east = float(inner.target_ned[0]), float(inner.target_ned[1])
         start = math.atan2(-east, -north)  # first ring point on the home side of the target
         self._centre = (north, east, -self.altitude_m)
@@ -1323,11 +1330,24 @@ class FwCruiseObservePolicy:
             labels["cruise_leg"] = self._index
         return labels
 
-    def next_action(self, *, pose_ned, yaw_deg: float = 0.0, camera_pose: Mapping[str, Any] | None = None):
+    def next_action(
+        self, *, pose_ned, yaw_deg: float = 0.0, camera_pose: Mapping[str, Any] | None = None,
+        airspeed_mps: float | None = None,
+    ):
         from multidetect.autonomy.motion_intent import MotionCommand
 
         if self.phase == "cruise":
             if self._index < len(self._waypoints):
+                if (
+                    airspeed_mps is not None and 0 < self._index and airspeed_mps < self.min_airspeed_mps
+                    and self._speed_retries < self.max_speed_retries
+                ):
+                    self._speed_retries += 1
+                    return MotionCommand(
+                        "reposition", target_ned=self._waypoints[self._index - 1], speed_mps=self.cruise_speed_mps,
+                        mode="FW", reason="cruise_speed_recovery",
+                    )
+                self._speed_retries = 0
                 target = self._waypoints[self._index]
                 self._index += 1
                 return MotionCommand(
