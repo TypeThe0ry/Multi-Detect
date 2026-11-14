@@ -167,6 +167,24 @@ def test_episode_resource_guard_uses_sim_clock_not_wall_time(tmp_path, monkeypat
     assert raised.value.details["limit_sim_seconds"] == 5
 
 
+def test_episode_resource_guard_mid_episode_limit_remains_salvage_stop(tmp_path, monkeypatch):
+    monkeypatch.setenv("MD_SIM_SERVER_RSS_SOFT_LIMIT_GB", "1")
+    monkeypatch.setattr(collector, "_docker_executable", lambda _plan: "docker")
+    monkeypatch.setattr(
+        collector.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=f"1 {2 * 1024 * 1024} gz sim -s world\n", stderr=""
+        ),
+    )
+    sampler = collector.ServerRssSampler(SimpleNamespace(), "sim", tmp_path)
+    sampler._sample_once()
+    guard = collector.EpisodeResourceGuard(sampler)
+    with pytest.raises(collector._EpisodeEarlyStop) as raised:
+        guard.check()
+    assert raised.value.reason == "server_rss_soft_limit"
+
+
 def test_episode_resource_guard_ignores_unset_cap_and_invalid_clock_then_resets(tmp_path):
     sampler = collector.ServerRssSampler(SimpleNamespace(), "sim", tmp_path)
     guard = collector.EpisodeResourceGuard(sampler, max_sim_s=None)
