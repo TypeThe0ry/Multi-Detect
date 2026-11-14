@@ -226,7 +226,8 @@ def _indexed_worlds() -> dict[str, list[tuple[Path, dict]]]:
             world_file = entry.get("world_file")
             if not world_file:
                 continue
-            relative = ((entry.get("files") or {}).get("scenario") or {}).get("path")
+            declared = (entry.get("files") or {}).get("scenario")
+            relative = declared.get("path") if isinstance(declared, dict) else declared
             scenario = index.parent / (relative or f"{Path(world_file).stem}.scenario.json")
             if scenario.is_file():
                 worlds.setdefault(world_file, []).append((scenario, entry))
