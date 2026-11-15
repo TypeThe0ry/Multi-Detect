@@ -22,6 +22,55 @@ def test_launch_pad_rejects_water_without_removing_the_water() -> None:
     assert water.area == 400
 
 
+def test_named_world_preserves_source_model_and_generates_bound_scenario(monkeypatch, tmp_path) -> None:
+    import json
+    from scripts.realworld import make_world
+    from multidetect.runtime import RuntimeMode
+    from multidetect.simulation import load_runtime_scenario
+
+    source_root = make_world.ROOT
+    template = "configs/scenarios/river_rescue_vtol_001.runtime.json"
+    destination = tmp_path / template
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes((source_root / template).read_bytes())
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    np.save(raw / "dem.npy", np.full((5, 5), 318.23))
+    scene_path = tmp_path / "scenes/sites/rw_test/scene.json"
+    scene_path.parent.mkdir(parents=True)
+    scene_path.write_text(json.dumps({"size_m": 2000, "lat": 42.015, "lon": -93.71,
+                                      "elevation": 318.23, "raw_dir": str(raw), "kind": "rural",
+                                      "objects": [], "routes": [], "footprints": []}))
+    model = tmp_path / "models/rw_test/model.sdf"
+    model.parent.mkdir(parents=True)
+    model.write_text('<sdf><model name="rw_test"><static>true</static><link name="terrain">'
+                     '<visual name="ground"><geometry><mesh><uri>model://rw_test/ground.obj</uri>'
+                     '</mesh></geometry></visual></link></model></sdf>')
+    monkeypatch.setattr(make_world, "ROOT", tmp_path)
+    monkeypatch.setattr(make_world, "SCENE_ROOT", tmp_path / "scenes")
+    monkeypatch.setattr(make_world, "RESOLVED", tmp_path / "models")
+    monkeypatch.setenv("RW_SIM_OUT", str(tmp_path / "simulation"))
+    (tmp_path / "simulation").mkdir()
+    worlds = tmp_path / "worlds"
+    default = make_world.build("rw_test", "clear_noon", [], None, 0, out_dir=worlds)
+    named = make_world.build("rw_test", "clear_noon", [], None, 0, out_dir=worlds,
+                             world_site_name="rw_test_w2km")
+    assert default.name == "rw_test__clear_noon.sdf"
+    assert named.name == "rw_test_w2km__clear_noon.sdf"
+    assert named.read_bytes() == default.read_bytes()
+    assert "model://rw_test/ground.obj" in named.read_text()
+    scenario = make_world.write_scenario(named, "rw_test", "standard_vtol_mono_cam")
+    runtime = load_runtime_scenario(scenario, mode=RuntimeMode.SIM)
+    assert runtime.scenario_id == named.stem
+    assert runtime.world.world_asset == f"builtin://gazebo/{named.stem}"
+    terrain = json.loads((tmp_path / f"simulation/terrain/{named.stem}.dem.json").read_text())
+    assert terrain["north_origin_m"] == -1000
+    assert len(terrain["elevation_m"]) == 41
+    with pytest.raises(ValueError, match="filename prefix"):
+        make_world.build("rw_test", "clear_noon", [], None, 0, out_dir=worlds,
+                         world_site_name="../escape")
+
+
 def test_night_emission_excludes_dark_walls(tmp_path) -> None:
     from PIL import Image
     from scripts.realworld.make_world import _ensure_emissive_map

@@ -350,8 +350,9 @@ def obstacle_boxes(scene: dict, site: str, radius: float | None = None, limit: i
 
     The merged building mesh keeps exact collision; these only add coarse bounds at low entity cost.
     """
-    profile = profile_for_site(scene, scene.get("size_m"))
-    radius = min(350.0, profile.near_radius_m) if radius is None else float(radius)
+    # All supported range profiles have a near radius above this legacy cap.
+    # Keep the helper usable with small offline scenes as before range profiles.
+    radius = 350.0 if radius is None else float(radius)
     dem = np.load(Path(scene.get("raw_dir", DATA_ROOT / "sites" / site / "raw")) / "dem.npy")
     half = scene["size_m"] / 2
     n = dem.shape[0]
@@ -431,10 +432,13 @@ def boat_actor(scene: dict) -> str:
     return ""
 
 
-def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0, out_dir: Path | None = None) -> Path:
+def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0, out_dir: Path | None = None, world_site_name: str | None = None) -> Path:
     scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
     w = WEATHER[weather]
-    wname = f"{site}__{weather}{name_suffix}"
+    world_site_name = site if world_site_name is None else world_site_name
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", world_site_name):
+        raise ValueError("world_site_name must be a plain world filename prefix")
+    wname = f"{world_site_name}__{weather}{name_suffix}"
     amb = " ".join(f"{v:.3f}" for v in w["ambient"])
     bg = " ".join(f"{v:.3f}" for v in w["bg"])
     sd = w["sun"]
@@ -572,6 +576,7 @@ def main() -> None:
     ap.add_argument("--world-out-dir", type=Path)
     ap.add_argument("--skip-scenarios", action="store_true")
     ap.add_argument("--name-suffix", default="", help="附加到世界文件名，用于并列预算样本")
+    ap.add_argument("--world-site-name", help="独立世界名前缀；源 scene 和 model 名保持不变")
     ap.add_argument("--extent-m", type=float, help="校验 scene.json 的范围；扩展范围请先 fetch/build")
     a = ap.parse_args()
     if a.extent_m is not None:
@@ -579,7 +584,7 @@ def main() -> None:
         if abs(float(scene["size_m"]) - a.extent_m) > 1e-6:
             raise SystemExit(f"scene extent is {scene['size_m']:g} m; fetch_site.py and build_scene.py must run first")
     for wx in a.weather:
-        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.0, a.mover_scale), out_dir=a.world_out_dir)
+        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.0, a.mover_scale), out_dir=a.world_out_dir, world_site_name=a.world_site_name)
         if not a.skip_scenarios:
             write_scenario(p, a.site, a.scenario_airframe)
         print(p, p.stat().st_size // 1024, "KB")

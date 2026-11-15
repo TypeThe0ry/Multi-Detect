@@ -83,6 +83,10 @@ $PY scripts/realworld/make_world.py rw_city_singapore --weather clear_noon --wor
 
 范围扩展工具和预算说明见 [`docs/realworld-wide-area.md`](realworld-wide-area.md)。默认行为仍取本文件前述站点的 `size_m`；显式扩展时先用 `fetch_site.py --extent-m` 下载匹配的 DEM、影像和 OSM，再用 `build_scene.py --extent-m` 构建。范围、近中远场贴图分辨率、任务边界和三角形预算由 `scripts/realworld/range_profile.py` 统一派生，扩展数据必须放在独立 raw/scene/model 目录，避免与既有缓存混用。新增配置文件为 `configs/sim-assets/realworld-range-profiles.json`；本次没有新增 Python 依赖或数据来源。6–10 km 场景的下载量、生成时间、显存和 RTF 尚未在本线实测，需按新文档的独立 slot 5–7 命令验证。
 
+2026-11-15 飞行入口补齐：本工作树已用已有缓存离线生成 `rw_farm_iowa_w2km__clear_noon` 和 `rw_farm_iowa_w6km__clear_noon`，SDF 位于 collector 要求的 `simulation/gazebo/worlds/`，相应 map/DEM 与 VTOL、6 km rc_cessna scenario 由 `make_world.py --world-site-name` 生成。模型继续留在各自 `.tmp/realworld-wide-*km/models`，运行命令显式设置 `MULTIDETECT_SIM_FUEL_RESOLVED_ROOT`，由 Docker planner 只读挂载；这个变量未设置时默认缓存路径不变，不能仅设置生成用的 `RW_RESOLVED_ROOT`。`leased_flight.py --plan-only` 可在不租用 slot、不启动 Docker/SITL 的情况下构建 collector plan；本次三条 plan 已成功，静态引用检查无缺失。完整重生成与 GPU1/slot 5–7 一键实测命令见范围文档。本次没有新下载、依赖或数据来源，没有写共享 `artifacts/`。
+
+两份生成物尚未渲染/飞行验收：6 km 贴图加网格缓冲估算下限 2.590 GiB，已经超过 2 GiB 预算；2 km 下限为 1.562 GiB，两者都未计天空、相机、阴影与驱动。`validate_wide_area.py` 现在分别报告显存下限、world 模型/actor 数和可选 resolved-root 的文件引用检查，`budget_ok` 仍只代表道具三角形预算。天空穹顶仍为半径 2600 m，6 km 场景边缘可能越出穹顶，需后续目检。`shoot_scene.py` 仍固定读共享 resolved-root，不能直接用于这两份隔离模型的 RTF 测量；`leased_flight.py` 本身没有自动采样 `rtf_sim_wall`。这次修复只证明解析与 plan 可构建。
+
 大文件不进 git。原始数据和资源库在 `/data/datasets/multidetect-sim-assets/`，默认模型输出在 `artifacts/cache/gz-fuel/resolved/rw_*`，每个地点约 0.9 GB。只做离线构建验证时，可设置 `RW_RESOLVED_ROOT=$PWD/.tmp/realworld-models RW_SCENE_ROOT=$PWD/.tmp/realworld-scenes`；兼容旧脚本的 `RW_MODEL_ROOT` 和 `REALWORLD_OUTPUT_ROOT` 也可用。
 
 ```bash
