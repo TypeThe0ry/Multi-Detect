@@ -146,3 +146,31 @@ mkdir -p "$TMPDIR" "$RW_FLIGHT_OUT"
 - 天空穹顶仍是既有半径 2600 m，6 km 场景边缘可能越出穹顶；完整范围的地平线和低空细节需要后续渲染检查。
 - 远场贴图降采样不提高源精度；全球 provider 的 Sentinel-2/Copernicus 仍只适合宏观环境。10 km 尚未构建验证。
 - 本任务未启动 Docker、Gazebo、SITL 或 GPU 工作，没有声称看到画面、飞行通过或取得 RTF。Iowa 既有高度估计不稳定和相机流超时记录仍需以本次独立实测判断。
+
+## 实测结果
+
+### 数据与估算口径
+
+本节整理 2026-11-15 已完成的三次 smoke 原始输出，目录位于 `mdwt/cx-rw-wide-fly/.tmp/flights/`。三次 `flight.log` 均为 `status=pass`，`collector_returncode=0`，相机帧数为 7，`frames_aligned=true`，并完成返航和着陆。`episode.json` 的 `created_wall_time` 到 `finished_wall_time` 包含启动、等待和收尾；仿真时长取同一 episode 的 `mavlink.jsonl` 中 `LOCAL_POSITION_NED.time_boot_ms` 首末差值。因此 RTF 是保守近似值：
+
+`RTF ≈ (LOCAL_POSITION_NED 首末仿真时间差) / (episode finished_wall_time − created_wall_time)`。
+
+该口径不是 Gazebo `/world/default/stats` 的直接测量；局部 `frame_wait_timeline` 的帧时间跨度会产生虚高值，不能替代整段 RTF。总航程按 `LOCAL_POSITION_NED` 的相邻平面位置折线累加，最大距离按 `sqrt(x²+y²)` 计算。首帧同时列出相机时间戳和主机墙钟延迟，二者定义不同。
+
+### 对比表
+
+| 飞行 | 墙钟跨度（s） | 仿真跨度（s） | RTF 近似 | 首帧仿真时间（s） | 首帧墙钟延迟（s） | 最大距离（m） | 总航程（m） | 地理围栏/任务边界 | 相机/Accel 超时 | 显存峰值 |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|
+| 2 km `standard_vtol`，slot 6 | 294.400 | 71.056 | 0.241 | 40.064 | 171.1 | 119.329 | 约 155.6 | 未触发；`stayed_in_area=true` | 未见 camera timeout 或 `Accel TIMEOUT`；7 帧对齐 | 拿不到 |
+| 6 km `standard_vtol`，slot 5 | 354.030 | 71.752 | 0.203 | 39.436 | 224.0 | 149.930 | 约 159.6 | 未触发；`stayed_in_area=true` | 未见 camera timeout 或 `Accel TIMEOUT`；7 帧对齐 | 拿不到 |
+| 6 km `rc_cessna`，slot 7 | 864.271 | 175.052 | 0.203 | 25.412 | 162.3 | 270.597 | 约 1,635.7 | 未触发；`stayed_in_area=true` | 未见 camera timeout 或 `Accel TIMEOUT`；7 帧对齐 | 拿不到 |
+
+证据字段来自各目录的 `flight.log`、`episodes/episode-0000-*/episode.json`、`mavlink.jsonl` 和 `host_pressure.jsonl`。`host_pressure.jsonl` 只有 CPU、内存、I/O pressure、loadavg 与 `px4_sim_time_boot_ms`，没有 GPU/VRAM 采样；日志中也没有显存峰值、OOM 或 GPU 利用率记录。`episode.json` 的 `timing_summary.timeout_ms` 和 `primitive_timeout` 计数为 0，但这只能说明采集步骤没有记录这些超时。
+
+### 结果判断与切换建议
+
+按本次口径，2 km 基线和两次 6 km 飞行的 RTF 都远低于 0.9，因此 6 km 相对 2 km 的实时性**不达标**。这三次运行也没有覆盖完整范围：VTOL 最大距离约 120–150 m；Cessna 最大距离约 271 m、累计航程约 1.64 km，说明固定翼确实跑过公里级路径，但没有跑到数公里边界。`stayed_in_area=true` 只能证明 smoke 期间未越出采集器的区域判定，不能证明完整 6 km 任务边界已被覆盖或独立地理围栏遥测已采样。
+
+当前切换建议是继续保留 2 km 作为默认回归和调试世界，6 km 仅用于受控的固定翼路线试验；在没有降低资源占用并取得直接 RTF 证据前，不应把 6 km 设为默认飞行范围。6 km 的静态渲染下限已是 2.590 GiB，超过 2 GiB 目标，且天空穹顶半径仍为 2600 m，边缘存在越界风险；这两项风险不能由本次 smoke 的通过状态消除。
+
+要完成可发布的实时性判定，应另做一次单独采样：固定 GPU、单个 slot 和相机数量/频率，记录 Gazebo `/world/default/stats` 的 `simTime`、`realTime`，以稳定窗口的 `Δsim/Δreal` 计算 RTF，同时用 `nvidia-smi` 连续采样显存峰值，并保存主机负载、首帧时间和采样窗口。若无法取得该同步 stats 窗口，RTF 应标为“待另采样”，不能用本表的近似值宣称达标。
