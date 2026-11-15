@@ -112,7 +112,6 @@ export MULTIDETECT_SIM_GPU=1 MULTIDETECT_SIM_GPU_DEVICES=1 MULTIDETECT_SIM_NETWO
 unset MULTIDETECT_SIM_LISTEN_HOST
 export MULTIDETECT_SIM_FUEL_RESOLVED_ROOT=/data/datasets/multidetect-sim-assets/wide-area-budget-6km-v2/models
 OUT="$PWD/.tmp/flights/rw-farm-w6km-budget-cessna-slot7-$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$OUT"
 /data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python \
   scripts/realworld/long_range_flight.py 7 \
   configs/scenarios/realworld/rc_cessna_mono_cam/rw_farm_iowa_w6km_budget__clear_noon.scenario.json \
@@ -148,7 +147,6 @@ export MULTIDETECT_SIM_GPU=1 MULTIDETECT_SIM_GPU_DEVICES=1 MULTIDETECT_SIM_NETWO
 unset MULTIDETECT_SIM_LISTEN_HOST
 export MULTIDETECT_SIM_FUEL_RESOLVED_ROOT=/data/datasets/multidetect-sim-assets/wide-area-budget-6km-v2/models
 OUT="$PWD/.tmp/flights/rw-farm-w6km-budget-vtol-slot5-$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$OUT"
 /data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python \
   scripts/realworld/leased_flight.py 5 standard_vtol_mono_cam \
   rw_farm_iowa_w6km_budget__clear_noon "$OUT" 2>&1 | tee "$OUT/flight.log"
@@ -169,7 +167,6 @@ export MULTIDETECT_SIM_GPU=1 MULTIDETECT_SIM_GPU_DEVICES=1 MULTIDETECT_SIM_NETWO
 unset MULTIDETECT_SIM_LISTEN_HOST
 export MULTIDETECT_SIM_FUEL_RESOLVED_ROOT=/data/projects/Multi-Detect-env/mdwt/cx-rw-wide-fly/.tmp/realworld-wide-2km/models
 OUT="$PWD/.tmp/flights/rw-farm-w2km-vtol-slot6-$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$OUT"
 /data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python \
   scripts/realworld/leased_flight.py 6 standard_vtol_mono_cam \
   rw_farm_iowa_w2km__clear_noon "$OUT" 2>&1 | tee "$OUT/flight.log"
