@@ -668,7 +668,19 @@ def build_docker_simulator_plan(
     except (SimulatorStackError, OSError, TypeError, ValueError) as exc:
         raise DockerSimulatorPlanError(f"invalid SIM stack: {exc}") from exc
     model_root = stack.assets.model_path.parent.parent.resolve()
-    resolved_root = (root / "artifacts" / "cache" / "gz-fuel" / "resolved").resolve()
+    configured_resolved = os.environ.get("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", "").strip()
+    if configured_resolved:
+        candidate = Path(configured_resolved).expanduser()
+        resolved_root = _path(
+            candidate if candidate.is_absolute() else root / candidate,
+            label="MULTIDETECT_SIM_FUEL_RESOLVED_ROOT",
+        )
+        if not resolved_root.is_dir():
+            raise DockerSimulatorPlanError(
+                f"MULTIDETECT_SIM_FUEL_RESOLVED_ROOT is not a directory: {resolved_root}"
+            )
+    else:
+        resolved_root = (root / "artifacts" / "cache" / "gz-fuel" / "resolved").resolve()
     has_resolved_root = resolved_root.is_dir()
     world_path = stack.world_path.resolve()
     if os.environ.get("MD_GIMBAL_INVOCATION") is not None:

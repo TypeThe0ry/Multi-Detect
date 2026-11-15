@@ -280,8 +280,9 @@ def copy_texture(src: Path, dst: Path) -> None:
 
 
 class Merger:
-    def __init__(self, site: str, out: Path) -> None:
+    def __init__(self, site: str, out: Path, *, max_triangles: int = MAX_PROP_TRIANGLES) -> None:
         self.site, self.out = site, out
+        self.max_triangles = max_triangles
         self.groups: dict[tuple, dict] = {}
         self.parts: dict[str, list[dict]] = {}
         self.stats: dict[str, dict[str, int]] = {}
@@ -292,7 +293,7 @@ class Merger:
             self.parts[slug] = load_parts(slug)
             print("loaded", slug, [(len(p["v"]) // 3, p["tex"].name if p["tex"] else p["color"]) for p in self.parts[slug]], flush=True)
         model_triangles = sum(len(p["v"]) // 3 for p in self.parts[slug])
-        if self.triangle_count + model_triangles > MAX_PROP_TRIANGLES:
+        if self.triangle_count + model_triangles > self.max_triangles:
             return
         self.stats.setdefault(slug, {"instances": 0, "triangles": 0})
         self.stats[slug]["instances"] += 1

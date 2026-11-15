@@ -22,12 +22,24 @@ from shapely.geometry import LineString, shape
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
+from scripts.realworld.range_profile import profile_for_site  # noqa: E402
 
 DATA_ROOT = Path("/data/datasets/multidetect-sim-assets")
 SCENE_ROOT = Path(os.environ.get("RW_SCENE_ROOT", DATA_ROOT))
 RESOLVED = Path(os.environ.get("RW_RESOLVED_ROOT", ROOT / "artifacts/cache/gz-fuel/resolved"))
 CATALOG = {a["slug"]: a for a in json.loads((ROOT / "configs/sim-assets/fuel-catalog.json").read_text())["assets"]}
 OUT = Path(os.environ.get("RW_WORLD_OUT", ROOT / "simulation/gazebo/worlds"))
+
+
+def scene_path(site: str) -> Path:
+    """Resolve both the legacy sites/<name> layout and an isolated scene root."""
+    nested = SCENE_ROOT / "sites" / site / "scene.json"
+    direct = SCENE_ROOT / site / "scene.json"
+    if nested.is_file():
+        return nested
+    if direct.is_file():
+        return direct
+    raise FileNotFoundError(nested)
 
 
 def local_visual_asset(slug: str) -> str:
@@ -348,11 +360,14 @@ def movers(routes: list[dict], rng: random.Random, kind: str, count_scale: float
     return "".join(out)
 
 
-def obstacle_boxes(scene: dict, site: str, radius: float = 350.0, limit: int = 80) -> str:
+def obstacle_boxes(scene: dict, site: str, radius: float | None = None, limit: int = 80) -> str:
     """Nearby buildings as obstacle_* boxes, the form the takeoff-altitude and teacher code reads.
 
     The merged building mesh keeps exact collision; these only add coarse bounds at low entity cost.
     """
+    # All supported range profiles have a near radius above this legacy cap.
+    # Keep the helper usable with small offline scenes as before range profiles.
+    radius = 350.0 if radius is None else float(radius)
     dem = np.load(Path(scene.get("raw_dir", DATA_ROOT / "sites" / site / "raw")) / "dem.npy")
     half = scene["size_m"] / 2
     n = dem.shape[0]
@@ -445,10 +460,13 @@ def boat_actor(scene: dict) -> str:
     return ""
 
 
-def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0, out_dir: Path | None = None) -> Path:
-    scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
+def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0, out_dir: Path | None = None, world_site_name: str | None = None, scale_sky_to_extent: bool = False) -> Path:
+    scene = json.loads(scene_path(site).read_text())
     w = WEATHER[weather]
-    wname = f"{site}__{weather}{name_suffix}"
+    world_site_name = site if world_site_name is None else world_site_name
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", world_site_name):
+        raise ValueError("world_site_name must be a plain world filename prefix")
+    wname = f"{world_site_name}__{weather}{name_suffix}"
     amb = " ".join(f"{v:.3f}" for v in w["ambient"])
     bg = " ".join(f"{v:.3f}" for v in w["bg"])
     sd = w["sun"]
@@ -480,7 +498,11 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     # A real box under the pad: the coarse terrain mesh gives jittery contact at rest.
     parts.append('<model name="rw_pad"><static>true</static><pose>0 0 -0.5 0 0 0</pose><link name="l"><collision name="c"><geometry><box><size>40 40 1</size></box></geometry></collision></link></model>')
     sky_tex = f"model://rw_sky/{w['sky']}.jpg"
-    parts.append(f'<model name="rw_sky_dome"><static>true</static><link name="l"><visual name="dome"><cast_shadows>false</cast_shadows><geometry><mesh><uri>model://rw_sky/dome.obj</uri></mesh></geometry>'
+    sky_scale = ""
+    if scale_sky_to_extent:
+        scale = profile_for_site(scene).sky_radius_m / 2600.0
+        sky_scale = f"<scale>{scale:.9f} {scale:.9f} {scale:.9f}</scale>"
+    parts.append(f'<model name="rw_sky_dome"><static>true</static><link name="l"><visual name="dome"><cast_shadows>false</cast_shadows><geometry><mesh><uri>model://rw_sky/dome.obj</uri>{sky_scale}</mesh></geometry>'
                  f'<material><lighting>false</lighting><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>1 1 1 1</emissive><double_sided>true</double_sided>'
                  f'<pbr><metal><emissive_map>{sky_tex}</emissive_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual></link></model>')
     rng = random.Random(seed)
@@ -521,9 +543,10 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
 def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000, truth_extra: dict | None = None) -> Path:
     """Scenario bundle with a real DEM, so geolocation and terrain checks see the true ground."""
     wid = world.stem
-    scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
+    scene = json.loads(scene_path(site).read_text())
     sim = Path(os.environ.get("RW_SIM_OUT", ROOT / "simulation"))
-    half = scene["size_m"] / 2
+    profile = profile_for_site(scene, scene.get("size_m"))
+    half = profile.half_extent_m
     raw = Path(scene.get("raw_dir", DATA_ROOT / "sites" / site / "raw"))
     dem = np.load(raw / "dem.npy")
     n = dem.shape[0]
@@ -544,7 +567,8 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000, tru
     ring = [[lon0 - dlon, lat0 - dlat], [lon0 + dlon, lat0 - dlat], [lon0 + dlon, lat0 + dlat], [lon0 - dlon, lat0 + dlat], [lon0 - dlon, lat0 - dlat]]
     (sim / "maps" / f"{wid}.geojson").write_text(json.dumps({
         "type": "FeatureCollection", "schema_version": 1, "scenario_id": wid, "coordinate_reference": "WGS84",
-        "features": [{"type": "Feature", "id": "operating-area", "properties": {"role": "operating_area", "surface": "real_terrain", "clearance_radius_m": half},
+        "features": [{"type": "Feature", "id": "operating-area", "properties": {"role": "operating_area", "surface": "real_terrain", "clearance_radius_m": half,
+                                                                                         "extent_m": profile.extent_m, "near_radius_m": profile.near_radius_m, "mid_radius_m": profile.mid_radius_m},
                       "geometry": {"type": "Polygon", "coordinates": [ring]}}]}) + "\n")
     # The world id is fixed, so other airframes get a parallel folder with the same scenario id.
     out = ROOT / "configs/scenarios/realworld" / ("" if airframe == "x500_mono_cam" else airframe)
@@ -585,9 +609,16 @@ def main() -> None:
     ap.add_argument("--world-out-dir", type=Path)
     ap.add_argument("--skip-scenarios", action="store_true")
     ap.add_argument("--name-suffix", default="", help="附加到世界文件名，用于并列预算样本")
+    ap.add_argument("--world-site-name", help="独立世界名前缀；源 scene 和 model 名保持不变")
+    ap.add_argument("--extent-m", type=float, help="校验 scene.json 的范围；扩展范围请先 fetch/build")
+    ap.add_argument("--scale-sky-to-extent", action="store_true", help="新世界按边长扩大天空穹顶；默认保持 2600 m")
     a = ap.parse_args()
+    if a.extent_m is not None:
+        scene = json.loads(scene_path(a.site).read_text())
+        if abs(float(scene["size_m"]) - a.extent_m) > 1e-6:
+            raise SystemExit(f"scene extent is {scene['size_m']:g} m; fetch_site.py and build_scene.py must run first")
     for wx in a.weather:
-        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.0, a.mover_scale), out_dir=a.world_out_dir)
+        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.0, a.mover_scale), out_dir=a.world_out_dir, world_site_name=a.world_site_name, scale_sky_to_extent=a.scale_sky_to_extent)
         if not a.skip_scenarios:
             write_scenario(p, a.site, a.scenario_airframe)
         print(p, p.stat().st_size // 1024, "KB")

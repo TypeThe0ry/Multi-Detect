@@ -186,6 +186,73 @@ def test_docker_plan_hash_and_json_are_stable(tmp_path: Path) -> None:
     assert not (out.parent / ".evidence.json.tmp").exists()
 
 
+@pytest.mark.parametrize("relative", [False, True])
+def test_fuel_resolved_override_is_mounted_readonly_without_docker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool
+) -> None:
+    # Keep the relative case on the repository drive on Windows, where the
+    # pytest temporary directory can be on a different drive.
+    resolved_root = ROOT / "simulation/gazebo/models" if relative else tmp_path / "private-resolved"
+    if not relative:
+        resolved_root.mkdir()
+    working_dir = tmp_path / "unrelated-cwd"
+    working_dir.mkdir()
+    monkeypatch.chdir(working_dir)
+    selected = os.path.relpath(resolved_root, ROOT) if relative else str(resolved_root)
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", selected)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    plan = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "job"
+    )
+
+    assert plan.fuel_resolved_root == resolved_root.resolve()
+    container_root = "/opt/multidetect-gz-fuel-resolved"
+    mount = f"type=bind,source={resolved_root.resolve()},target={container_root},readonly"
+    assert mount in plan.command
+    resource_path = dict(plan.environment)["GZ_SIM_RESOURCE_PATH"]
+    assert resource_path.split(":")[0] == container_root
+    assert f"export GZ_SIM_RESOURCE_PATH={container_root}:" in plan.command[-1]
+    assert plan.to_mapping()["external_processes_started"] is False
+
+
+@pytest.mark.parametrize("kind", ["missing", "file"])
+def test_fuel_resolved_override_rejects_invalid_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    resolved_root = tmp_path / "private-resolved"
+    if kind == "file":
+        resolved_root.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", str(resolved_root))
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    with pytest.raises(DockerSimulatorPlanError, match="MULTIDETECT_SIM_FUEL_RESOLVED_ROOT"):
+        build_docker_simulator_plan(
+            SCENARIO, repository_root=ROOT, job_dir=tmp_path / "job"
+        )
+
+
+def test_fuel_resolved_default_keeps_shared_cache_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", raising=False)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+    plan = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "job"
+    )
+    default_root = (ROOT / "artifacts/cache/gz-fuel/resolved").resolve()
+    expected_root = default_root if default_root.is_dir() else None
+    assert plan.fuel_resolved_root == expected_root
+    container_root = "/opt/multidetect-gz-fuel-resolved"
+    resolved_mounts = [
+        token for token in plan.command if f"target={container_root}," in token
+    ]
+    assert resolved_mounts == (
+        [f"type=bind,source={default_root},target={container_root},readonly"]
+        if expected_root is not None else []
+    )
+
+
 def test_docker_plan_uses_selected_network_for_container_and_px4_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

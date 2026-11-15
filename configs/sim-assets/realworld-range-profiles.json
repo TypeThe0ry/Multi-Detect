@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "default_2km": {"extent_m": 2000, "description": "现有 2 km 世界的兼容范围；远场保持 2048 px"},
+    "default_3km": {"extent_m": 3000, "description": "现有 3 km 世界的兼容范围；远场保持 2048 px"},
+    "wide_6km": {"extent_m": 6000, "description": "数公里级固定翼巡航验证"},
+    "wide_10km": {"extent_m": 10000, "description": "大范围搜救与长航时验证"}
+  },
+  "notes": [
+    "范围通过 fetch_site.py/build_scene.py 的 --extent-m 显式选择，默认仍取 realworld-sites.json 的 size_m。",
+    "扩展范围必须使用新的 raw-root，避免把不同范围的 DEM、影像和 OSM 缓存混用。"
+  ]
+}
