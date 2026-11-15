@@ -79,6 +79,10 @@ $PY scripts/realworld/make_world.py rw_city_singapore --weather clear_noon --wor
 
 ## 重新生成
 
+### 数公里级范围扩展
+
+范围扩展工具和预算说明见 [`docs/realworld-wide-area.md`](realworld-wide-area.md)。默认行为仍取本文件前述站点的 `size_m`；显式扩展时先用 `fetch_site.py --extent-m` 下载匹配的 DEM、影像和 OSM，再用 `build_scene.py --extent-m` 构建。范围、近中远场贴图分辨率、任务边界和三角形预算由 `scripts/realworld/range_profile.py` 统一派生，扩展数据必须放在独立 raw/scene/model 目录，避免与既有缓存混用。新增配置文件为 `configs/sim-assets/realworld-range-profiles.json`；本次没有新增 Python 依赖或数据来源。6–10 km 场景的下载量、生成时间、显存和 RTF 尚未在本线实测，需按新文档的独立 slot 5–7 命令验证。
+
 大文件不进 git。原始数据和资源库在 `/data/datasets/multidetect-sim-assets/`，默认模型输出在 `artifacts/cache/gz-fuel/resolved/rw_*`，每个地点约 0.9 GB。只做离线构建验证时，可设置 `RW_RESOLVED_ROOT=$PWD/.tmp/realworld-models RW_SCENE_ROOT=$PWD/.tmp/realworld-scenes`；兼容旧脚本的 `RW_MODEL_ROOT` 和 `REALWORLD_OUTPUT_ROOT` 也可用。
 
 ```bash

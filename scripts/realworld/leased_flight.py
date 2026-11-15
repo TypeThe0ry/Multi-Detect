@@ -57,7 +57,12 @@ def sample_rotors(container_prefix: str, out: Path, stop: threading.Event) -> No
 
 def main() -> None:
     slot, airframe, world, out = int(sys.argv[1]), sys.argv[2], sys.argv[3], Path(sys.argv[4])
-    lock = SitlLock(label=f"rw-flight-{airframe}", slots=int(os.environ.get("MULTIDETECT_SITL_SLOTS", "8")), slot=slot, retry_s=20.0)
+    slots = int(os.environ.get("MULTIDETECT_SITL_SLOTS", "8"))
+    if slots < 8:
+        raise SystemExit("realworld validation requires MULTIDETECT_SITL_SLOTS>=8")
+    if slot not in {5, 6, 7}:
+        raise SystemExit("realworld validation may use only slots 5, 6, or 7")
+    lock = SitlLock(label=f"rw-flight-{airframe}", slots=slots, slot=slot, retry_s=20.0)
     with sitl_lock_context(lock):
         control = 14560 + 10 * slot
         prefix = f"md-smoke-rw-slot-{slot}"
@@ -66,7 +71,10 @@ def main() -> None:
         th = threading.Thread(target=sample_rotors, args=(prefix, out / "rotors_in_flight.json", stop), daemon=True)
         th.start()
         extra = sys.argv[5:]
-        rc = subprocess.run([sys.executable, "scripts/smoke_airframe_flight.py", "--airframe", airframe,
+        python = "/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python"
+        if not Path(python).is_file():
+            raise SystemExit(f"missing SITL Python environment: {python}")
+        rc = subprocess.run([python, "scripts/smoke_airframe_flight.py", "--airframe", airframe,
                              "--scenario", world if world.endswith(".json") else f"configs/scenarios/realworld/{'' if airframe == 'x500_mono_cam' else airframe + '/'}{world}.scenario.json", "--out", str(out),
                              "--container-prefix", prefix, "--control-port", str(control), "--telemetry-port", str(control + 1), *extra], cwd=ROOT).returncode
         stop.set()

@@ -21,6 +21,7 @@ from shapely.geometry import LineString, shape
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
+from scripts.realworld.range_profile import profile_for_site  # noqa: E402
 
 DATA_ROOT = Path("/data/datasets/multidetect-sim-assets")
 SCENE_ROOT = Path(os.environ.get("RW_SCENE_ROOT", DATA_ROOT))
@@ -344,11 +345,13 @@ def movers(routes: list[dict], rng: random.Random, kind: str, count_scale: float
     return "".join(out)
 
 
-def obstacle_boxes(scene: dict, site: str, radius: float = 350.0, limit: int = 80) -> str:
+def obstacle_boxes(scene: dict, site: str, radius: float | None = None, limit: int = 80) -> str:
     """Nearby buildings as obstacle_* boxes, the form the takeoff-altitude and teacher code reads.
 
     The merged building mesh keeps exact collision; these only add coarse bounds at low entity cost.
     """
+    profile = profile_for_site(scene, scene.get("size_m"))
+    radius = min(350.0, profile.near_radius_m) if radius is None else float(radius)
     dem = np.load(Path(scene.get("raw_dir", DATA_ROOT / "sites" / site / "raw")) / "dem.npy")
     half = scene["size_m"] / 2
     n = dem.shape[0]
@@ -506,7 +509,8 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> 
     wid = world.stem
     scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
     sim = Path(os.environ.get("RW_SIM_OUT", ROOT / "simulation"))
-    half = scene["size_m"] / 2
+    profile = profile_for_site(scene, scene.get("size_m"))
+    half = profile.half_extent_m
     raw = Path(scene.get("raw_dir", DATA_ROOT / "sites" / site / "raw"))
     dem = np.load(raw / "dem.npy")
     n = dem.shape[0]
@@ -527,7 +531,8 @@ def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> 
     ring = [[lon0 - dlon, lat0 - dlat], [lon0 + dlon, lat0 - dlat], [lon0 + dlon, lat0 + dlat], [lon0 - dlon, lat0 + dlat], [lon0 - dlon, lat0 - dlat]]
     (sim / "maps" / f"{wid}.geojson").write_text(json.dumps({
         "type": "FeatureCollection", "schema_version": 1, "scenario_id": wid, "coordinate_reference": "WGS84",
-        "features": [{"type": "Feature", "id": "operating-area", "properties": {"role": "operating_area", "surface": "real_terrain", "clearance_radius_m": half},
+        "features": [{"type": "Feature", "id": "operating-area", "properties": {"role": "operating_area", "surface": "real_terrain", "clearance_radius_m": half,
+                                                                                         "extent_m": profile.extent_m, "near_radius_m": profile.near_radius_m, "mid_radius_m": profile.mid_radius_m},
                       "geometry": {"type": "Polygon", "coordinates": [ring]}}]}) + "\n")
     # The world id is fixed, so other airframes get a parallel folder with the same scenario id.
     out = ROOT / "configs/scenarios/realworld" / ("" if airframe == "x500_mono_cam" else airframe)
@@ -567,7 +572,12 @@ def main() -> None:
     ap.add_argument("--world-out-dir", type=Path)
     ap.add_argument("--skip-scenarios", action="store_true")
     ap.add_argument("--name-suffix", default="", help="附加到世界文件名，用于并列预算样本")
+    ap.add_argument("--extent-m", type=float, help="校验 scene.json 的范围；扩展范围请先 fetch/build")
     a = ap.parse_args()
+    if a.extent_m is not None:
+        scene = json.loads((SCENE_ROOT / "sites" / a.site / "scene.json").read_text())
+        if abs(float(scene["size_m"]) - a.extent_m) > 1e-6:
+            raise SystemExit(f"scene extent is {scene['size_m']:g} m; fetch_site.py and build_scene.py must run first")
     for wx in a.weather:
         p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.0, a.mover_scale), out_dir=a.world_out_dir)
         if not a.skip_scenarios:

@@ -569,13 +569,22 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("sites", nargs="*")
     ap.add_argument("--raw-root", type=Path, help="原始数据站点目录，默认 <asset_root>/sites")
+    ap.add_argument("--extent-m", type=float, help="正方形边长（米）；显式扩展时必须与 build_scene 使用同值")
     args = ap.parse_args()
     cfg = json.loads(SITES.read_text())
     for name in args.sites or cfg["sites"]:
         site = cfg["sites"][name]
         out = (args.raw_root or Path(cfg["asset_root"]) / "sites") / name / "raw"
         out.mkdir(parents=True, exist_ok=True)
-        half = site["size_m"] / 2
+        extent_m = site["size_m"] if args.extent_m is None else args.extent_m
+        from range_profile import make_profile
+        profile = make_profile(extent_m, name="fetched")
+        existing = out / "provenance.json"
+        if existing.exists():
+            prior = json.loads(existing.read_text())
+            if abs(float(prior.get("size_m", extent_m)) - extent_m) > 1e-6:
+                raise ValueError(f"{name}: existing raw extent {prior.get('size_m')} differs; use a new --raw-root")
+        half = profile.half_extent_m
         wkt = local_wkt(site["lat"], site["lon"])
         print("==", name, flush=True)
         provider = site.get("provider", "us")
@@ -638,7 +647,8 @@ def main() -> None:
                         h.update(chunk)
                 downloads.append({"path": str(p.relative_to(out)), "bytes": p.stat().st_size, "sha256": h.hexdigest()})
         (out / "provenance.json").write_text(json.dumps({
-            "site": name, "lat": site["lat"], "lon": site["lon"], "size_m": site["size_m"],
+            "site": name, "lat": site["lat"], "lon": site["lon"], "size_m": extent_m,
+            "range_profile": profile.as_dict(),
             "proj4": proj4(site["lat"], site["lon"]),
             "fetched_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "provider": provider, "dem_res_m": dem_res_m, "building_height_years": building_height_years, "imagery_res_m": {
