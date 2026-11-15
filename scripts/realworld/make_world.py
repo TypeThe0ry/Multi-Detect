@@ -30,6 +30,17 @@ CATALOG = {a["slug"]: a for a in json.loads((ROOT / "configs/sim-assets/fuel-cat
 OUT = Path(os.environ.get("RW_WORLD_OUT", ROOT / "simulation/gazebo/worlds"))
 
 
+def scene_path(site: str) -> Path:
+    """Resolve both the legacy sites/<name> layout and an isolated scene root."""
+    nested = SCENE_ROOT / "sites" / site / "scene.json"
+    direct = SCENE_ROOT / site / "scene.json"
+    if nested.is_file():
+        return nested
+    if direct.is_file():
+        return direct
+    raise FileNotFoundError(nested)
+
+
 def local_visual_asset(slug: str) -> str:
     """Repair internal mesh texture paths in a private rw_ copy of a Fuel asset."""
     name = f"rw_prop_{slug}"
@@ -432,8 +443,8 @@ def boat_actor(scene: dict) -> str:
     return ""
 
 
-def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0, out_dir: Path | None = None, world_site_name: str | None = None) -> Path:
-    scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
+def build(site: str, weather: str, targets: list[dict], max_trees: int | None, seed: int, name_suffix: str = "", mover_scale: float = 1.0, out_dir: Path | None = None, world_site_name: str | None = None, scale_sky_to_extent: bool = False) -> Path:
+    scene = json.loads(scene_path(site).read_text())
     w = WEATHER[weather]
     world_site_name = site if world_site_name is None else world_site_name
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", world_site_name):
@@ -470,7 +481,11 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     # A real box under the pad: the coarse terrain mesh gives jittery contact at rest.
     parts.append('<model name="rw_pad"><static>true</static><pose>0 0 -0.5 0 0 0</pose><link name="l"><collision name="c"><geometry><box><size>40 40 1</size></box></geometry></collision></link></model>')
     sky_tex = f"model://rw_sky/{w['sky']}.jpg"
-    parts.append(f'<model name="rw_sky_dome"><static>true</static><link name="l"><visual name="dome"><cast_shadows>false</cast_shadows><geometry><mesh><uri>model://rw_sky/dome.obj</uri></mesh></geometry>'
+    sky_scale = ""
+    if scale_sky_to_extent:
+        scale = profile_for_site(scene).sky_radius_m / 2600.0
+        sky_scale = f"<scale>{scale:.9f} {scale:.9f} {scale:.9f}</scale>"
+    parts.append(f'<model name="rw_sky_dome"><static>true</static><link name="l"><visual name="dome"><cast_shadows>false</cast_shadows><geometry><mesh><uri>model://rw_sky/dome.obj</uri>{sky_scale}</mesh></geometry>'
                  f'<material><lighting>false</lighting><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>1 1 1 1</emissive><double_sided>true</double_sided>'
                  f'<pbr><metal><emissive_map>{sky_tex}</emissive_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual></link></model>')
     rng = random.Random(seed)
@@ -511,7 +526,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
 def write_scenario(world: Path, site: str, airframe: str, seed: int = 91000) -> Path:
     """Scenario bundle with a real DEM, so geolocation and terrain checks see the true ground."""
     wid = world.stem
-    scene = json.loads((SCENE_ROOT / "sites" / site / "scene.json").read_text())
+    scene = json.loads(scene_path(site).read_text())
     sim = Path(os.environ.get("RW_SIM_OUT", ROOT / "simulation"))
     profile = profile_for_site(scene, scene.get("size_m"))
     half = profile.half_extent_m
@@ -578,13 +593,14 @@ def main() -> None:
     ap.add_argument("--name-suffix", default="", help="附加到世界文件名，用于并列预算样本")
     ap.add_argument("--world-site-name", help="独立世界名前缀；源 scene 和 model 名保持不变")
     ap.add_argument("--extent-m", type=float, help="校验 scene.json 的范围；扩展范围请先 fetch/build")
+    ap.add_argument("--scale-sky-to-extent", action="store_true", help="新世界按边长扩大天空穹顶；默认保持 2600 m")
     a = ap.parse_args()
     if a.extent_m is not None:
-        scene = json.loads((SCENE_ROOT / "sites" / a.site / "scene.json").read_text())
+        scene = json.loads(scene_path(a.site).read_text())
         if abs(float(scene["size_m"]) - a.extent_m) > 1e-6:
             raise SystemExit(f"scene extent is {scene['size_m']:g} m; fetch_site.py and build_scene.py must run first")
     for wx in a.weather:
-        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.0, a.mover_scale), out_dir=a.world_out_dir, world_site_name=a.world_site_name)
+        p = build(a.site, wx, [], a.max_trees, 0, name_suffix=a.name_suffix, mover_scale=max(0.0, a.mover_scale), out_dir=a.world_out_dir, world_site_name=a.world_site_name, scale_sky_to_extent=a.scale_sky_to_extent)
         if not a.skip_scenarios:
             write_scenario(p, a.site, a.scenario_airframe)
         print(p, p.stat().st_size // 1024, "KB")

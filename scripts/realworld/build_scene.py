@@ -718,18 +718,27 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("site")
     ap.add_argument("--max-trees", type=int, default=2500)
-    ap.add_argument("--grid", type=float, default=4.0)
+    ap.add_argument("--grid", type=float, help="视觉网格间距；默认按 profile（通常 4 m）")
     ap.add_argument("--output-root", type=Path, default=RESOLVED, help="模型输出目录")
     ap.add_argument("--scene-root", type=Path, default=Path(os.environ.get("REALWORLD_SCENE_ROOT", SCENE_ROOT / "sites")), help="scene.json 输出目录")
     ap.add_argument("--raw-root", type=Path, default=ASSET_ROOT / "sites", help="原始数据站点目录")
     ap.add_argument("--extent-m", type=float, help="正方形边长（米）；需与 fetch_site 的范围一致")
+    ap.add_argument("--output-name", help="独立 scene/model 名；仍读取原站点 raw")
+    ap.add_argument("--budget-profile", choices=("budget_6km",), help="显式预算实验，不改变默认 profile")
     a = ap.parse_args()
-    name = a.site
-    site = CFG["sites"][name]
-    profile = profile_for_site(site, a.extent_m)
+    name = a.output_name or a.site
+    if not name.replace("_", "").isalnum():
+        ap.error("output name must contain only letters, numbers and underscores")
+    if a.budget_profile and name == a.site:
+        ap.error("budget profile requires an independent --output-name")
+    site = CFG["sites"][a.site]
+    profile = profile_for_site(site, a.extent_m, name=a.budget_profile)
+    a.grid = profile.visual_grid_m if a.grid is None else a.grid
+    if not math.isfinite(a.grid) or a.grid <= 0:
+        ap.error("grid must be finite and positive")
     site = {**site, "size_m": profile.extent_m, "range_profile": profile.name}
     kind = site["kind"]
-    raw = a.raw_root / name / "raw"
+    raw = a.raw_root / a.site / "raw"
     provenance_path = raw / "provenance.json"
     if provenance_path.exists():
         provenance = json.loads(provenance_path.read_text())
@@ -1203,7 +1212,7 @@ def main() -> None:
             tree_count += 1
         filtered_objects.append(obj)
     scene["objects"] = filtered_objects
-    merger = Merger(name, out)
+    merger = Merger(name, out, max_triangles=profile.max_prop_triangles)
     for t in scene["trees"]:
         merger.add(t["cat"], t["x"], t["y"], t["z"], t["yaw"], t["s"])
     # Things the AI must tell apart stay separate and labelled; the rest merges.
@@ -1221,7 +1230,8 @@ def main() -> None:
         n_containers = add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml, water_polys=water_polys)
         print("containers", n_containers, flush=True)
     print("merged groups", len(merger.groups), flush=True)
-    ground_classes = write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm if site.get("provider") == "global" else None)
+    ground_classes = write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm if site.get("provider") == "global" else None,
+                                       texture_px=profile.core_texture_px)
     # ---- Model files
     provenance = json.loads((raw / "provenance.json").read_text()) if (raw / "provenance.json").exists() else {}
     attributions = [source.get("attribution") for source in provenance.get("sources", {}).values()
@@ -1257,7 +1267,7 @@ def main() -> None:
     merged_tree_instances = sum(stats["instances"] for slug, stats in merger.stats.items()
                                 if ASSET_BY_SLUG.get(slug, {}).get("category") in {"broadleaf_tree", "conifer"})
     scene.update({"raw_dir": str(raw.resolve()), "site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
-                  "range_profile": profile.as_dict(),
+                  "source_site": a.site, "visual_grid_m": a.grid, "range_profile": profile.as_dict(),
                   "stats": {"ground_class_pixels": ground_classes, "city_model_buildings": city_stats[0], "city_model_triangles": city_stats[1],
                             "city_model_texture_bytes": (out / "textures/city_texture.jpg").stat().st_size if city_stats[1] else 0,
                             "buildings": len(buildings) + len(city_rows), "trees": merged_tree_instances, "tree_candidates": len(scene["trees"]), "road_km": sum(r["line"].length for r in road_lines) / 1000,
@@ -1335,10 +1345,10 @@ def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng,
     return count
 
 
-def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm=None) -> dict[str, int]:
+def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm=None, *, texture_px=8192) -> dict[str, int]:
     """Sharp ground around the takeoff point: the aerial photo sets colour, CC0 photos add fine detail."""
     core_half = 300.0
-    px = 8192
+    px = texture_px
     res = 2 * core_half / px
     src_res = TILE_M / tiles[(0, 0)].shape[0]
     # Stitch just the part of the tile mosaic the core needs.

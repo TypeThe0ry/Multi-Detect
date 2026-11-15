@@ -18,7 +18,7 @@ except ModuleNotFoundError:  # direct execution from scripts/realworld
 
 def audit(scene_path: Path, world_path: Path | None = None, resolved_root: Path | None = None) -> dict:
     scene = json.loads(scene_path.read_text())
-    profile = make_profile(float(scene["size_m"]))
+    profile = make_profile(float(scene["size_m"]), name=scene.get("range_profile", {}).get("name", "default") if isinstance(scene.get("range_profile", {}), dict) else scene["range_profile"])
     stats = scene.get("stats", {})
     result = {
         "scene": str(scene_path),
