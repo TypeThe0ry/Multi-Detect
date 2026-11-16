@@ -1,0 +1,39 @@
+{
+  "api_version": "1.0",
+  "host": "0.0.0.0",
+  "port": 8790,
+  "event_capacity": 2048,
+  "max_concurrent_queries": 2,
+  "sirius_source": "/data/projects/Volatic/Sirius/wt/sirius-runtime/src",
+  "runtime": {
+    "components": {
+      "altair": false,
+      "vega": false,
+      "vlm": false,
+      "mizar": false,
+      "tracking": false,
+      "publish_polaris": false
+    }
+  },
+  "adapters": {
+    "vega": null,
+    "mizar": null
+  },
+  "inputs": {
+    "camera": {
+      "rtsp_template": "rtsp://127.0.0.1:8554/v{index}/cam",
+      "fallback_video": null,
+      "ffmpeg": "ffmpeg",
+      "timeout_s": 3.0
+    },
+    "telemetry": {
+      "enabled": true,
+      "endpoint": "tcp:127.0.0.1:5770"
+    }
+  },
+  "target_push": {
+    "enabled": false,
+    "port": 14550,
+    "min_gps_fix_type": 3
+  }
+}
