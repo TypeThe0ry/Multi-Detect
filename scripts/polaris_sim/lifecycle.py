@@ -46,6 +46,7 @@ MONO_CAM_MODEL_CONFIG = """<?xml version="1.0"?>
 </model>
 """
 CAMERA_MODEL_IN_IMAGE = "/opt/px4-gazebo/share/gz/models/mono_cam/model.sdf"
+IMAGE_MONO_CAM_DIR = "/opt/px4-gazebo/share/gz/models/mono_cam"
 CAMERA_OVERLAY_TARGET = "/opt/polaris-sim-camera-overlay"
 
 
@@ -245,6 +246,9 @@ def _with_camera_overlay(
     result[image_index:image_index] = [
         "--mount",
         f"type=bind,source={overlay_models_dir},target={CAMERA_OVERLAY_TARGET},readonly",
+        # GZ_SIM_RESOURCE_PATH alone did not shadow the image's mono_cam; replace it in place too.
+        "--mount",
+        f"type=bind,source={overlay_models_dir / 'mono_cam'},target={IMAGE_MONO_CAM_DIR},readonly",
     ]
     return result
 
