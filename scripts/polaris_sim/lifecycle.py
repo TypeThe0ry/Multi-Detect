@@ -137,8 +137,12 @@ def _resolve_world(world: str | None, weather: str) -> tuple[str | None, Path | 
     return stem.split("__", 1)[0], None
 
 
-def _managed_docker_command(command: list[str] | tuple[str, ...]) -> list[str]:
+def _managed_docker_command(command: list[str] | tuple[str, ...], slot: int | None = None) -> list[str]:
     result = list(command)
+    if slot is not None:
+        # every PX4 instance defaults to MAV_SYS_ID 1; the gateway routes by sysid = slot - 4
+        result.insert(result.index("--name"), "--env")
+        result.insert(result.index("--name"), f"PX4_PARAM_MAV_SYS_ID={slot - 4}")
     result.remove("-d")
     result.insert(result.index("run") + 1, "--pull=never")
     # real-terrain worlds with a 720p camera exceed 12 GiB in gz-sim (OOM seen on rw_singapore_marina_bay)
@@ -460,7 +464,7 @@ def _dry_run(args: argparse.Namespace) -> int:
                 except (OSError, RuntimeError, ValueError) as exc:
                     row["docker_command_error"] = str(exc)
                 else:
-                    command = _managed_docker_command(docker_plan.command)
+                    command = _managed_docker_command(docker_plan.command, int(row["slot"]))
                     command = _with_camera_overlay(
                         command,
                         profile.name,
@@ -666,7 +670,7 @@ async def _supervise(args: argparse.Namespace) -> int:
                 gpu=selected_gpu,
                 job_dir=job_dir,
             )
-            command = _managed_docker_command(plan.command)
+            command = _managed_docker_command(plan.command, slot)
             command = _with_camera_overlay(
                 command, profile.name, overlay_models_dir, image=plan.image
             )
