@@ -37,6 +37,14 @@ VIDEO_UNIT = "psim-video"  # Stop an older separately managed video service duri
 AI_UNIT = "psim-ai"
 MEMWATCH_UNIT = "psim-memwatch"
 CAMERA_OVERLAY_ROOT = Path("/data/scratch/polaris-sim/overlay")
+MONO_CAM_MODEL_CONFIG = """<?xml version="1.0"?>
+<model>
+  <name>mono_cam</name>
+  <version>1.0</version>
+  <sdf version="1.9">model.sdf</sdf>
+  <description>Polaris SIM camera profile overlay of mono_cam</description>
+</model>
+"""
 CAMERA_MODEL_IN_IMAGE = "/opt/px4-gazebo/share/gz/models/mono_cam/model.sdf"
 CAMERA_OVERLAY_TARGET = "/opt/polaris-sim-camera-overlay"
 
@@ -177,6 +185,8 @@ def _generate_camera_overlay(
     destination.parent.mkdir(parents=True, exist_ok=True)
     ET.indent(sdf, space="  ")
     destination.write_bytes(ET.tostring(sdf, encoding="utf-8", xml_declaration=True) + b"\n")
+    # Gazebo only treats a directory as a model when model.config is present.
+    (destination.parent / "model.config").write_text(MONO_CAM_MODEL_CONFIG, encoding="utf-8")
     return destination
 
 
