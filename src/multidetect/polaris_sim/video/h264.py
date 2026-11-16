@@ -86,7 +86,7 @@ def make_latency_sei(sequence: int, simulation_time_ns: int, captured_monotonic_
             zeros = 0
         escaped.append(value)
         zeros = zeros + 1 if value == 0 else 0
-    return b"\x00\x00\x00\x01\x06" + bytes(escaped)
+    return b"\x06" + bytes(escaped)
 
 
 def parse_latency_sei(nal: bytes) -> tuple[int, int, int] | None:

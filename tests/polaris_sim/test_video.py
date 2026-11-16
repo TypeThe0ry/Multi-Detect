@@ -224,7 +224,7 @@ def test_frame_wire_sei_parser_and_rtp_markers() -> None:
     assert read_frame(BytesIO(b"")) is None
 
     sei = make_latency_sei(9, 1234, 5678)
-    assert parse_latency_sei(sei[4:]) == (9, 1234, 5678)
+    assert parse_latency_sei(sei) == (9, 1234, 5678)
     parser = AnnexBAccessUnitParser()
     access_units = parser.feed(
         b"\x00\x00\x00\x01\x09\xf0\x00\x00\x01\x65\xaa\x00\x00\x01\x09\xf0\x00\x00\x01\x06\x80"
@@ -451,7 +451,7 @@ def test_ffmpeg_h264_rtsp_latency_and_recording_replay(
 
         from scripts.polaris_sim.measure_video_latency import measure
 
-        latency = measure("127.0.0.1", service.server.bound_port, "/v0/cam", 0.5, 2)
+        latency = measure("127.0.0.1", service.server.bound_port, "/v0/cam", 3.0, 4)
         assert latency["frames_received"] >= 5, f"latency sample was too short: {latency}"
         assert latency["latency_ms_p95"] is not None, f"no latency samples: {latency}"
         assert latency["latency_ms_p95"] < 400, f"latency exceeded budget: {latency}"
@@ -471,7 +471,7 @@ def test_ffmpeg_h264_rtsp_latency_and_recording_replay(
                 "-i",
                 uri,
                 "-t",
-                "0.5",
+                "2.5",
                 "-an",
                 "-c:v",
                 "copy",
@@ -482,7 +482,7 @@ def test_ffmpeg_h264_rtsp_latency_and_recording_replay(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
-        _, stderr = record.communicate(timeout=4)
+        _, stderr = record.communicate(timeout=10)
         assert record.returncode == 0, stderr.decode(errors="replace")
         tlog_path = tmp_path / "mavlink.tlog"
         mavlink_frame = b"\xfe\x00\x01\x01\x01\x01\x00\x00"
@@ -517,6 +517,7 @@ def test_ffmpeg_h264_rtsp_latency_and_recording_replay(
             mavlink_host="127.0.0.1",
             mavlink_port=0,
             speed=1,
+            loop=True,
         )
         replay.start()
         try:
