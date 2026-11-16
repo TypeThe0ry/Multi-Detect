@@ -1156,7 +1156,7 @@ class PolarisE2E:
             min_height=self.config.min_height,
             min_fps=self.config.min_fps,
         )
-        minimum_duration = min(8.0, self.config.record_seconds * 0.8)
+        minimum_duration = min(8.0, self.config.record_seconds * 0.6)  # first keyframe + mux tail trim ~2 s
         if frames < 1 or duration < minimum_duration:
             raise E2EFailure(
                 f"recorded video {path} has {frames} frames over {duration:.2f}s; "
@@ -1546,6 +1546,7 @@ class PolarisE2E:
             "127.0.0.1",
             "--mavlink-port",
             str(replay_mavlink_port),
+            "--loop",
         ]
         replay_process = self._start_owned_process(command, self._log("video-replay"))
         try:
