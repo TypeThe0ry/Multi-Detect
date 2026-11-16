@@ -202,12 +202,12 @@ if failure:
             try:
                 frame = read_frame(self._process.stdout)
             except (EOFError, ValueError) as exc:
-                code = self._process.poll()
+                code = self._process.poll() if self._process is not None else None
                 raise RuntimeError(
                     f"Gazebo camera bridge failed for {self.container} ({code}): {exc}"
                 ) from exc
             if frame is None:
-                code = self._process.poll()
+                code = self._process.poll() if self._process is not None else None
                 if code not in (None, 0):
                     raise RuntimeError(f"Gazebo camera bridge exited with status {code}")
                 return
