@@ -87,9 +87,13 @@ multidetect-rtsp-to-replay = "multidetect.rtsp_evidence_replay:main"
 multidetect-evidence-transfer = "multidetect.evidence_bundle_transfer:main"
 multidetect-jetson-evidence-package-verify = "multidetect.jetson_evidence_package:main"
 multidetect-jetson-evidence-install-verify = "multidetect.jetson_evidence_install:main"
+polaris-sim-ai = "multidetect.polaris_sim.ai.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+multidetect = ["polaris_sim/ai/schemas/*.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "multidetect.product_version.__version__" }
