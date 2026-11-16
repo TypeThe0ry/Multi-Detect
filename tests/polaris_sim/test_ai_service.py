@@ -7,12 +7,14 @@ import socket
 import threading
 import time
 from contextlib import contextmanager
+from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
+from multidetect.polaris_sim.ai.inputs import CameraFrameSource
 from multidetect.polaris_sim.ai.service import AIService, create_server
 
 SIRIUS_SOURCE = Path("/data/projects/Volatic/Sirius/wt/sirius-runtime/src")
@@ -158,10 +160,32 @@ def test_http_requires_token_when_configured(monkeypatch: pytest.MonkeyPatch) ->
 
 def _read_sse_event(response: http.client.HTTPResponse) -> tuple[int, str]:
     event_id = int(response.readline().decode().strip().removeprefix("id: "))
+    event_name = response.readline().decode().strip().removeprefix("event: ")
     response.readline()
-    data = response.readline().decode().strip().removeprefix("data: ")
     response.readline()
-    return event_id, json.loads(data)["name"]
+    return event_id, event_name
+
+
+def test_sse_reader_uses_event_field_not_payload_name() -> None:
+    response = BytesIO(
+        b'id: 1\nevent: query.parsed\ndata: {"name":"first"}\n\n'
+    )
+
+    assert _read_sse_event(response) == (1, "query.parsed")
+
+
+def test_camera_source_uses_gateway_rtsp_url_for_vehicle_slot() -> None:
+    source = CameraFrameSource(
+        {
+            "rtsp_template": "rtsp://127.0.0.1:8554/v{index}/cam",
+            "rtsp_by_slot": {"5": "rtsp://127.0.0.1:8554/v0/gimbal"},
+        }
+    )
+    requested: list[str] = []
+    source._one_jpeg = lambda url, **_: (requested.append(url) or b"jpeg", None)
+
+    assert source.capture(5) == (b"jpeg", "rtsp", None)
+    assert requested == ["rtsp://127.0.0.1:8554/v0/gimbal"]
 
 
 def test_sse_disconnect_reconnect_replays_after_last_event_id(

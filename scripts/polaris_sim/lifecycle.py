@@ -5,10 +5,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import suppress
 import json
 import os
-from pathlib import Path
 import shlex
 import signal
 import subprocess
@@ -16,17 +14,20 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from contextlib import suppress
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
 from scripts.sitl_lock import SitlLock  # noqa: E402
+
 WORLD_DIR = ROOT / "simulation/gazebo/worlds"
 SCENARIO_ROOT = ROOT / "configs/scenarios/realworld"
 STATE_PATH = Path(os.environ.get("POLARIS_SIM_STATE_FILE", "/data/scratch/polaris-sim/state.json"))
 SESSION_UNIT = "psim-session"
 GATEWAY_UNIT = "psim-gateway"
-VIDEO_UNIT = "psim-video"
+VIDEO_UNIT = "psim-video"  # Stop an older separately managed video service during cleanup.
 AI_UNIT = "psim-ai"
 
 
@@ -216,7 +217,7 @@ def _dry_run(args: argparse.Namespace) -> int:
                    "control_udp": 14560 + 10 * slot, "telemetry_udp": 14561 + 10 * slot}
                   for index, slot in enumerate(slots)],
         "units": [SESSION_UNIT, GATEWAY_UNIT, *(f"psim-sitl-slot-{slot}" for slot in slots),
-                  *(unit for unit, script in ((VIDEO_UNIT, ROOT / "scripts/polaris_sim/video.py"), (AI_UNIT, ROOT / "scripts/polaris_sim/ai.py")) if script.is_file())],
+                  *(unit for unit, script in ((AI_UNIT, ROOT / "scripts/polaris_sim/ai.py"),) if script.is_file())],
         "ports": {"mavlink_tcp": 5770, "mavlink_udp": 14550, "http": 8780, "discovery": "239.255.77.77:8781", "rtsp": 8554, "ai": 8790},
         "state_file": str(_state_path()),
     }
@@ -365,12 +366,25 @@ async def _supervise(args: argparse.Namespace) -> int:
             units.append(unit)
             state["slots"].append({"slot": slot, "sysid": slot - 4, "container": name,
                                    "control_port": control, "telemetry_port": telemetry,
-                                   "scenario": str(scenario)})
+                                   "scenario": str(scenario), "model_name": plan.model_name,
+                                   "worker_index": plan.worker_index})
         slot_args = ",".join(str(lock.slot) for lock in locks)
         gateway_cmd = [sys.executable, str(ROOT / "scripts/polaris_sim/gateway.py"),
                        "--slots", slot_args, "--world", world, "--airframe", args.airframe,
                        "--host-address", _host_address(), "--state-file", str(_state_path()),
                        "--record-dir", str(_state_path().parent / "recordings")]
+        camera_name = "gimbal" if "gimbal" in args.airframe else "cam"
+        for row in state["slots"]:
+            gateway_cmd.extend(
+                [
+                    "--video-source",
+                    str(row["slot"]),
+                    camera_name,
+                    str(row["container"]),
+                    world,
+                    f"{row['model_name']}_{row['worker_index']}",
+                ]
+            )
         _systemd_run(GATEWAY_UNIT, gateway_cmd, "1G")
         units.append(GATEWAY_UNIT)
         vehicle_env = json.dumps(
@@ -391,8 +405,7 @@ async def _supervise(args: argparse.Namespace) -> int:
             "POLARIS_SIM_VEHICLES": vehicle_env,
             "POLARIS_SIM_RECORD_DIR": str(_state_path().parent / "recordings"),
         }
-        for unit, script in ((VIDEO_UNIT, ROOT / "scripts/polaris_sim/video.py"),
-                             (AI_UNIT, ROOT / "scripts/polaris_sim/ai.py")):
+        for unit, script in ((AI_UNIT, ROOT / "scripts/polaris_sim/ai.py"),):
             if script.is_file():
                 _systemd_run(unit, [sys.executable, str(script)], "4G", env=lane_env)
                 units.append(unit)

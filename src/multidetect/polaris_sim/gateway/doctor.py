@@ -87,12 +87,17 @@ def doctor_checks(
         with socket.create_connection((host, rtsp_port), timeout=0.5):
             add("video:rtsp", "PASS", f"TCP {host}:{rtsp_port} accepts connections")
     except OSError as exc:
-        add("video:rtsp", "WARN", f"RTSP port unavailable: {exc}", "Start the video lane and verify /v0/cam.")
+        add(
+            "video:rtsp",
+            "WARN",
+            f"RTSP port unavailable: {exc}",
+            "Check the embedded gateway camera sources and verify the configured RTSP mount.",
+        )
     ffprobe = shutil.which("ffprobe")
     if ffprobe and vehicle_rows:
         host_name = (discovery or {}).get("host", host)
         for index, vehicle in enumerate(vehicle_rows):
-            suffixes = ("cam", "gimbal") if "gimbal" in str(vehicle.get("airframe", "")) else ("cam",)
+            suffixes = ("gimbal",) if "gimbal" in str(vehicle.get("airframe", "")) else ("cam",)
             for suffix in suffixes:
                 url = f"rtsp://{host_name}:{rtsp_port}/v{index}/{suffix}"
                 try:

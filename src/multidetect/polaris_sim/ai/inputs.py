@@ -184,6 +184,12 @@ class MavlinkTelemetryReader:
 class CameraFrameSource:
     def __init__(self, config: Mapping[str, object]) -> None:
         self.template = str(config.get("rtsp_template", "rtsp://127.0.0.1:8554/v{index}/cam"))
+        rtsp_by_slot = config.get("rtsp_by_slot", {})
+        self.rtsp_by_slot = (
+            {int(slot): str(url) for slot, url in rtsp_by_slot.items()}
+            if isinstance(rtsp_by_slot, Mapping)
+            else {}
+        )
         self.fallback_video = config.get("fallback_video")
         self.ffmpeg = str(config.get("ffmpeg", "ffmpeg"))
         self.timeout_s = max(0.2, min(10.0, float(config.get("timeout_s", 3.0))))
@@ -194,7 +200,9 @@ class CameraFrameSource:
 
     def capture(self, slot: int) -> tuple[bytes | None, str, str | None]:
         index = slot - 5
-        url = self.template.format(index=index, slot=slot)
+        url = self.rtsp_by_slot.get(slot)
+        if url is None:
+            url = self.template.format(index=index, slot=slot)
         jpeg, error = self._one_jpeg(url, rtsp=True)
         if jpeg is not None:
             return jpeg, "rtsp", None

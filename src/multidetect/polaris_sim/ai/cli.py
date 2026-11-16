@@ -27,6 +27,26 @@ def main(argv: list[str] | None = None) -> int:
     config = json.loads(args.config.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         parser.error("AI config must contain a JSON object")
+    vehicles_json = os.environ.get("POLARIS_SIM_VEHICLES")
+    if vehicles_json:
+        try:
+            vehicles = json.loads(vehicles_json)
+        except json.JSONDecodeError as exc:
+            parser.error(f"POLARIS_SIM_VEHICLES is invalid JSON: {exc}")
+        if not isinstance(vehicles, list):
+            parser.error("POLARIS_SIM_VEHICLES must be a JSON array")
+        rtsp_by_slot = {
+            str(row["slot"]): row["rtsp"]
+            for row in vehicles
+            if isinstance(row, dict)
+            and isinstance(row.get("slot"), int)
+            and isinstance(row.get("rtsp"), str)
+        }
+        inputs = config.setdefault("inputs", {})
+        if isinstance(inputs, dict):
+            camera = inputs.setdefault("camera", {})
+            if isinstance(camera, dict):
+                camera["rtsp_by_slot"] = rtsp_by_slot
     host = args.host or str(config.get("host", "0.0.0.0"))
     port = args.port or int(config.get("port", 8790))
     service = AIService(config)

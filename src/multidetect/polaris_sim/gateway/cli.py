@@ -5,15 +5,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from pathlib import Path
 import signal
 import sys
+from pathlib import Path
 
-from .server import GatewayConfig, PolarisSimGateway, vehicle_for_slot
+from .server import GatewayConfig, PolarisSimGateway, VideoSourceConfig, vehicle_for_slot
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the Polaris MAVLink, HTTP control and discovery gateway")
+    parser = argparse.ArgumentParser(
+        description="Run the Polaris MAVLink, RTSP video, HTTP control and discovery gateway"
+    )
     parser.add_argument("--slots", default="5", help="comma-separated SITL slots: 5,6,7")
     parser.add_argument("--world", default="rw_suburb_davis")
     parser.add_argument("--airframe", default="x500_mono_cam")
@@ -25,6 +27,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--record-dir", type=Path, default=Path("/data/scratch/polaris-sim/recordings"))
     parser.add_argument("--state-file", type=Path, default=Path("/data/scratch/polaris-sim/state.json"))
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--video-source",
+        nargs=5,
+        action="append",
+        default=[],
+        metavar=("SLOT", "CAMERA", "CONTAINER", "WORLD", "MODEL"),
+        help="embed one Gazebo camera source in this gateway process; repeat per vehicle",
+    )
+    parser.add_argument("--no-video", action="store_true", help="disable embedded RTSP video")
     return parser
 
 
@@ -34,6 +45,30 @@ async def _run(args: argparse.Namespace) -> None:
         if not slots or len(set(slots)) != len(slots):
             raise ValueError("--slots must contain unique slot numbers")
         vehicles = [vehicle_for_slot(slot, args.world, args.airframe) for slot in slots]
+        video_sources = []
+        for raw_slot, camera, container, world, model in args.video_source:
+            slot = int(raw_slot)
+            if slot not in slots:
+                raise ValueError(f"video source slot {slot} is not in --slots")
+            if camera not in {"cam", "gimbal"}:
+                raise ValueError("video source camera must be cam or gimbal")
+            video_sources.append(
+                VideoSourceConfig(slot - 5, camera, container, world, model)
+            )
+        if args.no_video and video_sources:
+            raise ValueError("--no-video cannot be combined with --video-source")
+        if not args.no_video and not video_sources:
+            camera = "gimbal" if "gimbal" in args.airframe else "cam"
+            video_sources = [
+                VideoSourceConfig(
+                    slot - 5,
+                    camera,
+                    f"md-polaris-sim-slot-{slot}",
+                    args.world,
+                    f"{args.airframe}_{slot - 5}",
+                )
+                for slot in slots
+            ]
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     config = GatewayConfig(
@@ -45,6 +80,7 @@ async def _run(args: argparse.Namespace) -> None:
         state_file=args.state_file,
         host_address=args.host_address,
         netem_seed=args.seed,
+        video_sources=tuple(video_sources),
     )
     gateway = PolarisSimGateway(vehicles, config)
     await gateway.start()

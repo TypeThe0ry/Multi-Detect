@@ -2,6 +2,8 @@
 
 本目录提供 Polaris 地面站到本机 PX4/Gazebo SITL 的 LAN gateway。slot 5/6/7 分别映射 sysid 1/2/3；MAVLink TCP 5770 是 Android 默认链路，多车共用一条 TCP 连接。桌面端可选 UDP 14550。Gateway 不修改 PX4 固件参数；SITL 容器沿用 `scripts/run_simulator_docker.py` 的资产校验、启动补丁和 Docker 网络规划。
 
+图传与录像细节见 [`polaris-sim-video.md`](polaris-sim-video.md)，AI 查询与输入数据契约见 [`polaris-sim-ai.md`](polaris-sim-ai.md)。
+
 实际世界由 `scripts/realworld/make_world.py <rw_site> --weather <weather>` 生成。默认启动会从 `simulation/gazebo/worlds/rw_*__<weather>.sdf` 选择已生成的世界；没有 SDF 时，`up.sh --dry-run` 和启动错误会打印可直接执行的生成命令。真实地点、天气和机型场景清单见 [`realworld-scenes.md`](realworld-scenes.md)。
 
 ## 端口
@@ -30,6 +32,8 @@ polaris-sim-gateway --slots 5,6 --world rw_suburb_davis --airframe x500_gimbal
 
 `pymavlink` 已是项目 `pixhawk` optional extra 的依赖；网关转发核心使用 Python 标准库，gimbal/飞行烟测用该 extra。监听默认是 `0.0.0.0`，但 TCP/HTTP/GCS peer 只接受私有 LAN 或 loopback 地址。若设置 `POLARIS_SIM_TOKEN`，HTTP 写操作需带 `Authorization: Bearer <token>`；未设置时只允许私有 LAN 地址。网关不会修改 ufw/iptables。
 
+标准容器名下的车辆相机由 Gateway CLI 自动配置；生命周期脚本会显式传入相机容器和 Gazebo 模型实例。需要手动覆盖时可重复传入 `--video-source SLOT CAMERA CONTAINER WORLD MODEL`，仅调试 MAVLink 时可传 `--no-video`。
+
 车辆按 slot 固定 sysid：5→1、6→2、7→3。TCP GCS 在连接建立后接收遥测；GCS heartbeat 会广播给所有 SITL。UDP GCS 必须先发 heartbeat 才会注册，遥测仅回送到已注册的 UDP 地址。上行 MAVLink 根据 `target_system` 单独路由；target 0 和 GCS heartbeat 才广播。未知目标不会发给任意车辆。TCP 遥测队列有界，拥塞时淘汰最旧的遥测包，不阻塞 SITL UDP 接收。
 
 `COMMAND_LONG`/`COMMAND_INT` 和 Gimbal Manager v2 命令可透传；`GIMBAL_MANAGER_SET_ATTITUDE`、`GIMBAL_MANAGER_SET_PITCHYAW`、`GIMBAL_MANAGER_SET_MANUAL_CONTROL` 按目标 sysid 路由，`GIMBAL_DEVICE_ATTITUDE_STATUS` 随车辆遥测回到 GCS。云台真实反馈烟测：
@@ -44,11 +48,11 @@ python scripts/polaris_sim/gimbal_smoke.py --host 192.168.1.138 --sysid 1
 
 ```bash
 scripts/polaris_sim/up.sh --world rw_suburb_davis --weather clear_noon \
-  --vehicles 2 --airframe x500_gimbal --gpu 1
+  --vehicles 2 --airframe x500_gimbal --gpu 2
 scripts/polaris_sim/down.sh
 ```
 
-可省略 `--world` 以自动选择匹配天气且已生成 SDF 的世界。`--vehicles` 接受 1/2/3；按序请求 slot 5/6/7。`--gpu auto` 先读 `nvidia-smi --query-compute-apps` 与各卡显存/利用率，再把车辆分配到 GPU 1/2 中当前相对空闲的卡；`--gpu N` 可显式指定 1/2，`--gpu none` 使用本机已存在的 CPU 镜像。启动只使用本机现有镜像，不会拉取镜像；优先检查 `multidetect/px4-sitl-gazebo:gz-rendering-830-r1`。每个 SITL、Gateway、可用的 `video.py`/`ai.py` 和持锁 session 都由带 `MemoryMax` 的 transient `systemd-run` unit 管理。
+可省略 `--world` 以自动选择匹配天气且已生成 SDF 的世界。当前 GPU 调度只允许 GPU 2，最多运行 slot 5/6 两个容器；每个容器显存预算为 4 GiB，单次运行不超过 1 小时。启动前检查 GPU 2 显存，若已用超过 17 GiB，不启动新容器；不得使用 GPU 0/1/3。`--gpu none` 使用本机已存在的 CPU 镜像。启动只使用本机现有镜像，不会拉取镜像；优先检查 `multidetect/px4-sitl-gazebo:gz-rendering-830-r1`。SITL、含嵌入视频服务的 Gateway、AI 服务和持锁 session 由 transient `systemd-run` unit 管理。
 
 slot 7 已被占用且请求 3 架时，会只租 slot 5/6 并在启动报告中注明；slot 5/6 不可用时启动失败，不等待或清理其他任务。所有锁持有在 session unit 退出时释放。状态和录像位于 `/data/scratch/polaris-sim/`。`down.sh` 只停止该状态文件登记的 Polaris unit。视频/AI入口未出现时会跳过并提示，不会伪造服务就绪。
 
@@ -62,7 +66,7 @@ scripts/polaris_sim/up.sh --world rw_suburb_davis --vehicles 2 --gpu auto --dry-
 
 ## Netem 与录像
 
-`NetemShaper` 位于 `multidetect.polaris_sim.gateway.netem`，video lane 可对 RTP 包调用 `await shaper.transmit("down", packet, sender)` 复用相同的延迟、抖动、丢包与带宽限制。`up` 表示 GCS→SITL，`down` 表示 SITL→GCS。带宽单位为 kbps，0 表示不限速；抖动是均匀分布的 ±毫秒。两方向参数和随机流独立，同一 seed 与包顺序可复现。
+`NetemShaper` 位于 `multidetect.polaris_sim.gateway.netem`。Gateway 在同一进程内嵌入 RTSP `VideoService`，MAVLink 与 RTP 共用一个 shaper 实例；RTSP 对每个下行 RTP 包调用 `shape("down", packet)`，返回 `None` 表示丢包，返回秒数表示排队延迟。`up` 表示 GCS→SITL，`down` 表示 SITL→GCS。带宽单位为 kbps，0 表示不限速；抖动是均匀分布的 ±毫秒。两方向参数和随机流独立，同一 seed 与包顺序可复现。
 
 读取/设置示例：
 

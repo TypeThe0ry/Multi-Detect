@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 import ipaddress
 import json
 import os
-from pathlib import Path
 import socket
 import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -70,6 +69,16 @@ class Vehicle:
 
 
 @dataclass(frozen=True, slots=True)
+class VideoSourceConfig:
+    vehicle_index: int
+    camera: str
+    container: str
+    world: str
+    model: str
+    topic: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class GatewayConfig:
     bind_host: str = "0.0.0.0"
     tcp_port: int = DEFAULT_TCP_PORT
@@ -84,6 +93,7 @@ class GatewayConfig:
     host_address: str | None = None
     tcp_queue_size: int = 64
     relay_queue_size: int = 64
+    video_sources: tuple[VideoSourceConfig, ...] = ()
 
 
 @dataclass(slots=True)
@@ -151,6 +161,7 @@ class PolarisSimGateway:
         self._record_packets = 0
         self._replay_task: asyncio.Task[None] | None = None
         self._closing = False
+        self.video_service = None
 
     async def start(self) -> None:
         self.tcp_server = await asyncio.start_server(self._handle_tcp, self.config.bind_host, self.config.tcp_port)
@@ -170,10 +181,31 @@ class PolarisSimGateway:
         self._discovery_transport, _ = await loop.create_datagram_endpoint(
             asyncio.DatagramProtocol, local_addr=("0.0.0.0", 0), allow_broadcast=True
         )
+        if self.config.video_sources:
+            from ..video.pipeline import VideoService
+
+            self.video_service = VideoService(
+                self.config.bind_host,
+                self.config.rtsp_port,
+                shaper=self.netem,
+            )
+            for source in self.config.video_sources:
+                self.video_service.add_gazebo_camera(
+                    source.vehicle_index,
+                    source.camera,
+                    source.container,
+                    source.world,
+                    source.model,
+                    topic=source.topic,
+                )
+            self.video_service.start()
         self._track(asyncio.create_task(self._publish_discovery(), name="polaris-discovery"))
 
     async def close(self) -> None:
         self._closing = True
+        if self.video_service is not None:
+            self.video_service.stop()
+            self.video_service = None
         if self._replay_task is not None:
             self._replay_task.cancel()
         for server in (self.tcp_server, self.http_server):
@@ -205,6 +237,7 @@ class PolarisSimGateway:
             "udp_gcs": len(self._udp_gcs),
             "recording": self._record_path is not None,
             "recording_path": None if self._record_path is None else str(self._record_path),
+            "video_streams": 0 if self.video_service is None else len(self.video_service.server.streams),
         }
 
     def vehicle_rows(self) -> list[dict[str, object]]:
@@ -651,4 +684,11 @@ def vehicle_for_slot(slot: int, world: str, airframe: str) -> Vehicle:
     return Vehicle(slot, slot - 4, world, airframe, control, control + 1)
 
 
-__all__ = ["GatewayConfig", "PolarisSimGateway", "Vehicle", "discover_lan_address", "vehicle_for_slot"]
+__all__ = [
+    "GatewayConfig",
+    "PolarisSimGateway",
+    "Vehicle",
+    "VideoSourceConfig",
+    "discover_lan_address",
+    "vehicle_for_slot",
+]

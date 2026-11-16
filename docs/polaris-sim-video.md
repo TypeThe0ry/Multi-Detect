@@ -22,13 +22,13 @@ PYTHONPATH=src python scripts/polaris_sim/video.py \
   --world rw-example --model x500_gimbal_0
 ```
 
-网关可注入同一实例的 netem shaper：
+Gateway 在同一进程内创建 `VideoService`，由生命周期参数为每个车辆提供容器、世界、Gazebo 模型实例和相机类型；RTSP 服务使用 Gateway 的同一个 `NetemShaper` 实例：
 
 ```python
 video = VideoService("192.168.1.138", 8554, shaper=netem_shaper)
 ```
 
-约定签名为 `shape(direction: str, payload: bytes) -> list[tuple[delay_s, payload]]`。本 lane 对发送到 GCS 的 RTP 包调用 `shape("down", packet)`；空列表表示丢包，正延迟由本服务的有序调度线程实施。调用沿用网关的 `NetemShaper` 实例，不重复保存或管理 netem 配置。RTSP 控制消息不做损伤，MAVLink 方向由网关 lane 处理。此 worktree 当前还没有合并网关 `NetemShaper`，测试使用同签名的假 shaper。
+统一接口为 `shape(direction: str, payload: bytes) -> float | None`。本 lane 对发送到 GCS 的 RTP 包调用 `shape("down", packet)`；`None` 表示丢包，非负秒数由 RTSP 的有序调度线程实施。RTSP 控制消息不做损伤，MAVLink 两方向由 Gateway 处理；视频 RTP 与 MAVLink 共用同一实例及配置。
 
 ## 延迟测量
 
@@ -72,4 +72,4 @@ PYTHONPATH=src python scripts/polaris_sim/replay.py \
 
 ## 验证边界
 
-`tests/polaris_sim/test_video.py` 覆盖原始帧/SEI、Annex-B 与 RTP 标记、RTSP TCP interleaved/UDP、netem 丢包、libx264 参数、端到端本机测量、MKV/tlog manifest 到 RTSP/MAVLink 回放。测试不启动 Polaris 二进制。Gazebo 相机主题存在性、Polaris Android 播放、真实云台指令前后画面差异、SITL 的 10 秒 ffprobe smoke 与真实局域网 p95 仍需在获得 SITL slot 和 Docker/GPU 权限后完成。
+`tests/polaris_sim/test_video.py` 覆盖原始帧/SEI、Annex-B 与 RTP 标记、RTSP TCP interleaved/UDP、Gateway netem 契约与丢包、libx264 参数、端到端本机测量、MKV/tlog manifest 到 RTSP/MAVLink 回放。测试不启动 Polaris 二进制。Gazebo 相机主题存在性、Polaris Android 播放、真实云台指令前后画面差异、SITL 的 10 秒 ffprobe smoke 与真实局域网 p95 仍需在获得 SITL slot 和 Docker/GPU 权限后完成。

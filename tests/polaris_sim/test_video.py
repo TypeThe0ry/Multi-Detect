@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from multidetect.polaris_sim.gateway.netem import NetemConfig, NetemShaper
 from multidetect.polaris_sim.recording import split_mavlink_frames
 from multidetect.polaris_sim.replay import H264FileReplay, RecordingReplay, iter_tlog
 from multidetect.polaris_sim.video.frames import FRAME_HEADER, Frame, read_frame
@@ -30,10 +31,10 @@ FFPROBE = Path("/usr/bin/ffprobe")
 
 
 class DropShaper:
-    def shape(self, direction: str, payload: bytes) -> list[tuple[float, bytes]]:
+    def shape(self, direction: str, payload: bytes) -> float | None:
         assert direction == "down"
         assert payload
-        return []
+        return None
 
 
 class SyntheticSource:
@@ -48,7 +49,7 @@ class SyntheticSource:
             if self.stopped.is_set():
                 return
             value = (sequence * 7) & 0xFF
-            pixels = bytes((value, 60, 220 - value)) * self.width * self.height
+            pixels = bytes((value, 60, (220 - value) & 0xFF)) * self.width * self.height
             yield Frame(
                 sequence,
                 self.width,
@@ -290,6 +291,44 @@ def test_netem_drops_outgoing_video_packets(require_loopback_sockets) -> None:
         if sock:
             sock.close()
         server.stop()
+
+
+def test_rtsp_dispatch_uses_gateway_netem_shaper_contract() -> None:
+    class FakeSession:
+        def __init__(self) -> None:
+            self.sent: list[bytes] = []
+
+        def send_rtp(self, packet: bytes) -> None:
+            self.sent.append(packet)
+
+    session = FakeSession()
+    shaper = NetemShaper(down=NetemConfig(delay_ms=25), seed=7)
+    server = RtspServer("127.0.0.1", 0, shaper=shaper)
+
+    server.dispatch(session, b"rtp-packet")
+
+    assert len(server._scheduled) == 1
+    due, _, scheduled_session, packet = server._scheduled[0]
+    assert scheduled_session is session
+    assert packet == b"rtp-packet"
+    assert due > time.monotonic()
+    assert server.metrics["rtp_packets_shaped"] == 1
+
+    dropped = RtspServer(
+        "127.0.0.1", 0, shaper=NetemShaper(down=NetemConfig(loss_pct=100), seed=7)
+    )
+    dropped.dispatch(session, b"dropped-packet")
+    assert not dropped._scheduled
+    assert dropped.metrics["rtp_packets_dropped"] == 1
+
+
+def test_synthetic_source_pixels_remain_valid_bytes_for_long_stream() -> None:
+    source = SyntheticSource(count=40, width=4, height=4, interval=0)
+
+    frames = list(source)
+
+    assert len(frames) == 40
+    assert all(frame.pixels and max(frame.pixels) <= 255 for frame in frames)
 
 
 @pytest.mark.skipif(

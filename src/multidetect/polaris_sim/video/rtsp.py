@@ -11,19 +11,13 @@ import socketserver
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Protocol
 from urllib.parse import urlsplit
 
+from ..gateway.netem import NetemShaper
 from .frames import Frame
 from .h264 import RtpPacketizer, make_latency_sei, make_sdp
 
 LOG = logging.getLogger(__name__)
-
-
-class NetemShaper(Protocol):
-    """Structural contract supplied by the Sim Gateway lane."""
-
-    def shape(self, direction: str, payload: bytes) -> list[tuple[float, bytes]]: ...
 
 
 class _ThreadingServer(socketserver.ThreadingTCPServer):
@@ -241,20 +235,18 @@ class RtspServer:
         if self.shaper is None:
             session.send_rtp(packet)
             return
-        shaped = self.shaper.shape("down", packet)
+        delay = self.shaper.shape("down", packet)
         self._metric("rtp_packets_shaped")
-        if not shaped:
+        if delay is None:
             self._metric("rtp_packets_dropped")
             return
         now = time.monotonic()
         with self._schedule_cv:
-            for delay_s, payload in shaped:
-                delay = max(0.0, float(delay_s))
-                self._schedule_sequence += 1
-                heapq.heappush(
-                    self._scheduled,
-                    (now + delay, self._schedule_sequence, session, bytes(payload)),
-                )
+            self._schedule_sequence += 1
+            heapq.heappush(
+                self._scheduled,
+                (now + max(0.0, float(delay)), self._schedule_sequence, session, packet),
+            )
             self._schedule_cv.notify()
 
     def _register_session(self, session: RtspSession) -> None:
