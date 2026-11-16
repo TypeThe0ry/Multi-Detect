@@ -159,6 +159,7 @@ class PolarisSimGateway:
         self._discovery_transport: asyncio.DatagramTransport | None = None
         self._tasks: set[asyncio.Task[Any]] = set()
         self._relay_queues: dict[tuple[str, int], asyncio.Queue[bytes]] = {}
+        self._release_at: dict[tuple[str, int], float] = {}
         self._relay_workers: dict[tuple[str, int], asyncio.Task[None]] = {}
         self._started_at = time.monotonic()
         self._record_stream = None
@@ -346,7 +347,7 @@ class PolarisSimGateway:
                         callback = lambda body: self._fanout_down(body, vehicle)
                     else:
                         callback = sender or (lambda body: self._send_to_vehicle(vehicle, body))
-                    await self._shape_and_send(direction, packet, callback, vehicle)
+                    self._shape_and_schedule(direction, packet, callback, vehicle)
                 finally:
                     queue.task_done()
         finally:
@@ -356,6 +357,21 @@ class PolarisSimGateway:
     def _send_to_vehicle(self, vehicle: Vehicle, packet: bytes) -> None:
         if self._udp_transport is not None and vehicle.control_port is not None:
             self._udp_transport.sendto(packet, ("127.0.0.1", vehicle.control_port))
+
+    def _shape_and_schedule(self, direction: str, packet: bytes, sender, vehicle: Vehicle) -> None:
+        """Delay line: release each packet `delay` after arrival without serialising the relay queue."""
+        delay = self.netem.shape(direction, packet)  # type: ignore[arg-type]
+        if delay is None:
+            vehicle.dropped_packets += 1
+            return
+        if not delay:
+            sender(packet)
+            return
+        loop = asyncio.get_running_loop()
+        key = (direction, vehicle.sysid)
+        release = max(loop.time() + delay, self._release_at.get(key, 0.0))
+        self._release_at[key] = release
+        loop.call_at(release, sender, packet)
 
     async def _shape_and_send(self, direction: str, packet: bytes, sender, vehicle: Vehicle) -> None:
         delay = self.netem.shape(direction, packet)  # type: ignore[arg-type]

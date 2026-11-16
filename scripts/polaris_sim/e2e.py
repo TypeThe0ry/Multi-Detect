@@ -1175,25 +1175,25 @@ class PolarisE2E:
         }
 
     def _ping_samples(self, connection: Any, sysid: int, count: int = 8) -> list[float]:
+        # PX4 does not answer MAVLink PING requests; a REQUEST_MESSAGE command round-trips instead.
         samples = []
-        for sequence in range(count):
-            sent_us = time.monotonic_ns() // 1000
-            connection.mav.ping_send(sent_us, sequence, 0, 0)
+        request_message = mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE
+        for _ in range(count):
+            sent_ns = time.monotonic_ns()
+            connection.mav.command_long_send(
+                sysid, 1, request_message, 0, 148.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            )
             response = self._recv(
                 connection,
-                "PING",
+                "COMMAND_ACK",
                 3.0,
-                lambda msg, expected_sequence=sequence, expected_time=sent_us: (
-                    msg.get_srcSystem() == sysid
-                    and msg.seq == expected_sequence
-                    and msg.time_usec == expected_time
-                ),
+                lambda msg: msg.get_srcSystem() == sysid and msg.command == request_message,
             )
             if response is not None:
-                samples.append((time.monotonic_ns() // 1000 - sent_us) / 1000.0)
+                samples.append((time.monotonic_ns() - sent_ns) / 1_000_000.0)
         if len(samples) < max(3, count // 2):
             raise E2EFailure(
-                f"only {len(samples)}/{count} MAVLink PING probes returned from sysid {sysid}"
+                f"only {len(samples)}/{count} MAVLink command probes returned from sysid {sysid}"
             )
         return samples
 
