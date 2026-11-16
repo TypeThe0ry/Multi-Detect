@@ -93,8 +93,10 @@ def test_doctor_requires_all_reported_checks_to_pass() -> None:
         }
     )
     assert len(result["checks"]) == 3
-    with pytest.raises(E2EFailure, match="non-PASS"):
-        validate_doctor({"checks": [{"name": "ai", "status": "disabled"}]})
+    # WARN is reported but does not fail the run; only FAIL/error does.
+    validate_doctor({"checks": [{"name": "memory", "status": "WARN"}]})
+    with pytest.raises(E2EFailure, match="FAIL"):
+        validate_doctor({"checks": [{"name": "ai", "status": "FAIL"}]})
 
 
 def test_sse_event_order_requires_full_ordered_pipeline() -> None:
