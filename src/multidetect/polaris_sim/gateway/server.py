@@ -664,6 +664,16 @@ def _is_private_peer(host: str) -> bool:
 
 def discover_lan_address() -> str:
     candidates: list[ipaddress.IPv4Address] = []
+    # The hostname often resolves to 127.0.1.1; a UDP connect (no packet sent) reveals the outbound LAN address.
+    for probe in ("192.168.1.1", "10.255.255.255", "172.31.255.255"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect((probe, 9))
+                address = ipaddress.ip_address(sock.getsockname()[0])
+        except OSError:
+            continue
+        if address.is_private and not address.is_loopback and not address.is_link_local:
+            candidates.append(address)
     try:
         for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM):
             address = ipaddress.ip_address(item[4][0])
