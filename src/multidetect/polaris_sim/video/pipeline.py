@@ -22,7 +22,7 @@ LOG = logging.getLogger(__name__)
 class VideoSettings:
     width: int = 1280
     height: int = 720
-    fps: int = 30
+    fps: int = 20
     bitrate_kbps: int = 2500
     profile: str = "baseline"
     encoder_threads: int = 2
@@ -268,7 +268,9 @@ class VideoService:
         return self.add_camera(
             vehicle_index,
             kind,
-            GazeboTopicSource(container, world, model, topic=topic),
+            GazeboTopicSource(
+                container, world, model, topic=topic, max_fps=(settings or VideoSettings()).fps
+            ),
             settings=settings,
         )
 

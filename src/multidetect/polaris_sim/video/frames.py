@@ -75,9 +75,10 @@ class GazeboTopicSource:
     _CONTAINER_SCRIPT = r"""
 import queue, struct, sys, threading, time
 from gz.msgs10.image_pb2 import Image
-from gz.transport13 import Node
+from gz.transport13 import Node, SubscribeOptions
 
 world, model, topic = sys.argv[1:4]
+max_fps = int(sys.argv[4]) if len(sys.argv) > 4 else 15
 header = struct.Struct("!4sQIIQQB")
 latest = queue.Queue(maxsize=1)
 stopping = threading.Event()
@@ -125,7 +126,10 @@ def on_image(message):
         except queue.Full: pass
 
 node = Node()
-if not node.subscribe(Image, topic, on_image):
+# A slow subscriber would otherwise back up in gz-sim's publisher queue and exhaust container memory.
+options = SubscribeOptions()
+options.msgs_per_sec = max_fps
+if not node.subscribe(Image, topic, on_image, options):
     raise SystemExit("Gazebo image subscription failed: " + topic)
 out = sys.stdout.buffer
 while not stopping.is_set():
@@ -146,6 +150,7 @@ if failure:
         *,
         topic: str | None = None,
         docker: str = "docker",
+        max_fps: int = 15,
     ) -> None:
         if not container or any(char.isspace() for char in container):
             raise ValueError("container must be a non-empty Docker container name")
@@ -157,6 +162,7 @@ if failure:
         # SITL containers always run the selected world sdf as Gazebo world "default".
         self.topic = topic or (f"/world/default/model/{model}/link/camera_link/sensor/camera/image")
         self.docker = docker
+        self.max_fps = int(max_fps)
         self._process: subprocess.Popen[bytes] | None = None
         self._stderr_thread: threading.Thread | None = None
 
@@ -175,6 +181,7 @@ if failure:
                 self.world,
                 self.model,
                 self.topic,
+                str(self.max_fps),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
