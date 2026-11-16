@@ -23,6 +23,10 @@ sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 from scripts.sitl_lock import SitlLock  # noqa: E402
 
 WORLD_DIR = ROOT / "simulation/gazebo/worlds"
+DEFAULT_CITY_WORLD_DIR = Path(
+    "/data/projects/Multi-Detect-env/runs/cities-recovery-20261109/worlds"
+)
+DEFAULT_WORLD = "rw_singapore_marina_bay"
 SCENARIO_ROOT = ROOT / "configs/scenarios/realworld"
 STATE_PATH = Path(os.environ.get("POLARIS_SIM_STATE_FILE", "/data/scratch/polaris-sim/state.json"))
 SESSION_UNIT = "psim-session"
@@ -57,23 +61,86 @@ def _write_state(value: dict[str, object]) -> None:
     os.replace(temporary, path)
 
 
+def _world_dirs() -> list[Path]:
+    configured = [
+        Path(value.strip()).expanduser()
+        for value in os.environ.get("POLARIS_SIM_WORLD_DIRS", "").split(":")
+        if value.strip()
+    ]
+    paths = [WORLD_DIR, *configured, DEFAULT_CITY_WORLD_DIR]
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path if path.is_absolute() else ROOT / path
+        resolved = resolved.resolve(strict=False)
+        if resolved not in seen:
+            unique.append(resolved)
+            seen.add(resolved)
+    return unique
+
+
 def _world_sdfs(weather: str) -> list[Path]:
-    return sorted(WORLD_DIR.glob(f"rw_*__{weather}.sdf")) if WORLD_DIR.is_dir() else []
+    return sorted(
+        path
+        for directory in _world_dirs()
+        if directory.is_dir()
+        for path in directory.glob(f"rw_*__{weather}.sdf")
+    )
 
 
 def _resolve_world(world: str | None, weather: str) -> tuple[str | None, Path | None]:
-    if world:
-        stem = Path(world).stem
-        if "__" in stem:
-            candidate = WORLD_DIR / f"{stem}.sdf"
-            return stem.split("__", 1)[0], candidate if candidate.is_file() else None
-        candidate = WORLD_DIR / f"{stem}__{weather}.sdf"
-        return stem, candidate if candidate.is_file() else None
-    available = _world_sdfs(weather)
-    if not available:
-        return None, None
-    path = available[0]
-    return path.stem.split("__", 1)[0], path
+    requested = world or DEFAULT_WORLD
+    supplied_path = Path(requested).expanduser()
+    if supplied_path.suffix.lower() == ".sdf" and supplied_path.is_file():
+        if supplied_path.is_symlink():
+            raise LifecycleError(f"world SDF must not be a symlink: {supplied_path}")
+        path = supplied_path.resolve()
+        return path.stem.split("__", 1)[0], path
+    stem = supplied_path.stem
+    filename = stem if "__" in stem else f"{stem}__{weather}"
+    for directory in _world_dirs():
+        candidate = directory / f"{filename}.sdf"
+        if candidate.is_file():
+            if candidate.is_symlink():
+                raise LifecycleError(f"world SDF must not be a symlink: {candidate}")
+            return stem.split("__", 1)[0], candidate.resolve()
+    return stem.split("__", 1)[0], None
+
+
+def _managed_docker_command(command: list[str] | tuple[str, ...]) -> list[str]:
+    result = list(command)
+    result.remove("-d")
+    result.insert(result.index("run") + 1, "--pull=never")
+    result.insert(result.index("--name"), "--memory=12g")
+    result.insert(result.index("--name"), "--rm")
+    return result
+
+
+def _docker_plan_for_slot(
+    *,
+    scenario: Path,
+    world_path: Path,
+    slot: int,
+    image: str,
+    gpu: str,
+    job_dir: Path,
+):
+    from scripts.run_simulator_docker import build_docker_simulator_plan
+
+    return build_docker_simulator_plan(
+        scenario,
+        repository_root=ROOT,
+        job_dir=job_dir,
+        container_name=f"md-polaris-sim-slot-{slot}",
+        control_port=14560 + 10 * slot,
+        telemetry_port=14561 + 10 * slot,
+        image=image,
+        gpu_render=gpu != "none",
+        gpu_device=gpu if gpu != "none" else None,
+        gpu_devices=(gpu,) if gpu != "none" else None,
+        worker_index=slot - 5,
+        world_sdf_path=world_path,
+    )
 
 
 def _scenario_path(world: str, weather: str, airframe: str) -> Path:
@@ -86,8 +153,15 @@ def _scenario_path(world: str, weather: str, airframe: str) -> Path:
 
 def _generation_command(world: str | None, weather: str) -> str:
     if world:
-        return f"python scripts/realworld/make_world.py {shlex.quote(world)} --weather {shlex.quote(weather)}"
-    return f"python scripts/realworld/make_world.py rw_suburb_davis --weather {shlex.quote(weather)}"
+        site = Path(world).stem.split("__", 1)[0]
+        return (
+            f"python scripts/realworld/make_world.py {shlex.quote(site)} "
+            f"--weather {shlex.quote(weather)}"
+        )
+    return (
+        f"python scripts/realworld/make_world.py {DEFAULT_WORLD} "
+        f"--weather {shlex.quote(weather)}"
+    )
 
 
 def _systemd_run(
@@ -201,9 +275,71 @@ def _local_image(gpu: bool) -> str:
 def _dry_run(args: argparse.Namespace) -> int:
     world, world_path = _resolve_world(args.world, args.weather)
     gpus = _select_gpus(args.gpu, args.vehicles, dry_run=True)
-    slots = list(range(5, 5 + args.vehicles))
-    if len(slots) > 3:
-        raise LifecycleError("--vehicles must be 1, 2 or 3")
+    slots = [
+        {"slot": slot, "sysid": slot - 4, "gpu": gpus[index],
+         "control_udp": 14560 + 10 * slot, "telemetry_udp": 14561 + 10 * slot}
+        for index, slot in enumerate(range(5, 5 + args.vehicles))
+    ]
+    docker_image: str | None = None
+    docker_image_note: str | None = None
+    if "auto" not in gpus and world_path is not None:
+        try:
+            docker_image = _local_image(any(gpu != "none" for gpu in gpus))
+        except (LifecycleError, OSError) as exc:
+            docker_image = (
+                "multidetect/px4-sitl-gazebo:gz-rendering-830-r1"
+                if any(gpu != "none" for gpu in gpus)
+                else "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
+            )
+            docker_image_note = f"local image availability not verified: {exc}"
+    if docker_image is not None and world is not None and world_path is not None:
+        scenario = _scenario_path(world, args.weather, args.airframe)
+        old_allow = os.environ.get("MULTIDETECT_SIM_ALLOW_GPUS")
+        old_devices = os.environ.get("MULTIDETECT_SIM_GPU_DEVICES")
+        selected_gpus = sorted({gpu for gpu in gpus if gpu != "none"})
+        if selected_gpus:
+            os.environ["MULTIDETECT_SIM_ALLOW_GPUS"] = ",".join(selected_gpus)
+            os.environ["MULTIDETECT_SIM_GPU_DEVICES"] = ",".join(selected_gpus)
+        try:
+            for row in slots:
+                if not scenario.is_file():
+                    row["docker_command_error"] = f"scenario is missing: {scenario}"
+                    continue
+                if row["gpu"] == "auto":
+                    row["docker_command_error"] = "GPU assignment unresolved"
+                    continue
+                try:
+                    docker_plan = _docker_plan_for_slot(
+                        scenario=scenario,
+                        world_path=world_path,
+                        slot=int(row["slot"]),
+                        image=docker_image,
+                        gpu=str(row["gpu"]),
+                        job_dir=Path("/tmp/polaris-sim-dry-run") / f"slot-{row['slot']}",
+                    )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    row["docker_command_error"] = str(exc)
+                else:
+                    command = _managed_docker_command(docker_plan.command)
+                    row["docker_command"] = command
+                    row["docker_command_text"] = shlex.join(command)
+        finally:
+            if old_allow is None:
+                os.environ.pop("MULTIDETECT_SIM_ALLOW_GPUS", None)
+            else:
+                os.environ["MULTIDETECT_SIM_ALLOW_GPUS"] = old_allow
+            if old_devices is None:
+                os.environ.pop("MULTIDETECT_SIM_GPU_DEVICES", None)
+            else:
+                os.environ["MULTIDETECT_SIM_GPU_DEVICES"] = old_devices
+    else:
+        for row in slots:
+            if world_path is None:
+                row["docker_command_error"] = "world SDF not found"
+            elif row["gpu"] == "auto":
+                row["docker_command_error"] = "GPU assignment unresolved"
+            else:
+                row["docker_command_error"] = "Docker image unresolved"
     plan = {
         "mode": "dry-run",
         "world": world,
@@ -213,10 +349,11 @@ def _dry_run(args: argparse.Namespace) -> int:
         "airframe": args.airframe,
         "gpu_assignments": gpus,
         "gpu_note": "nvidia-smi unavailable; auto selection will happen on launch" if "auto" in gpus else None,
-        "slots": [{"slot": slot, "sysid": slot - 4, "gpu": gpus[index],
-                   "control_udp": 14560 + 10 * slot, "telemetry_udp": 14561 + 10 * slot}
-                  for index, slot in enumerate(slots)],
-        "units": [SESSION_UNIT, GATEWAY_UNIT, *(f"psim-sitl-slot-{slot}" for slot in slots),
+        "slots": slots,
+        "docker_image": docker_image,
+        "docker_image_note": docker_image_note,
+        "units": [SESSION_UNIT, GATEWAY_UNIT,
+                  *(f"psim-sitl-slot-{row['slot']}" for row in slots),
                   *(unit for unit, script in ((AI_UNIT, ROOT / "scripts/polaris_sim/ai.py"),) if script.is_file())],
         "ports": {"mavlink_tcp": 5770, "mavlink_udp": 14550, "http": 8780, "discovery": "239.255.77.77:8781", "rtsp": 8554, "ai": 8790},
         "state_file": str(_state_path()),
@@ -244,7 +381,8 @@ def _command_up(args: argparse.Namespace) -> int:
     image = _local_image(any(gpu != "none" for gpu in gpus))
     arguments = [
         "supervise", "--world", world, "--weather", args.weather, "--airframe", args.airframe,
-        "--vehicles", str(args.vehicles), "--gpus", ",".join(gpus), "--image", image,
+        "--world-sdf", str(world_path), "--vehicles", str(args.vehicles),
+        "--gpus", ",".join(gpus), "--image", image,
     ]
     _systemd_run(SESSION_UNIT, [sys.executable, str(Path(__file__).resolve()), *arguments], "512M")
     print(f"启动请求已提交到 {SESSION_UNIT}；等待 SITL 心跳与 GPS fix。")
@@ -298,6 +436,15 @@ def _host_address() -> str:
 
 async def _supervise(args: argparse.Namespace) -> int:
     world, world_path = _resolve_world(args.world, args.weather)
+    if args.world_sdf:
+        supplied_world_path = Path(args.world_sdf).expanduser()
+        if (
+            supplied_world_path.is_symlink()
+            or not supplied_world_path.is_file()
+            or supplied_world_path.stem.split("__", 1)[0] != world
+        ):
+            raise LifecycleError(f"world SDF does not match selected world: {supplied_world_path}")
+        world_path = supplied_world_path.resolve()
     if world is None or world_path is None:
         raise LifecycleError(f"missing SDF; generate it with: {_generation_command(args.world, args.weather)}")
     desired = list(range(5, 5 + args.vehicles))
@@ -338,29 +485,18 @@ async def _supervise(args: argparse.Namespace) -> int:
             scenario = _scenario_path(world, args.weather, args.airframe)
             if not scenario.is_file():
                 raise LifecycleError(f"scenario missing: {scenario}")
-            from scripts.run_simulator_docker import build_docker_simulator_plan
-
-            name = f"md-polaris-sim-slot-{slot}"
             selected_gpu = gpu_assignments[slot - 5]
             job_dir = _state_path().parent / "jobs" / f"slot-{slot}"
-            plan = build_docker_simulator_plan(
-                scenario,
-                repository_root=ROOT,
-                job_dir=job_dir,
-                container_name=name,
-                control_port=control,
-                telemetry_port=telemetry,
+            plan = _docker_plan_for_slot(
+                scenario=scenario,
+                world_path=world_path,
+                slot=slot,
                 image=args.image,
-                gpu_render=selected_gpu != "none",
-                gpu_device=selected_gpu if selected_gpu != "none" else None,
-                gpu_devices=(selected_gpu,) if selected_gpu != "none" else None,
-                worker_index=slot - 5,
+                gpu=selected_gpu,
+                job_dir=job_dir,
             )
-            command = list(plan.command)
-            command.remove("-d")
-            command.insert(command.index("run") + 1, "--pull=never")
-            command.insert(command.index("--name"), "--memory=12g")
-            command.insert(command.index("--name"), "--rm")
+            command = _managed_docker_command(plan.command)
+            name = f"md-polaris-sim-slot-{slot}"
             unit = f"psim-sitl-slot-{slot}"
             _systemd_run(unit, command, "12G")
             units.append(unit)
@@ -463,6 +599,8 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("up", "supervise"):
         command = sub.add_parser(name)
         command.add_argument("--world", default=None)
+        if name == "supervise":
+            command.add_argument("--world-sdf", type=Path)
         command.add_argument("--weather", default="clear_noon")
         command.add_argument("--vehicles", type=int, choices=(1, 2, 3), default=1)
         command.add_argument("--airframe", default="x500_mono_cam")

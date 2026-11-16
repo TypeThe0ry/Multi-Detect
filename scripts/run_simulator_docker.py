@@ -46,6 +46,7 @@ DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scena
 CONTAINER_MODEL_ROOT = "/opt/multidetect-gazebo-models"
 CONTAINER_WORLD_ROOT = "/opt/px4-gazebo/share/gz/worlds"
 CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"
+CONTAINER_EXTERNAL_WORLD_ROOT = "/opt/polaris-sim-world-resources"
 CONTAINER_IMAGE_MODEL_ROOT = "/opt/px4-gazebo/share/gz/models"
 CONTAINER_IMAGE_WORLD_ROOT = CONTAINER_WORLD_ROOT
 CONTAINER_SCRIPT_ROOT = "/workspace/scripts"
@@ -359,6 +360,8 @@ class DockerSimulatorPlan:
     model_root_assets_sha256: str = ""
     # Resolved Fuel model cache bind-mounted read-only, or None when absent.
     fuel_resolved_root: Path | None = None
+    external_world_sdf: bool = False
+    external_world_resource_root: Path | None = None
     gpu_render: bool = False
     gpu_device: str | None = None
     gpu_devices: tuple[str, ...] = ()
@@ -421,8 +424,20 @@ class DockerSimulatorPlan:
                     "container": CONTAINER_WORLD,
                     "host_root": str(self.world_path.parent),
                     "container_root": CONTAINER_WORLD_ROOT,
+                    "external": self.external_world_sdf,
                     "readonly": True,
                 },
+                **(
+                    {
+                        "external_world_resources": {
+                            "host": str(self.external_world_resource_root),
+                            "container": CONTAINER_EXTERNAL_WORLD_ROOT,
+                            "readonly": True,
+                        }
+                    }
+                    if self.external_world_resource_root
+                    else {}
+                ),
                 "scripts": {
                     "host": str(self.scripts_root),
                     "container": CONTAINER_SCRIPT_ROOT,
@@ -613,6 +628,7 @@ def build_docker_simulator_plan(
     sim_instance: int = 0,
     airframe_profile_id: str | None = None,
     px4_logger_mode: str | None = None,
+    world_sdf_path: str | Path | None = None,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
@@ -664,6 +680,7 @@ def build_docker_simulator_plan(
             repository_root=root,
             ports=ports,
             tool_capabilities={"px4": False, "gazebo": False},
+            world_sdf_path=world_sdf_path,
         )
     except (SimulatorStackError, OSError, TypeError, ValueError) as exc:
         raise DockerSimulatorPlanError(f"invalid SIM stack: {exc}") from exc
@@ -683,6 +700,16 @@ def build_docker_simulator_plan(
         resolved_root = (root / "artifacts" / "cache" / "gz-fuel" / "resolved").resolve()
     has_resolved_root = resolved_root.is_dir()
     world_path = stack.world_path.resolve()
+    repository_world_root = (root / "simulation" / "gazebo" / "worlds").resolve()
+    external_world_resource_root = (
+        world_path.parent
+        if world_sdf_path is not None and world_path.parent != repository_world_root
+        else None
+    )
+    if external_world_resource_root is not None and not external_world_resource_root.is_dir():
+        raise DockerSimulatorPlanError(
+            f"external world resource directory is missing: {external_world_resource_root}"
+        )
     if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
         from scripts.gimbal_gz_resources import FUEL, preflight
 
@@ -763,6 +790,7 @@ def build_docker_simulator_plan(
         "GZ_SIM_RESOURCE_PATH": ":".join(
             value
             for value in (
+                CONTAINER_EXTERNAL_WORLD_ROOT if external_world_resource_root else "",
                 "/opt/multidetect-gz-fuel-resolved" if has_resolved_root else "",
                 CONTAINER_MODEL_ROOT,
                 CONTAINER_WORLD_ROOT,
@@ -922,6 +950,7 @@ def build_docker_simulator_plan(
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
             SIM_STARTUP_PATCHES,
             "export GZ_SIM_RESOURCE_PATH=",
+            (f"{CONTAINER_EXTERNAL_WORLD_ROOT}:" if external_world_resource_root else ""),
             ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
@@ -963,6 +992,11 @@ def build_docker_simulator_plan(
         *(
             ("--mount", _mount(resolved_root, "/opt/multidetect-gz-fuel-resolved"))
             if has_resolved_root
+            else ()
+        ),
+        *(
+            ("--mount", _mount(external_world_resource_root, CONTAINER_EXTERNAL_WORLD_ROOT))
+            if external_world_resource_root is not None
             else ()
         ),
         "--mount",
@@ -1012,6 +1046,8 @@ def build_docker_simulator_plan(
         stack_assets_sha256=stack.assets.aggregate_sha256,
         model_root_assets_sha256=stack.assets.model_root.aggregate_sha256,
         fuel_resolved_root=resolved_root if has_resolved_root else None,
+        external_world_sdf=world_sdf_path is not None,
+        external_world_resource_root=external_world_resource_root,
         gpu_render=gpu_render,
         gpu_device=selected_gpu,
         gpu_devices=resolved_gpu_devices,

@@ -39,13 +39,19 @@ class DropShaper:
 
 class SyntheticSource:
     def __init__(
-        self, *, count: int = 80, width: int = 320, height: int = 240, interval: float = 0.025
+        self,
+        *,
+        count: int | None = 80,
+        width: int = 320,
+        height: int = 240,
+        interval: float = 0.025,
     ):
         self.count, self.width, self.height, self.interval = count, width, height, interval
         self.stopped = threading.Event()
 
     def __iter__(self):
-        for sequence in range(self.count):
+        sequence = 0
+        while self.count is None or sequence < self.count:
             if self.stopped.is_set():
                 return
             value = (sequence * 7) & 0xFF
@@ -59,6 +65,7 @@ class SyntheticSource:
                 pixels,
             )
             time.sleep(self.interval)
+            sequence += 1
 
     def stop(self) -> None:
         self.stopped.set()
@@ -408,7 +415,7 @@ def test_ffmpeg_h264_rtsp_latency_and_recording_replay(
     pipeline = service.add_camera(
         0,
         "cam",
-        SyntheticSource(count=80, width=320, height=240, interval=0.03),
+        SyntheticSource(count=None, width=320, height=240, interval=0.03),
         settings=VideoSettings(width=320, height=240, fps=30, bitrate_kbps=700, profile="baseline"),
     )
     service.start()
@@ -445,10 +452,12 @@ def test_ffmpeg_h264_rtsp_latency_and_recording_replay(
         from scripts.polaris_sim.measure_video_latency import measure
 
         latency = measure("127.0.0.1", service.server.bound_port, "/v0/cam", 0.5, 2)
-        assert latency["frames_received"] >= 5
-        assert latency["latency_ms_p95"] is not None
-        assert latency["latency_ms_p95"] < 400
-        assert pipeline.frames_encoded >= 10
+        assert latency["frames_received"] >= 5, f"latency sample was too short: {latency}"
+        assert latency["latency_ms_p95"] is not None, f"no latency samples: {latency}"
+        assert latency["latency_ms_p95"] < 400, f"latency exceeded budget: {latency}"
+        assert pipeline.frames_encoded >= 10, (
+            f"too few encoded frames ({pipeline.frames_encoded}): {latency}"
+        )
 
         video_path = tmp_path / "capture.mkv"
         record = subprocess.Popen(

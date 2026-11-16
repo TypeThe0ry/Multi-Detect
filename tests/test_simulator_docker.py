@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -397,6 +398,55 @@ def test_docker_plan_supports_fixed_wing_assets(tmp_path: Path) -> None:
     assert plan.scenario_id == "coastal_patrol_fixed_wing_001"
     assert plan.model_root.name == "models"
     assert plan.world_path.name == "coastal_patrol_fixed_wing_001.sdf"
+
+
+def test_docker_plan_mounts_explicit_external_world_and_resource_directory(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    baseline = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "baseline"
+    )
+    external_dir = tmp_path / "external-worlds"
+    external_dir.mkdir()
+    external_world = external_dir / baseline.world_path.name
+    shutil.copyfile(baseline.world_path, external_world)
+    resolved_models = tmp_path / "resolved-models"
+    resolved_models.mkdir()
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", str(resolved_models))
+
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "external",
+        world_sdf_path=external_world,
+    )
+
+    assert plan.world_path == external_world.resolve()
+    assert plan.external_world_sdf is True
+    assert plan.external_world_resource_root == external_dir.resolve()
+    assert plan.to_mapping()["mounts"]["world"]["external"] is True
+    assert plan.to_mapping()["mounts"]["external_world_resources"] == {
+        "host": str(external_dir.resolve()),
+        "container": "/opt/polaris-sim-world-resources",
+        "readonly": True,
+    }
+    assert "/opt/polaris-sim-world-resources" in dict(plan.environment)["GZ_SIM_RESOURCE_PATH"]
+    assert "/opt/multidetect-gz-fuel-resolved" in dict(plan.environment)["GZ_SIM_RESOURCE_PATH"]
+    command_pairs = tuple(zip(plan.command, plan.command[1:], strict=False))
+    world_resources_mount = (
+        "--mount",
+        "type=bind,"
+        f"source={external_dir.resolve()},"
+        "target=/opt/polaris-sim-world-resources,readonly",
+    )
+    fuel_cache_mount = (
+        "--mount",
+        "type=bind,"
+        f"source={resolved_models.resolve()},"
+        "target=/opt/multidetect-gz-fuel-resolved,readonly",
+    )
+    assert world_resources_mount in command_pairs
+    assert fuel_cache_mount in command_pairs
 
 
 @pytest.mark.parametrize("invalid,error", [
