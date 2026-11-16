@@ -8,6 +8,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class CameraProfile:
     name: str
+    sensor_type: str
     camera_width: int
     camera_height: int
     camera_fps: int
@@ -17,7 +18,7 @@ class CameraProfile:
 
     @property
     def overrides_model(self) -> bool:
-        return self.name != "hd"
+        return self.name != "hd" or self.sensor_type != "camera"
 
     def video_settings(self) -> dict[str, int]:
         return {
@@ -28,9 +29,9 @@ class CameraProfile:
 
 
 CAMERA_PROFILES = {
-    "lite": CameraProfile("lite", 640, 480, 10, 640, 480, 10),
-    "standard": CameraProfile("standard", 960, 720, 15, 960, 720, 15),
-    "hd": CameraProfile("hd", 1280, 960, 30, 1280, 720, 20),
+    "lite": CameraProfile("lite", "rgbd_camera", 640, 480, 10, 640, 480, 10),
+    "standard": CameraProfile("standard", "rgbd_camera", 960, 720, 15, 960, 720, 15),
+    "hd": CameraProfile("hd", "rgbd_camera", 1280, 960, 30, 1280, 720, 20),
 }
 
 

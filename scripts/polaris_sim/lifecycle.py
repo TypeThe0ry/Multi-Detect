@@ -182,6 +182,13 @@ def _generate_camera_overlay(
                 parent.remove(sensor)
             changed += 1
             continue
+        sensor_type = os.environ.get("POLARIS_SIM_CAMERA_TYPE", profile.sensor_type)
+        if sensor_type not in {"camera", "rgbd_camera", "wideanglecamera"}:
+            raise LifecycleError(
+                "POLARIS_SIM_CAMERA_TYPE must be camera, rgbd_camera or wideanglecamera"
+            )
+        if sensor.get("name") == "camera":
+            sensor.set("type", sensor_type)
         camera = sensor.find("camera")
         if camera is None:
             continue
@@ -196,6 +203,32 @@ def _generate_camera_overlay(
         width.text = str(profile.camera_width)
         height.text = str(profile.camera_height)
         update_rate.text = str(profile.camera_fps)
+        image_format = os.environ.get("POLARIS_SIM_CAMERA_FORMAT")
+        if image_format is not None:
+            if image_format not in {"R8G8B8", "B8G8R8", "L8"}:
+                raise LifecycleError(
+                    "POLARIS_SIM_CAMERA_FORMAT must be R8G8B8, B8G8R8 or L8"
+                )
+            element = image.find("format")
+            if element is None:
+                element = ET.SubElement(image, "format")
+            element.text = image_format
+        disable_optics = os.environ.get("POLARIS_SIM_CAMERA_DISABLE_OPTICS")
+        if disable_optics not in {None, "0", "1"}:
+            raise LifecycleError("POLARIS_SIM_CAMERA_DISABLE_OPTICS must be 0 or 1")
+        if disable_optics == "1":
+            for name in ("lens", "distortion", "noise"):
+                element = camera.find(name)
+                if element is not None:
+                    camera.remove(element)
+        triggered = os.environ.get("POLARIS_SIM_CAMERA_TRIGGERED")
+        if triggered is not None:
+            if triggered not in {"0", "1"}:
+                raise LifecycleError("POLARIS_SIM_CAMERA_TRIGGERED must be 0 or 1")
+            element = sensor.find("triggered")
+            if element is None:
+                element = ET.SubElement(sensor, "triggered")
+            element.text = triggered
         always_on = os.environ.get("POLARIS_SIM_CAMERA_ALWAYS_ON")
         if always_on is not None:
             if always_on not in {"0", "1"}:
@@ -470,6 +503,7 @@ def _dry_run(args: argparse.Namespace) -> int:
     slots = [
         {"slot": slot, "sysid": slot - 4, "gpu": gpus[index],
          "camera_profile": profile.name, "video_settings": profile.video_settings(),
+         "camera_sensor_type": profile.sensor_type,
          "control_udp": 14560 + 10 * slot, "telemetry_udp": 14561 + 10 * slot}
         for index, slot in enumerate(range(5, 5 + args.vehicles))
     ]
@@ -551,6 +585,7 @@ def _dry_run(args: argparse.Namespace) -> int:
         "world_generation_command": None if world_path else _generation_command(args.world, args.weather),
         "airframe": args.airframe,
         "camera_profile": profile.name,
+        "camera_sensor_type": profile.sensor_type,
         "video_settings": profile.video_settings(),
         "camera_overlay_models_dir": (
             str(_camera_overlay_models_dir(profile.name)) if profile.overrides_model else None
@@ -606,6 +641,10 @@ def _command_up(args: argparse.Namespace) -> int:
         "POLARIS_SIM_CAMERA_ALWAYS_ON",
         "POLARIS_SIM_CAMERA_VISUALIZE",
         "POLARIS_SIM_CAMERA_SENSOR",
+        "POLARIS_SIM_CAMERA_TYPE",
+        "POLARIS_SIM_CAMERA_FORMAT",
+        "POLARIS_SIM_CAMERA_DISABLE_OPTICS",
+        "POLARIS_SIM_CAMERA_TRIGGERED",
         "GZ_SIM_RENDER_ENGINE",
         "GZ_SIM_HEADLESS_RENDERING",
         "HEADLESS",
@@ -690,6 +729,7 @@ async def _supervise(args: argparse.Namespace) -> int:
     state: dict[str, object] = {"phase": "starting", "session_unit": SESSION_UNIT, "pid": os.getpid(),
                                 "started_at": time.time(), "world": world, "weather": args.weather,
                                 "airframe": args.airframe, "camera_profile": profile.name,
+        "camera_sensor_type": profile.sensor_type,
                                 "video_settings": profile.video_settings(),
                                 "container_memory_limit": os.environ.get("POLARIS_SIM_CONTAINER_MEMORY", "16g"),
                                 "slots": [], "units": []}

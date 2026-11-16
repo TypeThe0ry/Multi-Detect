@@ -64,13 +64,13 @@ scripts/polaris_sim/up.sh --world rw_suburb_davis --vehicles 2 --gpu auto --dry-
 
 就绪后终端会给出 TCP/UDP 地址、RTSP/AI 地址，以及可编码为二维码的 `polaris-sim://...` 文本。应用仍可手动输入 `192.168.1.138:5770`，或通过 discovery 配置。
 
-`--camera-profile` 控制 Gazebo 相机模型覆盖与 RTSP 默认编码参数，默认 `lite`。覆盖模型从所选本地镜像的 `mono_cam/model.sdf` 生成到 `/data/scratch/polaris-sim/overlay/<profile>/models/mono_cam/model.sdf`，以只读挂载并放在 `GZ_SIM_RESOURCE_PATH` 首位；仓库中的训练模型不会被修改。HD 保留镜像原模型。
+`--camera-profile` 控制 Gazebo 相机模型覆盖与 RTSP 默认编码参数，默认 `lite`。所有档位都用 `rgbd_camera` 提供彩色和深度输出，视频桥订阅其 `image` 话题；覆盖模型从所选本地镜像的 `mono_cam/model.sdf` 生成到 `/data/scratch/polaris-sim/overlay/<profile>/models/mono_cam/model.sdf`，以只读挂载并放在 `GZ_SIM_RESOURCE_PATH` 首位，仓库中的训练模型不会被修改。可用 `POLARIS_SIM_CAMERA_TYPE=camera` 临时回退到原 RGB 传感器做诊断。
 
-| Profile | Gazebo 相机 | RTSP 默认值 | 取舍 |
+| Profile | Gazebo RGBD 传感器 | RTSP 默认值 | 取舍 |
 |---|---:|---:|---|
-| `lite` | 640×480 @ 10 fps | 640×480 @ 10 fps | 默认；渲染开销最低 |
-| `standard` | 960×720 @ 15 fps | 960×720 @ 15 fps | 清晰度与开销折中 |
-| `hd` | 1280×960 @ 30 fps | 1280×720 @ 20 fps | 保留原始渲染，内存增长风险最高 |
+| `lite` | 640×480 @ 10 fps | 640×480 @ 10 fps | 默认；本机实测 RGBD 图传与内存平台 |
+| `standard` | 960×720 @ 15 fps | 960×720 @ 15 fps | 清晰度与开销折中；RGBD 传感器类型已配置，未做同等时长内存实测 |
+| `hd` | 1280×960 @ 30 fps | 1280×720 @ 20 fps | 高渲染负载；RGBD 传感器类型已配置，未做同等时长内存实测 |
 
 profile 和 RTSP `video_settings` 会写入 `state.json`、`GET /v1/vehicles`。RTSP 编码输出不会超过对应 profile 的相机分辨率或帧率。
 

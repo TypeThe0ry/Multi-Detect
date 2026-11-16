@@ -127,6 +127,10 @@ def test_dry_run_honors_explicit_image(monkeypatch, capsys):
 
 
 def test_camera_profile_defaults_and_overlay_generation(tmp_path):
+    assert all(
+        get_camera_profile(profile).sensor_type == "rgbd_camera"
+        for profile in ("lite", "standard", "hd")
+    )
     assert get_camera_profile("lite").video_settings() == {
         "width": 640,
         "height": 480,
@@ -144,7 +148,6 @@ def test_camera_profile_defaults_and_overlay_generation(tmp_path):
     }
     with pytest.raises(ValueError, match="camera profile"):
         get_camera_profile("ultra")
-    assert _generate_camera_overlay("hd", "<sdf/>", tmp_path) is None
 
     source = (
         "<sdf><model name='mono_cam'><link name='camera_link'>"
@@ -158,6 +161,14 @@ def test_camera_profile_defaults_and_overlay_generation(tmp_path):
     assert "<width>640</width>" in contents
     assert "<height>480</height>" in contents
     assert "<update_rate>10</update_rate>" in contents
+    assert 'type="rgbd_camera"' in contents
+
+    destination = _generate_camera_overlay("hd", source, tmp_path)
+    contents = destination.read_text(encoding="utf-8")
+    assert "<width>1280</width>" in contents
+    assert "<height>960</height>" in contents
+    assert "<update_rate>30</update_rate>" in contents
+    assert 'type="rgbd_camera"' in contents
 
 
 def test_camera_overlay_experiment_switches_sensor_rendering(tmp_path, monkeypatch):
@@ -174,6 +185,28 @@ def test_camera_overlay_experiment_switches_sensor_rendering(tmp_path, monkeypat
     contents = destination.read_text(encoding="utf-8")
     assert "<always_on>0</always_on>" in contents
     assert "<visualize>0</visualize>" in contents
+
+
+def test_camera_overlay_supports_rgbd_format_and_triggered_capture(tmp_path, monkeypatch):
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_TYPE", "rgbd_camera")
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_FORMAT", "R8G8B8")
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_TRIGGERED", "1")
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_DISABLE_OPTICS", "1")
+    source = (
+        "<sdf><model name='mono_cam'><link name='camera_link'>"
+        "<sensor name='camera' type='camera'><update_rate>30</update_rate>"
+        "<camera><image><width>1280</width><height>960</height></image>"
+        "<lens/><distortion/><noise/></camera></sensor></link></model></sdf>"
+    )
+
+    destination = _generate_camera_overlay("lite", source, tmp_path)
+    contents = destination.read_text(encoding="utf-8")
+    assert 'type="rgbd_camera"' in contents
+    assert "<format>R8G8B8</format>" in contents
+    assert "<triggered>1</triggered>" in contents
+    assert "<lens" not in contents
+    assert "<distortion" not in contents
+    assert "<noise" not in contents
 
 
 def test_camera_overlay_can_disable_rgb_sensor(tmp_path, monkeypatch):
@@ -214,6 +247,8 @@ def test_up_passes_memory_limit_and_state_path_to_supervisor(tmp_path, monkeypat
     state_file = tmp_path / "state.json"
     monkeypatch.setenv("POLARIS_SIM_STATE_FILE", str(state_file))
     monkeypatch.setenv("POLARIS_SIM_CONTAINER_MEMORY", "12g")
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_TYPE", "rgbd_camera")
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_TRIGGERED", "1")
     monkeypatch.setattr(lifecycle, "_read_state", lambda: {})
     monkeypatch.setattr(
         lifecycle, "_resolve_world", lambda *_args: ("rw_fixture", world_sdf)
@@ -234,5 +269,7 @@ def test_up_passes_memory_limit_and_state_path_to_supervisor(tmp_path, monkeypat
     assert calls[0][1]["env"] == {
         "POLARIS_SIM_STATE_FILE": str(state_file),
         "POLARIS_SIM_CONTAINER_MEMORY": "12g",
+        "POLARIS_SIM_CAMERA_TYPE": "rgbd_camera",
+        "POLARIS_SIM_CAMERA_TRIGGERED": "1",
     }
     assert "SITL readiness timeout" in capsys.readouterr().err
