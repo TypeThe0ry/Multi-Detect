@@ -210,11 +210,12 @@ def _prepare_camera_overlay(profile_name: str, image: str) -> Path | None:
     profile = get_camera_profile(profile_name)
     if not profile.overrides_model:
         return None
+    # _generate_camera_overlay returns the model.sdf path; callers mount the models directory
     return _generate_camera_overlay(
         profile_name,
         _image_model_sdf(image),
         CAMERA_OVERLAY_ROOT / profile_name,
-    )
+    ).parent.parent
 
 
 def _with_camera_overlay(
