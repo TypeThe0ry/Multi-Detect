@@ -197,7 +197,7 @@ def measure(host: str, port: int, mount: str, duration: float, timeout: float) -
         "rtp_packets_missing": rtp_missing,
         "actual_fps": len(sequences) / elapsed,
         "latency_ms_p50": statistics.median(sorted_latency) if sorted_latency else None,
-        "latency_ms_p95": percentile(0.95),
+        "latency_ms_p95": percentile,
         "elapsed_s": elapsed,
     }
 
