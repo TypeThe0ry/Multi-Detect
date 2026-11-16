@@ -511,7 +511,7 @@ async def _supervise(args: argparse.Namespace) -> int:
                        "--host-address", _host_address(), "--state-file", str(_state_path()),
                        "--record-dir", str(_state_path().parent / "recordings")]
         camera_name = "gimbal" if "gimbal" in args.airframe else "cam"
-        for row in state["slots"]:
+        for row in [] if getattr(args, "no_video", False) else state["slots"]:
             gateway_cmd.extend(
                 [
                     "--video-source",
@@ -522,6 +522,8 @@ async def _supervise(args: argparse.Namespace) -> int:
                     f"{row['model_name']}_{row['worker_index']}",
                 ]
             )
+        if getattr(args, "no_video", False):
+            gateway_cmd.append("--no-video")
         _systemd_run(GATEWAY_UNIT, gateway_cmd, "1G")
         units.append(GATEWAY_UNIT)
         vehicle_env = json.dumps(
@@ -604,6 +606,7 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--world-sdf", type=Path)
         command.add_argument("--weather", default="clear_noon")
         command.add_argument("--vehicles", type=int, choices=(1, 2, 3), default=1)
+        command.add_argument("--no-video", action="store_true", help="do not subscribe to the Gazebo camera")
         command.add_argument("--airframe", default="x500_mono_cam")
         if name == "up":
             command.add_argument("--gpu", default="auto")
