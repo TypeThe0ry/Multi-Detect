@@ -61,7 +61,7 @@ export MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=${MULTIDETECT_SIM_FIRST_FRAME_WAIT_S:-
 
 json_rows() {
   "$TOOLS_PYTHON" - "$MANIFEST" <<'PY'
-import json, sys
+import json, math, sys
 rows=json.load(open(sys.argv[1], encoding='utf-8'))
 if not isinstance(rows, list) or not rows:
     raise SystemExit('manifest 必须是非空 JSON 数组')
@@ -69,6 +69,8 @@ for i,row in enumerate(rows):
     if not isinstance(row, dict): raise SystemExit(f'第 {i} 项不是对象')
     for key in ('name','scenario','resolved_root','extent_m'):
         if key not in row: raise SystemExit(f'第 {i} 项缺少 {key}')
+    minimum_rtf=float(row.get('minimum_rtf', 0.9))
+    if not math.isfinite(minimum_rtf) or minimum_rtf < 0.9: raise SystemExit(f'第 {i} 项 minimum_rtf 必须是 >= 0.9 的有限数')
     print(json.dumps(row, ensure_ascii=False, separators=(',', ':')))
 PY
 }
@@ -147,21 +149,24 @@ from pathlib import Path
 out=Path(sys.argv[1]); stats_path=out/'stats.json'; flight_path=out/'flight/long-range-result.json'
 flight=json.loads(flight_path.read_text(encoding='utf-8')) if flight_path.exists() else {}
 stats=json.loads(stats_path.read_text(encoding='utf-8')) if stats_path.exists() else {}
-manifest=json.loads(sys.argv[9]); slot=int(sys.argv[8]); minimum=float(manifest.get("minimum_max_distance_m", 4000 if float(sys.argv[3]) >= 6000 else 1000))
+manifest=json.loads(sys.argv[9]); slot=int(sys.argv[8]); minimum=float(manifest.get("minimum_max_distance_m", 4000 if float(sys.argv[3]) >= 6000 else 1000)); minimum_rtf=float(manifest.get("minimum_rtf", 0.9))
 container_name=stats.get("container_name")
 route=flight.get("route_completed") is True
 distance=flight.get("max_distance_from_spawn_m")
 slot_name_ok=isinstance(container_name,str) and f"-slot-{slot}-" in container_name
 stats_ok=stats.get("measurement_complete") is True and stats.get("errors")==[]
+rtf=stats.get("rtf_window_median")
+rtf_ok=isinstance(rtf,(int,float)) and rtf >= minimum_rtf
 distance_ok=isinstance(distance,(int,float)) and distance >= minimum
-valid=(int(sys.argv[5])==0 and int(sys.argv[6])==0 and route and distance_ok and stats_ok and slot_name_ok)
+valid=(int(sys.argv[5])==0 and int(sys.argv[6])==0 and route and distance_ok and stats_ok and rtf_ok and slot_name_ok)
 issues=[]
 if not route: issues.append("route_completed is not true")
 if not distance_ok: issues.append(f"max_distance_from_spawn_m is below {minimum:g} m or missing")
 if not stats_ok: issues.append("stats.json is incomplete or has errors")
+if not rtf_ok: issues.append(f"rtf_window_median is below {minimum_rtf:g} or missing")
 if not slot_name_ok: issues.append(f"container name does not contain -slot-{slot}-")
 row={'name':sys.argv[2], 'variant':manifest.get("variant",sys.argv[2].split("_")[0]),
-     'attempt':int(sys.argv[7]), 'extent_m':float(sys.argv[3]), 'minimum_max_distance_m':minimum,
+     'attempt':int(sys.argv[7]), 'extent_m':float(sys.argv[3]), 'minimum_max_distance_m':minimum, 'minimum_rtf':minimum_rtf,
      'airframe':sys.argv[4], 'stats_returncode':int(sys.argv[5]), 'flight_returncode':int(sys.argv[6]),
      'route_completed':route, 'max_distance_from_spawn_m':distance, 'flight_status':flight.get("status"),
      'container_name_slot_verified':slot_name_ok, 'valid_round':valid, 'round_errors':issues,

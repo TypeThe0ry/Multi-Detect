@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Any
+from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -27,10 +27,113 @@ from scripts.realworld.leased_flight import SITL_PYTHON  # noqa: E402
 from scripts.sitl_lock import SitlLock, sitl_lock_context  # noqa: E402
 
 AIRFRAME = "rc_cessna_mono_cam"
+DEFAULT_PROFILE = "rw_farm_iowa_w6km__clear_noon"
+DEFAULT_SCENARIO = (
+    ROOT
+    / "configs/scenarios/realworld/rc_cessna_mono_cam"
+    / f"{DEFAULT_PROFILE}.scenario.json"
+)
+DEFAULT_OUTPUT_ROOT = ROOT / ".tmp/rtf-speedup-run/collect"
+MIN_WIDE_EXTENT_M = 6000.0
+MIN_LONG_RANGE_DISTANCE_M = 4000.0
+DEFAULT_MIN_RTF = 0.9
 
 
 def sidecar_path(scenario: Path) -> Path:
     return scenario.with_name(scenario.name.removesuffix(".scenario.json") + ".long_range.json")
+
+
+def scenario_id(scenario: Path) -> str:
+    return scenario.name.removesuffix(".scenario.json")
+
+
+def output_name(scenario: Path, minimum_rtf: float = DEFAULT_MIN_RTF) -> str:
+    """Stable output stem for a profile run and its measured RTF gate."""
+    return f"{scenario_id(scenario)}__long-range__rtf{int(round(minimum_rtf * 100)):02d}"
+
+
+def default_output_path(scenario: Path, minimum_rtf: float = DEFAULT_MIN_RTF) -> Path:
+    return DEFAULT_OUTPUT_ROOT / output_name(scenario, minimum_rtf)
+
+
+def _scenario_document(scenario: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        document = json.loads(scenario.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"scenario manifest not found: {scenario}") from exc
+    from scripts import collect_sim_teacher_episodes as collector
+
+    runtime_path, _ = collector._scenario_channels(scenario)
+    runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict) or not isinstance(runtime, dict):
+        raise ValueError("scenario and runtime channels must be JSON objects")
+    return document, runtime
+
+
+def resolve_profile(profile: str | None, scenario: Path | None) -> Path:
+    """Resolve the named wide-area profile without falling back to generated worlds."""
+    if scenario is None:
+        if profile not in (None, DEFAULT_PROFILE):
+            raise ValueError(f"unknown long-range profile: {profile}")
+        return DEFAULT_SCENARIO.resolve()
+    resolved = scenario.resolve()
+    if profile is not None:
+        if profile != DEFAULT_PROFILE:
+            raise ValueError(f"unknown long-range profile: {profile}")
+        if scenario_id(resolved) != DEFAULT_PROFILE:
+            raise ValueError(f"profile {profile} requires {DEFAULT_PROFILE}.scenario.json")
+    return resolved
+
+
+def _validate_profile(
+    scenario: Path,
+    sidecar: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    runtime: Mapping[str, Any],
+    *,
+    minimum_rtf: float | None,
+) -> float:
+    scenario_name = str(manifest.get("scenario_id", ""))
+    runtime_id = str(runtime.get("scenario_id", ""))
+    if scenario_name != runtime_id or scenario_name != scenario_id(scenario):
+        raise ValueError("scenario manifest/runtime identity does not match the scenario filename")
+    if not scenario_name.startswith("rw_") or "w6km" not in scenario_name:
+        raise ValueError("long-range profile requires an rw_* 6 km real-terrain scenario")
+    vehicle = runtime.get("vehicle")
+    if not isinstance(vehicle, Mapping):
+        raise ValueError("long-range profile requires a runtime vehicle")
+    if vehicle.get("model") != AIRFRAME or vehicle.get("airframe_profile_id") != "px4_fixed_wing_gazebo_v1":
+        raise ValueError("long-range profile requires rc_cessna_mono_cam / px4_fixed_wing_gazebo_v1")
+    world = runtime.get("world")
+    if not isinstance(world, Mapping) or any(
+        not str(world.get(key, "")).startswith("builtin://")
+        or scenario_name not in str(world.get(key, ""))
+        for key in ("world_asset", "map_asset", "dem_asset")
+    ):
+        raise ValueError("long-range profile requires scenario-owned rw_* world/map/DEM assets")
+    declared_scenario = sidecar.get("scenario_id", scenario_name)
+    if declared_scenario != scenario_name:
+        raise ValueError(f"long-range sidecar scenario_id {declared_scenario!r} does not match {scenario_name!r}")
+    declared_profile = sidecar.get("profile", scenario_name)
+    if declared_profile != scenario_name:
+        raise ValueError(f"long-range sidecar profile {declared_profile!r} does not match {scenario_name!r}")
+    declared_airframe = sidecar.get("airframe", AIRFRAME)
+    if declared_airframe != AIRFRAME:
+        raise ValueError("long-range sidecar airframe must be rc_cessna_mono_cam")
+    declared_rtf = float(sidecar.get("minimum_rtf", DEFAULT_MIN_RTF))
+    requested_rtf = declared_rtf if minimum_rtf is None else float(minimum_rtf)
+    if not math.isfinite(requested_rtf) or requested_rtf < DEFAULT_MIN_RTF:
+        raise ValueError(f"long-range RTF requirement must be at least {DEFAULT_MIN_RTF:g}")
+    if declared_rtf < DEFAULT_MIN_RTF:
+        raise ValueError(f"long-range sidecar RTF requirement must be at least {DEFAULT_MIN_RTF:g}")
+    declared_output = sidecar.get("output_stem")
+    if declared_output is not None and declared_output != output_name(scenario, declared_rtf):
+        raise ValueError("long-range sidecar output_stem does not match the scenario/profile RTF gate")
+    expected_task_id = f"{scenario_name}-long-range"
+    task = sidecar.get("task")
+    if not isinstance(task, Mapping) or task.get("task_id") != expected_task_id:
+        raise ValueError(f"long-range sidecar task_id must be {expected_task_id}")
+    return requested_rtf
 
 
 def offset_ned(home: GeoPoint, point: GeoPoint) -> tuple[float, float, float]:
@@ -40,10 +143,14 @@ def offset_ned(home: GeoPoint, point: GeoPoint) -> tuple[float, float, float]:
             -float(point.altitude_m or 0.0))
 
 
-def load_mission(scenario: Path) -> dict[str, Any]:
+def load_mission(scenario: Path, *, minimum_rtf: float | None = None) -> dict[str, Any]:
+    manifest, runtime_input = _scenario_document(scenario)
     data = json.loads(sidecar_path(scenario).read_text(encoding="utf-8"))
     if data.get("schema_version") != 1:
         raise ValueError("long_range sidecar requires schema_version=1")
+    required_rtf = _validate_profile(
+        scenario, data, manifest, runtime_input, minimum_rtf=minimum_rtf
+    )
     runtime = data["mission_compile_runtime"]
     geometry = FixedWingMissionGeometry.from_runtime_mapping(runtime)
     task = ResolvedTaskSpec.from_mapping(data["task"])
@@ -51,18 +158,21 @@ def load_mission(scenario: Path) -> dict[str, Any]:
     profile = json.loads((ROOT / "configs/airframes/rc_cessna_runway.json").read_text())
     compiled = compile_planned_task_mission_from_runtime(
         task, context, "fixed-wing", runtime=runtime,
-        airframe_profile_hash=canonical_sha256(profile), mission_id=f"{scenario.stem}-long-range")
+        airframe_profile_hash=canonical_sha256(profile), mission_id=f"{scenario_id(scenario)}-long-range")
     targets = [offset_ned(geometry.home, point) for point in (*geometry.waypoints, geometry.landing_approach)]
     maximum = max(math.hypot(p[0], p[1]) for p in targets)
-    minimum = float(data.get("minimum_max_distance_m", 4000.0))
-    if minimum < 1000.0 or maximum < minimum:
-        raise ValueError("long-range mission must reach at least 1000 m from spawn")
+    minimum = float(data.get("minimum_max_distance_m", MIN_LONG_RANGE_DISTANCE_M))
+    if minimum < MIN_LONG_RANGE_DISTANCE_M or maximum < minimum:
+        raise ValueError(
+            f"long-range mission must reach at least {MIN_LONG_RANGE_DISTANCE_M:g} m from spawn"
+        )
     extent = float(data["extent_m"])
-    if not math.isfinite(extent) or extent < 2000:
-        raise ValueError("long-range extent_m must be at least 2000")
+    if not math.isfinite(extent) or extent < MIN_WIDE_EXTENT_M:
+        raise ValueError(f"long-range extent_m must be at least {MIN_WIDE_EXTENT_M:g}")
     return {"source": data, "geometry": geometry, "compiled": compiled,
             "targets": targets, "minimum_max_distance_m": minimum,
-            "planned_max_distance_m": maximum}
+            "planned_max_distance_m": maximum, "minimum_rtf": required_rtf,
+            "profile": str(manifest["scenario_id"])}
 
 
 def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
@@ -74,8 +184,8 @@ def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
     dem = json.loads((ROOT / "simulation/terrain" / dem_name).read_text())
     origin = dem["origin"]
     home = GeoPoint(origin["latitude_deg"], origin["longitude_deg"])
-    if extent_m < 2000.0:
-        raise ValueError("long-range route requires extent_m>=2000")
+    if extent_m < MIN_WIDE_EXTENT_M:
+        raise ValueError(f"long-range route requires extent_m>={MIN_WIDE_EXTENT_M:g}")
     half = extent_m / 2.0
     def point(east, north, altitude=100.0):
         return GeoPoint(home.latitude_deg + math.degrees(north / 6378137.0),
@@ -109,7 +219,11 @@ def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
         wind_north_mps=0.0, wind_east_mps=0.0, gps_fix_type=3,
         gps_horizontal_accuracy_m=1.0, geofence_valid=True, camera_available=True,
         perception_available=True, map_cache_available=True, dem_available=True)
-    body = {"schema_version": 1, "extent_m": extent_m, "minimum_max_distance_m": 4000.0 if extent_m >= 6000.0 else 1000.0,
+    scenario_id = str(scenario_runtime["scenario_id"])
+    body = {"schema_version": 1, "scenario_id": scenario_id, "profile": scenario_id,
+        "airframe": AIRFRAME, "minimum_rtf": DEFAULT_MIN_RTF,
+        "output_stem": output_name(scenario, DEFAULT_MIN_RTF),
+        "extent_m": extent_m, "minimum_max_distance_m": 4000.0 if extent_m >= 6000.0 else 1000.0,
         "max_wall_s": 14400.0, "mission_compile_runtime": {"schema_version": 1,
             "vehicle_class": "fixed-wing", **geometry.to_mapping(), "safety_policy": policy.to_mapping()},
         "task": task.to_mapping(), "context": context.to_mapping(),
@@ -272,24 +386,41 @@ def collector_overrides(collector, mission):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("slot", type=int, choices=(5, 6, 7))
-    parser.add_argument("scenario", type=Path)
-    parser.add_argument("out", type=Path)
+    parser.add_argument("scenario", type=Path, nargs="?")
+    parser.add_argument("out", type=Path, nargs="?")
+    parser.add_argument("--profile", choices=(DEFAULT_PROFILE,), default=None)
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--write-mission", action="store_true", help="为已有独立 scenario 生成可复现长航程 sidecar")
     parser.add_argument("--extent-m", type=float, default=6000.0)
+    parser.add_argument("--min-rtf", type=float, default=None)
     args = parser.parse_args(argv)
     if int(os.environ.get("MULTIDETECT_SITL_SLOTS", "8")) < 8:
         parser.error("long-range validation requires MULTIDETECT_SITL_SLOTS>=8")
-    scenario, out = args.scenario.resolve(), args.out.resolve()
+    try:
+        scenario = resolve_profile(args.profile, args.scenario)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    minimum_rtf = DEFAULT_MIN_RTF if args.min_rtf is None else args.min_rtf
+    if not math.isfinite(minimum_rtf) or minimum_rtf < DEFAULT_MIN_RTF:
+        parser.error(f"--min-rtf must be at least {DEFAULT_MIN_RTF:g}")
+    out = (
+        args.out.resolve()
+        if args.out is not None
+        else default_output_path(scenario, minimum_rtf).resolve()
+    )
     if args.write_mission:
+        if args.scenario is None:
+            parser.error("--write-mission requires an explicit scenario")
         write_mission_sidecar(scenario, args.extent_m)
         return 0
-    mission = load_mission(scenario)
+    mission = load_mission(scenario, minimum_rtf=minimum_rtf)
     plan = collection_plan(scenario, out, args.slot, mission)
     from scripts import collect_sim_teacher_episodes as collector
     if args.plan_only:
         os.environ["MULTIDETECT_SITL_SLOT"] = str(args.slot)
         print(json.dumps({"schema_version": 1, "mode": "cpu_plan_only", "flight_started": False,
+                          "profile": mission["profile"], "minimum_rtf": mission["minimum_rtf"],
+                          "output": str(out),
                           "planned_max_distance_m": mission["planned_max_distance_m"],
                           "compiled_mission": mission["compiled"].to_mapping(),
                           "collector_plan": plan.to_mapping()}, ensure_ascii=False, indent=2))
@@ -314,6 +445,8 @@ def main(argv: list[str] | None = None) -> int:
     result = {"status": "pass" if passed else "fail", "episode": str(episode),
               "max_distance_from_spawn_m": maximum, "route_completed": route_ok,
               "minimum_max_distance_m": mission["minimum_max_distance_m"],
+              "minimum_rtf": mission["minimum_rtf"],
+              "rtf_status": "pending_stats_probe",
               "execution": "guided reposition waypoints; collector RTL/LAND teardown",
               "compiled_mission_uploaded": False}
     (out / "long-range-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")

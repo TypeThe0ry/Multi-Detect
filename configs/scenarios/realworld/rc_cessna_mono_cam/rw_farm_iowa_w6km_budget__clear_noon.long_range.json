@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
+  "scenario_id": "rw_farm_iowa_w6km_budget__clear_noon",
+  "profile": "rw_farm_iowa_w6km_budget__clear_noon",
+  "airframe": "rc_cessna_mono_cam",
+  "minimum_rtf": 0.9,
+  "output_stem": "rw_farm_iowa_w6km_budget__clear_noon__long-range__rtf90",
   "extent_m": 6000.0,
   "minimum_max_distance_m": 4000.0,
   "max_wall_s": 14400.0,

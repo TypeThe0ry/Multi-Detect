@@ -50,12 +50,12 @@ V1/V4 保留为历史定义，不作为运行候选；V3 没有 CLI 变体。生
 
 矩阵脚本使用 `RTF_MATRIX_SLOT` 指定 slot（仅允许 5/6/7，默认 7），固定 GPU 1，且要求 `MULTIDETECT_SITL_SLOTS>=8`。每个变体依次运行长航程固定翼，再用只读 `sample_stats.py` 订阅 `/world/default/stats`，记录 `Δsim/Δreal`、主机 load/pressure、GPU1 显存和可归因容器进程显存。容器名前缀带 `-slot-N-`；容器名会在结果中再次校验。变体之间有间隔；GPU1 有任何外部进程或 CPU load 超过阈值时等待，不杀进程、不改 cgroup。变体 world/map/DEM 从显式 `.tmp` 根目录解析；V5 的 `variant_model_root` 额外只读挂载到专用 Gazebo 搜索目录并排在 Fuel 缓存之前，不在共享资产目录安装或覆盖文件。不完整轮次会保留在 `attempt-N/` 并最多重跑 3 次。
 
-manifest 示例（2 km 对照的 `extent_m` 为 2000，长航程 sidecar 的最低距离为 1000 m；6 km 判定仍为 4000 m）：
+manifest 示例（当前长航程入口固定使用 6 km `rw_*` 世界、最低距离 4000 m）：
 
 ```json
 [
-  {"name":"V0_01","variant":"V0","scenario":"configs/scenarios/realworld/rc_cessna_mono_cam/rw_farm_iowa_w6km__clear_noon.scenario.json","resolved_root":"artifacts/cache/gz-fuel/resolved","extent_m":6000,"minimum_max_distance_m":4000},
-  {"name":"V5_01","variant":"V5","scenario":".tmp/rtf-speedup-run/variants/V5/scenario/rw_farm_iowa_w6km__rtf_v5__clear_noon.scenario.json","resolved_root":"artifacts/cache/gz-fuel/resolved","overlay_root":".tmp/rtf-speedup-run/variants/V5/models","variant_model_root":".tmp/rtf-speedup-run/variants/V5/models","variant_world_root":".tmp/rtf-speedup-run/variants/V5/worlds","variant_map_root":".tmp/rtf-speedup-run/variants/V5/assets/maps","variant_terrain_root":".tmp/rtf-speedup-run/variants/V5/assets/terrain","extent_m":6000,"minimum_max_distance_m":4000}
+  {"name":"V0_01","variant":"V0","scenario":"configs/scenarios/realworld/rc_cessna_mono_cam/rw_farm_iowa_w6km__clear_noon.scenario.json","resolved_root":"artifacts/cache/gz-fuel/resolved","extent_m":6000,"minimum_max_distance_m":4000,"minimum_rtf":0.9},
+  {"name":"V5_01","variant":"V5","scenario":".tmp/rtf-speedup-run/variants/V5/scenario/rw_farm_iowa_w6km__rtf_v5__clear_noon.scenario.json","resolved_root":"artifacts/cache/gz-fuel/resolved","overlay_root":".tmp/rtf-speedup-run/variants/V5/models","variant_model_root":".tmp/rtf-speedup-run/variants/V5/models","variant_world_root":".tmp/rtf-speedup-run/variants/V5/worlds","variant_map_root":".tmp/rtf-speedup-run/variants/V5/assets/maps","variant_terrain_root":".tmp/rtf-speedup-run/variants/V5/assets/terrain","extent_m":6000,"minimum_max_distance_m":4000,"minimum_rtf":0.9}
 ]
 ```
 
@@ -79,7 +79,7 @@ SITL 长航程脚本使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-v
 
 ## 判定标准与限制
 
-合格条件是稳定窗口 `rtf_window_median >= 0.9`、路线完成、最大距离至少 4000 m（2 km 对照只用于比较，最低距离 1000 m）。同时应保存 `stats.json`、`result.json`、`summary.json`、完整 flight 输出、主机压力采样和显存采样。没有 Gazebo stats 窗口、显存峰值或完整路线时，结果只能标为未完成。
+合格条件是稳定窗口 `rtf_window_median >= minimum_rtf`（默认 0.9）、路线完成、最大距离至少 4000 m（本入口只接受 6 km `rw_*` 场景）。`rtf_matrix.sh` 会把低于阈值或缺失的 stats 轮次标为无效。同时应保存 `stats.json`、`result.json`、`summary.json`、完整 flight 输出、主机压力采样和显存采样。没有 Gazebo stats 窗口、显存峰值或完整路线时，结果只能标为未完成。
 
 ## V0–V8 实测结论
 

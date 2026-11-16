@@ -8067,7 +8067,26 @@ def run_episode(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scenario", type=Path, required=True)
+    parser.add_argument("--scenario", type=Path, required=False)
+    parser.add_argument(
+        "--long-range-profile",
+        choices=("rw_farm_iowa_w6km__clear_noon",),
+        default=None,
+        help="dispatch the fixed-wing collector to the validated 6 km long-range route",
+    )
+    parser.add_argument(
+        "--long-range-slot",
+        type=int,
+        choices=(5, 6, 7),
+        default=7,
+        help="SITL slot used by --long-range-profile",
+    )
+    parser.add_argument(
+        "--min-rtf",
+        type=float,
+        default=0.9,
+        help="minimum stable-window RTF recorded by the long-range profile",
+    )
     parser.add_argument(
         "--airframe",
         default="x500_mono_cam",
@@ -8197,7 +8216,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sim-network", choices=("bridge", "host"), default=None)
     parser.add_argument("--sim-instance", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=False)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     parser.add_argument("--max-episode-s", type=float, default=None)
     parser.add_argument("--heartbeat-timeout-s", type=float, default=DEFAULT_HEARTBEAT_TIMEOUT_S)
@@ -8249,6 +8268,36 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
+    if args.long_range_profile:
+        from scripts.realworld import long_range_flight
+
+        if args.airframe != "rc_cessna_mono_cam":
+            raise SystemExit("--long-range-profile requires --airframe rc_cessna_mono_cam")
+        if args.teacher != "explore" or args.episodes != 1:
+            raise SystemExit("--long-range-profile requires --teacher explore and --episodes 1")
+        if not math.isfinite(args.min_rtf) or args.min_rtf < long_range_flight.DEFAULT_MIN_RTF:
+            raise SystemExit(
+                f"--min-rtf must be at least {long_range_flight.DEFAULT_MIN_RTF:g}"
+            )
+        try:
+            scenario = long_range_flight.resolve_profile(args.long_range_profile, args.scenario)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        if not scenario.is_file():
+            raise SystemExit(f"scenario not found: {scenario}")
+        out = args.out or long_range_flight.default_output_path(scenario, args.min_rtf)
+        delegated = [
+            str(args.long_range_slot),
+            str(scenario),
+            str(out),
+            "--min-rtf",
+            str(args.min_rtf),
+        ]
+        if args.dry_run:
+            delegated.append("--plan-only")
+        return long_range_flight.main(delegated)
+    if args.scenario is None or args.out is None:
+        raise SystemExit("--scenario and --out are required unless --long-range-profile is used")
     if args.episodes < 1 or args.steps_per_episode < 1:
         raise SystemExit("--episodes and --steps-per-episode must be positive")
     if args.video_hz < 0.0 or args.video_max_gb <= 0.0:

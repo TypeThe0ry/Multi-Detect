@@ -170,6 +170,9 @@ def generate(source_world: Path, out_dir: Path, *, variant: str, airframe: str, 
         if source_sidecar.is_file():
             sidecar = json.loads(source_sidecar.read_text(encoding="utf-8"))
             sidecar["scenario_id"] = stem
+            sidecar["profile"] = stem
+            sidecar["task"]["task_id"] = f"{stem}-long-range"
+            sidecar["output_stem"] = f"{stem}__long-range__rtf90"
             sidecar_path = scenario_out.with_name(f"{stem}.long_range.json")
             sidecar_path.write_text(json.dumps(sidecar, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             result["long_range_sidecar"] = str(sidecar_path)
