@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from ..camera import get_camera_profile
 from .netem import NetemConfig, NetemShaper
 from .protocol import MavlinkFrame, MavlinkFrameDecoder, parse_datagram, route_frames
 
@@ -46,6 +47,7 @@ class Vehicle:
     dropped_packets: int = 0
     tcp_queue_drops: int = 0
     messages: dict[str, int] = field(default_factory=dict)
+    camera_profile: str = "lite"
 
     def to_mapping(self, *, now: float | None = None) -> dict[str, object]:
         clock = time.monotonic() if now is None else now
@@ -55,6 +57,9 @@ class Vehicle:
             "sysid": self.sysid,
             "world": self.world,
             "airframe": self.airframe,
+            "container": f"md-polaris-sim-slot-{self.slot}",
+            "camera_profile": self.camera_profile,
+            "video_settings": get_camera_profile(self.camera_profile).video_settings(),
             "status": self.status if heartbeat_age is None or heartbeat_age < 5.0 else "disconnected",
             "last_heartbeat_age_s": heartbeat_age,
             "gps_fix_type": self.gps_fix_type,
@@ -94,6 +99,7 @@ class GatewayConfig:
     tcp_queue_size: int = 64
     relay_queue_size: int = 64
     video_sources: tuple[VideoSourceConfig, ...] = ()
+    camera_profile: str = "lite"
 
 
 @dataclass(slots=True, eq=False)
@@ -182,12 +188,15 @@ class PolarisSimGateway:
             asyncio.DatagramProtocol, local_addr=("0.0.0.0", 0), allow_broadcast=True
         )
         if self.config.video_sources:
-            from ..video.pipeline import VideoService
+            from ..video.pipeline import VideoService, VideoSettings
 
             self.video_service = VideoService(
                 self.config.bind_host,
                 self.config.rtsp_port,
                 shaper=self.netem,
+                default_settings=VideoSettings(
+                    **get_camera_profile(self.config.camera_profile).video_settings()
+                ),
             )
             for source in self.config.video_sources:
                 self.video_service.add_gazebo_camera(
@@ -687,11 +696,16 @@ def discover_lan_address() -> str:
     return str(candidates[0]) if candidates else "127.0.0.1"
 
 
-def vehicle_for_slot(slot: int, world: str, airframe: str) -> Vehicle:
+def vehicle_for_slot(
+    slot: int, world: str, airframe: str, camera_profile: str = "lite"
+) -> Vehicle:
     if slot not in {5, 6, 7}:
         raise ValueError("Polaris SIM slots are 5, 6 and 7")
+    get_camera_profile(camera_profile)
     control = 14560 + 10 * slot
-    return Vehicle(slot, slot - 4, world, airframe, control, control + 1)
+    return Vehicle(
+        slot, slot - 4, world, airframe, control, control + 1, camera_profile=camera_profile
+    )
 
 
 __all__ = [

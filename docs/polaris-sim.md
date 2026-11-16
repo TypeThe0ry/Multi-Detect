@@ -48,7 +48,7 @@ python scripts/polaris_sim/gimbal_smoke.py --host 192.168.1.138 --sysid 1
 
 ```bash
 scripts/polaris_sim/up.sh --world rw_suburb_davis --weather clear_noon \
-  --vehicles 2 --airframe x500_gimbal --gpu 2
+  --vehicles 2 --airframe x500_gimbal --gpu 2 --camera-profile lite
 scripts/polaris_sim/down.sh
 ```
 
@@ -63,6 +63,29 @@ scripts/polaris_sim/up.sh --world rw_suburb_davis --vehicles 2 --gpu auto --dry-
 ```
 
 就绪后终端会给出 TCP/UDP 地址、RTSP/AI 地址，以及可编码为二维码的 `polaris-sim://...` 文本。应用仍可手动输入 `192.168.1.138:5770`，或通过 discovery 配置。
+
+`--camera-profile` 控制 Gazebo 相机模型覆盖与 RTSP 默认编码参数，默认 `lite`。覆盖模型从所选本地镜像的 `mono_cam/model.sdf` 生成到 `/data/scratch/polaris-sim/overlay/<profile>/models/mono_cam/model.sdf`，以只读挂载并放在 `GZ_SIM_RESOURCE_PATH` 首位；仓库中的训练模型不会被修改。HD 保留镜像原模型。
+
+| Profile | Gazebo 相机 | RTSP 默认值 | 取舍 |
+|---|---:|---:|---|
+| `lite` | 640×480 @ 10 fps | 640×480 @ 10 fps | 默认；渲染开销最低 |
+| `standard` | 960×720 @ 15 fps | 960×720 @ 15 fps | 清晰度与开销折中 |
+| `hd` | 1280×960 @ 30 fps | 1280×720 @ 20 fps | 保留原始渲染，内存增长风险最高 |
+
+profile 和 RTSP `video_settings` 会写入 `state.json`、`GET /v1/vehicles`。RTSP 编码输出不会超过对应 profile 的相机分辨率或帧率。
+
+### 已知问题：gz-sim 相机渲染内存增长
+
+联调观察到 `x500_mono_cam` 容器内的 gz-sim 内存随相机渲染像素率线性增长；是否有订阅者、使用哪个世界或是否启用深度相机都没有改变该现象。已测样例：1280×960 @ 30 fps 约 110 MB/s，640×480 @ 10 fps 约 9 MB/s。slot 7 的 `rc_cessna` 长任务曾稳定在 8.4 GiB，原因尚未确定。
+
+Docker 容器内存上限由 `POLARIS_SIM_CONTAINER_MEMORY` 设置，默认 `16g`。超过上限时 Docker OOM 会杀掉该仿真容器，不会停止其他 slot 或工作负载。生命周期还会启动 `psim-memwatch`；任一自有 SITL 容器达到上限的 90% 时，看门狗只停止对应容器并把原因写入 `state.json`。`down.sh` 会一并停止看门狗。可用下列命令观察占用：
+
+```bash
+docker stats md-polaris-sim-slot-5 md-polaris-sim-slot-6
+curl http://127.0.0.1:8780/v1/doctor
+```
+
+Doctor 在超过 10 GiB 时报告 WARN，超过 14 GiB 时报告 FAIL，并建议重启仿真；这些阈值是诊断提示，看门狗仍使用配置上限的 90%。
 
 ## Netem 与录像
 

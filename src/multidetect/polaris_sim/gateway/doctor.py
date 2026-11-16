@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import re
 import shutil
 import socket
@@ -82,6 +83,31 @@ def doctor_checks(
             add(f"sitl:clock:sysid-{sysid}", "PASS", f"RTF {float(rtf):.2f}")
         else:
             add(f"sitl:clock:sysid-{sysid}", "WARN", f"low RTF {float(rtf):.2f}", "Reduce rendered scene complexity or close competing workloads.")
+        container = str(
+            vehicle.get("container")
+            or f"md-polaris-sim-slot-{vehicle.get('slot', '?')}"
+        )
+        usage, error = _container_memory_usage(container)
+        if usage is None:
+            add(
+                f"sitl:memory:sysid-{sysid}",
+                "WARN",
+                f"container memory unavailable for {container}: {error}",
+                "Check that Docker is running and the leased SITL container exists.",
+            )
+        else:
+            status = classify_container_memory_usage(usage)
+            suggestion = (
+                "重启仿真，并选择 lite 或 standard 相机 profile。"
+                if status in {"WARN", "FAIL"}
+                else ""
+            )
+            add(
+                f"sitl:memory:sysid-{sysid}",
+                status,
+                f"{container} memory usage {usage / (1024**3):.2f} GiB",
+                suggestion,
+            )
 
     try:
         with socket.create_connection((host, rtsp_port), timeout=0.5):
@@ -172,6 +198,49 @@ def _check_firewall(add) -> None:
         pass
     commands = suggestions(list(ports))
     add("firewall", "WARN", "could not read ufw or iptables rules", f"Review firewall policy; suggested commands: {commands}")
+
+
+def classify_container_memory_usage(usage_bytes: int) -> str:
+    """Apply the documented 10 GiB warning and 14 GiB failure thresholds."""
+    if usage_bytes > 14 * 1024**3:
+        return "FAIL"
+    if usage_bytes > 10 * 1024**3:
+        return "WARN"
+    return "PASS"
+
+
+def _parse_memory_bytes(value: str) -> int:
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([kmgt]?i?b)?\s*", value, re.IGNORECASE)
+    if not match:
+        raise ValueError(f"unrecognized Docker memory value: {value!r}")
+    unit = (match.group(2) or "b").lower()
+    exponent = {"b": 0, "kb": 1, "kib": 1, "mb": 2, "mib": 2,
+                "gb": 3, "gib": 3, "tb": 4, "tib": 4}.get(unit)
+    if exponent is None:
+        raise ValueError(f"unrecognized Docker memory unit: {unit}")
+    base = 1024 if "i" in unit else 1000
+    return math.floor(float(match.group(1)) * base**exponent)
+
+
+def _container_memory_usage(container: str) -> tuple[int | None, str]:
+    if not re.fullmatch(r"md-polaris-sim-slot-(?:5|6|7)", container):
+        return None, "unrecognized Polaris container name"
+    try:
+        result = subprocess.run(
+            ["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", container],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, str(exc)
+    if result.returncode:
+        return None, (result.stderr or result.stdout).strip() or "docker stats failed"
+    try:
+        return _parse_memory_bytes(result.stdout.split("/", 1)[0]), ""
+    except ValueError as exc:
+        return None, str(exc)
 
 
 def _source_in_lan(source: str, cidrs: list[str]) -> bool:

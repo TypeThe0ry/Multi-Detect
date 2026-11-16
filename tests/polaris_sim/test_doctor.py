@@ -4,7 +4,49 @@ import subprocess
 
 import pytest
 
-from multidetect.polaris_sim.gateway.doctor import _check_firewall, doctor_checks
+from multidetect.polaris_sim.gateway.doctor import (
+    _check_firewall,
+    _parse_memory_bytes,
+    classify_container_memory_usage,
+    doctor_checks,
+)
+
+
+def test_doctor_memory_thresholds_and_docker_usage_parser():
+    gib = 1024**3
+    assert classify_container_memory_usage(10 * gib) == "PASS"
+    assert classify_container_memory_usage(10 * gib + 1) == "WARN"
+    assert classify_container_memory_usage(14 * gib) == "WARN"
+    assert classify_container_memory_usage(14 * gib + 1) == "FAIL"
+    assert _parse_memory_bytes("14.5GiB") == int(14.5 * gib)
+
+
+def test_doctor_reports_high_memory_with_restart_suggestion(monkeypatch):
+    class Result:
+        returncode = 0
+        stdout = "14.5GiB / 16GiB"
+        stderr = ""
+
+    monkeypatch.setattr("multidetect.polaris_sim.gateway.doctor.socket.create_connection",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("closed")))
+    monkeypatch.setattr("multidetect.polaris_sim.gateway.doctor._udp_listener_ports", lambda: set())
+    monkeypatch.setattr("multidetect.polaris_sim.gateway.doctor._check_firewall", lambda _add: None)
+    monkeypatch.setattr("multidetect.polaris_sim.gateway.doctor._check_lan_ips", lambda _add: None)
+    monkeypatch.setattr("multidetect.polaris_sim.gateway.doctor._lan_ip_list", lambda: [])
+    monkeypatch.setattr(
+        "multidetect.polaris_sim.gateway.doctor.subprocess.run",
+        lambda *args, **kwargs: Result(),
+    )
+    monkeypatch.setattr("multidetect.polaris_sim.gateway.doctor.shutil.which", lambda _name: None)
+    monkeypatch.setattr("multidetect.polaris_sim.gateway.doctor.urllib.request.urlopen",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("closed")))
+
+    report = doctor_checks(
+        vehicles=[{"slot": 5, "sysid": 1, "container": "md-polaris-sim-slot-5"}]
+    )
+    memory = next(row for row in report["checks"] if row["name"] == "sitl:memory:sysid-1")
+    assert memory["status"] == "FAIL"
+    assert "重启仿真" in memory["suggestion"]
 
 
 def test_doctor_reports_vehicle_gps_clock_and_video_states(monkeypatch):

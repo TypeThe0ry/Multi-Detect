@@ -14,12 +14,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from contextlib import suppress
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
+from multidetect.polaris_sim.camera import get_camera_profile  # noqa: E402
 from scripts.sitl_lock import SitlLock  # noqa: E402
 
 WORLD_DIR = ROOT / "simulation/gazebo/worlds"
@@ -33,6 +35,10 @@ SESSION_UNIT = "psim-session"
 GATEWAY_UNIT = "psim-gateway"
 VIDEO_UNIT = "psim-video"  # Stop an older separately managed video service during cleanup.
 AI_UNIT = "psim-ai"
+MEMWATCH_UNIT = "psim-memwatch"
+CAMERA_OVERLAY_ROOT = Path("/data/scratch/polaris-sim/overlay")
+CAMERA_MODEL_IN_IMAGE = "/opt/px4-gazebo/share/gz/models/mono_cam/model.sdf"
+CAMERA_OVERLAY_TARGET = "/opt/polaris-sim-camera-overlay"
 
 
 class LifecycleError(RuntimeError):
@@ -59,6 +65,21 @@ def _write_state(value: dict[str, object]) -> None:
     temporary = path.with_suffix(f".tmp-{os.getpid()}")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, path)
+
+
+def _merge_memwatch_state(state: dict[str, object]) -> None:
+    try:
+        persisted = _read_state()
+    except (OSError, LifecycleError):
+        return
+    for key in (
+        "memwatch_pid",
+        "memory_watchdog_container",
+        "memory_watchdog_reason",
+        "memory_watchdog_at",
+    ):
+        if key in persisted:
+            state[key] = persisted[key]
 
 
 def _world_dirs() -> list[Path]:
@@ -114,6 +135,107 @@ def _managed_docker_command(command: list[str] | tuple[str, ...]) -> list[str]:
     # real-terrain worlds with a 720p camera exceed 12 GiB in gz-sim (OOM seen on rw_singapore_marina_bay)
     result.insert(result.index("--name"), f"--memory={os.environ.get('POLARIS_SIM_CONTAINER_MEMORY', '16g')}")
     result.insert(result.index("--name"), "--rm")
+    return result
+
+
+def _camera_overlay_models_dir(profile_name: str) -> Path:
+    return CAMERA_OVERLAY_ROOT / profile_name / "models"
+
+
+def _generate_camera_overlay(
+    profile_name: str,
+    source_sdf: str,
+    overlay_root: Path,
+) -> Path | None:
+    profile = get_camera_profile(profile_name)
+    if not profile.overrides_model:
+        return None
+    try:
+        sdf = ET.fromstring(source_sdf)
+    except ET.ParseError as exc:
+        raise LifecycleError(f"invalid mono_cam model SDF: {exc}") from exc
+    changed = 0
+    for sensor in sdf.iter("sensor"):
+        camera = sensor.find("camera")
+        if camera is None:
+            continue
+        image = camera.find("image")
+        width = None if image is None else image.find("width")
+        height = None if image is None else image.find("height")
+        update_rate = sensor.find("update_rate")
+        if width is None or height is None or update_rate is None:
+            raise LifecycleError(
+                "mono_cam camera sensor is missing image dimensions or update_rate"
+            )
+        width.text = str(profile.camera_width)
+        height.text = str(profile.camera_height)
+        update_rate.text = str(profile.camera_fps)
+        changed += 1
+    if not changed:
+        raise LifecycleError("mono_cam model SDF contains no camera sensor")
+    destination = overlay_root / "models" / "mono_cam" / "model.sdf"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    ET.indent(sdf, space="  ")
+    destination.write_bytes(ET.tostring(sdf, encoding="utf-8", xml_declaration=True) + b"\n")
+    return destination
+
+
+def _image_model_sdf(image: str) -> str:
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "cat",
+         image, CAMERA_MODEL_IN_IMAGE],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        raise LifecycleError(f"cannot read mono_cam model from local image {image}: {detail}")
+    return result.stdout
+
+
+def _prepare_camera_overlay(profile_name: str, image: str) -> Path | None:
+    profile = get_camera_profile(profile_name)
+    if not profile.overrides_model:
+        return None
+    return _generate_camera_overlay(
+        profile_name,
+        _image_model_sdf(image),
+        CAMERA_OVERLAY_ROOT / profile_name,
+    )
+
+
+def _with_camera_overlay(
+    command: list[str] | tuple[str, ...],
+    profile_name: str,
+    overlay_models_dir: Path | None,
+    *,
+    image: str,
+) -> list[str]:
+    result = list(command)
+    profile = get_camera_profile(profile_name)
+    if not profile.overrides_model:
+        return result
+    if overlay_models_dir is None:
+        overlay_models_dir = _camera_overlay_models_dir(profile_name)
+    try:
+        image_index = result.index(image)
+    except ValueError as exc:
+        raise LifecycleError("Docker plan does not contain its selected image") from exc
+    try:
+        env_index = next(
+            index for index, token in enumerate(result[:-1])
+            if token == "--env" and result[index + 1].startswith("GZ_SIM_RESOURCE_PATH=")
+        )
+    except StopIteration as exc:
+        raise LifecycleError("Docker plan does not define GZ_SIM_RESOURCE_PATH") from exc
+    existing = result[env_index + 1].split("=", 1)[1]
+    result[env_index + 1] = f"GZ_SIM_RESOURCE_PATH={CAMERA_OVERLAY_TARGET}:{existing}"
+    result[image_index:image_index] = [
+        "--mount",
+        f"type=bind,source={overlay_models_dir},target={CAMERA_OVERLAY_TARGET},readonly",
+    ]
     return result
 
 
@@ -274,10 +396,12 @@ def _local_image(gpu: bool) -> str:
 
 
 def _dry_run(args: argparse.Namespace) -> int:
+    profile = get_camera_profile(args.camera_profile)
     world, world_path = _resolve_world(args.world, args.weather)
     gpus = _select_gpus(args.gpu, args.vehicles, dry_run=True)
     slots = [
         {"slot": slot, "sysid": slot - 4, "gpu": gpus[index],
+         "camera_profile": profile.name, "video_settings": profile.video_settings(),
          "control_udp": 14560 + 10 * slot, "telemetry_udp": 14561 + 10 * slot}
         for index, slot in enumerate(range(5, 5 + args.vehicles))
     ]
@@ -322,6 +446,12 @@ def _dry_run(args: argparse.Namespace) -> int:
                     row["docker_command_error"] = str(exc)
                 else:
                     command = _managed_docker_command(docker_plan.command)
+                    command = _with_camera_overlay(
+                        command,
+                        profile.name,
+                        _camera_overlay_models_dir(profile.name),
+                        image=docker_plan.image,
+                    )
                     row["docker_command"] = command
                     row["docker_command_text"] = shlex.join(command)
         finally:
@@ -348,6 +478,12 @@ def _dry_run(args: argparse.Namespace) -> int:
         "world_sdf": None if world_path is None else str(world_path),
         "world_generation_command": None if world_path else _generation_command(args.world, args.weather),
         "airframe": args.airframe,
+        "camera_profile": profile.name,
+        "video_settings": profile.video_settings(),
+        "camera_overlay_models_dir": (
+            str(_camera_overlay_models_dir(profile.name)) if profile.overrides_model else None
+        ),
+        "container_memory_limit": os.environ.get("POLARIS_SIM_CONTAINER_MEMORY", "16g"),
         "gpu_assignments": gpus,
         "gpu_note": "nvidia-smi unavailable; auto selection will happen on launch" if "auto" in gpus else None,
         "slots": slots,
@@ -384,8 +520,22 @@ def _command_up(args: argparse.Namespace) -> int:
         "supervise", "--world", world, "--weather", args.weather, "--airframe", args.airframe,
         "--world-sdf", str(world_path), "--vehicles", str(args.vehicles),
         "--gpus", ",".join(gpus), "--image", image,
+        "--camera-profile", args.camera_profile,
     ]
-    _systemd_run(SESSION_UNIT, [sys.executable, str(Path(__file__).resolve()), *arguments], "512M")
+    if args.no_video:
+        arguments.append("--no-video")
+    session_env = {
+        "POLARIS_SIM_STATE_FILE": str(_state_path()),
+        "POLARIS_SIM_CONTAINER_MEMORY": os.environ.get(
+            "POLARIS_SIM_CONTAINER_MEMORY", "16g"
+        ),
+    }
+    _systemd_run(
+        SESSION_UNIT,
+        [sys.executable, str(Path(__file__).resolve()), *arguments],
+        "512M",
+        env=session_env,
+    )
     print(f"启动请求已提交到 {SESSION_UNIT}；等待 SITL 心跳与 GPS fix。")
     deadline = time.monotonic() + args.ready_timeout
     last_error = "gateway not ready"
@@ -436,6 +586,7 @@ def _host_address() -> str:
 
 
 async def _supervise(args: argparse.Namespace) -> int:
+    profile = get_camera_profile(args.camera_profile)
     world, world_path = _resolve_world(args.world, args.weather)
     if args.world_sdf:
         supplied_world_path = Path(args.world_sdf).expanduser()
@@ -456,7 +607,10 @@ async def _supervise(args: argparse.Namespace) -> int:
     units: list[str] = []
     state: dict[str, object] = {"phase": "starting", "session_unit": SESSION_UNIT, "pid": os.getpid(),
                                 "started_at": time.time(), "world": world, "weather": args.weather,
-                                "airframe": args.airframe, "slots": [], "units": []}
+                                "airframe": args.airframe, "camera_profile": profile.name,
+                                "video_settings": profile.video_settings(),
+                                "container_memory_limit": os.environ.get("POLARIS_SIM_CONTAINER_MEMORY", "16g"),
+                                "slots": [], "units": []}
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):
@@ -479,6 +633,7 @@ async def _supervise(args: argparse.Namespace) -> int:
             locks.append(lock)
         if not locks:
             raise LifecycleError("no SITL slots were leased")
+        overlay_models_dir = _prepare_camera_overlay(profile.name, args.image)
         for lock in locks:
             slot = int(lock.slot)
             control = 14560 + 10 * slot
@@ -497,6 +652,9 @@ async def _supervise(args: argparse.Namespace) -> int:
                 job_dir=job_dir,
             )
             command = _managed_docker_command(plan.command)
+            command = _with_camera_overlay(
+                command, profile.name, overlay_models_dir, image=plan.image
+            )
             name = f"md-polaris-sim-slot-{slot}"
             unit = f"psim-sitl-slot-{slot}"
             _systemd_run(unit, command, "12G")
@@ -504,10 +662,13 @@ async def _supervise(args: argparse.Namespace) -> int:
             state["slots"].append({"slot": slot, "sysid": slot - 4, "container": name,
                                    "control_port": control, "telemetry_port": telemetry,
                                    "scenario": str(scenario), "model_name": plan.model_name,
-                                   "worker_index": plan.worker_index})
+                                   "worker_index": plan.worker_index,
+                                   "camera_profile": profile.name,
+                                   "video_settings": profile.video_settings()})
         slot_args = ",".join(str(lock.slot) for lock in locks)
         gateway_cmd = [sys.executable, str(ROOT / "scripts/polaris_sim/gateway.py"),
                        "--slots", slot_args, "--world", world, "--airframe", args.airframe,
+                       "--camera-profile", profile.name,
                        "--host-address", _host_address(), "--state-file", str(_state_path()),
                        "--record-dir", str(_state_path().parent / "recordings")]
         camera_name = "gimbal" if "gimbal" in args.airframe else "cam"
@@ -529,6 +690,8 @@ async def _supervise(args: argparse.Namespace) -> int:
         vehicle_env = json.dumps(
             [{"slot": int(lock.slot), "sysid": int(lock.slot) - 4,
               "world": world, "airframe": args.airframe,
+              "camera_profile": profile.name,
+              "video_settings": profile.video_settings(),
               "control_port": 14560 + 10 * int(lock.slot),
               "telemetry_port": 14561 + 10 * int(lock.slot),
               "rtsp": f"rtsp://{_host_address()}:8554/v{index}/{'gimbal' if 'gimbal' in args.airframe else 'cam'}"}
@@ -553,10 +716,19 @@ async def _supervise(args: argparse.Namespace) -> int:
         state["units"] = units
         state["gpu_assignments"] = gpu_assignments[: len(locks)]
         state["phase"] = "running"
+        units.append(MEMWATCH_UNIT)
+        state["units"] = units
         _write_state(state)
+        memwatch_cmd = [sys.executable, str(ROOT / "scripts/polaris_sim/memwatch.py"),
+                        "--state-file", str(_state_path()),
+                        "--memory-limit", os.environ.get("POLARIS_SIM_CONTAINER_MEMORY", "16g")]
+        for row in state["slots"]:
+            memwatch_cmd.extend(["--container", str(row["container"])])
+        _systemd_run(MEMWATCH_UNIT, memwatch_cmd, "256M")
         print(json.dumps({"status": "running", **state}, ensure_ascii=False), flush=True)
         await stop_event.wait()
     except BaseException:
+        _merge_memwatch_state(state)
         state["phase"] = "failed"
         state["units"] = units
         with suppress(OSError):
@@ -567,6 +739,8 @@ async def _supervise(args: argparse.Namespace) -> int:
             _systemctl("stop", unit)
         for lock in reversed(locks):
             lock.release()
+        _merge_memwatch_state(state)
+        state["memwatch_pid"] = None
         state["phase"] = "stopped"
         state["stopped_at"] = time.time()
         state["units"] = units
@@ -580,7 +754,7 @@ def _down() -> int:
     units = state.get("units", [])
     if not isinstance(units, list):
         raise LifecycleError("state file contains an invalid unit list")
-    allowed = {SESSION_UNIT, GATEWAY_UNIT, VIDEO_UNIT, AI_UNIT}
+    allowed = {SESSION_UNIT, GATEWAY_UNIT, VIDEO_UNIT, AI_UNIT, MEMWATCH_UNIT}
     allowed.update(f"psim-sitl-slot-{slot}" for slot in (5, 6, 7))
     stopped = []
     for unit in [*reversed(units), SESSION_UNIT]:
@@ -588,6 +762,7 @@ def _down() -> int:
             _systemctl("stop", unit)
             stopped.append(unit)
     state["phase"] = "stopped"
+    state["memwatch_pid"] = None
     state["stopped_at"] = time.time()
     state["units"] = stopped
     with suppress(OSError):
@@ -608,6 +783,7 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--vehicles", type=int, choices=(1, 2, 3), default=1)
         command.add_argument("--no-video", action="store_true", help="do not subscribe to the Gazebo camera")
         command.add_argument("--airframe", default="x500_mono_cam")
+        command.add_argument("--camera-profile", choices=("lite", "standard", "hd"), default="lite")
         if name == "up":
             command.add_argument("--gpu", default="auto")
         else:

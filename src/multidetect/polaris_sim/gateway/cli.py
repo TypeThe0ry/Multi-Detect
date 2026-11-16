@@ -19,6 +19,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--slots", default="5", help="comma-separated SITL slots: 5,6,7")
     parser.add_argument("--world", default="rw_suburb_davis")
     parser.add_argument("--airframe", default="x500_mono_cam")
+    parser.add_argument("--camera-profile", choices=("lite", "standard", "hd"), default="lite")
     parser.add_argument("--tcp-port", type=int, default=5770)
     parser.add_argument("--udp-port", type=int, default=14550)
     parser.add_argument("--http-port", type=int, default=8780)
@@ -44,7 +45,10 @@ async def _run(args: argparse.Namespace) -> None:
         slots = [int(value) for value in args.slots.split(",") if value]
         if not slots or len(set(slots)) != len(slots):
             raise ValueError("--slots must contain unique slot numbers")
-        vehicles = [vehicle_for_slot(slot, args.world, args.airframe) for slot in slots]
+        vehicles = [
+            vehicle_for_slot(slot, args.world, args.airframe, args.camera_profile)
+            for slot in slots
+        ]
         video_sources = []
         for raw_slot, camera, container, world, model in args.video_source:
             slot = int(raw_slot)
@@ -81,6 +85,7 @@ async def _run(args: argparse.Namespace) -> None:
         host_address=args.host_address,
         netem_seed=args.seed,
         video_sources=tuple(video_sources),
+        camera_profile=args.camera_profile,
     )
     gateway = PolarisSimGateway(vehicles, config)
     await gateway.start()

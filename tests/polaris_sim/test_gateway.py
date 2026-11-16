@@ -55,6 +55,15 @@ class _FakeTcpClient:
         self.writer = _FakeWriter()
 
 
+def test_vehicle_mapping_exposes_profile_and_video_defaults():
+    row = vehicle_for_slot(6, "rw_test", "x500_mono_cam", "standard").to_mapping()
+    assert row["slot"] == 6
+    assert row["sysid"] == 2
+    assert row["camera_profile"] == "standard"
+    assert row["video_settings"] == {"width": 960, "height": 720, "fps": 15}
+    assert row["container"] == "md-polaris-sim-slot-6"
+
+
 async def _run_route_smoke():
     vehicles = [vehicle_for_slot(slot, "rw_test", "x500_gimbal") for slot in (5, 6)]
     gateway = PolarisSimGateway(vehicles, GatewayConfig(record_dir=Path("/tmp/polaris-sim-test")))

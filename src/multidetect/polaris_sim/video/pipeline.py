@@ -225,10 +225,16 @@ class VideoService:
     """Embeddable RTSP service for the Sim Gateway process."""
 
     def __init__(
-        self, host: str = "192.168.1.138", port: int = 8554, *, shaper: NetemShaper | None = None
+        self,
+        host: str = "192.168.1.138",
+        port: int = 8554,
+        *,
+        shaper: NetemShaper | None = None,
+        default_settings: VideoSettings | None = None,
     ) -> None:
         self.server = RtspServer(host, port, shaper=shaper)
         self.pipelines: list[VideoPipeline] = []
+        self.default_settings = default_settings or VideoSettings()
 
     def add_camera(
         self,
@@ -242,7 +248,7 @@ class VideoService:
             raise ValueError("vehicle_index must be 0, 1, or 2")
         if kind not in {"cam", "gimbal"}:
             raise ValueError("camera kind must be cam or gimbal")
-        config = settings or VideoSettings()
+        config = settings or self.default_settings
         stream = H264Stream(
             f"/v{vehicle_index}/{kind}",
             width=config.width,
@@ -269,7 +275,11 @@ class VideoService:
             vehicle_index,
             kind,
             GazeboTopicSource(
-                container, world, model, topic=topic, max_fps=(settings or VideoSettings()).fps
+                container,
+                world,
+                model,
+                topic=topic,
+                max_fps=(settings or self.default_settings).fps,
             ),
             settings=settings,
         )
