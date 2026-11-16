@@ -76,7 +76,7 @@ profile 和 RTSP `video_settings` 会写入 `state.json`、`GET /v1/vehicles`。
 
 ### 已知问题：gz-sim 相机渲染内存增长
 
-联调观察到 `x500_mono_cam` 容器内的 gz-sim 内存随相机渲染像素率线性增长；是否有订阅者、使用哪个世界或是否启用深度相机都没有改变该现象。已测样例：1280×960 @ 30 fps 约 110 MB/s，640×480 @ 10 fps 约 9 MB/s。slot 7 的 `rc_cessna` 长任务曾稳定在 8.4 GiB，原因尚未确定。
+联调观察到 `x500_mono_cam` 容器内的 gz-sim 内存随 RGB 相机渲染像素率线性增长；是否有订阅者、使用哪个世界或是否启用深度相机都没有改变该现象。已测样例：1280×960 @ 30 fps 约 110 MB/s，640×480 @ 10 fps 约 9 MB/s。最新的实机对照确认移除 RGB sensor 后 RSS 平台，但 `always_on`、`visualize`、阴影/lighting、headless 和 candB 均无改善；完整 CSV 与复现命令见 [`polaris-sim-gz-memory.md`](polaris-sim-gz-memory.md)。slot 7 的 `rc_cessna` 长任务曾稳定在 8.4 GiB，本 lane 尚未用匹配 world/scenario 完成复测。
 
 Docker 容器内存上限由 `POLARIS_SIM_CONTAINER_MEMORY` 设置，默认 `16g`。超过上限时 Docker OOM 会杀掉该仿真容器，不会停止其他 slot 或工作负载。生命周期还会启动 `psim-memwatch`；任一自有 SITL 容器达到上限的 90% 时，看门狗只停止对应容器并把原因写入 `state.json`。`down.sh` 会一并停止看门狗。可用下列命令观察占用：
 

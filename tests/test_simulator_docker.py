@@ -337,7 +337,7 @@ def test_host_network_gpu_render_plan_keeps_both_runtime_controls(
     assert "mavlink start -x -t 127.0.0.1" in startup
     assert "export PX4_NET_INTERFACE=lo;" in startup
     assert "--headless-rendering" in startup
-    assert "--render-engine ogre2" in startup
+    assert 'set -- "$@" --render-engine "$render_engine"' in startup
     assert "px4 -i 1" in startup
 
 

@@ -837,8 +837,8 @@ def build_docker_simulator_plan(
                 "NVIDIA_DRIVER_CAPABILITIES": "graphics,utility,compute",
                 "NVIDIA_VISIBLE_DEVICES": str(selected_gpu),
                 "EGL_PLATFORM": "surfaceless",
-                "GZ_SIM_RENDER_ENGINE": "ogre2",
-                "GZ_SIM_HEADLESS_RENDERING": "1",
+                "GZ_SIM_RENDER_ENGINE": os.environ.get("GZ_SIM_RENDER_ENGINE", "ogre2"),
+                "GZ_SIM_HEADLESS_RENDERING": os.environ.get("GZ_SIM_HEADLESS_RENDERING", "1"),
                 "__EGL_VENDOR_LIBRARY_FILENAMES": NVIDIA_EGL_VENDOR_FILE,
                 "LIBGL_ALWAYS_SOFTWARE": "0",
             }
@@ -903,13 +903,15 @@ def build_docker_simulator_plan(
             "#!/bin/sh\n"
             "set -eu\n"
             "if [ \"${1:-}\" = sim ]; then\n"
-            "  has_headless=0; has_engine=0\n"
+            "  has_headless=0; has_engine=0; render_engine=${GZ_SIM_RENDER_ENGINE:-ogre2}\n"
             "  for arg in \"$@\"; do\n"
             "    [ \"$arg\" = --headless-rendering ] && has_headless=1\n"
             "    [ \"$arg\" = --render-engine ] && has_engine=1\n"
             "  done\n"
-            "  [ \"$has_headless\" -eq 1 ] || set -- \"$@\" --headless-rendering\n"
-            "  [ \"$has_engine\" -eq 1 ] || set -- \"$@\" --render-engine ogre2\n"
+            "  if [ \"${GZ_SIM_HEADLESS_RENDERING:-1}\" = 1 ]; then\n"
+            "    [ \"$has_headless\" -eq 1 ] || set -- \"$@\" --headless-rendering\n"
+            "  fi\n"
+            "  [ \"$has_engine\" -eq 1 ] || set -- \"$@\" --render-engine \"$render_engine\"\n"
             "fi\n"
             "exec \"$MD_REAL_GZ\" \"$@\"\n"
             "EOF\n"

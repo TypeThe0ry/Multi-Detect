@@ -102,6 +102,30 @@ def test_dry_run_emits_full_docker_command_for_external_city_world(monkeypatch, 
     assert resource_path.startswith("GZ_SIM_RESOURCE_PATH=/opt/polaris-sim-camera-overlay:")
 
 
+def test_dry_run_honors_explicit_image(monkeypatch, capsys):
+    monkeypatch.setattr(lifecycle, "_select_gpus", lambda _gpu, count, dry_run: ["2"] * count)
+
+    def fail_local_image(_gpu):
+        raise AssertionError("explicit image should bypass local image discovery")
+
+    monkeypatch.setattr(lifecycle, "_local_image", fail_local_image)
+    result = lifecycle.main(
+        [
+            "up",
+            "--gpu",
+            "2",
+            "--vehicles",
+            "1",
+            "--image",
+            "multidetect/px4-sitl-gazebo:gz-harmonic-latest-candB",
+            "--dry-run",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert output["docker_image"] == "multidetect/px4-sitl-gazebo:gz-harmonic-latest-candB"
+
+
 def test_camera_profile_defaults_and_overlay_generation(tmp_path):
     assert get_camera_profile("lite").video_settings() == {
         "width": 640,
@@ -134,6 +158,36 @@ def test_camera_profile_defaults_and_overlay_generation(tmp_path):
     assert "<width>640</width>" in contents
     assert "<height>480</height>" in contents
     assert "<update_rate>10</update_rate>" in contents
+
+
+def test_camera_overlay_experiment_switches_sensor_rendering(tmp_path, monkeypatch):
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_ALWAYS_ON", "0")
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_VISUALIZE", "0")
+    source = (
+        "<sdf><model name='mono_cam'><link name='camera_link'>"
+        "<sensor name='camera' type='camera'><always_on>1</always_on>"
+        "<visualize>true</visualize><update_rate>30</update_rate>"
+        "<camera><image><width>1280</width><height>960</height></image></camera>"
+        "</sensor></link></model></sdf>"
+    )
+    destination = _generate_camera_overlay("lite", source, tmp_path)
+    contents = destination.read_text(encoding="utf-8")
+    assert "<always_on>0</always_on>" in contents
+    assert "<visualize>0</visualize>" in contents
+
+
+def test_camera_overlay_can_disable_rgb_sensor(tmp_path, monkeypatch):
+    monkeypatch.setenv("POLARIS_SIM_CAMERA_SENSOR", "0")
+    source = (
+        "<sdf><model name='mono_cam'><link name='camera_link'>"
+        "<sensor name='camera' type='camera'><update_rate>30</update_rate>"
+        "<camera><image><width>1280</width><height>960</height></image></camera>"
+        "</sensor><sensor name='imu' type='imu'/></link></model></sdf>"
+    )
+    destination = _generate_camera_overlay("lite", source, tmp_path)
+    contents = destination.read_text(encoding="utf-8")
+    assert 'type="camera"' not in contents
+    assert 'type="imu"' in contents
 
 
 def test_down_stops_memwatch_and_clears_recorded_pid(tmp_path, monkeypatch):

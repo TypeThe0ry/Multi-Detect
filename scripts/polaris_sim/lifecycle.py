@@ -173,6 +173,15 @@ def _generate_camera_overlay(
         raise LifecycleError(f"invalid mono_cam model SDF: {exc}") from exc
     changed = 0
     for sensor in sdf.iter("sensor"):
+        sensor_enabled = os.environ.get("POLARIS_SIM_CAMERA_SENSOR", "1")
+        if sensor_enabled not in {"0", "1"}:
+            raise LifecycleError("POLARIS_SIM_CAMERA_SENSOR must be 0 or 1")
+        if sensor_enabled == "0" and sensor.get("type") == "camera":
+            parent = next((element for element in sdf.iter() if sensor in list(element)), None)
+            if parent is not None:
+                parent.remove(sensor)
+            changed += 1
+            continue
         camera = sensor.find("camera")
         if camera is None:
             continue
@@ -187,6 +196,22 @@ def _generate_camera_overlay(
         width.text = str(profile.camera_width)
         height.text = str(profile.camera_height)
         update_rate.text = str(profile.camera_fps)
+        always_on = os.environ.get("POLARIS_SIM_CAMERA_ALWAYS_ON")
+        if always_on is not None:
+            if always_on not in {"0", "1"}:
+                raise LifecycleError("POLARIS_SIM_CAMERA_ALWAYS_ON must be 0 or 1")
+            element = sensor.find("always_on")
+            if element is None:
+                element = ET.SubElement(sensor, "always_on")
+            element.text = always_on
+        visualize = os.environ.get("POLARIS_SIM_CAMERA_VISUALIZE")
+        if visualize is not None:
+            if visualize not in {"0", "1"}:
+                raise LifecycleError("POLARIS_SIM_CAMERA_VISUALIZE must be 0 or 1")
+            element = sensor.find("visualize")
+            if element is None:
+                element = ET.SubElement(sensor, "visualize")
+            element.text = visualize
         changed += 1
     if not changed:
         raise LifecycleError("mono_cam model SDF contains no camera sensor")
@@ -224,6 +249,26 @@ def _prepare_camera_overlay(profile_name: str, image: str) -> Path | None:
         _image_model_sdf(image),
         CAMERA_OVERLAY_ROOT / profile_name,
     ).parent.parent
+
+
+def _override_docker_environment(command: list[str] | tuple[str, ...]) -> list[str]:
+    """Apply leak experiments without changing the planner's safe defaults."""
+    result = list(command)
+    overrides = {
+        key: os.environ[key]
+        for key in (
+            "GZ_SIM_RENDER_ENGINE",
+            "GZ_SIM_HEADLESS_RENDERING",
+            "HEADLESS",
+        )
+        if key in os.environ
+    }
+    for key, value in overrides.items():
+        for index in range(len(result) - 1):
+            if result[index] == "--env" and result[index + 1].startswith(f"{key}="):
+                result[index + 1] = f"{key}={value}"
+                break
+    return result
 
 
 def _with_camera_overlay(
@@ -431,15 +476,18 @@ def _dry_run(args: argparse.Namespace) -> int:
     docker_image: str | None = None
     docker_image_note: str | None = None
     if "auto" not in gpus and world_path is not None:
-        try:
-            docker_image = _local_image(any(gpu != "none" for gpu in gpus))
-        except (LifecycleError, OSError) as exc:
-            docker_image = (
-                "multidetect/px4-sitl-gazebo:gz-rendering-830-r1"
-                if any(gpu != "none" for gpu in gpus)
-                else "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
-            )
-            docker_image_note = f"local image availability not verified: {exc}"
+        if args.image:
+            docker_image = args.image
+        else:
+            try:
+                docker_image = _local_image(any(gpu != "none" for gpu in gpus))
+            except (LifecycleError, OSError) as exc:
+                docker_image = (
+                    "multidetect/px4-sitl-gazebo:gz-rendering-830-r1"
+                    if any(gpu != "none" for gpu in gpus)
+                    else "px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"
+                )
+                docker_image_note = f"local image availability not verified: {exc}"
     if docker_image is not None and world is not None and world_path is not None:
         scenario = _scenario_path(world, args.weather, args.airframe)
         old_allow = os.environ.get("MULTIDETECT_SIM_ALLOW_GPUS")
@@ -469,6 +517,7 @@ def _dry_run(args: argparse.Namespace) -> int:
                     row["docker_command_error"] = str(exc)
                 else:
                     command = _managed_docker_command(docker_plan.command, int(row["slot"]))
+                    command = _override_docker_environment(command)
                     command = _with_camera_overlay(
                         command,
                         profile.name,
@@ -538,7 +587,7 @@ def _command_up(args: argparse.Namespace) -> int:
         if not scenario.is_file():
             raise LifecycleError(f"scenario is missing: {scenario}; generate it with: {_generation_command(world, args.weather)}")
     gpus = _select_gpus(args.gpu, args.vehicles, dry_run=False)
-    image = _local_image(any(gpu != "none" for gpu in gpus))
+    image = args.image or _local_image(any(gpu != "none" for gpu in gpus))
     arguments = [
         "supervise", "--world", world, "--weather", args.weather, "--airframe", args.airframe,
         "--world-sdf", str(world_path), "--vehicles", str(args.vehicles),
@@ -553,6 +602,16 @@ def _command_up(args: argparse.Namespace) -> int:
             "POLARIS_SIM_CONTAINER_MEMORY", "16g"
         ),
     }
+    for key in (
+        "POLARIS_SIM_CAMERA_ALWAYS_ON",
+        "POLARIS_SIM_CAMERA_VISUALIZE",
+        "POLARIS_SIM_CAMERA_SENSOR",
+        "GZ_SIM_RENDER_ENGINE",
+        "GZ_SIM_HEADLESS_RENDERING",
+        "HEADLESS",
+    ):
+        if key in os.environ:
+            session_env[key] = os.environ[key]
     _systemd_run(
         SESSION_UNIT,
         [sys.executable, str(Path(__file__).resolve()), *arguments],
@@ -675,6 +734,7 @@ async def _supervise(args: argparse.Namespace) -> int:
                 job_dir=job_dir,
             )
             command = _managed_docker_command(plan.command, slot)
+            command = _override_docker_environment(command)
             command = _with_camera_overlay(
                 command, profile.name, overlay_models_dir, image=plan.image
             )
