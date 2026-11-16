@@ -27,6 +27,7 @@ model-tools = ["onnx>=1.16,<2"]
 
 [project.scripts]
 multi-detect = "multidetect.cli:main"
+polaris-sim-gateway = "multidetect.polaris_sim.gateway.cli:main"
 multidetect-sim = "multidetect.simulator.__main__:main"
 multidetect-release-gate = "multidetect.release_gate:main"
 multidetect-release-mode-evidence = "multidetect.release_mode_evidence:main"
