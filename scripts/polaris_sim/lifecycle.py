@@ -112,7 +112,7 @@ def _managed_docker_command(command: list[str] | tuple[str, ...]) -> list[str]:
     result.remove("-d")
     result.insert(result.index("run") + 1, "--pull=never")
     # real-terrain worlds with a 720p camera exceed 12 GiB in gz-sim (OOM seen on rw_singapore_marina_bay)
-    result.insert(result.index("--name"), f"--memory={os.environ.get('POLARIS_SIM_CONTAINER_MEMORY', '32g')}")
+    result.insert(result.index("--name"), f"--memory={os.environ.get('POLARIS_SIM_CONTAINER_MEMORY', '16g')}")
     result.insert(result.index("--name"), "--rm")
     return result
 

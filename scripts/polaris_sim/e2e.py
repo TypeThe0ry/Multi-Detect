@@ -28,6 +28,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+try:
+    from pymavlink import mavutil
+except ImportError:  # optional: only the mavlink steps need it
+    mavutil = None  # type: ignore[assignment]
+
 DEFAULT_STEPS = ("discovery", "mavlink", "video", "netem", "ai", "doctor", "record", "multi")
 EVENT_ORDER = (
     "query.parsed",
@@ -708,7 +713,7 @@ class PolarisE2E:
         last_heartbeat = 0.0
         while time.monotonic() < deadline:
             if time.monotonic() - last_heartbeat >= 1.0:
-                dialect = connection.mavlink
+                dialect = mavutil.mavlink
                 connection.mav.heartbeat_send(
                     dialect.MAV_TYPE_GCS,
                     dialect.MAV_AUTOPILOT_INVALID,
@@ -759,18 +764,28 @@ class PolarisE2E:
         params: tuple[float, ...],
         timeout: float = 10.0,
     ) -> Any:
-        connection.mav.command_long_send(sysid, 1, command, 0, *params)
-        ack = self._recv(
-            connection,
-            "COMMAND_ACK",
-            timeout,
-            lambda msg: msg.get_srcSystem() == sysid and msg.command == command,
-        )
+        # A fresh SITL answers TEMPORARILY_REJECTED until EKF/home are ready.
+        retry_until = time.monotonic() + 90.0
+        while True:
+            connection.mav.command_long_send(sysid, 1, command, 0, *params)
+            ack = self._recv(
+                connection,
+                "COMMAND_ACK",
+                timeout,
+                lambda msg: msg.get_srcSystem() == sysid and msg.command == command,
+            )
+            if (
+                ack is None
+                or ack.result != mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED
+                or time.monotonic() >= retry_until
+            ):
+                break
+            time.sleep(2.0)
         if ack is None:
             raise E2EFailure(f"no COMMAND_ACK for command {command} from sysid {sysid}")
         accepted = {
-            connection.mavlink.MAV_RESULT_ACCEPTED,
-            connection.mavlink.MAV_RESULT_IN_PROGRESS,
+            mavutil.mavlink.MAV_RESULT_ACCEPTED,
+            mavutil.mavlink.MAV_RESULT_IN_PROGRESS,
         }
         if ack.result not in accepted:
             raise E2EFailure(f"command {command} rejected by sysid {sysid}: result={ack.result}")
@@ -782,7 +797,7 @@ class PolarisE2E:
         last_heartbeat = 0.0
         while time.monotonic() < deadline:
             if time.monotonic() - last_heartbeat >= 1.0:
-                dialect = connection.mavlink
+                dialect = mavutil.mavlink
                 connection.mav.heartbeat_send(
                     dialect.MAV_TYPE_GCS,
                     dialect.MAV_AUTOPILOT_INVALID,
@@ -811,7 +826,7 @@ class PolarisE2E:
         last_heartbeat = 0.0
         while time.monotonic() < deadline:
             if time.monotonic() - last_heartbeat >= 1.0:
-                dialect = connection.mavlink
+                dialect = mavutil.mavlink
                 connection.mav.heartbeat_send(
                     dialect.MAV_TYPE_GCS,
                     dialect.MAV_AUTOPILOT_INVALID,
@@ -841,14 +856,6 @@ class PolarisE2E:
         try:
             details["heartbeat_source"] = connection.target_system
             details["parameter"] = self._read_parameter(connection, sysid)
-            mode = mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
-            px4_auto_takeoff = (4 << 16) | (2 << 24)
-            self._command(
-                connection,
-                sysid,
-                mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-                (float(mode), float(px4_auto_takeoff), 0.0, 0.0, 0.0, 0.0, 0.0),
-            )
             self._command(
                 connection,
                 sysid,
