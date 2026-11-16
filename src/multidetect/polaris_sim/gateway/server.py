@@ -96,7 +96,7 @@ class GatewayConfig:
     video_sources: tuple[VideoSourceConfig, ...] = ()
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class _TcpClient:
     reader: asyncio.StreamReader
     writer: asyncio.StreamWriter

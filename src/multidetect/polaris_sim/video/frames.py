@@ -154,7 +154,8 @@ if failure:
         self.container = container
         self.world = world
         self.model = model
-        self.topic = topic or (f"/world/{world}/model/{model}/link/camera_link/sensor/camera/image")
+        # SITL containers always run the selected world sdf as Gazebo world "default".
+        self.topic = topic or (f"/world/default/model/{model}/link/camera_link/sensor/camera/image")
         self.docker = docker
         self._process: subprocess.Popen[bytes] | None = None
         self._stderr_thread: threading.Thread | None = None
