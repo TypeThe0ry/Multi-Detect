@@ -20,6 +20,7 @@ import shutil
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -44,6 +45,7 @@ from multidetect.simulator.stack import (
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
 CONTAINER_MODEL_ROOT = "/opt/multidetect-gazebo-models"
+CONTAINER_RTF_MODEL_ROOT = "/opt/multidetect-rtf-models"
 CONTAINER_WORLD_ROOT = "/opt/px4-gazebo/share/gz/worlds"
 CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"
 CONTAINER_IMAGE_MODEL_ROOT = "/opt/px4-gazebo/share/gz/models"
@@ -359,6 +361,9 @@ class DockerSimulatorPlan:
     model_root_assets_sha256: str = ""
     # Resolved Fuel model cache bind-mounted read-only, or None when absent.
     fuel_resolved_root: Path | None = None
+    # Optional isolated model root for a local RTF experiment variant.
+    rtf_model_root: Path | None = None
+    rtf_model_root_sha256: str = ""
     gpu_render: bool = False
     gpu_device: str | None = None
     gpu_devices: tuple[str, ...] = ()
@@ -538,6 +543,13 @@ class DockerSimulatorPlan:
                 "readonly": True,
                 "sha256": self.staged_model_sha256,
             }
+        if self.rtf_model_root is not None:
+            document["mounts"]["rtf_model_overlay"] = {
+                "host": str(self.rtf_model_root),
+                "container": CONTAINER_RTF_MODEL_ROOT,
+                "readonly": True,
+                "sha256": self.rtf_model_root_sha256,
+            }
         return document
 
     def to_mapping_with_hash(self) -> dict[str, object]:
@@ -593,6 +605,49 @@ def _quote(value: str) -> str:
     if re.fullmatch(r"[A-Za-z0-9_./:@=+,-]+", value):
         return value
     return '"' + value.replace('"', '\\"') + '"'
+
+
+def _directory_assets_sha256(root: Path) -> str:
+    files = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        if path.is_symlink():
+            raise DockerSimulatorPlanError(f"RTF model asset must not be a symlink: {path}")
+        if path.is_file():
+            files.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "size_bytes": path.stat().st_size,
+                }
+            )
+    if not files:
+        raise DockerSimulatorPlanError(f"RTF model root is empty: {root}")
+    return canonical_sha256({"schema_version": 1, "files": files})
+
+
+def _resolve_rtf_model_root(root: Path, world_path: Path) -> Path | None:
+    configured = os.environ.get("MULTIDETECT_RTF_MODEL_ROOT", "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        model_root = _path(
+            candidate if candidate.is_absolute() else root / candidate,
+            label="MULTIDETECT_RTF_MODEL_ROOT",
+        )
+    elif fnmatchcase(world_path.stem, "*_w6km__*"):
+        model_root = _path(
+            root / "simulation" / "gazebo" / "models-wide-area",
+            label="default wide-area RTF model root",
+        )
+    else:
+        return None
+    if not model_root.is_dir():
+        label = (
+            "MULTIDETECT_RTF_MODEL_ROOT"
+            if configured
+            else "default wide-area RTF model root"
+        )
+        raise DockerSimulatorPlanError(f"{label} is not a directory: {model_root}")
+    return model_root
 
 
 def build_docker_simulator_plan(
@@ -683,6 +738,10 @@ def build_docker_simulator_plan(
         resolved_root = (root / "artifacts" / "cache" / "gz-fuel" / "resolved").resolve()
     has_resolved_root = resolved_root.is_dir()
     world_path = stack.world_path.resolve()
+    rtf_model_root = _resolve_rtf_model_root(root, world_path)
+    rtf_model_root_sha256 = (
+        _directory_assets_sha256(rtf_model_root) if rtf_model_root is not None else ""
+    )
     if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
         from scripts.gimbal_gz_resources import FUEL, preflight
 
@@ -763,6 +822,7 @@ def build_docker_simulator_plan(
         "GZ_SIM_RESOURCE_PATH": ":".join(
             value
             for value in (
+                CONTAINER_RTF_MODEL_ROOT if rtf_model_root is not None else "",
                 "/opt/multidetect-gz-fuel-resolved" if has_resolved_root else "",
                 CONTAINER_MODEL_ROOT,
                 CONTAINER_WORLD_ROOT,
@@ -922,6 +982,7 @@ def build_docker_simulator_plan(
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
             SIM_STARTUP_PATCHES,
             "export GZ_SIM_RESOURCE_PATH=",
+            (f"{CONTAINER_RTF_MODEL_ROOT}:" if rtf_model_root is not None else ""),
             ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
@@ -959,6 +1020,8 @@ def build_docker_simulator_plan(
         *network_tokens,
         "--mount",
         _mount(model_root, CONTAINER_MODEL_ROOT),
+        *(("--mount", _mount(rtf_model_root, CONTAINER_RTF_MODEL_ROOT))
+          if rtf_model_root is not None else ()),
         *extra_mounts,
         *(
             ("--mount", _mount(resolved_root, "/opt/multidetect-gz-fuel-resolved"))
@@ -1012,6 +1075,8 @@ def build_docker_simulator_plan(
         stack_assets_sha256=stack.assets.aggregate_sha256,
         model_root_assets_sha256=stack.assets.model_root.aggregate_sha256,
         fuel_resolved_root=resolved_root if has_resolved_root else None,
+        rtf_model_root=rtf_model_root,
+        rtf_model_root_sha256=rtf_model_root_sha256,
         gpu_render=gpu_render,
         gpu_device=selected_gpu,
         gpu_devices=resolved_gpu_devices,

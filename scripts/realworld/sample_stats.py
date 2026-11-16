@@ -10,6 +10,7 @@ import os
 import subprocess
 import threading
 import time
+from statistics import median
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -106,6 +107,7 @@ def host_sample() -> dict:
 def summarize(stats: list[dict], resources: list[dict], errors: list[str]) -> dict:
     issues = list(errors)
     sim_delta = real_delta = host_delta = rtf = host_rtf = None
+    window_rtfs: list[float] = []
     if len(stats) < 2:
         issues.append("fewer than two valid Gazebo stats messages")
     else:
@@ -118,6 +120,11 @@ def summarize(stats: list[dict], resources: list[dict], errors: list[str]) -> di
             issues.append("stats clock reset, stalled simulation, or non-positive clock span")
         else:
             rtf, host_rtf = sim_delta / real_delta, sim_delta / host_delta
+            for previous, current in zip(stats, stats[1:]):
+                sim_step = current["sim_time_s"] - previous["sim_time_s"]
+                real_step = current["real_time_s"] - previous["real_time_s"]
+                if sim_step > 0 and real_step > 0:
+                    window_rtfs.append(sim_step / real_step)
         if any(row["paused"] is True for row in stats):
             issues.append("world paused during measurement window")
 
@@ -127,6 +134,9 @@ def summarize(stats: list[dict], resources: list[dict], errors: list[str]) -> di
 
     device_peak = peak("device_memory_used_mib")
     process_peak = peak("container_process_memory_mib")
+    load1_samples = [float(row["loadavg"][0]) for row in resources
+                     if isinstance(row.get("loadavg"), list) and row["loadavg"]
+                     and math.isfinite(float(row["loadavg"][0]))]
     if device_peak is None:
         issues.append("no device memory samples")
     if process_peak is None:
@@ -138,9 +148,12 @@ def summarize(stats: list[dict], resources: list[dict], errors: list[str]) -> di
             issues.append("stats and resource sampling windows do not overlap")
     return {"measurement_complete": not issues, "errors": issues,
             "rtf_delta_sim_over_delta_real": rtf, "rtf_delta_sim_over_host_monotonic": host_rtf,
+            "rtf_window_median": median(window_rtfs) if window_rtfs else None,
+            "rtf_window_sample_count": len(window_rtfs),
             "delta_sim_s": sim_delta, "delta_gazebo_real_s": real_delta,
             "delta_host_monotonic_s": host_delta, "stats_sample_count": len(stats),
             "resource_sample_count": len(resources), "device_memory_peak_mib": device_peak,
+            "host_load1_median": median(load1_samples) if load1_samples else None,
             "container_process_memory_peak_mib": process_peak,
             "stats_first": stats[0] if stats else None, "stats_last": stats[-1] if stats else None}
 

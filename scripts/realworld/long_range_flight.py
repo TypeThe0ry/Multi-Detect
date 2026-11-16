@@ -55,11 +55,11 @@ def load_mission(scenario: Path) -> dict[str, Any]:
     targets = [offset_ned(geometry.home, point) for point in (*geometry.waypoints, geometry.landing_approach)]
     maximum = max(math.hypot(p[0], p[1]) for p in targets)
     minimum = float(data.get("minimum_max_distance_m", 4000.0))
-    if minimum < 4000.0 or maximum < minimum:
-        raise ValueError("long-range mission must reach at least 4000 m from spawn")
+    if minimum < 1000.0 or maximum < minimum:
+        raise ValueError("long-range mission must reach at least 1000 m from spawn")
     extent = float(data["extent_m"])
-    if not math.isfinite(extent) or extent < 6000:
-        raise ValueError("long-range extent_m must be at least 6000")
+    if not math.isfinite(extent) or extent < 2000:
+        raise ValueError("long-range extent_m must be at least 2000")
     return {"source": data, "geometry": geometry, "compiled": compiled,
             "targets": targets, "minimum_max_distance_m": minimum,
             "planned_max_distance_m": maximum}
@@ -74,8 +74,8 @@ def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
     dem = json.loads((ROOT / "simulation/terrain" / dem_name).read_text())
     origin = dem["origin"]
     home = GeoPoint(origin["latitude_deg"], origin["longitude_deg"])
-    if extent_m < 6000.0:
-        raise ValueError("4 km route requires extent_m>=6000")
+    if extent_m < 2000.0:
+        raise ValueError("long-range route requires extent_m>=2000")
     half = extent_m / 2.0
     def point(east, north, altitude=100.0):
         return GeoPoint(home.latitude_deg + math.degrees(north / 6378137.0),
@@ -109,7 +109,7 @@ def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
         wind_north_mps=0.0, wind_east_mps=0.0, gps_fix_type=3,
         gps_horizontal_accuracy_m=1.0, geofence_valid=True, camera_available=True,
         perception_available=True, map_cache_available=True, dem_available=True)
-    body = {"schema_version": 1, "extent_m": extent_m, "minimum_max_distance_m": 4000.0,
+    body = {"schema_version": 1, "extent_m": extent_m, "minimum_max_distance_m": 4000.0 if extent_m >= 6000.0 else 1000.0,
         "max_wall_s": 14400.0, "mission_compile_runtime": {"schema_version": 1,
             "vehicle_class": "fixed-wing", **geometry.to_mapping(), "safety_policy": policy.to_mapping()},
         "task": task.to_mapping(), "context": context.to_mapping(),
@@ -137,7 +137,8 @@ def collection_plan(scenario: Path, out: Path, slot: int, mission: dict[str, Any
         control_port=14560 + 10 * slot, telemetry_port=14561 + 10 * slot,
         timeout_s=seconds, max_episode_s=seconds,
         takeoff_altitude_m=geometry.takeoff_altitude_m,
-        extra_sim_params=tuple((str(k), str(v)) for k, v in mission["source"].get("sim_params", {}).items()))
+        extra_sim_params=tuple((str(k), str(v)) for k, v in mission["source"].get("sim_params", {}).items()),
+        rtf_overlay_root=os.environ.get("MULTIDETECT_RTF_OVERLAY_ROOT") or None)
 
 
 class LongRangePolicy:
@@ -256,7 +257,7 @@ def collector_overrides(collector, mission):
                     action = ActionPrimitive.translate(forward, right, 0.0)
             return super().execute(action)
 
-    collector._SmokeFlightPolicy = lambda: LongRangePolicy(mission["targets"], 80.0)
+    collector._SmokeFlightPolicy = lambda **_kwargs: LongRangePolicy(mission["targets"], 80.0)
     collector.FixedWingVtolExecutor = LongRangeExecutor
     collector._wait_motion_command = lambda command, reader, cruise_mps: wait_for_leg(
         command, reader, collector=collector, mission=mission, cruise_mps=cruise_mps)

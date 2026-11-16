@@ -639,13 +639,20 @@ def parse_builtin_world_uri(
             f"builtin world '{name}' does not match scenario_id '{scenario_id}'"
         )
     root = _resolve_repository_root(repository_root)
-    path = root / "simulation" / "gazebo" / "worlds" / f"{name}.sdf"
-    if not path.is_file():
-        path = root / "simulation" / "gazebo" / "worlds" / "variants" / f"{name}.sdf"
-    # New airframe fixtures are self-contained under the scenario boundary so
-    # adding a model does not require changing the shared world asset tree.
-    if not path.is_file():
-        path = root / "configs" / "scenarios" / "airframes" / f"{name}.sdf"
+    override = os.environ.get("MULTIDETECT_RTF_WORLD_ROOT", "").strip()
+    if override:
+        world_root = Path(override).expanduser()
+        if not world_root.is_absolute():
+            world_root = root / world_root
+        path = world_root / f"{name}.sdf"
+    else:
+        path = root / "simulation" / "gazebo" / "worlds" / f"{name}.sdf"
+        if not path.is_file():
+            path = root / "simulation" / "gazebo" / "worlds" / "variants" / f"{name}.sdf"
+        # New airframe fixtures are self-contained under the scenario boundary so
+        # adding a model does not require changing the shared world asset tree.
+        if not path.is_file():
+            path = root / "configs" / "scenarios" / "airframes" / f"{name}.sdf"
     _assert_contained_file(path, root, "world asset")
     _validate_world_sdf(path, expected_name="default")
     return BuiltinWorldReference(value, name, path)
@@ -682,9 +689,17 @@ def parse_builtin_asset_uri(
             f"builtin {kind} asset '{asset_scenario_id}' does not match scenario_id '{scenario_id}'"
         )
     root = _resolve_repository_root(repository_root)
-    path = root / "simulation" / kind / name
-    if not path.is_file():
-        path = root / "configs" / "scenarios" / "airframes" / name
+    override_name = "MULTIDETECT_RTF_MAP_ROOT" if kind == "maps" else "MULTIDETECT_RTF_TERRAIN_ROOT"
+    override = os.environ.get(override_name, "").strip()
+    if override:
+        asset_root = Path(override).expanduser()
+        if not asset_root.is_absolute():
+            asset_root = root / asset_root
+        path = asset_root / name
+    else:
+        path = root / "simulation" / kind / name
+        if not path.is_file():
+            path = root / "configs" / "scenarios" / "airframes" / name
     _assert_contained_file(path, root, f"{kind} asset")
     return BuiltinAssetReference(value, kind, name, path)
 

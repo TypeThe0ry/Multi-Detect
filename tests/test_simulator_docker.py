@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import run_simulator_docker as simulator_docker
 from scripts.run_simulator_docker import (
     PINNED_IMAGE,
     DockerSimulatorPlanError,
@@ -16,6 +17,11 @@ from scripts.run_simulator_docker import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
+WIDE_AREA_SCENARIO = (
+    ROOT
+    / "configs/scenarios/realworld/rc_cessna_mono_cam"
+    / "rw_farm_iowa_w6km__clear_noon.scenario.json"
+)
 
 
 def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Path) -> None:
@@ -251,6 +257,109 @@ def test_fuel_resolved_default_keeps_shared_cache_path(
         [f"type=bind,source={default_root},target={container_root},readonly"]
         if expected_root is not None else []
     )
+
+
+def test_rtf_model_root_is_mounted_readonly_ahead_of_shared_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model_root = tmp_path / "rtf-models"
+    (model_root / "rw_farm_iowa").mkdir(parents=True)
+    (model_root / "rw_farm_iowa/model.config").write_text("{}", encoding="utf-8")
+    fuel_root = tmp_path / "fuel-cache"
+    fuel_root.mkdir()
+    monkeypatch.setenv("MULTIDETECT_RTF_MODEL_ROOT", str(model_root))
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", str(fuel_root))
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    plan = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "rtf-model-plan"
+    )
+
+    container_root = "/opt/multidetect-rtf-models"
+    mount = f"type=bind,source={model_root.resolve()},target={container_root},readonly"
+    assert mount in plan.command
+    resource_path = dict(plan.environment)["GZ_SIM_RESOURCE_PATH"].split(":")
+    assert resource_path[:2] == [container_root, "/opt/multidetect-gz-fuel-resolved"]
+    assert (
+        f"export GZ_SIM_RESOURCE_PATH={container_root}:/opt/multidetect-gz-fuel-resolved:"
+        in plan.command[-1]
+    )
+    evidence = plan.to_mapping()
+    assert evidence["mounts"]["rtf_model_overlay"] == {
+        "host": str(model_root.resolve()),
+        "container": container_root,
+        "readonly": True,
+        "sha256": plan.rtf_model_root_sha256,
+    }
+    assert len(plan.rtf_model_root_sha256) == 64
+    assert evidence["external_processes_started"] is False
+
+
+def test_w6km_world_defaults_to_wide_area_camera_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+    assert simulator_docker._resolve_rtf_model_root(
+        ROOT, Path("rw_farm_iowa_w6km__clear_noon.sdf")
+    ) == (ROOT / "simulation/gazebo/models-wide-area").resolve()
+    assert simulator_docker._resolve_rtf_model_root(
+        ROOT, Path("rw_farm_iowa_w2km__clear_noon.sdf")
+    ) is None
+    assert simulator_docker._resolve_rtf_model_root(
+        ROOT, Path("rw_farm_iowa_w6km-clear_noon.sdf")
+    ) is None
+
+
+@pytest.mark.skipif(
+    not WIDE_AREA_SCENARIO.is_file(),
+    reason="wide-area scenario fixture is not present in this checkout",
+)
+def test_w6km_plan_mounts_default_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    plan = build_docker_simulator_plan(
+        WIDE_AREA_SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "w6km-default-overlay",
+    )
+
+    overlay_root = (ROOT / "simulation/gazebo/models-wide-area").resolve()
+    assert plan.world_path.name == "rw_farm_iowa_w6km__clear_noon.sdf"
+    assert plan.rtf_model_root == overlay_root
+    assert plan.to_mapping()["mounts"]["rtf_model_overlay"]["sha256"] == (
+        plan.rtf_model_root_sha256
+    )
+
+
+def test_explicit_rtf_model_root_overrides_w6km_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    override_root = tmp_path / "explicit-rtf-models"
+    override_root.mkdir()
+    monkeypatch.setenv("MULTIDETECT_RTF_MODEL_ROOT", str(override_root))
+    assert simulator_docker._resolve_rtf_model_root(
+        ROOT, Path("rw_farm_iowa_w6km__clear_noon.sdf")
+    ) == override_root.resolve()
+
+
+def test_non_w6km_world_does_not_auto_mount_wide_area_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "non-w6km-default-overlay",
+    )
+
+    assert plan.world_path.name != "rw_farm_iowa_w6km__clear_noon.sdf"
+    assert plan.rtf_model_root is None
+    assert "rtf_model_overlay" not in plan.to_mapping()["mounts"]
 
 
 def test_docker_plan_uses_selected_network_for_container_and_px4_target(

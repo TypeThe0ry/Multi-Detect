@@ -16,9 +16,11 @@ def stats(sim: float, real: float, host: float, paused=False) -> dict:
 
 def resources() -> list[dict]:
     return [{"host_monotonic_s": 10, "sample_finished_monotonic_s": 10.1,
-             "device_memory_used_mib": 7000, "container_process_memory_mib": 1400},
+             "device_memory_used_mib": 7000, "container_process_memory_mib": 1400,
+             "loadavg": [12.0, 8.0, 7.0]},
             {"host_monotonic_s": 35, "sample_finished_monotonic_s": 35.1,
-             "device_memory_used_mib": 7100, "container_process_memory_mib": 1500}]
+             "device_memory_used_mib": 7100, "container_process_memory_mib": 1500,
+             "loadavg": [16.0, 9.0, 8.0]}]
 
 
 def test_summary_uses_sim_and_real_deltas_and_keeps_host_ratio_separate() -> None:
@@ -26,8 +28,11 @@ def test_summary_uses_sim_and_real_deltas_and_keeps_host_ratio_separate() -> Non
     assert report["measurement_complete"] is True
     assert report["rtf_delta_sim_over_delta_real"] == pytest.approx(0.2)
     assert report["rtf_delta_sim_over_host_monotonic"] == pytest.approx(0.16)
+    assert report["rtf_window_median"] == pytest.approx(0.2)
+    assert report["rtf_window_sample_count"] == 1
     assert report["device_memory_peak_mib"] == 7100
     assert report["container_process_memory_peak_mib"] == 1500
+    assert report["host_load1_median"] == pytest.approx(14.0)
 
 
 @pytest.mark.parametrize("messages", [[], [stats(1, 10, 1)],

@@ -14,6 +14,8 @@ from multidetect.simulator.stack import (
     StackPlan,
     StackPlanError,
     build_stack_plan,
+    parse_builtin_asset_uri,
+    parse_builtin_world_uri,
     read_world_coordinates,
     resolve_simulator_assets,
     stack_plan_from_scenario,
@@ -21,6 +23,36 @@ from multidetect.simulator.stack import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = ROOT / "configs" / "scenarios"
+
+
+def test_rtf_asset_roots_resolve_scenario_owned_files(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "simulation" / "gazebo").mkdir(parents=True)
+    world_root = tmp_path / "variant-worlds"
+    map_root = tmp_path / "variant-maps"
+    terrain_root = tmp_path / "variant-terrain"
+    world_root.mkdir()
+    map_root.mkdir()
+    terrain_root.mkdir()
+    world = world_root / "rw_variant.sdf"
+    world.write_text('<sdf version="1.9"><world name="default"><spherical_coordinates/>'
+                     '</world></sdf>', encoding="utf-8")
+    map_path = map_root / "rw_variant.geojson"
+    dem_path = terrain_root / "rw_variant.dem.json"
+    map_path.write_text("{}", encoding="utf-8")
+    dem_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("MULTIDETECT_RTF_WORLD_ROOT", str(world_root))
+    monkeypatch.setenv("MULTIDETECT_RTF_MAP_ROOT", str(map_root))
+    monkeypatch.setenv("MULTIDETECT_RTF_TERRAIN_ROOT", str(terrain_root))
+
+    resolved_world = parse_builtin_world_uri("builtin://gazebo/rw_variant", repository_root=tmp_path,
+                                             scenario_id="rw_variant")
+    resolved_map = parse_builtin_asset_uri("builtin://maps/rw_variant.geojson", kind="maps",
+                                           repository_root=tmp_path, scenario_id="rw_variant")
+    resolved_dem = parse_builtin_asset_uri("builtin://terrain/rw_variant.dem.json", kind="terrain",
+                                           repository_root=tmp_path, scenario_id="rw_variant")
+    assert resolved_world.path == world
+    assert resolved_map.path == map_path
+    assert resolved_dem.path == dem_path
 
 
 @pytest.mark.parametrize(

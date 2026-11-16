@@ -692,6 +692,9 @@ class CollectionPlan:
     depth_encoding: str = DEFAULT_DEPTH_ENCODING
     segmentation: bool = False
     camera_noise_overlay: bool = False
+    # Optional generated RTF experiment overlay.  The directory contains
+    # ``mono_cam`` and, when needed, the selected ``*_mono_cam`` wrapper.
+    rtf_overlay_root: str | None = None
     wind_vehicle_overlay: bool = False
     # Extra SIM-only PX4 parameters for this run, e.g. a slower simulated
     # battery for an interactive session; batch campaigns pass none.
@@ -1087,6 +1090,22 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             command.index("run"),
         )
         command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
+    if plan.rtf_overlay_root:
+        overlay_root = Path(plan.rtf_overlay_root).expanduser().resolve()
+        if not overlay_root.is_dir():
+            raise FileNotFoundError(overlay_root)
+        mounts = []
+        mono = overlay_root / "mono_cam"
+        if mono.is_dir():
+            mounts += ["--mount", f"type=bind,source={mono},target=/opt/px4-gazebo/share/gz/models/mono_cam,readonly"]
+        wrapper = overlay_root / f"{plan.airframe}"
+        if wrapper.is_dir():
+            mounts += ["--mount", f"type=bind,source={wrapper},target={CONTAINER_MODEL_ROOT}/{plan.airframe},readonly"]
+        if not mounts:
+            raise FileNotFoundError(f"RTF overlay has no mono_cam or {plan.airframe}: {overlay_root}")
+        parent_mount = next((index for index, token in enumerate(command)
+                             if token.startswith("type=bind,") and "target=/opt/multidetect-gazebo-models," in token), command.index("run"))
+        command[parent_mount + 1 : parent_mount + 1] = mounts
     if plan.wind_vehicle_overlay and not plan.segmentation:
         overlay = ROOT / "simulation/gazebo/model-overlays/x500_mono_cam_wind"
         overlay_mount = (
@@ -2270,12 +2289,8 @@ def gps_to_local_ned(
 
 def _scenario_origin(plan: CollectionPlan) -> tuple[float, float, float]:
     """Read the WGS-84 origin from the scenario-owned world SDF."""
-    runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
-    scenario_id = str(runtime.get("scenario_id", "urban_inspection_multirotor_001"))
-    world_path = ROOT / "simulation" / "gazebo" / "worlds" / f"{scenario_id}.sdf"
-    if not world_path.is_file():
-        world_path = ROOT / "simulation" / "gazebo" / "worlds" / "variants" / f"{scenario_id}.sdf"
-    if not world_path.is_file():
+    world_path = scenario_world_path(plan.runtime)
+    if world_path is None:
         return 1.352100, 103.819800, 18.0
     root = ET.fromstring(world_path.read_text(encoding="utf-8"))
     spherical = root.find(".//spherical_coordinates")
@@ -2300,6 +2315,17 @@ def scenario_world_path(runtime_path: str | Path) -> Path | None:
     scenario_id = str(runtime.get("scenario_id", "")) if isinstance(runtime, dict) else ""
     if not scenario_id:
         return None
+    override = os.environ.get("MULTIDETECT_RTF_WORLD_ROOT", "").strip()
+    if override:
+        world_root = Path(override).expanduser()
+        if not world_root.is_absolute():
+            world_root = ROOT / world_root
+        world_path = (world_root / f"{scenario_id}.sdf").resolve()
+        try:
+            world_path.relative_to(ROOT.resolve())
+        except ValueError:
+            return None
+        return world_path if world_path.is_file() else None
     world_path = ROOT / "simulation" / "gazebo" / "worlds" / f"{scenario_id}.sdf"
     if world_path.is_file():
         return world_path
