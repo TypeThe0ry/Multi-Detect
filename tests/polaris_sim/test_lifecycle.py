@@ -74,7 +74,7 @@ def test_dry_run_emits_full_docker_command_for_external_city_world(monkeypatch, 
     assert "psim-sitl-slot-5" in output["units"]
     assert command[:3] == ["docker", "run", "--pull=never"]
     assert "--rm" in command
-    assert "--memory=12g" in command
+    assert "--memory=32g" in command
     gpu_index = command.index("--gpus")
     assert tuple(command[gpu_index : gpu_index + 2]) == ("--gpus", "device=2")
     assert any(
