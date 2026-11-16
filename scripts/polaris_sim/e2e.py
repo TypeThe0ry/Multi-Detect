@@ -872,49 +872,52 @@ class PolarisE2E:
             details["takeoff_relative_altitude_m"] = self._wait_altitude(
                 connection, sysid, 2.0, 45.0
             )
-            gimbal_configure = getattr(
-                mavutil.mavlink, "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE", None
-            )
-            gimbal_pitchyaw = getattr(
-                mavutil.mavlink, "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW", None
-            )
-            if gimbal_configure is None or gimbal_pitchyaw is None:
-                raise E2EFailure(
-                    "installed pymavlink dialect lacks MAVLink Gimbal Manager v2 commands"
+            if "gimbal" not in self.config.airframe:
+                details["gimbal"] = "skipped: airframe has no gimbal"
+            else:
+                gimbal_configure = getattr(
+                    mavutil.mavlink, "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE", None
                 )
-            details["gimbal_configure_ack"] = self._command(
-                connection,
-                sysid,
-                gimbal_configure,
-                (255.0, 190.0, -1.0, -1.0, 0.0, 0.0, 0.0),
-            ).result
-            details["gimbal_command_ack"] = self._command(
-                connection,
-                sysid,
-                gimbal_pitchyaw,
-                (-25.0, 0.0, float("nan"), float("nan"), 44.0, 0.0, 0.0),
-            ).result
-            gimbal = self._recv(
-                connection,
-                "GIMBAL_DEVICE_ATTITUDE_STATUS",
-                20.0,
-                lambda msg: msg.get_srcSystem() == sysid,
-            )
-            if gimbal is None:
-                raise E2EFailure(f"no gimbal attitude readback from sysid {sysid}")
-            w, x, y, z = (float(value) for value in gimbal.q)
-            pitch = math.degrees(math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x)))))
-            yaw = math.degrees(
-                math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-            )
-            pitch_error = abs((pitch + 25.0 + 180.0) % 360.0 - 180.0)
-            yaw_error = abs((yaw + 180.0) % 360.0 - 180.0)
-            if max(pitch_error, yaw_error) > 4.0:
-                raise E2EFailure(
-                    "gimbal readback mismatch: requested pitch/yaw -25/0 deg, "
-                    f"got {pitch:.1f}/{yaw:.1f} deg"
+                gimbal_pitchyaw = getattr(
+                    mavutil.mavlink, "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW", None
                 )
-            details["gimbal_readback_deg"] = {"pitch": pitch, "yaw": yaw}
+                if gimbal_configure is None or gimbal_pitchyaw is None:
+                    raise E2EFailure(
+                        "installed pymavlink dialect lacks MAVLink Gimbal Manager v2 commands"
+                    )
+                details["gimbal_configure_ack"] = self._command(
+                    connection,
+                    sysid,
+                    gimbal_configure,
+                    (255.0, 190.0, -1.0, -1.0, 0.0, 0.0, 0.0),
+                ).result
+                details["gimbal_command_ack"] = self._command(
+                    connection,
+                    sysid,
+                    gimbal_pitchyaw,
+                    (-25.0, 0.0, float("nan"), float("nan"), 44.0, 0.0, 0.0),
+                ).result
+                gimbal = self._recv(
+                    connection,
+                    "GIMBAL_DEVICE_ATTITUDE_STATUS",
+                    20.0,
+                    lambda msg: msg.get_srcSystem() == sysid,
+                )
+                if gimbal is None:
+                    raise E2EFailure(f"no gimbal attitude readback from sysid {sysid}")
+                w, x, y, z = (float(value) for value in gimbal.q)
+                pitch = math.degrees(math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x)))))
+                yaw = math.degrees(
+                    math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+                )
+                pitch_error = abs((pitch + 25.0 + 180.0) % 360.0 - 180.0)
+                yaw_error = abs((yaw + 180.0) % 360.0 - 180.0)
+                if max(pitch_error, yaw_error) > 4.0:
+                    raise E2EFailure(
+                        "gimbal readback mismatch: requested pitch/yaw -25/0 deg, "
+                        f"got {pitch:.1f}/{yaw:.1f} deg"
+                    )
+                details["gimbal_readback_deg"] = {"pitch": pitch, "yaw": yaw}
             self._command(
                 connection,
                 sysid,

@@ -69,7 +69,7 @@ async def _run(args: argparse.Namespace) -> None:
                     camera,
                     f"md-polaris-sim-slot-{slot}",
                     args.world,
-                    f"{args.airframe}_{slot - 5}",
+                    f"{args.airframe}_0",  # one vehicle per container (GZ_PARTITION per slot)
                 )
                 for slot in slots
             ]

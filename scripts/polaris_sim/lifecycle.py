@@ -143,6 +143,10 @@ def _managed_docker_command(command: list[str] | tuple[str, ...], slot: int | No
         # every PX4 instance defaults to MAV_SYS_ID 1; the gateway routes by sysid = slot - 4
         result.insert(result.index("--name"), "--env")
         result.insert(result.index("--name"), f"PX4_PARAM_MAV_SYS_ID={slot - 4}")
+        # Separate gz-transport partitions: otherwise containers on the docker bridge discover each
+        # other's topics and PX4 renames the second vehicle x500_mono_cam_1 without a camera of its own.
+        result.insert(result.index("--name"), "--env")
+        result.insert(result.index("--name"), f"GZ_PARTITION=polaris-sim-slot-{slot}")
     result.remove("-d")
     result.insert(result.index("run") + 1, "--pull=never")
     # real-terrain worlds with a 720p camera exceed 12 GiB in gz-sim (OOM seen on rw_singapore_marina_bay)
@@ -699,7 +703,7 @@ async def _supervise(args: argparse.Namespace) -> int:
                     camera_name,
                     str(row["container"]),
                     world,
-                    f"{row['model_name']}_{row['worker_index']}",
+                    f"{row['model_name']}_0",
                 ]
             )
         if getattr(args, "no_video", False):
