@@ -130,6 +130,14 @@ def _resolve_world(world: str | None, weather: str) -> tuple[str | None, Path | 
     return stem.split("__", 1)[0], None
 
 
+def _first_slot() -> int:
+    """First leased slot; POLARIS_SIM_FIRST_SLOT=6 avoids a slot held by another project's job."""
+    value = int(os.environ.get("POLARIS_SIM_FIRST_SLOT", "5"))
+    if value not in (5, 6, 7):
+        raise LifecycleError("POLARIS_SIM_FIRST_SLOT must be 5, 6 or 7")
+    return value
+
+
 def _managed_docker_command(command: list[str] | tuple[str, ...], slot: int | None = None) -> list[str]:
     result = list(command)
     if slot is not None:
@@ -526,7 +534,7 @@ def _dry_run(args: argparse.Namespace) -> int:
          "camera_profile": profile.name, "video_settings": profile.video_settings(),
          "camera_sensor_type": profile.sensor_type,
          "control_udp": 14560 + 10 * slot, "telemetry_udp": 14561 + 10 * slot}
-        for index, slot in enumerate(range(5, 5 + args.vehicles))
+        for index, slot in enumerate(range(_first_slot(), _first_slot() + args.vehicles))
     ]
     docker_image: str | None = None
     docker_image_note: str | None = None
@@ -641,7 +649,7 @@ def _command_up(args: argparse.Namespace) -> int:
     world, world_path = _resolve_world(args.world, args.weather)
     if world is None or world_path is None:
         raise LifecycleError(f"real-world SDF is missing. Generate it with: {_generation_command(args.world, args.weather)}")
-    for slot in range(5, 5 + args.vehicles):
+    for slot in range(_first_slot(), _first_slot() + args.vehicles):
         scenario = _scenario_path(world, args.weather, args.airframe)
         if not scenario.is_file():
             raise LifecycleError(f"scenario is missing: {scenario}; generate it with: {_generation_command(world, args.weather)}")
@@ -671,6 +679,8 @@ def _command_up(args: argparse.Namespace) -> int:
         "POLARIS_SIM_CAMERA_FORMAT",
         "POLARIS_SIM_CAMERA_DISABLE_OPTICS",
         "POLARIS_SIM_CAMERA_TRIGGERED",
+        "POLARIS_SIM_FIRST_SLOT",
+        "POLARIS_SIM_WORLD_DIRS",
         "GZ_SIM_RENDER_ENGINE",
         "GZ_SIM_HEADLESS_RENDERING",
         "HEADLESS",
@@ -746,7 +756,7 @@ async def _supervise(args: argparse.Namespace) -> int:
         world_path = supplied_world_path.resolve()
     if world is None or world_path is None:
         raise LifecycleError(f"missing SDF; generate it with: {_generation_command(args.world, args.weather)}")
-    desired = list(range(5, 5 + args.vehicles))
+    desired = list(range(_first_slot(), _first_slot() + args.vehicles))
     gpu_assignments = args.gpus.split(",")
     if len(gpu_assignments) != args.vehicles or any(value not in {"none", "1", "2"} for value in gpu_assignments):
         raise LifecycleError("--gpus must provide one value per vehicle from none, 1 or 2")
@@ -789,7 +799,7 @@ async def _supervise(args: argparse.Namespace) -> int:
             scenario = _scenario_path(world, args.weather, args.airframe)
             if not scenario.is_file():
                 raise LifecycleError(f"scenario missing: {scenario}")
-            selected_gpu = gpu_assignments[slot - 5]
+            selected_gpu = gpu_assignments[slot - _first_slot()]
             job_dir = _state_path().parent / "jobs" / f"slot-{slot}"
             plan = _docker_plan_for_slot(
                 scenario=scenario,
