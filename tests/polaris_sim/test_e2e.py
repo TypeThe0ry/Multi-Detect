@@ -7,12 +7,14 @@ from pathlib import Path
 import pytest
 
 from scripts.polaris_sim.e2e import (
+    GIMBAL_PITCH_TEST_TARGETS_DEG,
     Config,
     E2EFailure,
     PolarisE2E,
     assert_latency_increased,
     mean_absolute_frame_difference,
     parse_slots,
+    takeoff_target_altitude_amsl_m,
     validate_ai_response,
     validate_discovery,
     validate_doctor,
@@ -155,6 +157,15 @@ def test_gimbal_frame_difference_requires_equal_nonempty_frames() -> None:
         mean_absolute_frame_difference(b"\x00", b"\x00\x01")
     with pytest.raises(ValueError, match="non-empty"):
         mean_absolute_frame_difference(b"", b"")
+
+
+def test_takeoff_target_uses_current_msl_altitude_plus_climb() -> None:
+    assert takeoff_target_altitude_amsl_m(13.67) == pytest.approx(18.67)
+    assert takeoff_target_altitude_amsl_m(125.0, 2.0) == pytest.approx(127.0)
+
+
+def test_gimbal_motion_targets_include_a_textured_scene_angle() -> None:
+    assert GIMBAL_PITCH_TEST_TARGETS_DEG == (-25.0, 0.0)
 
 
 def test_gimbal_video_step_probes_only_real_gimbal_camera_and_checks_motion(tmp_path) -> None:

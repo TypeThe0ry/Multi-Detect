@@ -50,6 +50,9 @@ DEFAULT_QUERY = {
 }
 GIMBAL_FRAME_SIZE = (96, 72)
 GIMBAL_FRAME_MIN_MEAN_ABS_DIFF = 2.0
+GIMBAL_PITCH_TEST_TARGETS_DEG = (-25.0, 0.0)
+GIMBAL_SETTLE_SECONDS = 0.8
+GIMBAL_CAPTURE_FRAME_COUNT = 4
 LANE_ROOT = ROOT.parent / "cx-psim-gateway"
 AI_LANE_ROOT = ROOT.parent / "cx-psim-ai"
 VIDEO_LANE_ROOT = (
@@ -170,6 +173,13 @@ def mean_absolute_frame_difference(before: bytes, after: bytes) -> float:
     if not before or len(before) != len(after):
         raise ValueError("frames must be non-empty and have equal lengths")
     return sum(abs(left - right) for left, right in zip(before, after, strict=True)) / len(before)
+
+
+def takeoff_target_altitude_amsl_m(
+    current_altitude_amsl_m: float, climb_m: float = 5.0
+) -> float:
+    """PX4 compares NAV_TAKEOFF param7 as AMSL in this COMMAND_LONG path."""
+    return current_altitude_amsl_m + climb_m
 
 
 def gimbal_angles_deg(quaternion: Any) -> tuple[float, float]:
@@ -879,6 +889,18 @@ class PolarisE2E:
         try:
             details["heartbeat_source"] = connection.target_system
             details["parameter"] = self._read_parameter(connection, sysid)
+            position = self._recv(
+                connection,
+                "GLOBAL_POSITION_INT",
+                10.0,
+                lambda message: message.get_srcSystem() == sysid,
+            )
+            if position is None:
+                raise E2EFailure(f"no GLOBAL_POSITION_INT from sysid {sysid} before takeoff")
+            takeoff_altitude = takeoff_target_altitude_amsl_m(
+                float(position.alt) / 1000.0
+            )
+            details["takeoff_target_altitude_amsl_m"] = takeoff_altitude
             self._command(
                 connection,
                 sysid,
@@ -890,7 +912,7 @@ class PolarisE2E:
                 connection,
                 sysid,
                 mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                (0.0, 0.0, 0.0, float("nan"), 0.0, 0.0, 5.0),
+                (0.0, 0.0, 0.0, float("nan"), 0.0, 0.0, takeoff_altitude),
             )
             details["takeoff_relative_altitude_m"] = self._wait_altitude(
                 connection, sysid, 2.0, 45.0
@@ -1033,7 +1055,7 @@ class PolarisE2E:
             "-vf",
             f"scale={width}:{height}:flags=fast_bilinear,format=gray",
             "-frames:v",
-            "1",
+            str(GIMBAL_CAPTURE_FRAME_COUNT),
             "-f",
             "rawvideo",
             "-pix_fmt",
@@ -1050,13 +1072,14 @@ class PolarisE2E:
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise E2EFailure(f"could not capture a gimbal RTSP frame: {exc}") from exc
         expected_size = width * height
-        if result.returncode or len(result.stdout) != expected_size:
+        expected_bytes = expected_size * GIMBAL_CAPTURE_FRAME_COUNT
+        if result.returncode or len(result.stdout) != expected_bytes:
             detail = result.stderr.decode("utf-8", errors="replace")[-1000:]
             raise E2EFailure(
                 "gimbal RTSP frame decode failed "
-                f"({len(result.stdout)}/{expected_size} bytes): {detail}"
+                f"({len(result.stdout)}/{expected_bytes} bytes): {detail}"
             )
-        return result.stdout
+        return result.stdout[-expected_size:]
 
     def _wait_gimbal_angles(
         self, connection: Any, sysid: int, pitch_target: float, yaw_target: float
@@ -1116,7 +1139,7 @@ class PolarisE2E:
             )
             frames: list[bytes] = []
             readbacks: list[dict[str, float]] = []
-            for pitch_target in (-25.0, 15.0):
+            for pitch_target in GIMBAL_PITCH_TEST_TARGETS_DEG:
                 self._command(
                     connection,
                     sysid,
@@ -1125,7 +1148,7 @@ class PolarisE2E:
                 )
                 pitch, yaw = self._wait_gimbal_angles(connection, sysid, pitch_target, 0.0)
                 readbacks.append({"pitch": pitch, "yaw": yaw})
-                time.sleep(0.4)
+                time.sleep(GIMBAL_SETTLE_SECONDS)
                 frames.append(self._capture_gimbal_frame(url))
             difference = mean_absolute_frame_difference(frames[0], frames[1])
             if difference <= GIMBAL_FRAME_MIN_MEAN_ABS_DIFF:
@@ -1136,7 +1159,7 @@ class PolarisE2E:
                 )
             return {
                 "url": url,
-                "pitch_targets_deg": [-25.0, 15.0],
+                "pitch_targets_deg": list(GIMBAL_PITCH_TEST_TARGETS_DEG),
                 "readbacks_deg": readbacks,
                 "frame_size": list(GIMBAL_FRAME_SIZE),
                 "mean_abs_diff": difference,

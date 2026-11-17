@@ -49,9 +49,11 @@ python scripts/polaris_sim/e2e.py --slots 5 --world rw_suburb_davis \
   --airframe x500_gimbal --steps mavlink,video --no-up --no-down
 ```
 
-该命令连接已启动的 slot 5，会通过 TCP/UDP 执行飞行/云台步骤，只探测模型实际提供的 `/v0/gimbal`，再在 -25° 与 +15° 间转动并比较 96×72 灰度帧；均值绝对差必须大于 2/255。录制时 x500_gimbal 也只登记 `/gimbal`，不假定存在独立机身 `/cam`。
+该命令连接已启动的 slot 5，通过 TCP/UDP 执行飞行/云台步骤，只探测模型实际提供的 `/v0/gimbal`，再在 -25° 与 0° 间转动；每个目标等待 0.8 秒并采样连续 4 帧，比较末帧的 96×72 灰度差，门槛仍为大于 2/255。录制时 x500_gimbal 也只登记 `/gimbal`，不假定存在独立机身 `/cam`。
 
-2026-11-17 工作站实测：`x500_gimbal` 的配置/俯仰命令收到 ACK，默认 -25° 指令的状态回读误差为 pitch 0.0°、yaw 0.9°；Gazebo 也收到了对应 `gimbal_pitch` 指令，`camera_link` 姿态随指令变化。当前视频验收仍阻塞：独立 `video` e2e 解码 `/gimbal` 后，两目标角度的 96×72 灰度帧差为 0.28/255，未达到 2/255；组合 `mavlink,video` e2e 则先因起飞高度只有 0.056 m 而失败，未运行到 video 步骤。需继续定位 Gazebo 图像到 RTSP 解码帧的变化为何不足，再把实测复跑至通过。
+2026-11-17 工作站复核确认镜像 `x500_gimbal/model.sdf` 将 `gimbal` 合并到机体，RGB sensor 位于 `camera_link`。运行时 `gz topic -l` 给出的图像 topic 是 `/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/image`；topic 类型为 `gz.msgs.Image`，RTSP 桥订阅者已连接。`gz model -m x500_gimbal_0 -l camera_link` 与 `-s camera` 确认传感器分属该 link，overlay 实际加载为 `rgbd_camera`、640×480、10 Hz；机载 IMU 保持原样。之前的 -25°/+15° 画面差只有 0.28/255，复核截图显示该视角没有足够场景纹理；-25° 与 0° 的独立 RTSP 截图差为 101.807/255，0° 画面可见街区。截图保存在 `/data/scratch/polaris-sim/gimbal/evidence/pitch-minus-25.png`、`/data/scratch/polaris-sim/gimbal/evidence/pitch-zero-yaw-zero.png`。Gazebo 原始图像与对应 RTSP 截图内容相符，现有 topic 与 overlay 路径无需改写；测试已锁定该 merged link topic 和 overlay 行为。
+
+起飞失败另有高度基准错误：世界 `PX4_HOME_ALT=13.670 m`，旧测试却把 `MAV_CMD_NAV_TAKEOFF.param7` 固定设为 `5.0`；此 PX4 `COMMAND_LONG` 路径将 takeoff altitude 作为 MSL，高度低于当前位置时日志报告 `Already higher than takeoff altitude`。MAVLink 的 `COMMAND_LONG` 不携带 `MAV_FRAME`，因此不要把该解释泛化到所有飞控。e2e 现在读取 MSL 定义的 `GLOBAL_POSITION_INT.alt`，将目标设为当前高度加 5 m。修复后的实时起飞尚未验证：最终复跑时 PX4 持续拒绝解锁（`Arming denied: Resolve system health failures first`，启动时有 `no heading reference`），尚未进入视频步骤；GPU2 总显存升至 18,042 MiB 后按停止线立即中止并清理了 slot 5。该轮不能标记为 e2e 通过。
 
 ## 一键启动
 
@@ -73,7 +75,7 @@ scripts/polaris_sim/up.sh --world rw_suburb_davis --vehicles 2 --gpu auto --dry-
 
 就绪后终端会给出 TCP/UDP 地址、RTSP/AI 地址，以及可编码为二维码的 `polaris-sim://...` 文本。应用仍可手动输入 `192.168.1.138:5770`，或通过 discovery 配置。
 
-`--camera-profile` 控制 Gazebo 相机模型覆盖与 RTSP 默认编码参数，默认 `lite`。所有档位都用 `rgbd_camera` 提供彩色和深度输出，视频桥订阅其 `image` 话题。普通机型从镜像 `mono_cam/model.sdf` 生成 profile 覆盖；`x500_gimbal` 从镜像 `gimbal/model.sdf` 生成覆盖，并只读 bind mount 单个 SDF 文件到原模型目录，保留上游网格与插件资源。两种覆盖都在 `/data/scratch/polaris-sim/overlay/<profile>/models/` 下生成，不修改仓库训练模型。`x500_gimbal` 的视频入口是 `/v{index}/gimbal`，它没有独立机身相机 `/cam`。该机型自动选择本机镜像 `multidetect/px4-sitl-gazebo:px4-main-53afcc82-gimbalid-r1`，其中包含 PX4 Gimbal Device ID 修复；启动不拉取镜像。可用 `POLARIS_SIM_CAMERA_TYPE=camera` 临时回退到原 RGB 传感器做诊断。
+`--camera-profile` 控制 Gazebo 相机模型覆盖与 RTSP 默认编码参数，默认 `lite`。图像传感器会覆盖为 `rgbd_camera`，视频桥读取彩色 `image` 话题；深度话题是否发布取决于机型 asset，本轮 `x500_gimbal` 的 topic 列表中未见 `depth_image`。普通机型从镜像 `mono_cam/model.sdf` 生成 profile 覆盖；`x500_gimbal` 从镜像 `gimbal/model.sdf` 生成覆盖，并只读 bind mount 单个 SDF 文件到原模型目录，保留上游网格与插件资源。两种覆盖都在 `/data/scratch/polaris-sim/overlay/<profile>/models/` 下生成，不修改仓库训练模型。`x500_gimbal` 的视频入口是 `/v{index}/gimbal`，它没有独立机身相机 `/cam`。该机型自动选择本机镜像 `multidetect/px4-sitl-gazebo:px4-main-53afcc82-gimbalid-r1`，其中包含 PX4 Gimbal Device ID 修复；启动不拉取镜像。可用 `POLARIS_SIM_CAMERA_TYPE=camera` 临时回退到原 RGB 传感器做诊断。
 
 | Profile | Gazebo RGBD 传感器 | RTSP 默认值 | 取舍 |
 |---|---:|---:|---|

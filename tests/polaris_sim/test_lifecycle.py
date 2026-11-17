@@ -180,6 +180,7 @@ def test_camera_profile_defaults_and_overlay_generation(tmp_path):
 def test_gimbal_camera_overlay_replaces_only_the_image_sdf(tmp_path):
     source = (
         "<sdf><model name='gimbal'><link name='camera_link'>"
+        "<sensor name='camera_imu' type='imu'/>"
         "<sensor name='camera' type='camera'><update_rate>30</update_rate>"
         "<camera><image><width>1280</width><height>960</height></image></camera>"
         "</sensor></link></model></sdf>"
@@ -190,6 +191,7 @@ def test_gimbal_camera_overlay_replaces_only_the_image_sdf(tmp_path):
     assert "<width>640</width>" in contents
     assert "<height>480</height>" in contents
     assert 'type="rgbd_camera"' in contents
+    assert 'name="camera_imu" type="imu"' in contents
     model_config = (destination.parent / "model.config").read_text(encoding="utf-8")
     assert "<name>gimbal</name>" in model_config
 

@@ -16,7 +16,12 @@ from multidetect.polaris_sim.camera import get_camera_profile
 from multidetect.polaris_sim.gateway.netem import NetemConfig, NetemShaper
 from multidetect.polaris_sim.recording import split_mavlink_frames
 from multidetect.polaris_sim.replay import H264FileReplay, RecordingReplay, iter_tlog
-from multidetect.polaris_sim.video.frames import FRAME_HEADER, Frame, read_frame
+from multidetect.polaris_sim.video.frames import (
+    FRAME_HEADER,
+    Frame,
+    GazeboTopicSource,
+    read_frame,
+)
 from multidetect.polaris_sim.video.h264 import (
     AnnexBAccessUnitParser,
     RtpPacketizer,
@@ -42,6 +47,16 @@ def test_camera_profile_defaults_are_used_for_rtsp_gazebo_sources():
     assert pipeline.settings.height == 480
     assert pipeline.settings.fps == 10
     assert pipeline.source.max_fps == 10
+
+
+def test_gimbal_source_uses_merged_camera_link_image_topic():
+    source = GazeboTopicSource(
+        "md-polaris-sim-slot-5", "rw_suburb_davis", "x500_gimbal_0", max_fps=10
+    )
+
+    assert source.topic == (
+        "/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/image"
+    )
 
 
 class DropShaper:
