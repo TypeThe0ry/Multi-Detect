@@ -242,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--container")
     group.add_argument("--container-prefix")
     parser.add_argument("--wait-s", type=float, default=300)
-    parser.add_argument("--gpu", choices=("1",), default="1")
+    parser.add_argument("--gpu", choices=("1", "3"), default="1")
     parser.add_argument("--warmup-s", type=float, default=30)
     parser.add_argument("--window-s", type=float, default=120)
     parser.add_argument("--interval-s", type=float, default=2)

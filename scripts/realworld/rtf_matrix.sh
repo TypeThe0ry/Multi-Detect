@@ -46,7 +46,7 @@ done
 [[ -f "$MANIFEST" ]] || { echo "manifest 不存在：$MANIFEST" >&2; exit 2; }
 [[ -x "$SITL_PYTHON" ]] || { echo "缺少 SITL Python：$SITL_PYTHON" >&2; exit 2; }
 [[ "$SLOT" =~ ^[567]$ ]] || { echo "只允许 slot 5、6、7" >&2; exit 2; }
-[[ "$GPU" == 1 ]] || { echo "矩阵固定使用 GPU1" >&2; exit 2; }
+[[ "$GPU" =~ ^[13]$ ]] || { echo "矩阵只允许 GPU1 或 GPU3（RTF_MATRIX_GPU）" >&2; exit 2; }
 mkdir -p "$OUT"
 
 export PYTHONPATH="$ROOT/src:$ROOT"
@@ -54,7 +54,9 @@ export PYTHONUTF8=1
 export TMPDIR=${TMPDIR:-$ROOT/.tmp}
 export MULTIDETECT_SITL_SLOTS=${MULTIDETECT_SITL_SLOTS:-8}
 export MULTIDETECT_SIM_GPU=1
-export MULTIDETECT_SIM_GPU_DEVICES=1
+export MULTIDETECT_SIM_GPU_DEVICES=$GPU
+export MULTIDETECT_SIM_ALLOW_GPUS=1,3
+export MULTIDETECT_SIM_GPU_AVOID=0
 export MULTIDETECT_SIM_NETWORK=${MULTIDETECT_SIM_NETWORK:-bridge}
 export MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=${MULTIDETECT_SIM_FIRST_FRAME_WAIT_S:-240}
 (( MULTIDETECT_SITL_SLOTS >= 8 )) || { echo "MULTIDETECT_SITL_SLOTS 必须至少为 8" >&2; exit 2; }
@@ -88,7 +90,7 @@ training_or_busy_gpu() {
     if [[ "$lower" == *torchrun* || "$lower" == *deepspeed* || "$lower" == *accelerate* || "$lower" == *train* || "$lower" == *finetun* ]]; then
       echo "训练作业 pid=$pid cmd=${cmd:0:160}" >&2
     else
-      echo "GPU1 已被其他进程占用 pid=$pid cmd=${cmd:0:160}" >&2
+      echo "GPU$GPU 已被其他进程占用 pid=$pid cmd=${cmd:0:160}" >&2
     fi
     return 0
   done <<< "$rows"
@@ -102,11 +104,11 @@ preflight() {
     used=$(nvidia-smi -i "$GPU" --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | tr -d '[:space:]' || echo 999999)
     if ! training_or_busy_gpu && awk -v l="$load" -v max="$CPU_MAX" 'BEGIN{exit !(l <= max)}' \
        && awk -v u="$used" -v max="$GPU_MAX_MIB" 'BEGIN{exit !(u <= max)}'; then
-      echo "GPU1/CPU 空闲：load=$load gpu_used_mib=$used" >&2
+      echo "GPU$GPU/CPU 空闲：load=$load gpu_used_mib=$used" >&2
       return 0
     fi
     echo "开始前检查未通过：load=$load gpu_used_mib=$used；继续等待，不终止任何外部进程" >&2
-    (( SECONDS - start < WAIT_S )) || { echo "等待 GPU1/CPU 空闲超时" >&2; return 1; }
+    (( SECONDS - start < WAIT_S )) || { echo "等待 GPU$GPU/CPU 空闲超时" >&2; return 1; }
     sleep 30
   done
 }
