@@ -99,6 +99,9 @@ training_or_busy_gpu() {
 }
 
 preflight() {
+  local avail_g
+  avail_g=$(df --output=avail -BG "$OUT" | tail -1 | tr -dc '0-9')
+  (( avail_g >= ${RTF_MATRIX_MIN_FREE_GB:-40} )) || { echo "磁盘剩余 ${avail_g}G 低于 ${RTF_MATRIX_MIN_FREE_GB:-40}G，拒绝开跑" >&2; return 1; }
   local start=$SECONDS load used
   while :; do
     load=$(awk '{print $1}' /proc/loadavg)
@@ -196,6 +199,9 @@ while IFS= read -r row; do
     set -e
     result_path="$OUT/$name/attempt-$attempt/result.json"
     [[ -f "$result_path" ]] && "$TOOLS_PYTHON" -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1],encoding="utf-8")),ensure_ascii=False))' "$result_path" >> "$OUT/matrix.jsonl"
+    if (( rc != 0 )) && [[ "${RTF_MATRIX_KEEP_FAILED_EPISODES:-0}" != 1 ]]; then
+      rm -rf "$OUT/$name/attempt-$attempt/flight/episodes"
+    fi
     if (( rc == 0 )); then break; fi
     echo "[$name] 第 $attempt/$MAX_ATTEMPTS 轮不完整；保留记录并重跑" >&2
     (( attempt < MAX_ATTEMPTS )) && sleep "$GAP_S"
