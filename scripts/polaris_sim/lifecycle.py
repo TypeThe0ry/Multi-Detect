@@ -37,17 +37,10 @@ VIDEO_UNIT = "psim-video"  # Stop an older separately managed video service duri
 AI_UNIT = "psim-ai"
 MEMWATCH_UNIT = "psim-memwatch"
 CAMERA_OVERLAY_ROOT = Path("/data/scratch/polaris-sim/overlay")
-MONO_CAM_MODEL_CONFIG = """<?xml version="1.0"?>
-<model>
-  <name>mono_cam</name>
-  <version>1.0</version>
-  <sdf version="1.9">model.sdf</sdf>
-  <description>Polaris SIM camera profile overlay of mono_cam</description>
-</model>
-"""
-CAMERA_MODEL_IN_IMAGE = "/opt/px4-gazebo/share/gz/models/mono_cam/model.sdf"
-IMAGE_MONO_CAM_DIR = "/opt/px4-gazebo/share/gz/models/mono_cam"
+IMAGE_MODEL_ROOT = "/opt/px4-gazebo/share/gz/models"
 CAMERA_OVERLAY_TARGET = "/opt/polaris-sim-camera-overlay"
+GIMBAL_GPU_IMAGE_TAG = "multidetect/px4-sitl-gazebo:px4-main-53afcc82-gimbalid-r1"
+X500_GIMBAL_AIRFRAMES = {"x500_gimbal", "px4_x500_gimbal"}
 
 
 class LifecycleError(RuntimeError):
@@ -159,10 +152,15 @@ def _camera_overlay_models_dir(profile_name: str) -> Path:
     return CAMERA_OVERLAY_ROOT / profile_name / "models"
 
 
+def _camera_model_name(airframe: str) -> str:
+    return "gimbal" if airframe.lower() in X500_GIMBAL_AIRFRAMES else "mono_cam"
+
+
 def _generate_camera_overlay(
     profile_name: str,
     source_sdf: str,
     overlay_root: Path,
+    model_name: str = "mono_cam",
 ) -> Path | None:
     profile = get_camera_profile(profile_name)
     if not profile.overrides_model:
@@ -170,7 +168,7 @@ def _generate_camera_overlay(
     try:
         sdf = ET.fromstring(source_sdf)
     except ET.ParseError as exc:
-        raise LifecycleError(f"invalid mono_cam model SDF: {exc}") from exc
+        raise LifecycleError(f"invalid {model_name} model SDF: {exc}") from exc
     changed = 0
     for sensor in sdf.iter("sensor"):
         sensor_enabled = os.environ.get("POLARIS_SIM_CAMERA_SENSOR", "1")
@@ -198,7 +196,7 @@ def _generate_camera_overlay(
         update_rate = sensor.find("update_rate")
         if width is None or height is None or update_rate is None:
             raise LifecycleError(
-                "mono_cam camera sensor is missing image dimensions or update_rate"
+                f"{model_name} camera sensor is missing image dimensions or update_rate"
             )
         width.text = str(profile.camera_width)
         height.text = str(profile.camera_height)
@@ -247,20 +245,29 @@ def _generate_camera_overlay(
             element.text = visualize
         changed += 1
     if not changed:
-        raise LifecycleError("mono_cam model SDF contains no camera sensor")
-    destination = overlay_root / "models" / "mono_cam" / "model.sdf"
+        raise LifecycleError(f"{model_name} model SDF contains no camera sensor")
+    destination = overlay_root / "models" / model_name / "model.sdf"
     destination.parent.mkdir(parents=True, exist_ok=True)
     ET.indent(sdf, space="  ")
     destination.write_bytes(ET.tostring(sdf, encoding="utf-8", xml_declaration=True) + b"\n")
     # Gazebo only treats a directory as a model when model.config is present.
-    (destination.parent / "model.config").write_text(MONO_CAM_MODEL_CONFIG, encoding="utf-8")
+    model_config = (
+        '<?xml version="1.0"?>\n'
+        "<model>\n"
+        f"  <name>{model_name}</name>\n"
+        "  <version>1.0</version>\n"
+        '  <sdf version="1.9">model.sdf</sdf>\n'
+        f"  <description>Polaris SIM camera profile overlay of {model_name}</description>\n"
+        "</model>\n"
+    )
+    (destination.parent / "model.config").write_text(model_config, encoding="utf-8")
     return destination
 
 
-def _image_model_sdf(image: str) -> str:
+def _image_model_sdf(image: str, model_name: str = "mono_cam") -> str:
     result = subprocess.run(
         ["docker", "run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "cat",
-         image, CAMERA_MODEL_IN_IMAGE],
+         image, f"{IMAGE_MODEL_ROOT}/{model_name}/model.sdf"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -272,15 +279,18 @@ def _image_model_sdf(image: str) -> str:
     return result.stdout
 
 
-def _prepare_camera_overlay(profile_name: str, image: str) -> Path | None:
+def _prepare_camera_overlay(
+    profile_name: str, image: str, airframe: str = "x500_mono_cam"
+) -> Path | None:
     profile = get_camera_profile(profile_name)
     if not profile.overrides_model:
         return None
-    # _generate_camera_overlay returns the model.sdf path; callers mount the models directory
+    model_name = _camera_model_name(airframe)
     return _generate_camera_overlay(
         profile_name,
-        _image_model_sdf(image),
+        _image_model_sdf(image, model_name),
         CAMERA_OVERLAY_ROOT / profile_name,
+        model_name,
     ).parent.parent
 
 
@@ -310,6 +320,7 @@ def _with_camera_overlay(
     overlay_models_dir: Path | None,
     *,
     image: str,
+    model_name: str = "mono_cam",
 ) -> list[str]:
     result = list(command)
     profile = get_camera_profile(profile_name)
@@ -321,22 +332,29 @@ def _with_camera_overlay(
         image_index = result.index(image)
     except ValueError as exc:
         raise LifecycleError("Docker plan does not contain its selected image") from exc
-    try:
-        env_index = next(
-            index for index, token in enumerate(result[:-1])
-            if token == "--env" and result[index + 1].startswith("GZ_SIM_RESOURCE_PATH=")
-        )
-    except StopIteration as exc:
-        raise LifecycleError("Docker plan does not define GZ_SIM_RESOURCE_PATH") from exc
-    existing = result[env_index + 1].split("=", 1)[1]
-    result[env_index + 1] = f"GZ_SIM_RESOURCE_PATH={CAMERA_OVERLAY_TARGET}:{existing}"
-    result[image_index:image_index] = [
-        "--mount",
-        f"type=bind,source={overlay_models_dir},target={CAMERA_OVERLAY_TARGET},readonly",
-        # GZ_SIM_RESOURCE_PATH alone did not shadow the image's mono_cam; replace it in place too.
-        "--mount",
-        f"type=bind,source={overlay_models_dir / 'mono_cam'},target={IMAGE_MONO_CAM_DIR},readonly",
-    ]
+    if model_name == "gimbal":
+        # Preserve the upstream mesh directory: only the camera-bearing SDF needs a profile override.
+        source = overlay_models_dir / model_name / "model.sdf"
+        target = f"{IMAGE_MODEL_ROOT}/{model_name}/model.sdf"
+        mounts = ["--mount", f"type=bind,source={source},target={target},readonly"]
+    else:
+        try:
+            env_index = next(
+                index for index, token in enumerate(result[:-1])
+                if token == "--env" and result[index + 1].startswith("GZ_SIM_RESOURCE_PATH=")
+            )
+        except StopIteration as exc:
+            raise LifecycleError("Docker plan does not define GZ_SIM_RESOURCE_PATH") from exc
+        existing = result[env_index + 1].split("=", 1)[1]
+        result[env_index + 1] = f"GZ_SIM_RESOURCE_PATH={CAMERA_OVERLAY_TARGET}:{existing}"
+        mounts = [
+            "--mount",
+            f"type=bind,source={overlay_models_dir},target={CAMERA_OVERLAY_TARGET},readonly",
+            # GZ_SIM_RESOURCE_PATH alone did not shadow the image's mono_cam; replace it in place too.
+            "--mount",
+            f"type=bind,source={overlay_models_dir / model_name},target={IMAGE_MODEL_ROOT}/{model_name},readonly",
+        ]
+    result[image_index:image_index] = mounts
     return result
 
 
@@ -484,11 +502,14 @@ def _select_gpus(value: str, count: int, *, dry_run: bool) -> list[str]:
     return selected_gpus
 
 
-def _local_image(gpu: bool) -> str:
-    tags = (
+def _local_image(gpu: bool, airframe: str | None = None) -> str:
+    if gpu and airframe and airframe.lower() in X500_GIMBAL_AIRFRAMES:
+        tags = [GIMBAL_GPU_IMAGE_TAG]
+    else:
+        tags = (
         ["multidetect/px4-sitl-gazebo:gz-rendering-830-r1", "multidetect/px4-sitl-gazebo:transport-frame-09266eb0eb38"]
         if gpu else ["px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8"]
-    )
+        )
     for tag in tags:
         result = subprocess.run(["docker", "image", "inspect", tag], capture_output=True, text=True, timeout=5, check=False)
         if result.returncode == 0:
@@ -514,7 +535,9 @@ def _dry_run(args: argparse.Namespace) -> int:
             docker_image = args.image
         else:
             try:
-                docker_image = _local_image(any(gpu != "none" for gpu in gpus))
+                docker_image = _local_image(
+                    any(gpu != "none" for gpu in gpus), args.airframe
+                )
             except (LifecycleError, OSError) as exc:
                 docker_image = (
                     "multidetect/px4-sitl-gazebo:gz-rendering-830-r1"
@@ -557,6 +580,7 @@ def _dry_run(args: argparse.Namespace) -> int:
                         profile.name,
                         _camera_overlay_models_dir(profile.name),
                         image=docker_plan.image,
+                        model_name=_camera_model_name(args.airframe),
                     )
                     row["docker_command"] = command
                     row["docker_command_text"] = shlex.join(command)
@@ -622,7 +646,9 @@ def _command_up(args: argparse.Namespace) -> int:
         if not scenario.is_file():
             raise LifecycleError(f"scenario is missing: {scenario}; generate it with: {_generation_command(world, args.weather)}")
     gpus = _select_gpus(args.gpu, args.vehicles, dry_run=False)
-    image = args.image or _local_image(any(gpu != "none" for gpu in gpus))
+    image = args.image or _local_image(
+        any(gpu != "none" for gpu in gpus), args.airframe
+    )
     arguments = [
         "supervise", "--world", world, "--weather", args.weather, "--airframe", args.airframe,
         "--world-sdf", str(world_path), "--vehicles", str(args.vehicles),
@@ -686,7 +712,7 @@ def _command_up(args: argparse.Namespace) -> int:
                 uri = f"polaris-sim://{host}?mavlink=tcp:{host}:5770&http={host}:8780&rtsp={host}:8554&ai={host}:8790"
                 print(f"Polaris MAVLink TCP: {host}:5770 (Android 默认)；UDP: {host}:14550")
                 for index, row in enumerate(rows):
-                    suffixes = ("cam", "gimbal") if "gimbal" in str(row.get("airframe", "")) else ("cam",)
+                    suffixes = ("gimbal",) if "gimbal" in str(row.get("airframe", "")) else ("cam",)
                     for suffix in suffixes:
                         print(f"sysid {row['sysid']} 视频: rtsp://{host}:8554/v{index}/{suffix}")
                 print(f"AI: http://{host}:8790；控制: http://{host}:8780")
@@ -755,7 +781,7 @@ async def _supervise(args: argparse.Namespace) -> int:
             locks.append(lock)
         if not locks:
             raise LifecycleError("no SITL slots were leased")
-        overlay_models_dir = _prepare_camera_overlay(profile.name, args.image)
+        overlay_models_dir = _prepare_camera_overlay(profile.name, args.image, args.airframe)
         for lock in locks:
             slot = int(lock.slot)
             control = 14560 + 10 * slot
@@ -776,7 +802,11 @@ async def _supervise(args: argparse.Namespace) -> int:
             command = _managed_docker_command(plan.command, slot)
             command = _override_docker_environment(command)
             command = _with_camera_overlay(
-                command, profile.name, overlay_models_dir, image=plan.image
+                command,
+                profile.name,
+                overlay_models_dir,
+                image=plan.image,
+                model_name=_camera_model_name(args.airframe),
             )
             name = f"md-polaris-sim-slot-{slot}"
             unit = f"psim-sitl-slot-{slot}"

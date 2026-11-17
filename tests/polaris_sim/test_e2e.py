@@ -11,6 +11,7 @@ from scripts.polaris_sim.e2e import (
     E2EFailure,
     PolarisE2E,
     assert_latency_increased,
+    mean_absolute_frame_difference,
     parse_slots,
     validate_ai_response,
     validate_discovery,
@@ -146,6 +147,39 @@ def test_video_probe_checks_h264_resolution_and_rate() -> None:
             min_height=240,
             min_fps=1.0,
         )
+
+
+def test_gimbal_frame_difference_requires_equal_nonempty_frames() -> None:
+    assert mean_absolute_frame_difference(b"\x00\x10", b"\x02\x18") == 5.0
+    with pytest.raises(ValueError, match="equal lengths"):
+        mean_absolute_frame_difference(b"\x00", b"\x00\x01")
+    with pytest.raises(ValueError, match="non-empty"):
+        mean_absolute_frame_difference(b"", b"")
+
+
+def test_gimbal_video_step_probes_only_real_gimbal_camera_and_checks_motion(tmp_path) -> None:
+    runner = PolarisE2E(_config(tmp_path))
+    probes = []
+    motions = []
+    runner._video_probe = lambda slot, camera: probes.append((slot, camera)) or {
+        "slot": slot,
+        "camera": camera,
+    }
+    runner._gimbal_video_motion = lambda slot, sysid: motions.append((slot, sysid)) or {
+        "mean_abs_diff": 4.0
+    }
+
+    result = runner.video()
+
+    assert probes == [(5, "gimbal"), (6, "gimbal")]
+    assert motions == [(5, 1), (6, 2)]
+    assert result == {
+        "streams": [
+            {"slot": 5, "camera": "gimbal"},
+            {"slot": 6, "camera": "gimbal"},
+        ],
+        "gimbal_motion": [{"mean_abs_diff": 4.0}, {"mean_abs_diff": 4.0}],
+    }
 
 
 def test_discovery_document_exposes_expected_gateway_ports() -> None:

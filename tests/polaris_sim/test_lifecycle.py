@@ -6,10 +6,12 @@ import pytest
 from multidetect.polaris_sim.camera import get_camera_profile
 from scripts.polaris_sim import lifecycle
 from scripts.polaris_sim.lifecycle import (
+    GIMBAL_GPU_IMAGE_TAG,
     MEMWATCH_UNIT,
     _generate_camera_overlay,
     _resolve_world,
     _select_gpus,
+    _with_camera_overlay,
 )
 
 
@@ -19,7 +21,11 @@ def test_auto_gpu_assignment_checks_compute_apps_and_spreads_vehicles(monkeypatc
     def run(command, **kwargs):
         calls.append(command)
         if "--query-compute-apps=pid,used_memory,gpu_uuid" in command:
-            return SimpleNamespace(returncode=0, stdout="11, 2000, GPU-1\n22, 500, GPU-2\n", stderr="")
+            return SimpleNamespace(
+                returncode=0,
+                stdout="11, 2000, GPU-1\n22, 500, GPU-2\n",
+                stderr="",
+            )
         return SimpleNamespace(
             returncode=0,
             stdout="1, GPU-1, 6000, 20000, 20\n2, GPU-2, 4000, 20000, 10\n",
@@ -66,7 +72,7 @@ def test_world_resolution_uses_configured_dirs_and_singapore_default(tmp_path, m
 def test_dry_run_emits_full_docker_command_for_external_city_world(monkeypatch, capsys):
     monkeypatch.setattr(lifecycle, "_select_gpus", lambda _gpu, count, dry_run: ["2"] * count)
     image = "multidetect/px4-sitl-gazebo:gz-rendering-830-r1"
-    monkeypatch.setattr(lifecycle, "_local_image", lambda _gpu: image)
+    monkeypatch.setattr(lifecycle, "_local_image", lambda *_args: image)
 
     result = lifecycle.main(
         ["up", "--gpu", "2", "--vehicles", "1", "--dry-run"]
@@ -105,7 +111,7 @@ def test_dry_run_emits_full_docker_command_for_external_city_world(monkeypatch, 
 def test_dry_run_honors_explicit_image(monkeypatch, capsys):
     monkeypatch.setattr(lifecycle, "_select_gpus", lambda _gpu, count, dry_run: ["2"] * count)
 
-    def fail_local_image(_gpu):
+    def fail_local_image(*_args):
         raise AssertionError("explicit image should bypass local image discovery")
 
     monkeypatch.setattr(lifecycle, "_local_image", fail_local_image)
@@ -169,6 +175,56 @@ def test_camera_profile_defaults_and_overlay_generation(tmp_path):
     assert "<height>960</height>" in contents
     assert "<update_rate>30</update_rate>" in contents
     assert 'type="rgbd_camera"' in contents
+
+
+def test_gimbal_camera_overlay_replaces_only_the_image_sdf(tmp_path):
+    source = (
+        "<sdf><model name='gimbal'><link name='camera_link'>"
+        "<sensor name='camera' type='camera'><update_rate>30</update_rate>"
+        "<camera><image><width>1280</width><height>960</height></image></camera>"
+        "</sensor></link></model></sdf>"
+    )
+    destination = _generate_camera_overlay("lite", source, tmp_path, "gimbal")
+    assert destination == tmp_path / "models/gimbal/model.sdf"
+    contents = destination.read_text(encoding="utf-8")
+    assert "<width>640</width>" in contents
+    assert "<height>480</height>" in contents
+    assert 'type="rgbd_camera"' in contents
+    model_config = (destination.parent / "model.config").read_text(encoding="utf-8")
+    assert "<name>gimbal</name>" in model_config
+
+    image = "multidetect/px4-sitl-gazebo:test"
+    command = ["docker", "run", "--env", "GZ_SIM_RESOURCE_PATH=/upstream/models", image]
+    planned = _with_camera_overlay(
+        command, "lite", destination.parent.parent, image=image, model_name="gimbal"
+    )
+    mount_args = [
+        planned[index + 1]
+        for index, value in enumerate(planned[:-1])
+        if value == "--mount"
+    ]
+    assert any(
+        f"type=bind,source={destination},target=/opt/px4-gazebo/share/gz/models/gimbal/model.sdf,readonly"
+        == value
+        for value in mount_args
+    )
+    assert not any(
+        "target=/opt/px4-gazebo/share/gz/models/gimbal,readonly" in value
+        for value in mount_args
+    )
+    assert "GZ_SIM_RESOURCE_PATH=/upstream/models" in planned
+
+
+def test_gimbal_airframe_selects_local_gimbal_id_image(monkeypatch):
+    inspected = []
+
+    def run(command, **_kwargs):
+        inspected.append(command[-1])
+        return SimpleNamespace(returncode=0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", run)
+    assert lifecycle._local_image(True, "x500_gimbal") == GIMBAL_GPU_IMAGE_TAG
+    assert inspected == [GIMBAL_GPU_IMAGE_TAG]
 
 
 def test_camera_overlay_experiment_switches_sensor_rendering(tmp_path, monkeypatch):
@@ -255,7 +311,7 @@ def test_up_passes_memory_limit_and_state_path_to_supervisor(tmp_path, monkeypat
     )
     monkeypatch.setattr(lifecycle, "_scenario_path", lambda *_args: scenario)
     monkeypatch.setattr(lifecycle, "_select_gpus", lambda *_args, **_kwargs: ["2"])
-    monkeypatch.setattr(lifecycle, "_local_image", lambda _gpu: "local:image")
+    monkeypatch.setattr(lifecycle, "_local_image", lambda *_args: "local:image")
     monkeypatch.setattr(lifecycle, "_systemctl", lambda *_args: False)
     calls = []
     monkeypatch.setattr(

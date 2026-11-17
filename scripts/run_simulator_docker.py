@@ -733,7 +733,16 @@ def build_docker_simulator_plan(
     # container paths while preserving scenario/seed identity and the same
     # PX4/Gazebo model selection.
     stack_environment = stack.environment_mapping
-    model_name = stack.model_name
+    vehicle_is_x500_gimbal = stack.vehicle_model.lower() in {
+        "x500_gimbal",
+        "px4_x500_gimbal",
+    }
+    selected_airframe_profile = airframe_profile_id or stack.airframe_profile_id
+    gimbal_profile = vehicle_is_x500_gimbal or selected_airframe_profile.lower() in {
+        "x500_gimbal",
+        "px4_x500_gimbal",
+    }
+    model_name = "x500_gimbal" if vehicle_is_x500_gimbal else stack.model_name
     custom_airframe = None
     custom_airframe_sha256 = ""
     staged_model_sdf = None
@@ -815,7 +824,7 @@ def build_docker_simulator_plan(
     if logger_mode == "off":
         container_environment["SDLOG_BACKEND"] = "0"
         container_environment["PX4_PARAM_SDLOG_BACKEND"] = "0"
-    if airframe_profile_id == "x500_gimbal":
+    if gimbal_profile:
         container_environment["PX4_SYS_AUTOSTART"] = "4019"
         container_environment["PX4_SIM_MODEL"] = "gz_x500_gimbal"
         container_environment["PX4_GZ_MODELS"] = CONTAINER_IMAGE_MODEL_ROOT
@@ -824,7 +833,7 @@ def build_docker_simulator_plan(
     # resolved from the same upstream directory.
     container_model_root = (
         CONTAINER_IMAGE_MODEL_ROOT
-        if airframe_profile_id == "x500_gimbal"
+        if gimbal_profile
         else CONTAINER_MODEL_ROOT
     )
     if gpu_render:
@@ -1039,7 +1048,7 @@ def build_docker_simulator_plan(
         container_network_mode=container_network,
         vehicle_model=stack.vehicle_model,
         model_name=model_name,
-        airframe_profile_id=stack.airframe_profile_id,
+        airframe_profile_id=selected_airframe_profile,
         environment=environment_tokens,
         assets=stack.assets,
         world_sdf_sha256=stack.assets.world.sha256,

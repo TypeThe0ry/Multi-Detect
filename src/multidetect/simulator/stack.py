@@ -1598,10 +1598,12 @@ def _build_environment(
         "delta_tailsitter_gimbal_cam": "4051",
         "tiltrotor_mono_cam": "4020",
     }.get(model_name)
-    gimbal_profile = runtime.vehicle.airframe_profile_id.lower() in {
+    gimbal_profile = runtime.vehicle.model.lower() in {"x500_gimbal", "px4_x500_gimbal"} or (
+        runtime.vehicle.airframe_profile_id.lower() in {
         "x500_gimbal",
         "px4_x500_gimbal",
-    }
+        }
+    )
     if gimbal_profile:
         autostart = "4019"
     if autostart is None:

@@ -48,6 +48,8 @@ DEFAULT_QUERY = {
     "categories": ["car"],
     "outputs": ["count"],
 }
+GIMBAL_FRAME_SIZE = (96, 72)
+GIMBAL_FRAME_MIN_MEAN_ABS_DIFF = 2.0
 LANE_ROOT = ROOT.parent / "cx-psim-gateway"
 AI_LANE_ROOT = ROOT.parent / "cx-psim-ai"
 VIDEO_LANE_ROOT = (
@@ -164,6 +166,19 @@ def assert_latency_increased(
         )
 
 
+def mean_absolute_frame_difference(before: bytes, after: bytes) -> float:
+    if not before or len(before) != len(after):
+        raise ValueError("frames must be non-empty and have equal lengths")
+    return sum(abs(left - right) for left, right in zip(before, after, strict=True)) / len(before)
+
+
+def gimbal_angles_deg(quaternion: Any) -> tuple[float, float]:
+    w, x, y, z = (float(value) for value in quaternion)
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x)))))
+    yaw = math.degrees(math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
+    return pitch, yaw
+
+
 def _read_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -234,8 +249,16 @@ def _run_command(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else exc.stdout
-        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr
+        stdout = (
+            exc.stdout.decode(errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else exc.stdout
+        )
+        stderr = (
+            exc.stderr.decode(errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else exc.stderr
+        )
         _write_log(
             log_path,
             f"$ {' '.join(display_command)}\ntimeout={timeout}s\n"
@@ -889,34 +912,15 @@ class PolarisE2E:
                     connection,
                     sysid,
                     gimbal_configure,
-                    (255.0, 190.0, -1.0, -1.0, 0.0, 0.0, 0.0),
+                    (255.0, 190.0, -1.0, -1.0, 0.0, 0.0, 1.0),
                 ).result
                 details["gimbal_command_ack"] = self._command(
                     connection,
                     sysid,
                     gimbal_pitchyaw,
-                    (-25.0, 0.0, float("nan"), float("nan"), 44.0, 0.0, 0.0),
+                    (-25.0, 0.0, float("nan"), float("nan"), 44.0, 0.0, 1.0),
                 ).result
-                gimbal = self._recv(
-                    connection,
-                    "GIMBAL_DEVICE_ATTITUDE_STATUS",
-                    20.0,
-                    lambda msg: msg.get_srcSystem() == sysid,
-                )
-                if gimbal is None:
-                    raise E2EFailure(f"no gimbal attitude readback from sysid {sysid}")
-                w, x, y, z = (float(value) for value in gimbal.q)
-                pitch = math.degrees(math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x)))))
-                yaw = math.degrees(
-                    math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-                )
-                pitch_error = abs((pitch + 25.0 + 180.0) % 360.0 - 180.0)
-                yaw_error = abs((yaw + 180.0) % 360.0 - 180.0)
-                if max(pitch_error, yaw_error) > 4.0:
-                    raise E2EFailure(
-                        "gimbal readback mismatch: requested pitch/yaw -25/0 deg, "
-                        f"got {pitch:.1f}/{yaw:.1f} deg"
-                    )
+                pitch, yaw = self._wait_gimbal_angles(connection, sysid, -25.0, 0.0)
                 details["gimbal_readback_deg"] = {"pitch": pitch, "yaw": yaw}
             self._command(
                 connection,
@@ -1011,6 +1015,135 @@ class PolarisE2E:
             "decoded_frames": len(frames),
             "connect_first_frame_ms": elapsed_ms,
         }
+
+    def _capture_gimbal_frame(self, url: str) -> bytes:
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise E2EFailure("ffmpeg is required for the gimbal image-change check")
+        width, height = GIMBAL_FRAME_SIZE
+        command = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            url,
+            "-vf",
+            f"scale={width}:{height}:flags=fast_bilinear,format=gray",
+            "-frames:v",
+            "1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "pipe:1",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                timeout=self.config.timeout_s,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise E2EFailure(f"could not capture a gimbal RTSP frame: {exc}") from exc
+        expected_size = width * height
+        if result.returncode or len(result.stdout) != expected_size:
+            detail = result.stderr.decode("utf-8", errors="replace")[-1000:]
+            raise E2EFailure(
+                "gimbal RTSP frame decode failed "
+                f"({len(result.stdout)}/{expected_size} bytes): {detail}"
+            )
+        return result.stdout
+
+    def _wait_gimbal_angles(
+        self, connection: Any, sysid: int, pitch_target: float, yaw_target: float
+    ) -> tuple[float, float]:
+        from scripts.polaris_sim.gimbal_smoke import expected_yaw_readback_deg
+
+        deadline = time.monotonic() + 20.0
+        last_angles: tuple[float, float] | None = None
+        while time.monotonic() < deadline:
+            message = self._recv(
+                connection,
+                "GIMBAL_DEVICE_ATTITUDE_STATUS",
+                min(1.0, deadline - time.monotonic()),
+                lambda item: item.get_srcSystem() == sysid,
+            )
+            if message is None:
+                continue
+            pitch, yaw = gimbal_angles_deg(message.q)
+            last_angles = pitch, yaw
+            pitch_error = abs((pitch - pitch_target + 180.0) % 360.0 - 180.0)
+            attitude = self._recv(
+                connection,
+                "ATTITUDE",
+                min(1.0, max(0.05, deadline - time.monotonic())),
+                lambda item: item.get_srcSystem() == sysid,
+            )
+            if attitude is None:
+                continue
+            expected_yaw = expected_yaw_readback_deg(
+                yaw_target,
+                command_flags=44,
+                status_flags=int(message.flags),
+                vehicle_yaw_deg=math.degrees(float(attitude.yaw)),
+            )
+            yaw_error = abs((yaw - expected_yaw + 180.0) % 360.0 - 180.0)
+            if max(pitch_error, yaw_error) <= 4.0:
+                return pitch, yaw
+        raise E2EFailure(
+            f"gimbal readback did not reach {pitch_target:.1f}/{yaw_target:.1f} deg; "
+            f"last={last_angles}"
+        )
+
+    def _gimbal_video_motion(self, slot: int, sysid: int) -> dict[str, Any]:
+        if mavutil is None:
+            raise E2EFailure("pymavlink is required for the gimbal image-change check")
+        index = slot - 5
+        url = f"rtsp://{self.config.host}:{self.config.rtsp_port}/v{index}/gimbal"
+        connection = self._mav_connection("tcp", sysid)
+        try:
+            dialect = mavutil.mavlink
+            configure = getattr(dialect, "MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE", None)
+            pitchyaw = getattr(dialect, "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW", None)
+            if configure is None or pitchyaw is None:
+                raise E2EFailure("installed pymavlink dialect lacks Gimbal Manager v2 commands")
+            self._command(
+                connection, sysid, configure, (255.0, 190.0, -1.0, -1.0, 0.0, 0.0, 1.0)
+            )
+            frames: list[bytes] = []
+            readbacks: list[dict[str, float]] = []
+            for pitch_target in (-25.0, 15.0):
+                self._command(
+                    connection,
+                    sysid,
+                    pitchyaw,
+                    (pitch_target, 0.0, float("nan"), float("nan"), 44.0, 0.0, 1.0),
+                )
+                pitch, yaw = self._wait_gimbal_angles(connection, sysid, pitch_target, 0.0)
+                readbacks.append({"pitch": pitch, "yaw": yaw})
+                time.sleep(0.4)
+                frames.append(self._capture_gimbal_frame(url))
+            difference = mean_absolute_frame_difference(frames[0], frames[1])
+            if difference <= GIMBAL_FRAME_MIN_MEAN_ABS_DIFF:
+                raise E2EFailure(
+                    f"/gimbal image did not change enough after pitch command: "
+                    f"mean_abs_diff={difference:.2f}, "
+                    f"required>{GIMBAL_FRAME_MIN_MEAN_ABS_DIFF:.2f}"
+                )
+            return {
+                "url": url,
+                "pitch_targets_deg": [-25.0, 15.0],
+                "readbacks_deg": readbacks,
+                "frame_size": list(GIMBAL_FRAME_SIZE),
+                "mean_abs_diff": difference,
+                "minimum_mean_abs_diff": GIMBAL_FRAME_MIN_MEAN_ABS_DIFF,
+            }
+        finally:
+            connection.close()
 
     @staticmethod
     def _free_port(kind: socket.SocketKind) -> int:
@@ -1156,7 +1289,8 @@ class PolarisE2E:
             min_height=self.config.min_height,
             min_fps=self.config.min_fps,
         )
-        minimum_duration = min(8.0, self.config.record_seconds * 0.6)  # first keyframe + mux tail trim ~2 s
+        # Allow for the first keyframe and roughly two seconds of mux tail trim.
+        minimum_duration = min(8.0, self.config.record_seconds * 0.6)
         if frames < 1 or duration < minimum_duration:
             raise E2EFailure(
                 f"recorded video {path} has {frames} frames over {duration:.2f}s; "
@@ -1165,14 +1299,14 @@ class PolarisE2E:
         return {"path": str(path), "duration_s": duration, "decoded_frames": frames, **metrics}
 
     def video(self) -> dict[str, Any]:
-        cameras = ("cam", "gimbal") if "gimbal" in self.config.airframe else ("cam",)
-        return {
-            "streams": [
-                self._video_probe(slot, camera)
-                for slot in self.config.slots
-                for camera in cameras
-            ]
-        }
+        gimbal_airframe = "gimbal" in self.config.airframe
+        camera = "gimbal" if gimbal_airframe else "cam"
+        streams = [self._video_probe(slot, camera) for slot in self.config.slots]
+        motion = [
+            self._gimbal_video_motion(slot, SLOT_SYSID[slot])
+            for slot in self.config.slots
+        ] if gimbal_airframe else []
+        return {"streams": streams, "gimbal_motion": motion}
 
     def _ping_samples(self, connection: Any, sysid: int, count: int = 8) -> list[float]:
         # PX4 does not answer MAVLink PING requests; a REQUEST_MESSAGE command round-trips instead.
@@ -1250,7 +1384,8 @@ class PolarisE2E:
             delayed_median = statistics.median(delayed)
             assert_latency_increased(baseline_median, delayed_median, 80.0)
             video_after = self._video_latency(slot)
-            assert_latency_increased(video_before, video_after, 15.0)  # host load adds ±80 ms of noise to p50
+            # Host load adds roughly 80 ms of noise to the video p50.
+            assert_latency_increased(video_before, video_after, 15.0)
             return {
                 "direction_settings": {
                     "up": {"delay_ms": 100, "jitter_ms": 0, "loss_pct": 5},
@@ -1343,7 +1478,19 @@ class PolarisE2E:
         enable = urllib.request.Request(
             f"{self.config.ai_url}/v1/components",
             data=json.dumps(
-                {"components": {name: True for name in ("altair", "vega", "vlm", "mizar", "tracking", "publish_polaris")}}
+                {
+                    "components": {
+                        name: True
+                        for name in (
+                            "altair",
+                            "vega",
+                            "vlm",
+                            "mizar",
+                            "tracking",
+                            "publish_polaris",
+                        )
+                    }
+                }
             ).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -1453,9 +1600,7 @@ class PolarisE2E:
                 "slot": slot,
                 "sysid": SLOT_SYSID[slot],
                 "index": index,
-                "cameras": ["cam", "gimbal"]
-                if "gimbal" in self.config.airframe
-                else ["cam"],
+                "cameras": ["gimbal"] if "gimbal" in self.config.airframe else ["cam"],
             }
             for index, slot in enumerate(self.config.slots)
         ]
@@ -1506,9 +1651,7 @@ class PolarisE2E:
         tlog_rows = [
             item for item in manifest.get("files", []) if item.get("kind") == "mavlink_tlog"
         ]
-        expected_video_count = len(self.config.slots) * (
-            2 if "gimbal" in self.config.airframe else 1
-        )
+        expected_video_count = len(self.config.slots)
         if len(video_rows) < expected_video_count or not tlog_rows:
             raise E2EFailure(
                 f"recording manifest has {len(video_rows)} video files and {len(tlog_rows)} tlogs"

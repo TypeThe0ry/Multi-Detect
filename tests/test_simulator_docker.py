@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from multidetect.autonomy.serialization import canonical_sha256
 from scripts.run_simulator_docker import (
     PINNED_IMAGE,
     DockerSimulatorPlanError,
@@ -139,6 +140,56 @@ def test_gimbal_airframe_uses_px4_gimbal_model_without_starting_docker(tmp_path:
         airframe_profile_id="x500_gimbal",
     )
     env = dict(plan.environment)
+    assert env["PX4_SYS_AUTOSTART"] == "4019"
+    assert env["PX4_SIM_MODEL"] == "gz_x500_gimbal"
+    assert env["PX4_GZ_MODELS"] == "/opt/px4-gazebo/share/gz/models"
+
+
+def test_gimbal_runtime_model_selects_device_model_and_topic_name(tmp_path: Path) -> None:
+    runtime = json.loads(
+        (ROOT / "configs/scenarios/urban_inspection_multirotor_001.runtime.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    runtime["vehicle"]["model"] = "x500_gimbal"
+    runtime_path = tmp_path / "x500-gimbal.runtime.json"
+    runtime_path.write_text(json.dumps(runtime), encoding="utf-8")
+    channels = {
+        "runtime_input": {
+            "path": runtime_path.name,
+            "sha256": canonical_sha256(runtime),
+        }
+    }
+    for name in ("truth", "expectations"):
+        source_path = ROOT / f"configs/scenarios/urban_inspection_multirotor_001.{name}.json"
+        copied_path = tmp_path / source_path.name
+        shutil.copy2(source_path, copied_path)
+        channels[name] = {
+            "path": copied_path.name,
+            "sha256": canonical_sha256(json.loads(copied_path.read_text(encoding="utf-8"))),
+        }
+    manifest_path = tmp_path / "x500-gimbal.scenario.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "scenario_id": runtime["scenario_id"],
+                "scenario_version": runtime["scenario_version"],
+                "channels": channels,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = build_docker_simulator_plan(
+        manifest_path,
+        repository_root=ROOT,
+        job_dir=tmp_path / "gimbal-runtime",
+    )
+
+    env = dict(plan.environment)
+    assert plan.vehicle_model == "x500_gimbal"
+    assert plan.model_name == "x500_gimbal"
     assert env["PX4_SYS_AUTOSTART"] == "4019"
     assert env["PX4_SIM_MODEL"] == "gz_x500_gimbal"
     assert env["PX4_GZ_MODELS"] == "/opt/px4-gazebo/share/gz/models"
