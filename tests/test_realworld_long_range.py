@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,38 @@ def test_w6km_profile_rejects_lower_requested_rtf() -> None:
     )
     with pytest.raises(ValueError, match="RTF requirement"):
         flight.load_mission(scenario, minimum_rtf=0.89)
+
+
+def test_w2km_sidecar_writer_keeps_1500m_range_and_rtf_gate(monkeypatch, tmp_path: Path) -> None:
+    scenario = Path(
+        "configs/scenarios/realworld/rc_cessna_mono_cam/"
+        "rw_farm_iowa_w2km__clear_noon.scenario.json"
+    )
+    sidecar = tmp_path / "rw_farm_iowa_w2km__clear_noon.long_range.json"
+    monkeypatch.setattr(flight, "sidecar_path", lambda _scenario: sidecar)
+
+    flight.write_mission_sidecar(scenario, extent_m=2000.0)
+    mission = flight.load_mission(scenario)
+
+    assert mission["source"]["extent_m"] == 2000.0
+    assert mission["minimum_max_distance_m"] == pytest.approx(1500.0)
+    assert mission["planned_max_distance_m"] >= 1500.0
+    assert mission["minimum_rtf"] == pytest.approx(0.9)
+
+
+def test_w2km_derived_runtime_heading_matches_mission() -> None:
+    scenario = Path(
+        "configs/scenarios/realworld/rc_cessna_mono_cam/"
+        "rw_farm_iowa_w2km__clear_noon.scenario.json"
+    )
+    document, runtime = flight._scenario_document(scenario)
+    mission = flight.load_mission(scenario)
+    yaw = float(runtime["vehicle"]["spawn_pose"]["yaw_rad"])
+    heading = mission["geometry"].takeoff_heading_deg
+
+    assert document["scenario_id"] == "rw_farm_iowa_w2km__clear_noon"
+    assert math.cos(yaw) == pytest.approx(math.sin(math.radians(heading)), abs=1e-5)
+    assert math.sin(yaw) == pytest.approx(math.cos(math.radians(heading)), abs=1e-5)
 
 
 def test_collector_profile_entry_delegates_without_starting_runtime(monkeypatch) -> None:

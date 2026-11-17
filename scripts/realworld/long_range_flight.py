@@ -34,9 +34,16 @@ DEFAULT_SCENARIO = (
     / f"{DEFAULT_PROFILE}.scenario.json"
 )
 DEFAULT_OUTPUT_ROOT = ROOT / ".tmp/rtf-speedup-run/collect"
-MIN_WIDE_EXTENT_M = 6000.0
-MIN_LONG_RANGE_DISTANCE_M = 4000.0
+MIN_WIDE_EXTENT_M = 2000.0
+MIN_2KM_DISTANCE_M = 1500.0
+MIN_6KM_DISTANCE_M = 4000.0
 DEFAULT_MIN_RTF = 0.9
+
+
+def minimum_distance_for_extent(extent_m: float) -> float:
+    if not math.isfinite(extent_m):
+        raise ValueError("long-range extent_m must be finite")
+    return MIN_6KM_DISTANCE_M if extent_m >= 6000.0 else MIN_2KM_DISTANCE_M
 
 
 def sidecar_path(scenario: Path) -> Path:
@@ -97,8 +104,10 @@ def _validate_profile(
     runtime_id = str(runtime.get("scenario_id", ""))
     if scenario_name != runtime_id or scenario_name != scenario_id(scenario):
         raise ValueError("scenario manifest/runtime identity does not match the scenario filename")
-    if not scenario_name.startswith("rw_") or "w6km" not in scenario_name:
-        raise ValueError("long-range profile requires an rw_* 6 km real-terrain scenario")
+    if not scenario_name.startswith("rw_") or not any(
+        profile in scenario_name for profile in ("w2km", "w6km")
+    ):
+        raise ValueError("long-range profile requires an rw_* 2 km or 6 km real-terrain scenario")
     vehicle = runtime.get("vehicle")
     if not isinstance(vehicle, Mapping):
         raise ValueError("long-range profile requires a runtime vehicle")
@@ -120,6 +129,10 @@ def _validate_profile(
     declared_airframe = sidecar.get("airframe", AIRFRAME)
     if declared_airframe != AIRFRAME:
         raise ValueError("long-range sidecar airframe must be rc_cessna_mono_cam")
+    extent = float(sidecar.get("extent_m", 0.0))
+    expected_extent = 2000.0 if "w2km" in scenario_name else 6000.0
+    if not math.isfinite(extent) or not math.isclose(extent, expected_extent, abs_tol=1e-6):
+        raise ValueError(f"long-range sidecar extent_m must be {expected_extent:g} for {scenario_name}")
     declared_rtf = float(sidecar.get("minimum_rtf", DEFAULT_MIN_RTF))
     requested_rtf = declared_rtf if minimum_rtf is None else float(minimum_rtf)
     if not math.isfinite(requested_rtf) or requested_rtf < DEFAULT_MIN_RTF:
@@ -161,10 +174,16 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None) -> dict[st
         airframe_profile_hash=canonical_sha256(profile), mission_id=f"{scenario_id(scenario)}-long-range")
     targets = [offset_ned(geometry.home, point) for point in (*geometry.waypoints, geometry.landing_approach)]
     maximum = max(math.hypot(p[0], p[1]) for p in targets)
-    minimum = float(data.get("minimum_max_distance_m", MIN_LONG_RANGE_DISTANCE_M))
-    if minimum < MIN_LONG_RANGE_DISTANCE_M or maximum < minimum:
+    minimum = float(
+        data.get(
+            "minimum_max_distance_m",
+            minimum_distance_for_extent(float(data["extent_m"])),
+        )
+    )
+    required_distance = minimum_distance_for_extent(float(data["extent_m"]))
+    if not math.isfinite(minimum) or minimum < required_distance or maximum < minimum:
         raise ValueError(
-            f"long-range mission must reach at least {MIN_LONG_RANGE_DISTANCE_M:g} m from spawn"
+            f"long-range mission must reach at least {required_distance:g} m from spawn"
         )
     extent = float(data["extent_m"])
     if not math.isfinite(extent) or extent < MIN_WIDE_EXTENT_M:
@@ -184,25 +203,33 @@ def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
     dem = json.loads((ROOT / "simulation/terrain" / dem_name).read_text())
     origin = dem["origin"]
     home = GeoPoint(origin["latitude_deg"], origin["longitude_deg"])
-    if extent_m < MIN_WIDE_EXTENT_M:
+    if not math.isfinite(extent_m) or extent_m < MIN_WIDE_EXTENT_M:
         raise ValueError(f"long-range route requires extent_m>={MIN_WIDE_EXTENT_M:g}")
     half = extent_m / 2.0
     def point(east, north, altitude=100.0):
         return GeoPoint(home.latitude_deg + math.degrees(north / 6378137.0),
                         home.longitude_deg + math.degrees(east / (6378137.0 * math.cos(math.radians(home.latitude_deg)))),
                         altitude, "relative_home")
-    scale = extent_m / 6000.0
-    waypoints = tuple(point(e * scale, n * scale) for e, n in (
+    route_offsets = (
         (1000, 0), (2300, 1300), (2800, 2400), (2850, 2850),
-        (2400, 2800), (1300, 2300), (0, 1200), (-800, 500), (-800, 0)))
+        (2400, 2800), (1300, 2300), (0, 1200), (-800, 500), (-800, 0),
+    )
+    route_radius = max(math.hypot(e, n) for e, n in route_offsets)
+    required_distance = minimum_distance_for_extent(extent_m)
+    scale = max(extent_m / 6000.0, required_distance / route_radius)
+    waypoints = tuple(point(e * scale, n * scale) for e, n in route_offsets)
     from multidetect.px4_mission import Px4FixedWingSafetyPolicy
+    landing_approach_distance = max(400.0 * scale, 200.0)
     geometry = FixedWingMissionGeometry(
-        home=home, waypoints=waypoints, landing_approach=point(-400, 0, 40),
+        home=home, waypoints=waypoints,
+        landing_approach=point(-landing_approach_distance, 0, 40),
         landing=point(0, 0, 0), takeoff_altitude_m=40.0, acceptance_radius_m=25.0,
         takeoff_heading_deg=90.0, landing_heading_deg=90.0)
+    planned_max_distance = max(math.hypot(e * scale, n * scale) for e, n in route_offsets)
+    geofence_radius = max(half * math.sqrt(2), planned_max_distance + 100.0)
     policy = Px4FixedWingSafetyPolicy(
-        geofence_center=home, geofence_radius_m=half * math.sqrt(2),
-        maximum_mission_radius_m=half * math.sqrt(2) - 50,
+        geofence_center=home, geofence_radius_m=geofence_radius,
+        maximum_mission_radius_m=geofence_radius - 50.0,
         allowed_airframe_profile_ids=("px4_fixed_wing_gazebo_v1",),
         cruise_airspeed_mps=15.0, minimum_airspeed_mps=10.0)
     task = ResolvedTaskSpec(
@@ -223,12 +250,12 @@ def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
     body = {"schema_version": 1, "scenario_id": scenario_id, "profile": scenario_id,
         "airframe": AIRFRAME, "minimum_rtf": DEFAULT_MIN_RTF,
         "output_stem": output_name(scenario, DEFAULT_MIN_RTF),
-        "extent_m": extent_m, "minimum_max_distance_m": 4000.0 if extent_m >= 6000.0 else 1000.0,
+        "extent_m": extent_m, "minimum_max_distance_m": required_distance,
         "max_wall_s": 14400.0, "mission_compile_runtime": {"schema_version": 1,
             "vehicle_class": "fixed-wing", **geometry.to_mapping(), "safety_policy": policy.to_mapping()},
         "task": task.to_mapping(), "context": context.to_mapping(),
         "context_scope": "offline assumed healthy SIM inputs; not observed telemetry",
-        "sim_params": {"GF_MAX_HOR_DIST": half * math.sqrt(2), "GF_MAX_VER_DIST": 180,
+        "sim_params": {"GF_MAX_HOR_DIST": geofence_radius, "GF_MAX_VER_DIST": 180,
                        "GF_ACTION": 1, "BAT_N_CELLS": 3},
         "boundary": {"east_min_m": -half, "east_max_m": half,
                      "north_min_m": -half, "north_max_m": half}}

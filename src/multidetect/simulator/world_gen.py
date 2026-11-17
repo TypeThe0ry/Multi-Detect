@@ -1580,11 +1580,12 @@ def derive_fixed_wing_scenario(
     worlds_dir: str | Path = "simulation/gazebo/worlds",
     runway_heading_deg: float | None = None,
     corridor_half_width_m: float = 15.0,
+    vehicle_model: str = "px4_fixed_wing_standard",
 ) -> dict[str, Any]:
-    """Re-target a generated (multirotor) scenario at a runway fixed-wing.
+    """Re-target a scenario at a runway fixed-wing.
 
     Generated worlds only emit an x500 runtime.  The same world, truth and task
-    serve a fixed-wing when the runtime spawns ``px4_fixed_wing_standard`` with
+    serve a fixed-wing when the runtime spawns the selected fixed-wing model with
     the fixed-wing sensor set, pointed along a runway line through home that no
     obstacle, target or distractor footprint comes within
     ``corridor_half_width_m`` of (takeoff roll and climb-out ahead, landing glide
@@ -1633,8 +1634,10 @@ def derive_fixed_wing_scenario(
     # Gazebo ENU yaw is measured from east; a NED heading from north.
     yaw = math.radians(90.0 - float(heading))
     yaw = math.atan2(math.sin(yaw), math.cos(yaw))
+    if vehicle_model not in {"px4_fixed_wing_standard", "rc_cessna_mono_cam"}:
+        raise ValueError(f"unsupported fixed-wing vehicle model {vehicle_model!r}")
     vehicle = {
-        "model": "px4_fixed_wing_standard",
+        "model": vehicle_model,
         "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
         "spawn_id": f"{world_id}_runway",
         "spawn_pose": {
@@ -1682,7 +1685,7 @@ def derive_fixed_wing_scenario(
         {
             "airframe": "fixed_wing",
             "runway_heading_deg": float(heading),
-            "runway_clearance_m": round(clearance, 3),
+            "runway_clearance_m": round(clearance, 3) if math.isfinite(clearance) else None,
             "source_scenario": scenario_path.name,
         }
     )

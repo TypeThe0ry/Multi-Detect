@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-target generated worlds at a fixed-wing or VTOL (same world, truth and task).
+"""Re-target a scenario at a fixed-wing or VTOL (same world, truth and task).
 
 Without ``--airframe`` (or with ``fixed_wing``) the runway fixed-wing runtime is
 derived; ``--airframe standard_vtol`` / ``quadtailsitter`` spawns that VTOL at home.
@@ -30,6 +30,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runway-heading-deg", type=float, default=None)
     parser.add_argument("--corridor-half-width-m", type=float, default=15.0)
     parser.add_argument(
+        "--vehicle-model", choices=("px4_fixed_wing_standard", "rc_cessna_mono_cam"),
+        default="px4_fixed_wing_standard",
+    )
+    parser.add_argument(
         "--airframe", choices=("fixed_wing", *sorted(VTOL_VEHICLES)), default="fixed_wing"
     )
     args = parser.parse_args(argv)
@@ -43,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
                 worlds_dir=args.worlds_dir,
                 runway_heading_deg=args.runway_heading_deg,
                 corridor_half_width_m=args.corridor_half_width_m,
+                vehicle_model=args.vehicle_model,
             )
         print(json.dumps(entry, ensure_ascii=False, sort_keys=True))
     return 0

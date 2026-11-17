@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "scenario_id": "rw_farm_iowa_w2km__clear_noon",
+  "profile": "rw_farm_iowa_w2km__clear_noon",
+  "airframe": "rc_cessna_mono_cam",
+  "minimum_rtf": 0.9,
+  "output_stem": "rw_farm_iowa_w2km__clear_noon__long-range__rtf90",
+  "extent_m": 2000.0,
+  "minimum_max_distance_m": 1500.0,
+  "max_wall_s": 14400.0,
+  "mission_compile_runtime": {
+    "schema_version": 1,
+    "vehicle_class": "fixed-wing",
+    "home_position": {
+      "latitude_deg": 42.015,
+      "longitude_deg": -93.71
+    },
+    "mission_geometry": {
+      "waypoints": [
+        {
+          "latitude_deg": 42.015,
+          "longitude_deg": -93.70550024225535,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.01934613830399,
+          "longitude_deg": -93.69965055718731,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.023023639945826,
+          "longitude_deg": -93.69740067831499,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.024528072435665,
+          "longitude_deg": -93.69717569042776,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.02436091327013,
+          "longitude_deg": -93.69920058141285,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.02268932161475,
+          "longitude_deg": -93.70415031493195,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.01901181997291,
+          "longitude_deg": -93.71,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.01667159165538,
+          "longitude_deg": -93.7135998061957,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.015,
+          "longitude_deg": -93.7135998061957,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        }
+      ],
+      "landing_approach": {
+        "latitude_deg": 42.015,
+        "longitude_deg": -93.71241817500335,
+        "altitude_m": 40.0,
+        "altitude_reference": "relative_home"
+      },
+      "landing": {
+        "latitude_deg": 42.015,
+        "longitude_deg": -93.71,
+        "altitude_m": 0.0,
+        "altitude_reference": "relative_home"
+      },
+      "takeoff_altitude_m": 40.0,
+      "acceptance_radius_m": 25.0,
+      "takeoff_pitch_deg": 12.0,
+      "takeoff_heading_deg": 90.0,
+      "landing_heading_deg": 90.0
+    },
+    "safety_policy": {
+      "geofence_center": {
+        "latitude_deg": 42.015,
+        "longitude_deg": -93.71
+      },
+      "geofence_radius_m": 1600.0000000000002,
+      "allowed_airframe_profile_ids": [
+        "px4_fixed_wing_gazebo_v1"
+      ],
+      "minimum_relative_altitude_m": 20.0,
+      "maximum_relative_altitude_m": 180.0,
+      "maximum_mission_radius_m": 1550.0000000000002,
+      "minimum_turn_radius_m": 45.0,
+      "minimum_leg_length_m": 25.0,
+      "minimum_landing_approach_m": 120.0,
+      "maximum_landing_approach_m": 1000.0,
+      "maximum_glide_slope_deg": 12.0,
+      "maximum_landing_offset_m": 500.0,
+      "maximum_landing_alignment_deg": 20.0,
+      "home_match_tolerance_m": 5.0,
+      "cruise_airspeed_mps": 15.0,
+      "minimum_airspeed_mps": 10.0,
+      "maximum_tailwind_mps": 8.0,
+      "maximum_crosswind_mps": 10.0,
+      "maximum_gps_accuracy_m": 25.0,
+      "minimum_battery_reserve_pct": 30.0,
+      "reserve_time_s": 120.0,
+      "maximum_items": 64,
+      "maximum_corner_angle_deg": 165.0
+    }
+  },
+  "task": {
+    "schema_version": 1,
+    "task_id": "rw_farm_iowa_w2km__clear_noon-long-range",
+    "task_type": "survey",
+    "geometry": {
+      "kind": "map_feature",
+      "resolved_feature_id": "long-range-circuit",
+      "direction": "clockwise",
+      "length_m": 3805.9384454381243,
+      "buffer_m": 0.0,
+      "centerline": [
+        {
+          "latitude_deg": 42.015,
+          "longitude_deg": -93.71
+        },
+        {
+          "latitude_deg": 42.015,
+          "longitude_deg": -93.70550024225535,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.01934613830399,
+          "longitude_deg": -93.69965055718731,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.023023639945826,
+          "longitude_deg": -93.69740067831499,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.024528072435665,
+          "longitude_deg": -93.69717569042776,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.02436091327013,
+          "longitude_deg": -93.69920058141285,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.02268932161475,
+          "longitude_deg": -93.70415031493195,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.01901181997291,
+          "longitude_deg": -93.71,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.01667159165538,
+          "longitude_deg": -93.7135998061957,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.015,
+          "longitude_deg": -93.7135998061957,
+          "altitude_m": 100.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 42.015,
+          "longitude_deg": -93.71
+        }
+      ],
+      "resolution_confidence": 1.0
+    },
+    "target_classes": [
+      "terrain"
+    ],
+    "on_detection": [],
+    "constraints": {
+      "minimum_return_battery_pct": 30.0,
+      "maximum_duration_s": 3600.0,
+      "remain_inside_geofence": true
+    },
+    "completion_action": "return",
+    "unresolved_assumptions": []
+  },
+  "context": {
+    "schema_version": 1,
+    "snapshot_id": "offline-long-range-feasibility",
+    "captured_at_s": 0.0,
+    "captured_at_utc": "2026-11-15T00:00:00Z",
+    "aircraft_position": {
+      "latitude_deg": 42.015,
+      "longitude_deg": -93.71
+    },
+    "home_position": {
+      "latitude_deg": 42.015,
+      "longitude_deg": -93.71
+    },
+    "airframe_profile_id": "px4_fixed_wing_gazebo_v1",
+    "battery_remaining_pct": 100.0,
+    "estimated_flight_time_s": 3600.0,
+    "ground_speed_mps": 15.0,
+    "airspeed_mps": 15.0,
+    "wind_north_mps": 0.0,
+    "wind_east_mps": 0.0,
+    "gps_fix_type": 3,
+    "gps_horizontal_accuracy_m": 1.0,
+    "geofence_valid": true,
+    "camera_available": true,
+    "perception_available": true,
+    "map_cache_available": true,
+    "dem_available": true
+  },
+  "context_scope": "offline assumed healthy SIM inputs; not observed telemetry",
+  "sim_params": {
+    "GF_MAX_HOR_DIST": 1600.0000000000002,
+    "GF_MAX_VER_DIST": 180,
+    "GF_ACTION": 1,
+    "BAT_N_CELLS": 3
+  },
+  "boundary": {
+    "east_min_m": -1000.0,
+    "east_max_m": 1000.0,
+    "north_min_m": -1000.0,
+    "north_max_m": 1000.0
+  }
+}
