@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spica://tools/query_target.json",
+  "title": "query_target",
+  "type": "object",
+  "properties": {
+    "query": {
+      "$ref": "spica://tools/target_query.json"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Response": {
+      "allOf": [
+        {
+          "$ref": "spica://tools/common.json#/definitions/ToolEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "const": "query_target"
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "schema_version": {
+                      "const": "1.0"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "spica://tools/target_result.json"
+                      }
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "exists": {
+                      "type": "boolean"
+                    },
+                    "watch_id": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "results"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ok"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "request_id": "query-1",
+      "query": {
+        "schema_version": "1.0",
+        "categories": [
+          "car"
+        ],
+        "attributes": [
+          {
+            "name": "color",
+            "op": "eq",
+            "value": "red"
+          }
+        ]
+      }
+    }
+  ]
+}

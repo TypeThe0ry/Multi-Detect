@@ -1,6 +1,6 @@
 # x500 云台机型 SITL
 
-`x500_gimbal` 是可选的 PX4 Gazebo Harmonic 机型。档案使用 PX4 autostart 4019、`PX4_SIM_MODEL=gz_x500_gimbal`，并把 RGB 图像绑定到 `camera_link` 上的 `camera` 传感器。普通 suite 仍使用原来的机型和主题。PX4 当前机型说明列出的云台范围为 roll ±45°、pitch -135° 至 +45°、yaw 可连续旋转；profile 以 ±180° 表示 yaw 范围。
+`x500_gimbal` 是可选的 PX4 Gazebo Harmonic 机型。档案使用 PX4 autostart 4019、`PX4_SIM_MODEL=gz_x500_gimbal`；RGB 相机位于 `gimbal/model.sdf` 的 `camera_link` 上，RTSP mount 为 `/v{index}/gimbal`。普通机型和 suite 继续使用各自的相机主题。模型范围为 roll ±45°、pitch -135° 至 +45°、yaw 可连续旋转。
 
 运行 R21IDR3/R24Plan 的三个云台任务：
 
@@ -12,23 +12,37 @@ export TMPDIR=$PWD/.tmp
   --model-set r21idr3-r24plan --suites gimbal
 ```
 
-仓库的 `simulation/docker/gpu/Dockerfile` 只以 `px4io/px4-sitl-gazebo@sha256:bcf8278e3321948be2266568528107dbfd94eb6fa703171cb013bc4d54dc8ef8` 为基底并安装 EGL；它没有复制 PX4 模型。此工作没有启动 Docker，因此无法核实该 digest 的实际文件系统中是否已经包含 `x500_gimbal` 模型目录和 4019 启动配置。先在允许的镜像检查环境确认以下两个路径：
+Polaris 生命周期为 `x500_gimbal` 选择本机的 `multidetect/px4-sitl-gazebo:px4-main-53afcc82-gimbalid-r1` 镜像。它需含下列模型、相机子模型和 PX4 airframe；检查只读本地镜像，不会拉取：
 
 ```text
 /opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf
+/opt/px4-gazebo/share/gz/models/gimbal/model.sdf
 /opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal
 ```
 
-如果任一路径缺失，应在 PX4 SITL 镜像构建阶段从**与基础镜像完全相同的 PX4 revision**复制模型及其依赖，而不是从不同版本混入文件。将模型目录放在 Docker build context 的 `px4-gz-models/x500_gimbal/`，在 `simulation/docker/gpu/Dockerfile` 的 EGL 安装层之后加入：
+生命周期的 lite/standard/hd overlay 从镜像 `gimbal/model.sdf` 修改相机传感器类型、尺寸和帧率为 `rgbd_camera` 档位。云台模型目录含网格，启动时只替换 `gimbal/model.sdf` 文件，不覆盖同目录的 `meshes/` 或 PX4 解析模型依赖所用的资源根。
 
-```dockerfile
-COPY px4-gz-models/x500_gimbal/ /opt/px4-gazebo/share/gz/models/x500_gimbal/
-COPY px4-gz-models/gimbal/ /opt/px4-gazebo/share/gz/models/gimbal/
-RUN test -s /opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf \
-    && test -s /opt/px4-gazebo/share/gz/models/gimbal/model.sdf \
-    && test -f /opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal
+机型和世界场景均存在后，启动一架并运行 smoke：
+
+```bash
+scripts/polaris_sim/up.sh --world rw_suburb_davis --gpu 2 --vehicles 1 \
+  --airframe x500_gimbal --camera-profile lite
+python scripts/polaris_sim/gimbal_smoke.py --host 192.168.1.138 --sysid 1
+python scripts/polaris_sim/e2e.py --slots 5 --world rw_suburb_davis \
+  --airframe x500_gimbal --steps mavlink,video --no-up --no-down
+scripts/polaris_sim/down.sh
 ```
 
-若基础镜像也缺少 `4019_gz_x500_gimbal`，仅复制 SDF 不够：构建该基础镜像時需從同一 PX4 revision 重新编译/安装包含 `gz_x500_gimbal` airframe 的 PX4 SITL build，并将生成的 `etc/init.d-posix/airframes/4019_gz_x500_gimbal` 一并安装到上述路径。`x500_gimbal` 的 SDF 还引用 gimbal 子模型/插件时，必须把这些引用的模型和插件一并放进对应模型资源目录并保留原有相对布局。
+在运行 e2e 前确认 gateway 的 `/gimbal` mount 已有 H.264 帧。MAVLink 测试验证配置/俯仰命令的 `COMMAND_ACK`，并轮询 `GIMBAL_DEVICE_ATTITUDE_STATUS` 直到 pitch/yaw 误差均 ≤4°；视频测试仅查询真实存在的 `/gimbal`，然后比较云台在 -25°/+15° 时的 96×72 灰度帧，均值绝对差需 >2/255。测试使用系统 ffmpeg/ffprobe，不需要 Polaris 二进制。
 
-镜像构建和实际 SITL 飞行不属于本次验证范围。相关 Python 单测通过 fake 校验生成的启动环境、主题和 MAVLink 消息间隔请求。
+真实观察至少 3 分钟时，每 10 秒运行一次 `docker stats --no-stream md-polaris-sim-slot-5` 并保存原始输出；同一采样窗同时记录 GPU2 显存。若 GPU2 显存超过 17 GiB，立即通过该 state file 对应的 `down.sh` 停止本任务。结束后确认无自有 `md-polaris-sim-slot-*` 容器与 5770/8780/8554 监听。
+
+本地镜像确认命令：
+
+```bash
+docker run --rm --pull=never --network none --entrypoint sh \
+  multidetect/px4-sitl-gazebo:px4-main-53afcc82-gimbalid-r1 -c \
+  'test -s /opt/px4-gazebo/share/gz/models/x500_gimbal/model.sdf && \
+   test -s /opt/px4-gazebo/share/gz/models/gimbal/model.sdf && \
+   test -s /opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal'
+```

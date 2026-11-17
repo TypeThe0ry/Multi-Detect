@@ -48,6 +48,7 @@ CONTAINER_MODEL_ROOT = "/opt/multidetect-gazebo-models"
 CONTAINER_RTF_MODEL_ROOT = "/opt/multidetect-rtf-models"
 CONTAINER_WORLD_ROOT = "/opt/px4-gazebo/share/gz/worlds"
 CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"
+CONTAINER_EXTERNAL_WORLD_ROOT = "/opt/polaris-sim-world-resources"
 CONTAINER_IMAGE_MODEL_ROOT = "/opt/px4-gazebo/share/gz/models"
 CONTAINER_IMAGE_WORLD_ROOT = CONTAINER_WORLD_ROOT
 CONTAINER_SCRIPT_ROOT = "/workspace/scripts"
@@ -364,6 +365,8 @@ class DockerSimulatorPlan:
     # Optional isolated model root for a local RTF experiment variant.
     rtf_model_root: Path | None = None
     rtf_model_root_sha256: str = ""
+    external_world_sdf: bool = False
+    external_world_resource_root: Path | None = None
     gpu_render: bool = False
     gpu_device: str | None = None
     gpu_devices: tuple[str, ...] = ()
@@ -426,8 +429,20 @@ class DockerSimulatorPlan:
                     "container": CONTAINER_WORLD,
                     "host_root": str(self.world_path.parent),
                     "container_root": CONTAINER_WORLD_ROOT,
+                    "external": self.external_world_sdf,
                     "readonly": True,
                 },
+                **(
+                    {
+                        "external_world_resources": {
+                            "host": str(self.external_world_resource_root),
+                            "container": CONTAINER_EXTERNAL_WORLD_ROOT,
+                            "readonly": True,
+                        }
+                    }
+                    if self.external_world_resource_root
+                    else {}
+                ),
                 "scripts": {
                     "host": str(self.scripts_root),
                     "container": CONTAINER_SCRIPT_ROOT,
@@ -668,6 +683,7 @@ def build_docker_simulator_plan(
     sim_instance: int = 0,
     airframe_profile_id: str | None = None,
     px4_logger_mode: str | None = None,
+    world_sdf_path: str | Path | None = None,
 ) -> DockerSimulatorPlan:
     """Resolve assets and render an isolated Docker command without running it."""
 
@@ -719,6 +735,7 @@ def build_docker_simulator_plan(
             repository_root=root,
             ports=ports,
             tool_capabilities={"px4": False, "gazebo": False},
+            world_sdf_path=world_sdf_path,
         )
     except (SimulatorStackError, OSError, TypeError, ValueError) as exc:
         raise DockerSimulatorPlanError(f"invalid SIM stack: {exc}") from exc
@@ -742,6 +759,16 @@ def build_docker_simulator_plan(
     rtf_model_root_sha256 = (
         _directory_assets_sha256(rtf_model_root) if rtf_model_root is not None else ""
     )
+    repository_world_root = (root / "simulation" / "gazebo" / "worlds").resolve()
+    external_world_resource_root = (
+        world_path.parent
+        if world_sdf_path is not None and world_path.parent != repository_world_root
+        else None
+    )
+    if external_world_resource_root is not None and not external_world_resource_root.is_dir():
+        raise DockerSimulatorPlanError(
+            f"external world resource directory is missing: {external_world_resource_root}"
+        )
     if os.environ.get("MD_GIMBAL_INVOCATION") is not None:
         from scripts.gimbal_gz_resources import FUEL, preflight
 
@@ -765,7 +792,16 @@ def build_docker_simulator_plan(
     # container paths while preserving scenario/seed identity and the same
     # PX4/Gazebo model selection.
     stack_environment = stack.environment_mapping
-    model_name = stack.model_name
+    vehicle_is_x500_gimbal = stack.vehicle_model.lower() in {
+        "x500_gimbal",
+        "px4_x500_gimbal",
+    }
+    selected_airframe_profile = airframe_profile_id or stack.airframe_profile_id
+    gimbal_profile = vehicle_is_x500_gimbal or selected_airframe_profile.lower() in {
+        "x500_gimbal",
+        "px4_x500_gimbal",
+    }
+    model_name = "x500_gimbal" if vehicle_is_x500_gimbal else stack.model_name
     custom_airframe = None
     custom_airframe_sha256 = ""
     staged_model_sdf = None
@@ -823,6 +859,7 @@ def build_docker_simulator_plan(
             value
             for value in (
                 CONTAINER_RTF_MODEL_ROOT if rtf_model_root is not None else "",
+                CONTAINER_EXTERNAL_WORLD_ROOT if external_world_resource_root else "",
                 "/opt/multidetect-gz-fuel-resolved" if has_resolved_root else "",
                 CONTAINER_MODEL_ROOT,
                 CONTAINER_WORLD_ROOT,
@@ -847,7 +884,7 @@ def build_docker_simulator_plan(
     if logger_mode == "off":
         container_environment["SDLOG_BACKEND"] = "0"
         container_environment["PX4_PARAM_SDLOG_BACKEND"] = "0"
-    if airframe_profile_id == "x500_gimbal":
+    if gimbal_profile:
         container_environment["PX4_SYS_AUTOSTART"] = "4019"
         container_environment["PX4_SIM_MODEL"] = "gz_x500_gimbal"
         container_environment["PX4_GZ_MODELS"] = CONTAINER_IMAGE_MODEL_ROOT
@@ -856,7 +893,7 @@ def build_docker_simulator_plan(
     # resolved from the same upstream directory.
     container_model_root = (
         CONTAINER_IMAGE_MODEL_ROOT
-        if airframe_profile_id == "x500_gimbal"
+        if gimbal_profile
         else CONTAINER_MODEL_ROOT
     )
     if gpu_render:
@@ -869,8 +906,8 @@ def build_docker_simulator_plan(
                 "NVIDIA_DRIVER_CAPABILITIES": "graphics,utility,compute",
                 "NVIDIA_VISIBLE_DEVICES": str(selected_gpu),
                 "EGL_PLATFORM": "surfaceless",
-                "GZ_SIM_RENDER_ENGINE": "ogre2",
-                "GZ_SIM_HEADLESS_RENDERING": "1",
+                "GZ_SIM_RENDER_ENGINE": os.environ.get("GZ_SIM_RENDER_ENGINE", "ogre2"),
+                "GZ_SIM_HEADLESS_RENDERING": os.environ.get("GZ_SIM_HEADLESS_RENDERING", "1"),
                 "__EGL_VENDOR_LIBRARY_FILENAMES": NVIDIA_EGL_VENDOR_FILE,
                 "LIBGL_ALWAYS_SOFTWARE": "0",
             }
@@ -935,13 +972,15 @@ def build_docker_simulator_plan(
             "#!/bin/sh\n"
             "set -eu\n"
             "if [ \"${1:-}\" = sim ]; then\n"
-            "  has_headless=0; has_engine=0\n"
+            "  has_headless=0; has_engine=0; render_engine=${GZ_SIM_RENDER_ENGINE:-ogre2}\n"
             "  for arg in \"$@\"; do\n"
             "    [ \"$arg\" = --headless-rendering ] && has_headless=1\n"
             "    [ \"$arg\" = --render-engine ] && has_engine=1\n"
             "  done\n"
-            "  [ \"$has_headless\" -eq 1 ] || set -- \"$@\" --headless-rendering\n"
-            "  [ \"$has_engine\" -eq 1 ] || set -- \"$@\" --render-engine ogre2\n"
+            "  if [ \"${GZ_SIM_HEADLESS_RENDERING:-1}\" = 1 ]; then\n"
+            "    [ \"$has_headless\" -eq 1 ] || set -- \"$@\" --headless-rendering\n"
+            "  fi\n"
+            "  [ \"$has_engine\" -eq 1 ] || set -- \"$@\" --render-engine \"$render_engine\"\n"
             "fi\n"
             "exec \"$MD_REAL_GZ\" \"$@\"\n"
             "EOF\n"
@@ -983,6 +1022,7 @@ def build_docker_simulator_plan(
             SIM_STARTUP_PATCHES,
             "export GZ_SIM_RESOURCE_PATH=",
             (f"{CONTAINER_RTF_MODEL_ROOT}:" if rtf_model_root is not None else ""),
+            (f"{CONTAINER_EXTERNAL_WORLD_ROOT}:" if external_world_resource_root else ""),
             ("/opt/multidetect-gz-fuel-resolved:" if has_resolved_root else ""),
             "/opt/multidetect-gazebo-models:/opt/px4-gazebo/share/gz/worlds:",
             "/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds; ",
@@ -1032,6 +1072,11 @@ def build_docker_simulator_plan(
             if has_resolved_root
             else ()
         ),
+        *(
+            ("--mount", _mount(external_world_resource_root, CONTAINER_EXTERNAL_WORLD_ROOT))
+            if external_world_resource_root is not None
+            else ()
+        ),
         "--mount",
         _mount(world_path, CONTAINER_WORLD),
         "--mount",
@@ -1070,7 +1115,7 @@ def build_docker_simulator_plan(
         container_network_mode=container_network,
         vehicle_model=stack.vehicle_model,
         model_name=model_name,
-        airframe_profile_id=stack.airframe_profile_id,
+        airframe_profile_id=selected_airframe_profile,
         environment=environment_tokens,
         assets=stack.assets,
         world_sdf_sha256=stack.assets.world.sha256,
@@ -1081,6 +1126,8 @@ def build_docker_simulator_plan(
         fuel_resolved_root=resolved_root if has_resolved_root else None,
         rtf_model_root=rtf_model_root,
         rtf_model_root_sha256=rtf_model_root_sha256,
+        external_world_sdf=world_sdf_path is not None,
+        external_world_resource_root=external_world_resource_root,
         gpu_render=gpu_render,
         gpu_device=selected_gpu,
         gpu_devices=resolved_gpu_devices,

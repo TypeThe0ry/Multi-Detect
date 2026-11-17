@@ -178,6 +178,28 @@ def test_multirotor_stack_selects_x500_and_px4_autostart() -> None:
     assert document["environment"]["PX4_SIM_MODEL"] == "gz_x500_mono_cam"
 
 
+def test_x500_gimbal_runtime_model_selects_gimbal_autostart_with_shared_multirotor_profile() -> None:
+    runtime = load_runtime_scenario(
+        SCENARIOS / "urban_inspection_multirotor_001.scenario.json",
+        mode=RuntimeMode.SIM,
+    )
+    gimbal_runtime = replace(
+        runtime,
+        vehicle=replace(runtime.vehicle, model="x500_gimbal"),
+    )
+
+    plan = build_stack_plan(
+        gimbal_runtime,
+        repository_root=ROOT,
+        tool_capabilities={"gazebo": False, "px4": False},
+    )
+
+    assert plan.airframe_profile_id == "px4_multirotor_gazebo_v1"
+    assert plan.model_name == "x500_mono_cam"
+    assert plan.environment_mapping["PX4_SYS_AUTOSTART"] == "4019"
+    assert plan.environment_mapping["PX4_SIM_MODEL"] == "gz_x500_gimbal"
+
+
 def test_hash_bound_spawn_pose_is_forwarded_to_px4_gazebo_environment() -> None:
     runtime = load_runtime_scenario(
         SCENARIOS / "urban_inspection_multirotor_001.scenario.json",

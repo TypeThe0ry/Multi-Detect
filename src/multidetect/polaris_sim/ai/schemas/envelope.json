@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spica://tools/envelope.json",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "status",
+    "latency_ms",
+    "data",
+    "warnings"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "unavailable",
+        "error"
+      ]
+    },
+    "latency_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "data": {},
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validity": {
+      "$ref": "common.json#/definitions/Validity"
+    },
+    "provenance": {
+      "$ref": "common.json#/definitions/Provenance"
+    },
+    "as_of_s": {
+      "type": "number"
+    },
+    "advisory_only": {
+      "const": true
+    }
+  },
+  "additionalProperties": false
+}

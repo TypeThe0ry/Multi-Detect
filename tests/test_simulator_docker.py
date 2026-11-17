@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from scripts import run_simulator_docker as simulator_docker
+from multidetect.autonomy.serialization import canonical_sha256
 from scripts.run_simulator_docker import (
     PINNED_IMAGE,
     DockerSimulatorPlanError,
@@ -144,6 +146,56 @@ def test_gimbal_airframe_uses_px4_gimbal_model_without_starting_docker(tmp_path:
         airframe_profile_id="x500_gimbal",
     )
     env = dict(plan.environment)
+    assert env["PX4_SYS_AUTOSTART"] == "4019"
+    assert env["PX4_SIM_MODEL"] == "gz_x500_gimbal"
+    assert env["PX4_GZ_MODELS"] == "/opt/px4-gazebo/share/gz/models"
+
+
+def test_gimbal_runtime_model_selects_device_model_and_topic_name(tmp_path: Path) -> None:
+    runtime = json.loads(
+        (ROOT / "configs/scenarios/urban_inspection_multirotor_001.runtime.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    runtime["vehicle"]["model"] = "x500_gimbal"
+    runtime_path = tmp_path / "x500-gimbal.runtime.json"
+    runtime_path.write_text(json.dumps(runtime), encoding="utf-8")
+    channels = {
+        "runtime_input": {
+            "path": runtime_path.name,
+            "sha256": canonical_sha256(runtime),
+        }
+    }
+    for name in ("truth", "expectations"):
+        source_path = ROOT / f"configs/scenarios/urban_inspection_multirotor_001.{name}.json"
+        copied_path = tmp_path / source_path.name
+        shutil.copy2(source_path, copied_path)
+        channels[name] = {
+            "path": copied_path.name,
+            "sha256": canonical_sha256(json.loads(copied_path.read_text(encoding="utf-8"))),
+        }
+    manifest_path = tmp_path / "x500-gimbal.scenario.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "scenario_id": runtime["scenario_id"],
+                "scenario_version": runtime["scenario_version"],
+                "channels": channels,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = build_docker_simulator_plan(
+        manifest_path,
+        repository_root=ROOT,
+        job_dir=tmp_path / "gimbal-runtime",
+    )
+
+    env = dict(plan.environment)
+    assert plan.vehicle_model == "x500_gimbal"
+    assert plan.model_name == "x500_gimbal"
     assert env["PX4_SYS_AUTOSTART"] == "4019"
     assert env["PX4_SIM_MODEL"] == "gz_x500_gimbal"
     assert env["PX4_GZ_MODELS"] == "/opt/px4-gazebo/share/gz/models"
@@ -445,7 +497,7 @@ def test_host_network_gpu_render_plan_keeps_both_runtime_controls(
     assert "mavlink start -x -t 127.0.0.1" in startup
     assert "export PX4_NET_INTERFACE=lo;" in startup
     assert "--headless-rendering" in startup
-    assert "--render-engine ogre2" in startup
+    assert 'set -- "$@" --render-engine "$render_engine"' in startup
     assert "px4 -i 1" in startup
 
 
@@ -506,6 +558,55 @@ def test_docker_plan_supports_fixed_wing_assets(tmp_path: Path) -> None:
     assert plan.scenario_id == "coastal_patrol_fixed_wing_001"
     assert plan.model_root.name == "models"
     assert plan.world_path.name == "coastal_patrol_fixed_wing_001.sdf"
+
+
+def test_docker_plan_mounts_explicit_external_world_and_resource_directory(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    baseline = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "baseline"
+    )
+    external_dir = tmp_path / "external-worlds"
+    external_dir.mkdir()
+    external_world = external_dir / baseline.world_path.name
+    shutil.copyfile(baseline.world_path, external_world)
+    resolved_models = tmp_path / "resolved-models"
+    resolved_models.mkdir()
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", str(resolved_models))
+
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "external",
+        world_sdf_path=external_world,
+    )
+
+    assert plan.world_path == external_world.resolve()
+    assert plan.external_world_sdf is True
+    assert plan.external_world_resource_root == external_dir.resolve()
+    assert plan.to_mapping()["mounts"]["world"]["external"] is True
+    assert plan.to_mapping()["mounts"]["external_world_resources"] == {
+        "host": str(external_dir.resolve()),
+        "container": "/opt/polaris-sim-world-resources",
+        "readonly": True,
+    }
+    assert "/opt/polaris-sim-world-resources" in dict(plan.environment)["GZ_SIM_RESOURCE_PATH"]
+    assert "/opt/multidetect-gz-fuel-resolved" in dict(plan.environment)["GZ_SIM_RESOURCE_PATH"]
+    command_pairs = tuple(zip(plan.command, plan.command[1:], strict=False))
+    world_resources_mount = (
+        "--mount",
+        "type=bind,"
+        f"source={external_dir.resolve()},"
+        "target=/opt/polaris-sim-world-resources,readonly",
+    )
+    fuel_cache_mount = (
+        "--mount",
+        "type=bind,"
+        f"source={resolved_models.resolve()},"
+        "target=/opt/multidetect-gz-fuel-resolved,readonly",
+    )
+    assert world_resources_mount in command_pairs
+    assert fuel_cache_mount in command_pairs
 
 
 @pytest.mark.parametrize("invalid,error", [

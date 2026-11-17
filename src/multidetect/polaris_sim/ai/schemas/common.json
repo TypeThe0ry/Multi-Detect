@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spica://tools/common.json",
+  "definitions": {
+    "Quantity": {
+      "type": "object",
+      "required": [
+        "value",
+        "sigma",
+        "unit"
+      ],
+      "properties": {
+        "value": {
+          "type": "number"
+        },
+        "sigma": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit": {
+          "enum": [
+            "m",
+            "m/s",
+            "deg",
+            "s"
+          ]
+        },
+        "ci95_low": {
+          "type": "number"
+        },
+        "ci95_high": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "GeoPoint": {
+      "type": "object",
+      "required": [
+        "lat_deg",
+        "lon_deg",
+        "alt_amsl_m",
+        "datum"
+      ],
+      "properties": {
+        "lat_deg": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "lon_deg": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "alt_amsl_m": {
+          "type": "number"
+        },
+        "alt_agl_m": {
+          "type": "number"
+        },
+        "cov_ne_m2": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "sigma_up_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "datum": {
+          "const": "WGS84"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ErrorEllipse": {
+      "type": "object",
+      "required": [
+        "semi_major_m",
+        "semi_minor_m",
+        "orientation_deg",
+        "confidence"
+      ],
+      "properties": {
+        "semi_major_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "semi_minor_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "orientation_deg": {
+          "type": "number"
+        },
+        "confidence": {
+          "const": 0.95
+        }
+      },
+      "additionalProperties": false
+    },
+    "TargetRef": {
+      "oneOf": [
+        {
+          "required": [
+            "track_id"
+          ]
+        },
+        {
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "enum": [
+                "primary",
+                "locked",
+                "self",
+                "home",
+                "operator"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "geo"
+          ]
+        },
+        {
+          "required": [
+            "pixel",
+            "frame_id"
+          ]
+        }
+      ],
+      "type": "object"
+    },
+    "Validity": {
+      "type": "object",
+      "required": [
+        "status",
+        "reasons"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "valid",
+            "degraded",
+            "invalid",
+            "unavailable"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "gps_stale",
+              "no_gimbal_feedback",
+              "clock_skew",
+              "baseline_too_small",
+              "sources_inconsistent",
+              "outside_dem",
+              "missing_telemetry",
+              "no_data"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Provenance": {
+      "type": "object",
+      "required": [
+        "sources"
+      ],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "ground_intersect",
+              "triangulation",
+              "slam",
+              "vio",
+              "depth",
+              "size_prior",
+              "laser",
+              "fused",
+              "none"
+            ]
+          }
+        },
+        "contributions": {
+          "type": "object"
+        },
+        "rejected_sources": {
+          "type": "array"
+        },
+        "frame_id": {
+          "type": "integer"
+        },
+        "captured_at_s": {
+          "type": "number"
+        },
+        "freshness_s": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolEnvelope": {
+      "$ref": "spica://tools/envelope.json"
+    }
+  }
+}

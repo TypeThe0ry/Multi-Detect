@@ -27,6 +27,7 @@ model-tools = ["onnx>=1.16,<2"]
 
 [project.scripts]
 multi-detect = "multidetect.cli:main"
+polaris-sim-gateway = "multidetect.polaris_sim.gateway.cli:main"
 multidetect-sim = "multidetect.simulator.__main__:main"
 multidetect-release-gate = "multidetect.release_gate:main"
 multidetect-release-mode-evidence = "multidetect.release_mode_evidence:main"
@@ -87,9 +88,13 @@ multidetect-rtsp-to-replay = "multidetect.rtsp_evidence_replay:main"
 multidetect-evidence-transfer = "multidetect.evidence_bundle_transfer:main"
 multidetect-jetson-evidence-package-verify = "multidetect.jetson_evidence_package:main"
 multidetect-jetson-evidence-install-verify = "multidetect.jetson_evidence_install:main"
+polaris-sim-ai = "multidetect.polaris_sim.ai.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+multidetect = ["polaris_sim/ai/schemas/*.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "multidetect.product_version.__version__" }

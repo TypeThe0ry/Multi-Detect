@@ -34,7 +34,7 @@ def test_gpu_render_plan_adds_nvidia_egl_and_ogre2_options(tmp_path: Path) -> No
     assert environment["LIBGL_ALWAYS_SOFTWARE"] == "0"
     startup = plan.command[-1]
     assert "--headless-rendering" in startup
-    assert "--render-engine ogre2" in startup
+    assert '--render-engine "$render_engine"' in startup
 
 
 def test_gpu_render_accepts_explicit_local_derived_image(tmp_path: Path) -> None:
