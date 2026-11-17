@@ -1016,6 +1016,10 @@ def build_docker_simulator_plan(
         "--security-opt",
         "no-new-privileges:true",
         *(cpu_isolation.docker_options if cpu_isolation else ()),
+        *(
+            ("--cgroup-parent", os.environ["MULTIDETECT_SIM_CGROUP_PARENT"].strip())
+            if os.environ.get("MULTIDETECT_SIM_CGROUP_PARENT", "").strip() else ()
+        ),
         *(('--gpus', f'device={selected_gpu}') if gpu_render else ()),
         *network_tokens,
         "--mount",
