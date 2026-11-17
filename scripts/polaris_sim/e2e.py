@@ -128,7 +128,7 @@ def parse_slots(value: str) -> tuple[int, ...]:
         slots = tuple(dict.fromkeys(int(item.strip()) for item in value.split(",") if item.strip()))
     except ValueError as exc:
         raise argparse.ArgumentTypeError("slots must be comma-separated integers") from exc
-    if slots not in {(5,), (5, 6), (5, 6, 7)}:
+    if slots not in {(5,), (6,), (7,), (5, 6), (6, 7), (5, 6, 7)}:  # POLARIS_SIM_FIRST_SLOT shifts the set
         raise argparse.ArgumentTypeError(
             "the lifecycle manager starts a contiguous set beginning at slot 5"
         )
