@@ -66,6 +66,7 @@ from multidetect.sim_teacher import (  # noqa: E402
 from multidetect.sim_teacher.gimbal_recording import (
     DeltaCameraGeometry, collector_camera_mount,
 )
+from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.executor import (  # noqa: E402
     GCS_SOURCE_COMPONENT,
@@ -4402,13 +4403,14 @@ def _execute_managed_gimbal_action(
             return ExecutionResult("rejected", clock() - started, ack={"reason": "gimbal_angle_out_of_range", "axis": axis, "value_deg": value})
     _finish_teacher_gimbal(session, check, sleep=sleep)
     check()
+    gazebo_body_joints = _uses_gazebo_gimbal_body_joints(profile)
+    command_flags = _gimbal_readback_command_flags(gazebo_body_joints)
     session.command(MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, target["pitch"], target["yaw"],
-                    math.nan, math.nan, float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK |
-                    GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+                    math.nan, math.nan, float(command_flags),
                     0.0, float(GIMBAL_MANAGER_DEVICE_ID))
     command_ns = session.last_command_started_ns
     readback_started = clock() if command_ns is not None else None
-    last_error = None
+    last_readback = _gimbal_readback(reader, None, target, gazebo_body_joints=gazebo_body_joints)
     while True:
         check()
         phase = session.poll()
@@ -4417,79 +4419,78 @@ def _execute_managed_gimbal_action(
             readback_started = clock()
         if readback_started is not None and clock() - readback_started >= timeout_s:
             break
-        state = reader.state
         status, stamp = session.latest_attitude or (None, -1)
-        attitude = state.get("ATTITUDE")
-        vehicle_yaw = math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
         if phase == "ready" and command_ns is not None and status is not None and stamp >= command_ns:
-            last_error = _gimbal_attitude_error_deg(status, target, vehicle_yaw_deg=vehicle_yaw,
-                                                    yaw_correction_deg=yaw_correction_deg)
-            if last_error is not None and max(last_error.values()) <= tolerance_deg:
+            last_readback = _gimbal_readback(
+                reader, status, target, yaw_correction_deg=yaw_correction_deg,
+                gazebo_body_joints=gazebo_body_joints)
+            errors = last_readback["error_deg"]
+            if errors is not None and max(errors.values()) <= tolerance_deg:
                 return ExecutionResult("success", clock() - started,
                                        ack={"command": "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
                                             "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
                                             "configure_command_id": MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
-                                            "target_deg": target,
-                                            "actual_deg": _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw,
-                                                                                     yaw_correction_deg=yaw_correction_deg),
-                                            "error_deg": last_error})
+                                            "command_flags": command_flags,
+                                            **last_readback})
         sleep(0.02)
     # Do not resume normal use with an unobserved in-flight command.
     session.error = "managed gimbal primitive readback timeout"
     session.phase = "failed"
-    return ExecutionResult("timeout", clock() - started, ack={"reason": session.error, "error_deg": last_error})
+    return ExecutionResult("timeout", clock() - started,
+                           ack={"reason": session.error, "command_flags": command_flags, **last_readback})
 
 
 def _gimbal_attitude_angles_deg(
-    status: Any,
-    *,
-    vehicle_yaw_deg: float | None = None,
-    yaw_correction_deg: float = 0.0,
+    status: Any, *, vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0, vehicle_attitude: Any = None,
+    gazebo_body_joints: bool = False,
 ) -> dict[str, float] | None:
-    """Decode the device quaternion, converting earth-frame yaw to body yaw."""
-    q = _field(status, "q", None)
-    if not isinstance(q, (list, tuple)) or len(q) < 4:
-        return None
-    w, x, y, z = (float(value) for value in q[:4])
-    norm = math.sqrt(w * w + x * x + y * y + z * z)
-    if not math.isfinite(norm) or norm <= 1e-9:
-        return None
-    w, x, y, z = (value / norm for value in (w, x, y, z))
-    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
-    pitch = math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))
-    yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    yaw_deg = math.degrees(yaw)
-    # MAVLink GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME is bit 6.  PX4 uses this
-    # flag for the tailsitter bridge while roll/pitch remain device axes.
-    flags = int(_field(status, "flags", 0) or 0)
-    if vehicle_yaw_deg is not None and flags & 64:
-        yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
-    yaw_deg = (yaw_deg + float(yaw_correction_deg) + 180.0) % 360.0 - 180.0
-    return {
-        "yaw": yaw_deg,
-        "roll": math.degrees(roll),
-        "pitch": math.degrees(pitch),
-    }
+    return attitude_readback(
+        status, {"yaw": 0.0, "roll": 0.0, "pitch": 0.0},
+        vehicle_yaw_deg=vehicle_yaw_deg, yaw_correction_deg=yaw_correction_deg,
+        vehicle_attitude=vehicle_attitude, gazebo_body_joints=gazebo_body_joints,
+    )["actual_deg"]
 
 
 def _gimbal_attitude_error_deg(
-    status: Any,
-    target: Mapping[str, float],
-    *,
-    vehicle_yaw_deg: float | None = None,
-    yaw_correction_deg: float = 0.0,
+    status: Any, target: Mapping[str, float], *,
+    vehicle_yaw_deg: float | None = None, yaw_correction_deg: float = 0.0,
+    vehicle_attitude: Any = None, gazebo_body_joints: bool = False,
 ) -> dict[str, float] | None:
-    actual = _gimbal_attitude_angles_deg(
-        status,
-        vehicle_yaw_deg=vehicle_yaw_deg,
-        yaw_correction_deg=yaw_correction_deg,
+    return attitude_readback(
+        status, target, vehicle_yaw_deg=vehicle_yaw_deg,
+        yaw_correction_deg=yaw_correction_deg, vehicle_attitude=vehicle_attitude,
+        gazebo_body_joints=gazebo_body_joints,
+    )["error_deg"]
+
+
+def _uses_gazebo_gimbal_body_joints(profile: Any) -> bool:
+    gimbal = getattr(getattr(profile, "camera", None), "gimbal", {})
+    return isinstance(gimbal, Mapping) and gimbal.get("simulation_readback") == GAZEBO_BODY_JOINTS
+
+
+def _gimbal_readback_command_flags(gazebo_body_joints: bool) -> int:
+    # The C11 bridge executes body joint angles. Do not request or claim
+    # horizon lock when checking that simulation-specific joint contract.
+    return (GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME if gazebo_body_joints else
+            GIMBAL_MANAGER_FLAGS_ROLL_LOCK | GIMBAL_MANAGER_FLAGS_PITCH_LOCK |
+            GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME)
+
+
+def _gimbal_readback(reader: Any, status: Any, target: Mapping[str, float], *,
+                     yaw_correction_deg: float = 0.0, gazebo_body_joints: bool = False) -> dict[str, Any]:
+    # Match full vehicle attitude to the device measurement time, rather than
+    # mixing an older IMU sample with the newest body tilt during transition.
+    sample_at = getattr(reader, "attitude_at", None)
+    stamp = _field(status, "time_boot_ms", None)
+    attitude = (sample_at(stamp) if callable(sample_at) and isinstance(stamp, (int, float))
+                else reader.state.get("ATTITUDE"))
+    yaw = _field(attitude, "yaw", None)
+    return attitude_readback(
+        status, target, vehicle_yaw_deg=math.degrees(float(yaw)) if yaw is not None else None,
+        vehicle_attitude=attitude if gazebo_body_joints else None,
+        yaw_correction_deg=yaw_correction_deg, gazebo_body_joints=gazebo_body_joints,
     )
-    if actual is None:
-        return None
-    return {
-        axis: abs((actual[axis] - float(target[axis]) + 180.0) % 360.0 - 180.0)
-        for axis in ("yaw", "roll", "pitch")
-    }
 
 
 class _LongRangeGimbalHold:
@@ -4500,9 +4501,10 @@ class _LongRangeGimbalHold:
     """
 
     def __init__(self, session, reader, target, record, *, yaw_correction_deg=0.0,
-                 clock=time.monotonic):
+                 gazebo_body_joints=False, clock=time.monotonic):
         self.session, self.reader, self.target, self.record = session, reader, target, record
         self.yaw_correction_deg, self.clock = yaw_correction_deg, clock
+        self.gazebo_body_joints = gazebo_body_joints
         self.sent_vehicle_ms = None
         self.sent_wall_s = None
         self.awaiting_readback = False
@@ -4518,26 +4520,29 @@ class _LongRangeGimbalHold:
             command_ns = self.session.last_command_started_ns
             stamp_ms = _field(status, "time_boot_ms", None)
             fresh = isinstance(stamp_ms, (float, int)) and 0 <= now_ms - stamp_ms <= 2000
-            errors = _gimbal_attitude_error_deg(
-                status, self.target, vehicle_yaw_deg=_state_yaw(self.reader.state),
-                yaw_correction_deg=self.yaw_correction_deg,
+            readback = _gimbal_readback(
+                self.reader, status, self.target, yaw_correction_deg=self.yaw_correction_deg,
+                gazebo_body_joints=self.gazebo_body_joints,
             )
+            errors = readback["error_deg"]
             if (phase == "ready" and command_ns is not None and received_ns >= command_ns
                     and fresh and errors is not None and max(errors.values()) <= 4.0):
                 self.awaiting_readback = False
                 self.readback_count += 1
                 self.record({"message_type": "long_range_gimbal_hold_readback", "status": "reached",
-                             "target_deg": dict(self.target), "error_deg": errors,
+                             **readback, "command_flags": _gimbal_readback_command_flags(self.gazebo_body_joints),
                              "time_boot_ms": now_ms, "source_time_boot_ms": stamp_ms})
             elif now_ms - self.sent_vehicle_ms > 2000 or self.clock() - self.sent_wall_s > 30:
-                raise RuntimeError("long-range gimbal hold readback missing, stale or outside tolerance")
+                self.record({"message_type": "long_range_gimbal_hold_readback", "status": "timeout",
+                             **readback, "command_flags": _gimbal_readback_command_flags(self.gazebo_body_joints),
+                             "source_time_boot_ms": stamp_ms})
+                raise RuntimeError(f"long-range gimbal hold readback missing, stale or outside tolerance: {readback}")
         if (refresh and not self.awaiting_readback and phase in {"idle", "ready"}
                 and (self.sent_vehicle_ms is None or now_ms - self.sent_vehicle_ms >= 1000)):
             self.session.command(
                 MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, self.target["pitch"], self.target["yaw"],
                 math.nan, math.nan,
-                float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK | GIMBAL_MANAGER_FLAGS_PITCH_LOCK
-                      | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+                float(_gimbal_readback_command_flags(self.gazebo_body_joints)),
                 0.0, float(GIMBAL_MANAGER_DEVICE_ID),
             )
             self.sent_vehicle_ms, self.sent_wall_s = now_ms, self.clock()
@@ -4556,6 +4561,7 @@ def _command_and_wait_gimbal(
     timeout_s: float = 15.0,
     tolerance_deg: float = 4.0,
     yaw_correction_deg: float = 0.0,
+    gazebo_body_joints: bool = False,
 ) -> dict[str, Any]:
     """Acquire gimbal-manager control, command pitch/yaw, and verify fresh telemetry."""
     sender = getattr(getattr(connection, "mav", None), "command_long_send", None)
@@ -4614,11 +4620,7 @@ def _command_and_wait_gimbal(
     sender(
         target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, 0,
         float(target["pitch"]), float(target["yaw"]), math.nan, math.nan,
-        float(
-            GIMBAL_MANAGER_FLAGS_ROLL_LOCK
-            | GIMBAL_MANAGER_FLAGS_PITCH_LOCK
-            | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME
-        ),
+        float(_gimbal_readback_command_flags(gazebo_body_joints)),
         0.0, float(GIMBAL_MANAGER_DEVICE_ID),
     )
     ack = _ReaderAckLink(connection, reader).wait_command_ack(
@@ -4633,7 +4635,7 @@ def _command_and_wait_gimbal(
             "tolerance_deg": tolerance_deg,
         }
     started = time.monotonic()
-    last_error = None
+    last_readback = _gimbal_readback(reader, None, target, gazebo_body_joints=gazebo_body_joints)
     while time.monotonic() - started < timeout_s:
         reader.raise_if_failed()
         status = reader.state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
@@ -4642,36 +4644,18 @@ def _command_and_wait_gimbal(
             if isinstance(reader.state, dict)
             else getattr(reader.state, "received_monotonic_ns", {})
         )
-        attitude = reader.state.get("ATTITUDE")
-        vehicle_yaw_deg = (
-            math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
-        )
-        error = (
-            _gimbal_attitude_error_deg(
-                status,
-                target,
-                vehicle_yaw_deg=vehicle_yaw_deg,
-                yaw_correction_deg=yaw_correction_deg,
-            )
-            if received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns
-            else None
-        )
-        if error is not None:
-            last_error = error
-            if max(error.values()) <= tolerance_deg:
-                return {
-                    "status": "reached",
-                    "target_deg": dict(target),
-                    "actual_deg": _gimbal_attitude_angles_deg(
-                        status,
-                        vehicle_yaw_deg=vehicle_yaw_deg,
-                        yaw_correction_deg=yaw_correction_deg,
-                    ),
-                    "error_deg": error,
-                    "tolerance_deg": tolerance_deg,
-                }
+        if received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns:
+            last_readback = _gimbal_readback(
+                reader, status, target, yaw_correction_deg=yaw_correction_deg,
+                gazebo_body_joints=gazebo_body_joints)
+            error = last_readback["error_deg"]
+            if error is not None and max(error.values()) <= tolerance_deg:
+                return {"status": "reached", **last_readback,
+                        "command_flags": _gimbal_readback_command_flags(gazebo_body_joints),
+                        "tolerance_deg": tolerance_deg}
         time.sleep(0.05)
-    return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error,
+    return {"status": "timeout", **last_readback,
+            "command_flags": _gimbal_readback_command_flags(gazebo_body_joints),
             "configure_ack": configure_ack, "command_ack": ack,
             "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, "tolerance_deg": tolerance_deg}
 
@@ -4699,6 +4683,7 @@ def _return_onboard_gimbal_to_search_angle(
         {axis: float(target[axis]) for axis in ("yaw", "roll", "pitch")},
         tolerance_deg=4.0,
         yaw_correction_deg=yaw_correction_deg,
+        gazebo_body_joints=_uses_gazebo_gimbal_body_joints(profile),
     )
     if result.get("status") != "reached":
         raise RuntimeError(f"gimbal did not return to onboard search angle: {result}")
@@ -7400,6 +7385,7 @@ def run_episode(
                         {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
                         tolerance_deg=4.0,
                         yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                        gazebo_body_joints=_uses_gazebo_gimbal_body_joints(profile),
                     )
                     after_sample = _request_fresh_sensor_sample(
                     sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s
@@ -7510,6 +7496,7 @@ def run_episode(
                 long_range_gimbal_hold = _LongRangeGimbalHold(
                     session, mav_reader, cruise_gimbal_target, recorder.record_mavlink,
                     yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                    gazebo_body_joints=_uses_gazebo_gimbal_body_joints(airframe_profile),
                 )
                 recorder.meta["gimbal_hold"] = {"target_deg": cruise_gimbal_target,
                                                "refresh_interval_sim_s": 1.0,
