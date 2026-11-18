@@ -602,15 +602,6 @@ class MavlinkReader:
                 index = bisect_left([sample[0] for sample in history], time_boot_ms)
                 if max(time_boot_ms - history[index - 1][0], history[index][0] - time_boot_ms) > max_skew_ms:
                     return None
-                # Unlike a level multirotor, a tailsitter can cross +/-pi
-                # roll during transition. Interpolate that angle across the
-                # short arc as _select_pose_sample already does for yaw.
-                before, after = history[index - 1], history[index]
-                ratio = (time_boot_ms - before[0]) / (after[0] - before[0])
-                roll_before, roll_after = before[1].get("roll"), after[1].get("roll")
-                if isinstance(roll_before, (int, float)) and isinstance(roll_after, (int, float)):
-                    delta = (roll_after - roll_before + math.pi) % (2 * math.pi) - math.pi
-                    row["roll"] = roll_before + ratio * delta
             elif abs(float(source_ms) - time_boot_ms) > max_skew_ms:
                 return None
             return row
@@ -895,7 +886,7 @@ def _select_pose_sample(
             continue
         if not math.isfinite(float(value)) or not math.isfinite(float(other)):
             continue
-        if key == "yaw":
+        if key in {"roll", "yaw"}:
             delta = (float(other) - float(value) + math.pi) % (2.0 * math.pi) - math.pi
             row[key] = float(value) + ratio * delta
         else:
@@ -1070,6 +1061,7 @@ def build_observation(
     gimbal_sample: Mapping[str, Any] | None = None,
     gimbal_max_age_s: float = GIMBAL_FEEDBACK_MAX_AGE_S,
     camera_geometry: Any = None,
+    horizon_stabilizer: Any = None,
 ) -> dict[str, Any]:
     local, attitude, global_pos, gps = (
         mavlink.get(name)
@@ -1453,6 +1445,8 @@ def build_observation(
             if sim_skew_ms is not None and (camera_geometry is None or attitude_skew_ms is not None)
             else None
         )
+    if horizon_stabilizer is not None:
+        horizon_stabilizer.annotate(result)
     return result
 
 

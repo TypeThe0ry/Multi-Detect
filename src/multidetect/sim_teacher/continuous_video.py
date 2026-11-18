@@ -109,6 +109,7 @@ class ContinuousVideoWriter:
             "pose_time_boot_ms": observation.get("pose_time_boot_ms"),
             "sim_skew_ms": observation.get("sim_skew_ms"),
             "flight_stage": observation.get("flight_stage", "action"),
+            "flight_state": observation.get("flight_state"),
             "elapsed_video_s": elapsed,
             "bytes": size,
         }

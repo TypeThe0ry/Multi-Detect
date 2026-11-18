@@ -403,10 +403,12 @@ def collection_plan(scenario: Path, out: Path, slot: int, mission: dict[str, Any
 
 class LongRangePolicy:
     def __init__(self, targets: list[tuple[float, float, float]], radius: float, *, vtol: bool = False,
-                 gimbal_pitch_deg: float = -45.0) -> None:
+                 gimbal_pitch_deg: float = -45.0, gimbal_mode: str = "lock",
+                 gimbal_yaw_mode: str = "follow") -> None:
         self.targets = iter(targets)
         self.radius = radius
         self.vtol = vtol
+        self.gimbal_mode, self.gimbal_yaw_mode = gimbal_mode, gimbal_yaw_mode
         self.cruise_gimbal_target = (
             {"pitch": float(gimbal_pitch_deg), "yaw": 0.0, "roll": 0.0} if vtol else None
         )
@@ -553,6 +555,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--airframe", choices=AIRFRAME_PROFILES,
                         help="select a named profile's airframe or verify an explicit scenario")
     parser.add_argument("--plan-only", action="store_true")
+    parser.add_argument("--gimbal-mode", choices=("lock", "follow"), default="lock")
+    parser.add_argument("--gimbal-yaw-mode", choices=("lock", "follow"), default="follow")
+    parser.add_argument("--horizon-video-hz", type=float,
+                        help="override X1 video sampling rate in simulation seconds")
     parser.add_argument("--write-mission", action="store_true", help="为已有独立 scenario 生成可复现长航程 sidecar")
     parser.add_argument("--extent-m", type=float, default=6000.0)
     parser.add_argument("--min-rtf", type=float, default=None)
@@ -586,6 +592,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
     plan = collection_plan(scenario, out, args.slot, mission)
     is_vtol = mission["airframe"] == DELTA
+    if args.horizon_video_hz is not None:
+        if not is_vtol or not math.isfinite(args.horizon_video_hz) or args.horizon_video_hz <= 0:
+            parser.error("--horizon-video-hz requires X1 and a finite positive rate")
+        plan = replace(plan, video_hz=args.horizon_video_hz)
     from scripts import collect_sim_teacher_episodes as collector
     if args.plan_only:
         # A network-qualified command preview is opt-in via a known gateway;
@@ -601,6 +611,9 @@ def main(argv: list[str] | None = None) -> int:
                           "planned_max_distance_m": mission["planned_max_distance_m"],
                           "planned_agl_envelope_m": mission["planned_agl_envelope_m"],
                           "fw_waypoints_home_ned_m": mission["targets"] if is_vtol else None,
+                          "gimbal_stabilization": ({"mode": args.gimbal_mode,
+                                                     "yaw_mode": args.gimbal_yaw_mode}
+                                                    if is_vtol else None),
                           "compiled_mission_uploaded": False,
                           "compiled_mission": mission["compiled"].to_mapping(),
                           "collector_plan": collector_plan},
@@ -616,6 +629,7 @@ def main(argv: list[str] | None = None) -> int:
                 policy = LongRangePolicy(
                     mission["targets"], mission["geometry"].loiter_radius_m, vtol=True,
                     gimbal_pitch_deg=mission["gimbal_pitch_deg"],
+                    gimbal_mode=args.gimbal_mode, gimbal_yaw_mode=args.gimbal_yaw_mode,
                 )
                 episode = collector.run_episode(plan, Path(plan.truth), 0,
                                                 policy_override=policy, land_after_route=True)

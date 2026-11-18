@@ -67,6 +67,9 @@ from multidetect.sim_teacher.gimbal_recording import (
     DeltaCameraGeometry, collector_camera_mount,
 )
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
+from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
+    HorizonStabilizer, HostHorizonLoop,
+)
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.executor import (  # noqa: E402
     GCS_SOURCE_COMPONENT,
@@ -4207,6 +4210,7 @@ class _GimbalSendGate:
         self._worker: threading.Thread | None = None
         self._closed = False
         self._vehicle_clock = lambda: None
+        self.before_close: Callable[[], None] | None = None
 
     def __enter__(self):
         return self
@@ -4282,6 +4286,8 @@ class _GimbalSendGate:
                 self._record("cancelled")
 
     def close(self) -> None:
+        if self.before_close is not None:
+            self.before_close()
         self.cancel()
         with self._admission_lock:
             if self._closed:
@@ -6153,6 +6159,8 @@ def run_episode(
         else None
     )
     long_range_gimbal_hold = None
+    horizon_loop = None
+    horizon_stabilizer = None
     last_video_stamp_ns: list[int] = [-1]
     next_video_sim_ns: int | None = None
     next_video_request_s = 0.0
@@ -6289,10 +6297,16 @@ def run_episode(
                 _progress("mover_driver_started", command=mover_driver["command"])
                 _wait_for_mover_driver_start(plan, environment, mover_driver)
                 _progress("mover_driver_initial_visibility_ready")
+            if getattr(policy, "cruise_gimbal_target", None):
+                # GIMBAL_MANAGER_SET_ATTITUDE requires the MAVLink 2 dialect.
+                os.environ["MAVLINK20"] = "1"
             try:
                 from pymavlink import mavutil
             except ImportError as exc:
                 raise RuntimeError("pymavlink is required for a real SIM episode") from exc
+            if (getattr(policy, "cruise_gimbal_target", None)
+                    and mavutil.mavlink.WIRE_PROTOCOL_VERSION != "2.0"):
+                mavutil.set_dialect(mavutil.current_dialect)
             telemetry_connection = mavutil.mavlink_connection(
                 sim_udpin_endpoint(plan.telemetry_port, mode=plan.sim_network),
                 source_system=GCS_SOURCE_SYSTEM,
@@ -6655,6 +6669,212 @@ def run_episode(
                 )
             except TimeoutError as exc:
                 raise TimeoutError(f"{exc}; still missing: {_ekf_missing()}") from exc
+
+            def _start_horizon_stabilization():
+                nonlocal horizon_loop, horizon_stabilizer
+                target = getattr(policy, "cruise_gimbal_target", None)
+                if (
+                    horizon_loop is not None
+                    or not target
+                    or not _uses_gazebo_gimbal_body_joints(airframe_profile)
+                ):
+                    return
+                session = _ensure_gimbal_session()
+                # Acquire and verify the same manager before streaming unacknowledged
+                # SET_ATTITUDE messages. PITCHYAW alone cannot carry roll.
+                initial = _execute_managed_gimbal_action(
+                    ActionPrimitive.gimbal(pitch_deg=0.0, yaw_deg=0.0),
+                    session=session,
+                    profile=airframe_profile,
+                    reader=mav_reader,
+                    check=episode_watchdog.check,
+                    yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                )
+                if initial.status != "success":
+                    raise RuntimeError(
+                        f"horizon manager acquisition/readback failed: {initial.ack}"
+                    )
+                sender = getattr(telemetry_connection.mav, "gimbal_manager_set_attitude_send", None)
+                if not callable(sender):
+                    raise RuntimeError("MAVLink dialect lacks GIMBAL_MANAGER_SET_ATTITUDE")
+                # Request new ATTITUDE messages at the control cadence. A 50 Hz
+                # wall loop alone would just resend the same lower-rate telemetry.
+                attitude_interval_us = 20_000
+                for message_id, interval_us in (
+                    (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, attitude_interval_us),
+                    (mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE, 100_000),
+                ):
+                    telemetry_connection.mav.command_long_send(
+                        *session.target, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+                        message_id, interval_us, 0, 0, 0, 0, 0,
+                    )
+                bounds = dict(airframe_profile.camera.gimbal["angle_range_deg"])
+                # Legacy Eulerf carrier cannot express pitch beyond +/-90 or
+                # retain yaw windings across +/-180. Expose saturation as a limit.
+                bounds["pitch"] = (max(bounds["pitch"][0], -89.9), min(bounds["pitch"][1], 89.9))
+                bounds["yaw"] = (max(bounds["yaw"][0], -179.9), min(bounds["yaw"][1], 179.9))
+                horizon_stabilizer = HorizonStabilizer(
+                    target,
+                    mode=getattr(policy, "gimbal_mode", "lock"),
+                    yaw_mode=getattr(policy, "gimbal_yaw_mode", "follow"),
+                    limits_deg=bounds,
+                )
+
+                def sample():
+                    state = _snapshot_mavlink_state(mav_reader.state)
+                    attitude = state.get("ATTITUDE")
+                    received = state.received_monotonic_ns.get("ATTITUDE")
+                    stamp = _field(attitude, "time_boot_ms", None)
+                    now_ms = state.vehicle_time_boot_ms
+                    age = (
+                        max((time.monotonic_ns() - received) / 1e9, (now_ms - stamp) / 1000.0)
+                        if None not in (received, stamp, now_ms)
+                        else math.inf
+                    )
+                    feedback, feedback_received = session.latest_attitude or (None, None)
+                    if (
+                        feedback_received is None
+                        or time.monotonic_ns() - feedback_received > 500_000_000
+                        or _field(feedback, "failure_flags", 0)
+                    ):
+                        age = math.inf
+                    body = {
+                        a: math.degrees(float(_field(attitude, a, math.nan)))
+                        for a in ("roll", "pitch", "yaw")
+                    }
+                    return body, time.monotonic() - age
+
+                def send_quaternion(q):
+                    return gimbal_send_gate.send(
+                        sender,
+                        *session.target,
+                        mavutil.mavlink.GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME,
+                        session.device_id,
+                        q,
+                        math.nan,
+                        math.nan,
+                        math.nan,
+                    )
+
+                horizon_loop = HostHorizonLoop(
+                    horizon_stabilizer,
+                    sample,
+                    send_quaternion,
+                    session=session,
+                    record=recorder.record_mavlink,
+                )
+                gimbal_send_gate.before_close = horizon_loop.close
+                horizon_loop.start()
+                recorder.meta["horizon_stabilization"] = {
+                    "mode": horizon_stabilizer.mode,
+                    "yaw_mode": horizon_stabilizer.yaw_mode,
+                    "target_deg": target,
+                    "host_hz": 50.0,
+                    "requested_attitude_interval_us": attitude_interval_us,
+                    "max_age_s": 0.2,
+                    "max_rate_deg_s": 180.0,
+                    "transport_flags": 32,
+                    "bridge_actuation_hz": "unverified; pinned timer is 5 Hz",
+                }
+                # Settle before the first transition; startup slew is not a
+                # horizon-lock acceptance window. Only measured feedback admits it.
+                deadline = time.monotonic() + 30.0
+                while time.monotonic() < deadline:
+                    episode_watchdog.check()
+                    horizon_loop.check()
+                    result = horizon_stabilizer.last_result
+                    status, _ = session.latest_attitude or (None, -1)
+                    if result is not None and not result["degraded"]:
+                        readback = _gimbal_readback(
+                            mav_reader,
+                            status,
+                            result["joint_deg"],
+                            gazebo_body_joints=True,
+                            yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                        )
+                        errors = readback["error_deg"]
+                        stamp = _field(status, "time_boot_ms", None)
+                        now = mav_reader.state.vehicle_time_boot_ms
+                        if (
+                            errors is not None
+                            and max(errors.values()) <= 2.0
+                            and stamp is not None
+                            and now is not None
+                            and 0 <= now - stamp <= 200
+                        ):
+                            recorder.meta["horizon_stabilization"]["initial_readback"] = readback
+                            break
+                    time.sleep(0.02)
+                else:
+                    raise RuntimeError(
+                        "host horizon stabilization did not settle with fresh readback"
+                    )
+
+            def _video_tick(action_index: int, flight_stage: str, *, wall_due_s=None):
+                nonlocal next_video_sim_ns, next_video_request_s
+                if video_writer is None or video_writer.truncated:
+                    return
+                now = time.monotonic()
+                if plan.video_use_sim_time:
+                    video_stamp = _pose_sim_stamp_ns(mav_reader.state)
+                    if video_stamp is None:
+                        return
+                    if next_video_sim_ns is None:
+                        next_video_sim_ns = video_stamp
+                    sample = sensor_reader.latest
+                    if not _new_video_sample(sample, last_video_stamp_ns[0], due_ns=next_video_sim_ns):
+                        if video_stamp >= next_video_sim_ns and now >= next_video_request_s:
+                            next_video_request_s = now + min(1.0, 1.0 / plan.video_hz)
+                            sensor_reader.request(next_video_sim_ns)
+                        return
+                elif wall_due_s is not None and now >= wall_due_s:
+                    video_stamp = _pose_sim_stamp_ns(_snapshot_mavlink_state(mav_reader.state))
+                    sensor_reader.request(video_stamp or 0)
+                    sample = sensor_reader.latest
+                else:
+                    return
+                if not _new_video_sample(sample, last_video_stamp_ns[0]):
+                    return
+                last_video_stamp_ns[0] = sample.sensor_stamp_ns
+                if plan.video_use_sim_time:
+                    next_video_sim_ns = sample.sensor_stamp_ns + round(1e9 / plan.video_hz)
+                try:
+                    aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
+                    gimbal_sample = None
+                    if camera_mount is not None and camera_mount.kind == "gimbal":
+                        gimbal_sample = mav_reader.gimbal_sample_at(
+                            sample.sensor_stamp_ns,
+                            device_id=gimbal_session.attitude_device_id if gimbal_session else 1,
+                        ) or {"message": None}
+                    video_obs = _png_observation(build_observation(
+                        sample,
+                        aligned,
+                        camera_mount=camera_mount,
+                        gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
+                        gimbal_sample=gimbal_sample,
+                        gimbal_max_age_s=2.0,
+                        camera_geometry=camera_geometry,
+                        horizon_stabilizer=horizon_stabilizer,
+                        camera_info={
+                            **DEFAULT_CAMERA_INFO,
+                            "width": plan.rgb_size[0],
+                            "height": plan.rgb_size[1],
+                            "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                            "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                            "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                            "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                        },
+                    ))
+                    video_obs["flight_stage"] = flight_stage
+                    if not plan.capture_depth:
+                        video_obs["depth"] = None
+                    video_writer.write(video_obs, action_index=action_index)
+                except Exception as exc:
+                    recorder.record_mavlink({"message_type": "video_capture_error", "error": str(exc)})
+                    if camera_mount is not None and camera_mount.kind == "gimbal":
+                        video_writer.record_capture_error(str(exc))
+                        raise RuntimeError(f"gimbal video frame rejected: {exc}") from exc
+
             vehicle = telemetry_connection
             primitive_sim_clock = _SimClock(mav_reader)
             start_pos = _state_position(mav_reader.state)
@@ -7204,6 +7424,10 @@ def run_episode(
                     wall_ceiling = max(180.0, float(timeout_s) * 10.0)
                     while state_clock() - started_sim < timeout_s and time.monotonic() - started_wall < wall_ceiling:
                         mav_reader.raise_if_failed()
+                        if horizon_loop is not None:
+                            horizon_loop.check()
+                            if phase == "transition_fw" and plan.video_use_sim_time:
+                                _video_tick(-1, "transition_to_fw")
                         state = _flight_state_snapshot(mav_reader.state)
                         z = _state_position(mav_reader.state)[2]
                         if transition_altitude_m is not None:
@@ -7373,6 +7597,13 @@ def run_episode(
                             json.dumps(recorder.meta, indent=2), encoding="utf-8"
                         )
                     if not hover_mission:
+                        _start_horizon_stabilization()
+                        if horizon_loop is not None and video_writer is not None and plan.video_use_sim_time:
+                            hover_sample = _request_fresh_sensor_sample(
+                                sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s,
+                            )
+                            next_video_sim_ns = hover_sample.sensor_stamp_ns
+                            _video_tick(-1, "pre_transition_hover")
                         transition = executor._invoke(
                             "vtol_transition", "FW", timeout_s=executor._timeout()
                         )
@@ -7433,7 +7664,9 @@ def run_episode(
             # (255/190 -> 1/1 -> 0/0), so later pitch/yaw commands are DENIED.
             landing_started = False
             cruise_gimbal_target = getattr(policy, "cruise_gimbal_target", None)
-            if camera_mount is not None and camera_mount.kind == "gimbal" and cruise_gimbal_target:
+            _start_horizon_stabilization()
+            if (horizon_loop is None and camera_mount is not None
+                    and camera_mount.kind == "gimbal" and cruise_gimbal_target):
                 session = _ensure_gimbal_session()
                 initial = _execute_managed_gimbal_action(
                     ActionPrimitive.gimbal(pitch_deg=cruise_gimbal_target["pitch"],
@@ -7466,6 +7699,8 @@ def run_episode(
                         raise LowDiskSpace(reason)
                 mav_reader.raise_if_failed()
                 episode_watchdog.check()
+                if horizon_loop is not None:
+                    horizon_loop.check()
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 t = time.perf_counter_ns()
@@ -7482,6 +7717,7 @@ def run_episode(
                     before_state,
                     camera_mount=camera_mount,
                     camera_geometry=camera_geometry,
+                    horizon_stabilizer=horizon_stabilizer,
                     ground_agl_max_age_s=(
                         policy.ground_projection.agl_max_age_s
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
@@ -7546,7 +7782,7 @@ def run_episode(
                     _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,
                 )
                 if (camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None
-                        and not landing_started):
+                        and not landing_started and horizon_loop is None):
                     if gimbal_session is not None:
                         gimbal_session.poll()
                     _dispatch_teacher_gimbal_command(
@@ -7669,96 +7905,48 @@ def run_episode(
                     except BaseException as exc:
                         execute_error.append(exc)  # noqa: B023
 
+                if horizon_loop is not None and managed_gimbal_action is not None:
+                    raise RuntimeError("explicit joint primitive conflicts with earth stabilization")
+                if horizon_loop is not None and getattr(action, "kind", None) == "land":
+                    horizon_loop.close()
                 if getattr(action, "kind", None) == "land" and gimbal_session is not None:
                     gimbal_session.control_release_expected = True
                 execute_thread = threading.Thread(target=_execute, name="sim-teacher-action",
                                                   daemon=managed_gimbal_action is not None)
                 execute_thread.start()
                 def _action_tick() -> None:
-                    nonlocal next_video_s, next_video_sim_ns, next_video_request_s
+                    nonlocal next_video_s
                     episode_watchdog.check()
+                    if horizon_loop is not None:
+                        horizon_loop.check()
                     if long_range_gimbal_hold is not None and not landing_started:
                         long_range_gimbal_hold.tick()
-                    now = time.monotonic()
-                    if video_writer is None or video_writer.truncated:
+                    if plan.video_use_sim_time and horizon_loop is None and (
+                        motion is None or motion.kind != "reposition" or motion.mode != "FW"
+                    ):
                         return
-                    try:
-                        if plan.video_use_sim_time:
-                            # Share one cadence across FW legs. Start the clock at the first leg.
-                            if motion is None or motion.kind != "reposition" or motion.mode != "FW":
-                                return
-                            video_stamp = _pose_sim_stamp_ns(mav_reader.state)
-                            if video_stamp is None:
-                                return
-                            if next_video_sim_ns is None:
-                                next_video_sim_ns = video_stamp
-                            if video_stamp < next_video_sim_ns:
-                                return
-                            sample = sensor_reader.latest
-                            if not _new_video_sample(sample, last_video_stamp_ns[0], due_ns=next_video_sim_ns):
-                                if now >= next_video_request_s:
-                                    next_video_request_s = now + 1.0
-                                    sensor_reader.request(next_video_sim_ns)
-                                return
-                        elif now >= next_video_s:
-                            video_stamp = _pose_sim_stamp_ns(
-                                _snapshot_mavlink_state(mav_reader.state)
-                            )
-                            sensor_reader.request(video_stamp or 0)
-                            sample = sensor_reader.latest
-                        else:
-                            return
-                        if _new_video_sample(sample, last_video_stamp_ns[0]):
-                            last_video_stamp_ns[0] = sample.sensor_stamp_ns
-                            if plan.video_use_sim_time:
-                                next_video_sim_ns = sample.sensor_stamp_ns + round(1e9 / plan.video_hz)
-                            aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
-                            gimbal_sample = (
-                                mav_reader.gimbal_sample_at(
-                                    sample.sensor_stamp_ns,
-                                    device_id=gimbal_session.attitude_device_id if gimbal_session else 1,
-                                ) or {"message": None}
-                                if camera_mount is not None and camera_mount.kind == "gimbal"
-                                else None
-                            )
-                            video_obs = _png_observation(
-                                build_observation(
-                                    sample,
-                                    aligned,
-                                    camera_mount=camera_mount,
-                                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
-                                    gimbal_sample=gimbal_sample,
-                                    gimbal_max_age_s=2.0,
-                                    camera_geometry=camera_geometry,
-                                    camera_info={
-                                        **DEFAULT_CAMERA_INFO,
-                                        "width": plan.rgb_size[0],
-                                        "height": plan.rgb_size[1],
-                                        "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
-                                        "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
-                                        "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
-                                        "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
-                                    },
-                                )
-                            )
-                            if plan.video_use_sim_time and camera_mount is not None and camera_mount.kind == "gimbal":
-                                validate_gimbal_recording_observation(video_obs)
-                            video_obs["flight_stage"] = "action"
-                            if not plan.capture_depth:
-                                video_obs["depth"] = None
-                            video_writer.write(video_obs, action_index=index)
-                    except Exception as exc:
-                        recorder.record_mavlink({"message_type": "video_capture_error", "error": str(exc)})
-                        if camera_mount is not None and camera_mount.kind == "gimbal":
-                            video_writer.record_capture_error(str(exc))
-                            raise RuntimeError(f"gimbal video frame rejected: {exc}") from exc
-                    if not plan.video_use_sim_time:
-                        next_video_s += 1.0 / plan.video_hz
+                    if plan.video_use_sim_time or time.monotonic() >= next_video_s:
+                        stage = "transition_to_mc" if (
+                            horizon_loop is not None and motion is not None
+                            and motion.kind == "transition" and motion.mode == "MC"
+                        ) else "action"
+                        _video_tick(index, stage, wall_due_s=next_video_s)
+                        if video_writer is not None and not plan.video_use_sim_time:
+                            next_video_s += 1.0 / plan.video_hz
 
                 try:
-                    _join_action_with_gimbal(execute_thread, None if managed_gimbal_action is not None else gimbal_session, _action_tick,
-                                             cancel=gimbal_send_gate.cancel,
-                                             abandon_on_cancel=managed_gimbal_action is not None)
+                    poll_session = (
+                        None
+                        if managed_gimbal_action is not None or horizon_loop is not None
+                        else gimbal_session
+                    )
+                    _join_action_with_gimbal(
+                        execute_thread,
+                        poll_session,
+                        _action_tick,
+                        cancel=gimbal_send_gate.cancel,
+                        abandon_on_cancel=managed_gimbal_action is not None,
+                    )
                 except Exception as exc:
                     _progress("gimbal_action_failed", error=str(exc),
                               cleanup="waiting_for_gimbal_sender_before_connection_teardown")
@@ -7812,6 +8000,7 @@ def run_episode(
                                     gimbal_sample=gimbal_sample,
                                     gimbal_max_age_s=2.0,
                                     camera_geometry=camera_geometry,
+                                    horizon_stabilizer=horizon_stabilizer,
                                     camera_info={
                                         **DEFAULT_CAMERA_INFO,
                                         "width": plan.rgb_size[0],
@@ -7855,6 +8044,7 @@ def run_episode(
                     after_state,
                     camera_mount=camera_mount,
                     camera_geometry=camera_geometry,
+                    horizon_stabilizer=horizon_stabilizer,
                     ground_agl_max_age_s=(
                         policy.ground_projection.agl_max_age_s
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
@@ -8005,6 +8195,10 @@ def run_episode(
                     time.sleep(0.02)
                 recorder.meta["gimbal_hold"]["readback_count"] = long_range_gimbal_hold.readback_count
                 recorder.meta["gimbal_hold"]["passed"] = long_range_gimbal_hold.readback_count > 0
+            if horizon_loop is not None:
+                horizon_loop.close()
+                horizon_loop.check()
+                recorder.meta["horizon_stabilization"]["sent_count"] = horizon_loop.sent_count
             _finish_teacher_gimbal(gimbal_session, episode_watchdog.check)
             gimbal_send_gate.close()
             if gimbal_session is not None:

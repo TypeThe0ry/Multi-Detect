@@ -1,0 +1,473 @@
+"""CPU-only horizon acceptance through bridge decode and independent C11 FK.
+
+The delayed plant tracks the emitted joint setpoint exactly; it models 50 ms
+body-telemetry latency and command rate limits, not Gazebo servo dynamics.
+"""
+
+from __future__ import annotations
+
+import math
+
+import pytest
+
+from multidetect.sim_teacher.horizon_stabilization import HorizonStabilizer
+
+AXES = ("roll", "pitch", "yaw")
+TARGET = {"roll": 0.0, "pitch": -45.0, "yaw": 0.0}
+LIMITS = {"yaw": (-360.0, 360.0), "roll": (-45.0, 45.0), "pitch": (-135.0, 45.0)}
+
+
+def _multiply(left, right):
+    return tuple(
+        sum(left[3 * i + k] * right[3 * k + j] for k in range(3))
+        for i in range(3)
+        for j in range(3)
+    )
+
+
+def _axis_rotation(axis, angle_deg):
+    c, s = math.cos(math.radians(angle_deg)), math.sin(math.radians(angle_deg))
+    if axis == "roll":
+        return (1, 0, 0, 0, c, -s, 0, s, c)
+    if axis == "pitch":
+        return (c, 0, s, 0, 1, 0, -s, 0, c)
+    return (c, -s, 0, s, c, 0, 0, 0, 1)
+
+
+def _rotation(angles, order):
+    result = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+    for axis in order:
+        result = _multiply(result, _axis_rotation(axis, angles[axis]))
+    return result
+
+
+def _bridge_decoded(joints):
+    from multidetect.sim_teacher.horizon_stabilization import joint_command_quaternion
+
+    w, x, y, z = joint_command_quaternion(joints)
+    matrix = (
+        1 - 2 * (y * y + z * z),
+        2 * (x * y - w * z),
+        2 * (x * z + w * y),
+        2 * (x * y + w * z),
+        1 - 2 * (x * x + z * z),
+        2 * (y * z - w * x),
+        2 * (x * z - w * y),
+        2 * (y * z + w * x),
+        1 - 2 * (x * x + y * y),
+    )
+    return _angles(matrix)
+
+
+def _earth(body, joints):
+    # Physical chain, independently implemented rather than reusing the solver.
+    return _multiply(
+        _rotation(body, ("yaw", "pitch", "roll")), _rotation(joints, ("yaw", "roll", "pitch"))
+    )
+
+
+def _angles(matrix):
+    return {
+        "roll": math.degrees(math.atan2(matrix[7], matrix[8])),
+        "pitch": math.degrees(math.asin(max(-1.0, min(1.0, -matrix[6])))),
+        "yaw": math.degrees(math.atan2(matrix[3], matrix[0])),
+    }
+
+
+def _wrap(angle):
+    return (angle + 180.0) % 360.0 - 180.0
+
+
+def _horizon_error(actual, desired=TARGET):
+    return max(abs(_wrap(actual[axis] - desired[axis])) for axis in ("roll", "pitch"))
+
+
+def _body(case, seconds):
+    if case == "tailsitter_hover":
+        return {
+            "roll": 0.0,
+            "pitch": -85.0 - 5.0 * math.cos(seconds * math.pi / 5),
+            "yaw": 25.0 + 4.0 * seconds,
+        }
+    if case == "fixed_wing_turn":
+        return {
+            "roll": 45.0 * math.sin(seconds * math.pi / 5),
+            "pitch": 15.0 * math.sin(seconds * math.pi / 7),
+            "yaw": 4.0 * seconds,
+        }
+    # Covers both 0 -> -90 and -90 -> 0, including both endpoints exactly.
+    return {
+        "roll": 0.0,
+        "pitch": -45.0 * (1.0 - math.cos(seconds * math.pi / 10)),
+        "yaw": 25.0 + 4.0 * seconds,
+    }
+
+
+@pytest.mark.parametrize("case", ["tailsitter_hover", "fixed_wing_turn", "vtol_fw_transition"])
+@pytest.mark.parametrize("delay_s,max_error", [(0.0, 2.0), (0.05, 4.0)])
+def test_lock_horizon_flight_sequences(case, delay_s, max_error, record_property):
+    dt = 0.02  # 50 Hz deterministic host loop, independent of video cadence.
+    rate = 27.0 if delay_s and case == "fixed_wing_turn" else 90.0
+    stabilizer = HorizonStabilizer(
+        target_deg=TARGET, mode="lock", yaw_mode="follow", max_rate_deg_s=rate
+    )
+    # Settle the initial joint pose before beginning the flight error window.
+    previous = None
+    for index in range(151):
+        now = -3.0 + index * dt
+        output = stabilizer.update(_body(case, -delay_s), now_s=now, attitude_time_s=now - delay_s)
+        previous = output["joint_deg"]
+    peak = 0.0
+    largest_step = 0.0
+    limited_steps = 0
+    for index in range(1001):
+        now = index * dt
+        current = _body(case, now)
+        output = stabilizer.update(
+            _body(case, now - delay_s), now_s=now, attitude_time_s=now - delay_s
+        )
+        joints = output["joint_deg"]
+        for axis in AXES:
+            assert LIMITS[axis][0] - 1e-8 <= joints[axis] <= LIMITS[axis][1] + 1e-8
+            step = abs(joints[axis] - previous[axis])
+            largest_step = max(largest_step, step)
+            assert step <= rate * dt + 1e-7
+            limited_steps += int(abs(step - rate * dt) < 1e-7)
+        previous = joints
+        # Include the actual bridge carrier decode before physical FK.
+        decoded_joints = _bridge_decoded(joints)
+        assert decoded_joints == pytest.approx(joints, abs=1e-8)
+        peak = max(peak, _horizon_error(_angles(_earth(current, decoded_joints))))
+    record_property("peak_horizon_error_deg", peak)
+    record_property("largest_joint_step_deg", largest_step)
+    assert peak <= max_error, f"{case}: peak={peak:.6f} deg with {delay_s=}, limit={max_error}"
+    if delay_s and case == "fixed_wing_turn":
+        assert limited_steps > 50  # This acceptance case actually hits the rate limiter.
+    if delay_s:
+        assert peak > 0.05  # The latency is actually exercised, not ignored.
+
+
+def _settle(stabilizer, body):
+    for index in range(201):
+        stabilizer.update(body, now_s=-4.0 + index * 0.02, attitude_time_s=-4.0 + index * 0.02)
+
+
+def test_yaw_lock_holds_full_earth_rotation_while_vehicle_turns():
+    target = {**TARGET, "yaw": 70.0}
+    stabilizer = HorizonStabilizer(
+        target_deg=target, mode="lock", yaw_mode="lock", max_rate_deg_s=10000.0
+    )
+    _settle(stabilizer, {"roll": 0.0, "pitch": -10.0, "yaw": 0.0})
+    for index in range(101):
+        body = {"roll": 20.0 * math.sin(index / 20), "pitch": -10.0, "yaw": index}
+        output = stabilizer.update(body, now_s=index * 0.1, attitude_time_s=index * 0.1)
+        actual = _angles(_earth(body, output["joint_deg"]))
+        assert _horizon_error(actual) <= 2.0
+        assert abs(_wrap(actual["yaw"] - target["yaw"])) <= 2.0
+
+
+def test_follow_preserves_body_relative_pose_and_tracks_vehicle_tilt():
+    stabilizer = HorizonStabilizer(target_deg=TARGET, mode="follow", max_rate_deg_s=10000.0)
+    body = {"roll": 30.0, "pitch": -20.0, "yaw": 170.0}
+    _settle(stabilizer, body)
+    output = stabilizer.update(body, now_s=0.0, attitude_time_s=0.0)
+    expected = _multiply(
+        _rotation(body, ("yaw", "pitch", "roll")), _rotation(TARGET, ("yaw", "pitch", "roll"))
+    )
+    assert _earth(body, output["joint_deg"]) == pytest.approx(expected, abs=1e-9)
+    assert _horizon_error(_angles(expected)) > 10.0
+
+
+def test_yaw_wrap_uses_nearby_continuous_joint_branch():
+    stabilizer = HorizonStabilizer(
+        target_deg=TARGET, mode="lock", yaw_mode="lock", max_rate_deg_s=60.0
+    )
+    _settle(stabilizer, {"roll": 0.0, "pitch": 0.0, "yaw": 175.0})
+    previous = None
+    for index in range(201):
+        unwrapped = 175.0 + index * 0.05
+        body = {"roll": 0.0, "pitch": 0.0, "yaw": _wrap(unwrapped)}
+        result = stabilizer.update(body, now_s=index * 0.02, attitude_time_s=index * 0.02)
+        if previous is not None:
+            assert abs(result["joint_deg"]["yaw"] - previous) <= 1.2 + 1e-8
+        previous = result["joint_deg"]["yaw"]
+        assert _horizon_error(_angles(_earth(body, result["joint_deg"]))) <= 2.0
+
+
+def test_joint_limits_and_rate_limit_are_enforced_for_unreachable_target():
+    stabilizer = HorizonStabilizer(
+        target_deg=TARGET, mode="lock", yaw_mode="follow", max_rate_deg_s=30.0
+    )
+    first = stabilizer.update(
+        {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}, now_s=0.0, attitude_time_s=0.0
+    )
+    result = stabilizer.update(
+        {"roll": 85.0, "pitch": 30.0, "yaw": 0.0}, now_s=0.02, attitude_time_s=0.02
+    )
+    for axis in AXES:
+        assert LIMITS[axis][0] <= result["joint_deg"][axis] <= LIMITS[axis][1]
+        assert abs(result["joint_deg"][axis] - first["joint_deg"][axis]) <= 0.6 + 1e-8
+    assert result["degraded"]
+
+
+@pytest.mark.parametrize("pitch", [-90.0, 90.0])
+def test_body_pitch_euler_singularity_produces_finite_bounded_commands(pitch):
+    stabilizer = HorizonStabilizer(target_deg=TARGET, mode="lock", yaw_mode="follow")
+    _settle(stabilizer, {"roll": 0.0, "pitch": pitch, "yaw": 25.0})
+    result = stabilizer.update(
+        {"roll": 0.0, "pitch": pitch, "yaw": 25.0}, now_s=0.0, attitude_time_s=0.0
+    )
+    assert all(math.isfinite(result["joint_deg"][axis]) for axis in AXES)
+    for axis in AXES:
+        assert LIMITS[axis][0] <= result["joint_deg"][axis] <= LIMITS[axis][1]
+    assert (
+        _horizon_error(
+            _angles(_earth({"roll": 0.0, "pitch": pitch, "yaw": 25.0}, result["joint_deg"]))
+        )
+        <= 2.0
+    )
+
+
+def test_zxy_roll_singularity_is_reported_and_bounded():
+    stabilizer = HorizonStabilizer(
+        target_deg={"roll": 90.0, "pitch": 0.0, "yaw": 0.0}, mode="lock", yaw_mode="lock"
+    )
+    _settle(stabilizer, {"roll": 0.0, "pitch": 0.0, "yaw": 0.0})
+    result = stabilizer.update(
+        {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}, now_s=0.0, attitude_time_s=0.0
+    )
+    assert result["degraded"]
+    assert all(math.isfinite(value) for value in result["joint_deg"].values())
+    assert abs(result["joint_deg"]["roll"]) <= 45.0
+    assert "zxy_singular" in result["reasons"]
+
+
+def test_expired_attitude_holds_last_joint_command_and_warns(caplog):
+    stabilizer = HorizonStabilizer(target_deg=TARGET, mode="lock", max_age_s=0.2)
+    _settle(stabilizer, {"roll": 0.0, "pitch": -30.0, "yaw": 0.0})
+    first = stabilizer.update(
+        {"roll": 0.0, "pitch": -30.0, "yaw": 0.0}, now_s=0.0, attitude_time_s=0.0
+    )
+    stale = stabilizer.update(
+        {"roll": 40.0, "pitch": 20.0, "yaw": 80.0}, now_s=0.3, attitude_time_s=0.0
+    )
+    assert stale["joint_deg"] == first["joint_deg"]
+    assert stale["degraded"]
+    assert "stale" in caplog.text.lower() or "expired" in caplog.text.lower()
+    recovered = stabilizer.update(
+        {"roll": 0.0, "pitch": -30.0, "yaw": 0.0}, now_s=0.4, attitude_time_s=0.4
+    )
+    assert all(math.isfinite(value) for value in recovered["joint_deg"].values())
+
+
+@pytest.mark.parametrize(
+    "joints",
+    [
+        {"roll": 15.0, "pitch": -60.0, "yaw": 175.0},
+        {"roll": -40.0, "pitch": 44.0, "yaw": -179.0},
+    ],
+)
+def test_bridge_quaternion_carrier_recovers_all_three_joint_numbers(joints):
+    from multidetect.sim_teacher.horizon_stabilization import joint_command_quaternion
+
+    w, x, y, z = joint_command_quaternion(joints)
+    # Pinned GZGimbal uses Eulerf(q), a ZYX decode, rather than ZXY inverse FK.
+    matrix = (
+        1 - 2 * (y * y + z * z),
+        2 * (x * y - w * z),
+        2 * (x * z + w * y),
+        2 * (x * y + w * z),
+        1 - 2 * (x * x + z * z),
+        2 * (y * z - w * x),
+        2 * (x * z - w * y),
+        2 * (y * z + w * x),
+        1 - 2 * (x * x + y * y),
+    )
+    assert _angles(matrix) == pytest.approx(joints, abs=1e-9)
+    assert _earth({"roll": 0, "pitch": 0, "yaw": 0}, joints) != pytest.approx(matrix)
+
+
+@pytest.mark.parametrize("pitch", [-135.0, -90.0, 90.0])
+def test_bridge_carrier_rejects_ambiguous_or_unrepresentable_pitch(pitch):
+    from multidetect.sim_teacher.horizon_stabilization import joint_command_quaternion
+
+    with pytest.raises(ValueError, match="pitch"):
+        joint_command_quaternion({"roll": 0.0, "pitch": pitch, "yaw": 0.0})
+
+
+def test_frame_stabilization_uses_measured_c11_joints_and_camera_geometry():
+    from pathlib import Path
+
+    from multidetect.sim_teacher.gimbal_recording import DeltaCameraGeometry
+
+    geometry = DeltaCameraGeometry.from_sdf(
+        Path(__file__).resolve().parents[1]
+        / "simulation/gazebo/models/delta_tailsitter_gimbal_cam/model.sdf"
+    )
+    body = {"roll": 20.0, "pitch": -30.0, "yaw": 90.0}
+    measured_joints = {"roll": -10.0, "pitch": -5.0, "yaw": 4.0}
+    observation = {
+        "attitude": {axis + "_deg": value for axis, value in body.items()},
+        "pose": {"local_ned_m": [100.0, 20.0, -80.0]},
+        "frame_sensor_stamp_ns": 1_000_000_000,
+    }
+    geometry.apply(
+        observation,
+        {
+            "source": "gazebo_joint_state",
+            "fresh": True,
+            "source_timestamp_ns": 1_000_000_000,
+            "position_rad": {axis: math.radians(value) for axis, value in measured_joints.items()},
+        },
+        max_age_ms=200.0,
+    )
+    stabilizer = HorizonStabilizer(target_deg=TARGET, mode="lock", yaw_mode="follow")
+    stabilizer.update(body, now_s=1.0, attitude_time_s=1.0)
+    stabilizer.annotate(observation)
+    measured_world = _earth(body, measured_joints)
+    assert observation["camera_pose"]["optical_to_world"] == pytest.approx(measured_world)
+    state = observation["gimbal_state"]["stabilization"]
+    assert state["mode"] == "lock"
+    assert state["measured_earth_deg"] == pytest.approx(_angles(measured_world))
+    assert state["desired_earth_deg"] == pytest.approx({**TARGET, "yaw": 90.0})
+    assert state["horizon_error_deg"] == pytest.approx(_horizon_error(_angles(measured_world)))
+    assert state["horizon_error_deg"] > 2.0
+    assert observation["gimbal_state"]["joint_position_rad"] != {
+        axis: math.radians(value) for axis, value in stabilizer.last_result["joint_deg"].items()
+    }
+    observation["gimbal_state"]["fresh"] = False
+    stabilizer.annotate(observation)
+    state = observation["gimbal_state"]["stabilization"]
+    assert state["measured_earth_deg"] is None
+    assert state["horizon_error_deg"] is None
+
+
+def test_legacy_joint_carrier_survives_mavlink2_serialization():
+    import io
+
+    from multidetect.sim_teacher.horizon_stabilization import joint_command_quaternion
+
+    mavlink = pytest.importorskip("pymavlink.dialects.v20.common")
+    joints = {"roll": -37.0, "pitch": 42.0, "yaw": 154.0}
+    wire = io.BytesIO()
+    sender = mavlink.MAVLink(wire, srcSystem=255, srcComponent=190)
+    sender.gimbal_manager_set_attitude_send(
+        1, 1, mavlink.GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME, 1,
+        joint_command_quaternion(joints), math.nan, math.nan, math.nan,
+    )
+    packet = wire.getvalue()
+    assert packet[0] == 0xFD
+    message = mavlink.MAVLink(None).decode(bytearray(packet))
+    assert message.get_type() == "GIMBAL_MANAGER_SET_ATTITUDE"
+    assert (message.target_system, message.target_component, message.gimbal_device_id) == (1, 1, 1)
+    assert message.flags == 32
+    assert all(math.isnan(getattr(message, "angular_velocity_" + axis)) for axis in "xyz")
+    assert sum(a * b for a, b in zip(message.q, joint_command_quaternion(joints), strict=True)) == (
+        pytest.approx(1.0, abs=1e-7)
+    )
+
+
+def test_host_loop_does_not_accumulate_commands_behind_blocked_transport():
+    import threading
+    from types import SimpleNamespace
+
+    from multidetect.sim_teacher.horizon_stabilization import HostHorizonLoop
+
+    current = [1.0]
+    sent = []
+    ticket = SimpleNamespace(done=threading.Event(), error=None)
+
+    def send(quaternion):
+        sent.append(quaternion)
+        return ticket
+
+    loop = HostHorizonLoop(
+        HorizonStabilizer(),
+        lambda: ({"roll": 0, "pitch": 0, "yaw": 0}, current[0]),
+        send,
+        clock=lambda: current[0],
+    )
+    loop.step()
+    for _ in range(10):
+        current[0] += 0.02
+        loop.step()
+    assert len(sent) == loop.sent_count == 1
+    ticket.done.set()
+    loop.step()
+    assert len(sent) == loop.sent_count == 2
+    ticket.error = OSError("transport closed")
+    with pytest.raises(RuntimeError, match="transport"):
+        loop.step()
+
+
+def test_host_loop_rejects_manager_ownership_loss_before_sending():
+    from types import SimpleNamespace
+
+    from multidetect.sim_teacher.horizon_stabilization import HostHorizonLoop
+
+    loop = HostHorizonLoop(
+        HorizonStabilizer(),
+        lambda: pytest.fail("sampled after ownership loss"),
+        lambda _q: pytest.fail("sent after ownership loss"),
+        session=SimpleNamespace(poll=lambda: None, owned=False),
+    )
+    with pytest.raises(RuntimeError, match="ownership"):
+        loop.step()
+
+
+@pytest.mark.parametrize(
+    "body,stamp",
+    [
+        (None, 0.5),
+        ({"roll": float("nan"), "pitch": 0.0, "yaw": 0.0}, 0.5),
+        ({"roll": 0.0, "pitch": 0.0, "yaw": 0.0}, 1.0),
+    ],
+)
+def test_invalid_or_future_attitude_holds_previous_joint_output(body, stamp):
+    stabilizer = HorizonStabilizer(target_deg=TARGET, mode="lock", max_age_s=0.2)
+    _settle(stabilizer, {"roll": 0.0, "pitch": -30.0, "yaw": 0.0})
+    previous = dict(stabilizer.last_joint)
+    result = stabilizer.update(body, now_s=0.5, attitude_time_s=stamp)
+    assert result["joint_deg"] == previous
+    assert result["desired_earth_deg"] is None
+    assert result["degraded"]
+    assert "attitude_stale_or_invalid_hold_last" in result["reasons"]
+
+
+def test_host_loop_background_thread_stops_before_transport_teardown():
+    import threading
+
+    from multidetect.sim_teacher.horizon_stabilization import HostHorizonLoop
+
+    sent = threading.Event()
+    loop = HostHorizonLoop(
+        HorizonStabilizer(),
+        lambda: ({"roll": 0, "pitch": 0, "yaw": 0}, 1.0),
+        lambda _q: sent.set(),
+        clock=lambda: 1.0,
+    )
+    loop.start()
+    assert sent.wait(1.0)
+    loop.close()
+    assert not loop.thread.is_alive()
+    assert loop.sent_count >= 1
+    loop.check()
+
+
+def test_effective_legacy_yaw_limit_avoids_carrier_wrap_jump():
+    from multidetect.sim_teacher.horizon_stabilization import joint_command_quaternion
+
+    limits = {**LIMITS, "yaw": (-179.9, 179.9)}
+    stabilizer = HorizonStabilizer(TARGET, yaw_mode="lock", limits_deg=limits, max_rate_deg_s=60)
+    _settle(stabilizer, {"roll": 0, "pitch": 0, "yaw": 175})
+    last = stabilizer.last_joint["yaw"]
+    saw_limit = False
+    for index in range(201):
+        body = {"roll": 0, "pitch": 0, "yaw": _wrap(175 + index * 0.05)}
+        result = stabilizer.update(body, now_s=index * 0.02, attitude_time_s=index * 0.02)
+        yaw = result["joint_deg"]["yaw"]
+        joint_command_quaternion(result["joint_deg"])
+        assert abs(yaw - last) <= 1.2 + 1e-8
+        saw_limit |= "yaw_limit" in result["reasons"]
+        last = yaw
+    assert saw_limit
