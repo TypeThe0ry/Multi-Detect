@@ -452,6 +452,31 @@ def test_attitude_sample_is_atomic_and_filters_other_devices_and_sources():
     assert session.latest_attitude == (sample, 102)
 
 
+@pytest.mark.parametrize("attitude_device_id,accepted", [(None, False), (0, True)])
+def test_legacy_zero_attitude_id_requires_explicit_binding_and_keeps_manager_identity(attitude_device_id, accepted):
+    reader = Reader()
+    connection = SimpleNamespace(mav=SimpleNamespace(srcSystem=255, srcComponent=190),
+                                 target_system=1, target_component=1)
+    sent = []
+    session = GimbalManagerSession(connection, reader, lambda cmd, *params: sent.append((cmd, params)),
+                                   attitude_device_id=attitude_device_id, clock_ns=lambda: 0)
+    session.command(1000, *([0.0] * 7))
+    ack(reader)
+    owner(reader, device=0)
+    session.poll()
+    assert session.phase == "owner"
+    owner(reader, device=1)
+    session.poll()
+    ack(reader, command=1000)
+    reader.add("GIMBAL_DEVICE_ATTITUDE_STATUS", gimbal_device_id=0, system=2, q=[1, 0, 0, 0])
+    session.poll()
+    assert session.latest_attitude is None
+    reader.add("GIMBAL_DEVICE_ATTITUDE_STATUS", gimbal_device_id=0, system=1, q=[1, 0, 0, 0])
+    session.poll()
+    assert (session.latest_attitude is not None) is accepted
+    assert sent[0][1][-1] == 1.0
+
+
 def test_managed_readback_ignores_disjoint_latest_state_and_untrusted_events():
     from scripts.collect_sim_teacher_episodes import _execute_managed_gimbal_action
     from multidetect.sim_teacher.primitives import ActionPrimitive

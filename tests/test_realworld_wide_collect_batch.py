@@ -65,7 +65,18 @@ else:
     (episode / "rgb").mkdir(parents=True)
     (episode / "rgb/000001.png").write_bytes(b"data" * 10_000)
 identity = {"container_id": "a" * 64, "container_name": name}
-(episode / "episode.json").write_text(json.dumps({"status": "complete", "simulator_container": identity}))
+metadata = {"status": "complete", "simulator_container": identity}
+if row["airframe"] == "delta_tailsitter_gimbal_cam":
+    frame = {"frame_index": 0, "sensor_stamp_ns": 1000,
+             "gimbal_state": {"roll_rad": 0, "pitch_rad": 0, "yaw_rad": 0,
+                              "reference_frame": "body_FRD", "source": "gazebo_joint_state",
+                              "timestamp_ns": 1000, "frame_timestamp_ns": 1000,
+                              "age_ms": 0, "skew_ms": 0, "fresh": True},
+             "camera_pose": {"center_ned": [0, 0, 0], "optical_to_world": [1,0,0,0,1,0,0,0,1],
+                             "reference_frame": "NED", "extrinsics_source": "fixture.sdf", "age_ms": 0}}
+    (episode / "video/manifest.jsonl").write_text(json.dumps(frame) + chr(10))
+    metadata["gimbal_check"] = {"passed": True, "frame_count": 1}
+(episode / "episode.json").write_text(json.dumps(metadata))
 (a.out / "stats.json").write_text("{}")
 result = {**identity, "name": row["name"], "gpu": gpu, "valid_round": True,
           "route_completed": True, "rtf_window_median": 0.94,

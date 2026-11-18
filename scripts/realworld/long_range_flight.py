@@ -259,7 +259,14 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
     if not math.isfinite(extent) or extent < MIN_WIDE_EXTENT_M:
         raise ValueError(f"long-range extent_m must be at least {MIN_WIDE_EXTENT_M:g}")
     terrain = agl_envelope = None
+    gimbal_pitch_deg = None
     if airframe == DELTA:
+        gimbal_config = profile["camera"]["gimbal"]
+        gimbal_pitch_deg = data.get("gimbal_pitch_deg", gimbal_config["default_angles_deg"]["fw"]["pitch"])
+        lower, upper = gimbal_config["angle_range_deg"]["pitch"]
+        if (type(gimbal_pitch_deg) not in (int, float) or not math.isfinite(gimbal_pitch_deg)
+                or not lower <= gimbal_pitch_deg <= upper):
+            raise ValueError("long-range gimbal_pitch_deg must be finite and within profile pitch limits")
         if extent != 6000 or not 40 <= geometry.takeoff_altitude_m <= 90:
             raise ValueError("VTOL requires a 6 km world and a 40–90 m vertical climb")
         if data.get("capture_interval_sim_s") != 6.0:
@@ -273,6 +280,7 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
             raise ValueError("VTOL mission home does not match the DEM origin")
         agl_envelope = _audit_delta_route(geometry, targets, data, terrain, minimum)
     return {"source": data, "geometry": geometry, "compiled": compiled, "airframe": airframe,
+            "gimbal_pitch_deg": gimbal_pitch_deg,
             "terrain": terrain, "planned_agl_envelope_m": agl_envelope,
             "targets": targets, "minimum_max_distance_m": minimum,
             "planned_max_distance_m": maximum, "minimum_rtf": required_rtf,
@@ -394,10 +402,14 @@ def collection_plan(scenario: Path, out: Path, slot: int, mission: dict[str, Any
 
 
 class LongRangePolicy:
-    def __init__(self, targets: list[tuple[float, float, float]], radius: float, *, vtol: bool = False) -> None:
+    def __init__(self, targets: list[tuple[float, float, float]], radius: float, *, vtol: bool = False,
+                 gimbal_pitch_deg: float = -45.0) -> None:
         self.targets = iter(targets)
         self.radius = radius
         self.vtol = vtol
+        self.cruise_gimbal_target = (
+            {"pitch": float(gimbal_pitch_deg), "yaw": 0.0, "roll": 0.0} if vtol else None
+        )
         self.return_actions = iter((
             MotionCommand("transition", mode="MC", reason="back_transition"),
             MotionCommand("mc_reposition", mode="MC", target_ned=(0.0, 0.0, targets[-1][2]),
@@ -601,7 +613,10 @@ def main(argv: list[str] | None = None) -> int:
     with sitl_lock_context(SitlLock(label="rw-long-range", slots=8, slot=args.slot, retry_s=20.0)):
         with collector_overrides(collector, mission):
             if is_vtol:
-                policy = LongRangePolicy(mission["targets"], mission["geometry"].loiter_radius_m, vtol=True)
+                policy = LongRangePolicy(
+                    mission["targets"], mission["geometry"].loiter_radius_m, vtol=True,
+                    gimbal_pitch_deg=mission["gimbal_pitch_deg"],
+                )
                 episode = collector.run_episode(plan, Path(plan.truth), 0,
                                                 policy_override=policy, land_after_route=True)
             else:
@@ -622,7 +637,8 @@ def main(argv: list[str] | None = None) -> int:
             and row.get("flight_state", {}).get("landed_state") == 1
             and row.get("flight_state", {}).get("vtol_state") == 3 for row in rows)
         video = metadata.get("video") or {}
-        capture_ok = video.get("frame_count", 0) >= 2 and video.get("truncated") is False
+        capture_ok = (video.get("frame_count", 0) >= 2 and video.get("truncated") is False
+                      and (metadata.get("gimbal_check") or {}).get("passed") is True)
     passed = (metadata.get("status") == "complete" and route_ok and capture_ok
               and maximum >= mission["minimum_max_distance_m"])
     result = {"status": "pass" if passed else "fail", "episode": str(episode),
@@ -635,7 +651,8 @@ def main(argv: list[str] | None = None) -> int:
                             if is_vtol else "guided reposition waypoints; collector RTL/LAND teardown"),
               "compiled_mission_uploaded": False}
     if is_vtol:
-        result.update(capture_ok=capture_ok, cruise_video=metadata.get("video"))
+        result.update(capture_ok=capture_ok, cruise_video=metadata.get("video"),
+                      gimbal_check=metadata.get("gimbal_check"))
     (out / "long-range-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if passed else 1

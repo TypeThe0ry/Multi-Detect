@@ -63,6 +63,9 @@ from multidetect.sim_teacher import (  # noqa: E402
     SetpointStreamer,
     primitive_to_ned,
 )
+from multidetect.sim_teacher.gimbal_recording import (
+    DeltaCameraGeometry, collector_camera_mount,
+)
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.executor import (  # noqa: E402
     GCS_SOURCE_COMPONENT,
@@ -4460,6 +4463,58 @@ def _gimbal_attitude_error_deg(
     }
 
 
+class _LongRangeGimbalHold:
+    """Refresh the cruise target through the shared manager and require readback.
+
+    This runs on every action tick, including between sampled video frames.
+    Every refresh must be acknowledged and followed by a measured attitude.
+    """
+
+    def __init__(self, session, reader, target, record, *, yaw_correction_deg=0.0,
+                 clock=time.monotonic):
+        self.session, self.reader, self.target, self.record = session, reader, target, record
+        self.yaw_correction_deg, self.clock = yaw_correction_deg, clock
+        self.sent_vehicle_ms = None
+        self.sent_wall_s = None
+        self.awaiting_readback = False
+        self.readback_count = 0
+
+    def tick(self, *, refresh=True):
+        phase = self.session.poll()
+        now_ms = self.reader.state.vehicle_time_boot_ms
+        if now_ms is None:
+            raise RuntimeError("long-range gimbal hold requires vehicle clock")
+        if self.sent_wall_s is not None and self.awaiting_readback:
+            status, received_ns = self.session.latest_attitude or (None, -1)
+            command_ns = self.session.last_command_started_ns
+            stamp_ms = _field(status, "time_boot_ms", None)
+            fresh = isinstance(stamp_ms, (float, int)) and 0 <= now_ms - stamp_ms <= 2000
+            errors = _gimbal_attitude_error_deg(
+                status, self.target, vehicle_yaw_deg=_state_yaw(self.reader.state),
+                yaw_correction_deg=self.yaw_correction_deg,
+            )
+            if (phase == "ready" and command_ns is not None and received_ns >= command_ns
+                    and fresh and errors is not None and max(errors.values()) <= 4.0):
+                self.awaiting_readback = False
+                self.readback_count += 1
+                self.record({"message_type": "long_range_gimbal_hold_readback", "status": "reached",
+                             "target_deg": dict(self.target), "error_deg": errors,
+                             "time_boot_ms": now_ms, "source_time_boot_ms": stamp_ms})
+            elif now_ms - self.sent_vehicle_ms > 2000 or self.clock() - self.sent_wall_s > 30:
+                raise RuntimeError("long-range gimbal hold readback missing, stale or outside tolerance")
+        if (refresh and not self.awaiting_readback and phase in {"idle", "ready"}
+                and (self.sent_vehicle_ms is None or now_ms - self.sent_vehicle_ms >= 1000)):
+            self.session.command(
+                MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, self.target["pitch"], self.target["yaw"],
+                math.nan, math.nan,
+                float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK | GIMBAL_MANAGER_FLAGS_PITCH_LOCK
+                      | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+                0.0, float(GIMBAL_MANAGER_DEVICE_ID),
+            )
+            self.sent_vehicle_ms, self.sent_wall_s = now_ms, self.clock()
+            self.awaiting_readback = True
+
+
 # Wall-clock windows for successive gimbal-manager configure attempts.
 GIMBAL_CONFIGURE_ACK_WINDOWS_S = (5.0, 10.0, 20.0)
 
@@ -6048,10 +6103,13 @@ def run_episode(
     use_multirotor_executor = airframe_uses_multirotor_executor(
         airframe_profile or plan.airframe, plan.takeoff_method, base_dir=ROOT
     )
-    camera_mount = (
-        airframe_profile.camera_mount.to_camera_mount()
-        if airframe_profile is not None and airframe_profile.camera_mount is not None
-        else None
+    camera_mount = collector_camera_mount(airframe_profile)
+    camera_geometry = (
+        DeltaCameraGeometry.from_sdf(
+            (Path(plan.rtf_overlay_root) if plan.rtf_overlay_root else ROOT / "simulation/gazebo/models")
+            / plan.airframe / "model.sdf"
+        )
+        if plan.airframe == "delta_tailsitter_gimbal_cam" else None
     )
     strict_delta_smoke = False
     sensor_frame_wait_s = SENSOR_FRAME_WAIT_S
@@ -6103,11 +6161,13 @@ def run_episode(
     )
     video_writer = (
         ContinuousVideoWriter(
-            recorder.episode_dir, hz=plan.video_hz, max_bytes=plan.video_max_bytes
+            recorder.episode_dir, hz=plan.video_hz, max_bytes=plan.video_max_bytes,
+            require_gimbal=camera_mount is not None and camera_mount.kind == "gimbal",
         )
         if plan.video_hz > 0.0
         else None
     )
+    long_range_gimbal_hold = None
     last_video_stamp_ns: list[int] = [-1]
     next_video_sim_ns: int | None = None
     next_video_request_s = 0.0
@@ -6271,7 +6331,19 @@ def run_episode(
                             int(getattr(telemetry_connection, "target_component", 1) or 1),
                             int(cmd), 0, *values)
                     if gimbal_session is None:
-                        gimbal_session = GimbalManagerSession(telemetry_connection, mav_reader, send, wall_timeout_s=30.0)
+                        device = mav_reader.state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+                        device_mapping = MavlinkReader._mapping(device) if device is not None else {}
+                        attitude_device_id = (
+                            0 if plan.airframe == "delta_tailsitter_gimbal_cam"
+                            and _field(device, "gimbal_device_id", None) == 0 else 1
+                        )
+                        if (device_mapping.get("_source_system") != telemetry_connection.target_system
+                                or device_mapping.get("_source_component") != telemetry_connection.target_component):
+                            attitude_device_id = 1
+                        gimbal_session = GimbalManagerSession(
+                            telemetry_connection, mav_reader, send, wall_timeout_s=30.0,
+                            attitude_device_id=attitude_device_id,
+                        )
                     return gimbal_session
 
                 def _send_gimbal_command(command: int, params: tuple[float, ...]) -> None:
@@ -7374,6 +7446,26 @@ def run_episode(
             # PX4 releases gimbal manager control once a land primitive starts
             # (255/190 -> 1/1 -> 0/0), so later pitch/yaw commands are DENIED.
             landing_started = False
+            cruise_gimbal_target = getattr(policy, "cruise_gimbal_target", None)
+            if camera_mount is not None and camera_mount.kind == "gimbal" and cruise_gimbal_target:
+                session = _ensure_gimbal_session()
+                initial = _execute_managed_gimbal_action(
+                    ActionPrimitive.gimbal(pitch_deg=cruise_gimbal_target["pitch"],
+                                           yaw_deg=cruise_gimbal_target["yaw"]),
+                    session=session, profile=airframe_profile, reader=mav_reader,
+                    check=episode_watchdog.check,
+                    yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                )
+                if initial.status != "success":
+                    raise RuntimeError(f"long-range initial gimbal readback failed: {initial.ack}")
+                long_range_gimbal_hold = _LongRangeGimbalHold(
+                    session, mav_reader, cruise_gimbal_target, recorder.record_mavlink,
+                    yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                )
+                recorder.meta["gimbal_hold"] = {"target_deg": cruise_gimbal_target,
+                                               "refresh_interval_sim_s": 1.0,
+                                               "readback_max_age_ms": 2000.0,
+                                               "initial_readback": initial.ack}
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
@@ -7402,6 +7494,7 @@ def run_episode(
                     before_sample,
                     before_state,
                     camera_mount=camera_mount,
+                    camera_geometry=camera_geometry,
                     ground_agl_max_age_s=(
                         policy.ground_projection.agl_max_age_s
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
@@ -7597,6 +7690,8 @@ def run_episode(
                 def _action_tick() -> None:
                     nonlocal next_video_s, next_video_sim_ns, next_video_request_s
                     episode_watchdog.check()
+                    if long_range_gimbal_hold is not None and not landing_started:
+                        long_range_gimbal_hold.tick()
                     now = time.monotonic()
                     if video_writer is None or video_writer.truncated:
                         return
@@ -7631,12 +7726,23 @@ def run_episode(
                             if plan.video_use_sim_time:
                                 next_video_sim_ns = sample.sensor_stamp_ns + round(1e9 / plan.video_hz)
                             aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
+                            gimbal_sample = (
+                                mav_reader.gimbal_sample_at(
+                                    sample.sensor_stamp_ns,
+                                    device_id=gimbal_session.attitude_device_id if gimbal_session else 1,
+                                ) or {"message": None}
+                                if camera_mount is not None and camera_mount.kind == "gimbal"
+                                else None
+                            )
                             video_obs = _png_observation(
                                 build_observation(
                                     sample,
                                     aligned,
                                     camera_mount=camera_mount,
                                     gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
+                                    gimbal_sample=gimbal_sample,
+                                    gimbal_max_age_s=2.0,
+                                    camera_geometry=camera_geometry,
                                     camera_info={
                                         **DEFAULT_CAMERA_INFO,
                                         "width": plan.rgb_size[0],
@@ -7656,6 +7762,9 @@ def run_episode(
                             video_writer.write(video_obs, action_index=index)
                     except Exception as exc:
                         recorder.record_mavlink({"message_type": "video_capture_error", "error": str(exc)})
+                        if camera_mount is not None and camera_mount.kind == "gimbal":
+                            video_writer.record_capture_error(str(exc))
+                            raise RuntimeError(f"gimbal video frame rejected: {exc}") from exc
                     if not plan.video_use_sim_time:
                         next_video_s += 1.0 / plan.video_hz
 
@@ -7699,12 +7808,23 @@ def run_episode(
                     if sample is not None:
                         try:
                             aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
+                            gimbal_sample = (
+                                mav_reader.gimbal_sample_at(
+                                    sample.sensor_stamp_ns,
+                                    device_id=gimbal_session.attitude_device_id if gimbal_session else 1,
+                                ) or {"message": None}
+                                if camera_mount is not None and camera_mount.kind == "gimbal"
+                                else None
+                            )
                             final_obs = _png_observation(
                                 build_observation(
                                     sample,
                                     aligned,
                                     camera_mount=camera_mount,
                                     gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
+                                    gimbal_sample=gimbal_sample,
+                                    gimbal_max_age_s=2.0,
+                                    camera_geometry=camera_geometry,
                                     camera_info={
                                         **DEFAULT_CAMERA_INFO,
                                         "width": plan.rgb_size[0],
@@ -7720,8 +7840,10 @@ def run_episode(
                             if not plan.capture_depth:
                                 final_obs["depth"] = None
                             video_writer.write(final_obs, action_index=index)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            if camera_mount is not None and camera_mount.kind == "gimbal":
+                                video_writer.record_capture_error(str(exc))
+                                raise RuntimeError(f"gimbal action-end frame rejected: {exc}") from exc
                 primitive_end_ns = time.monotonic_ns()
                 mav_reader.raise_if_failed()
                 _progress(
@@ -7745,6 +7867,7 @@ def run_episode(
                     after_sample,
                     after_state,
                     camera_mount=camera_mount,
+                    camera_geometry=camera_geometry,
                     ground_agl_max_age_s=(
                         policy.ground_projection.agl_max_age_s
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
@@ -7888,6 +8011,13 @@ def run_episode(
                 if not continue_loop:
                     _progress("policy_stop", step=index)
                     break
+            if long_range_gimbal_hold is not None:
+                while long_range_gimbal_hold.awaiting_readback:
+                    episode_watchdog.check()
+                    long_range_gimbal_hold.tick(refresh=False)
+                    time.sleep(0.02)
+                recorder.meta["gimbal_hold"]["readback_count"] = long_range_gimbal_hold.readback_count
+                recorder.meta["gimbal_hold"]["passed"] = long_range_gimbal_hold.readback_count > 0
             _finish_teacher_gimbal(gimbal_session, episode_watchdog.check)
             gimbal_send_gate.close()
             if gimbal_session is not None:
@@ -7955,6 +8085,10 @@ def run_episode(
             recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
             if video_writer is not None:
                 recorder.meta["video"] = video_writer.close()
+            if video_writer is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+                recorder.meta["gimbal_check"] = recorder.meta["video"]["gimbal_check"]
+                if not recorder.meta["gimbal_check"]["passed"]:
+                    raise RuntimeError("gimbal_check_failed: one or more video frames lack fresh camera feedback")
             _copy_mover_driver_log(plan, environment, recorder, mover_driver)
             recorder.meta["mover_driver"] = mover_driver
             recorder.mark_finished(status="complete")
@@ -8022,6 +8156,8 @@ def run_episode(
                     pass
         if video_writer is not None:
             recorder.meta["video"] = video_writer.close()
+        if video_writer is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+            recorder.meta["gimbal_check"] = recorder.meta["video"]["gimbal_check"]
         if environment is not None and environment.evidence_index is not None:
             recorder.meta["container_evidence"] = environment.evidence_index
         recorder.mark_finished(status="aborted_low_disk", failure=str(exc))
@@ -8067,6 +8203,8 @@ def run_episode(
             recorder.close_mavlink_stream()
         if video_writer is not None:
             recorder.meta["video"] = video_writer.close()
+        if video_writer is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+            recorder.meta["gimbal_check"] = recorder.meta["video"]["gimbal_check"]
         if environment is not None and environment.evidence_index is not None:
             recorder.meta["container_evidence"] = environment.evidence_index
         failure_text = f"{type(exc).__name__}: {exc}"

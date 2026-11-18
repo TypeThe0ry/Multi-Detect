@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, BinaryIO
 
 from multidetect.camera_mount import CameraMount, compose_camera_pose
+from multidetect.sim_teacher.gimbal_recording import validate_gimbal_frame_observation
 from multidetect.gimbal_controller import parse_gimbal_device_attitude_status
 
 GIMBAL_FEEDBACK_MAX_AGE_S = 1.0
@@ -589,6 +590,45 @@ class MavlinkReader:
             }
         return snapshot
 
+    def gimbal_sample_at(self, frame_sensor_stamp_ns: int, *, device_id: int = 1) -> dict[str, Any] | None:
+        """Return the nearest recorded device attitude in PX4 simulation time."""
+        target_ms = frame_sensor_stamp_ns / 1_000_000.0
+
+        def source_matches(message):
+            for suffix, field, target in (
+                ("System", "_source_system", "target_system"),
+                ("Component", "_source_component", "target_component"),
+            ):
+                expected = int(getattr(self.connection, target, 1) or 1)
+                getter = getattr(message, f"get_src{suffix}", None)
+                source = getter() if callable(getter) else _field(message, field, expected)
+                if source != expected:
+                    return False
+            return True
+
+        with self._pose_condition:
+            candidates = [
+                (abs(source_ms - target_ms), message, received_ns, source_ms)
+                for _, name, message, received_ns, vehicle_ms in self._gimbal_events
+                if name == "GIMBAL_DEVICE_ATTITUDE_STATUS"
+                for source_ms in [_field(message, "time_boot_ms", vehicle_ms)]
+                if _finite_number(source_ms) and source_ms >= 0
+                and _field(message, "gimbal_device_id", 1) == device_id
+                and _field(message, "failure_flags", 0) == 0
+                and source_matches(message)
+            ]
+        if not candidates:
+            return None
+        _, message, received_ns, vehicle_ms = min(candidates, key=lambda row: row[0])
+        mapping = self._mapping(message)
+        skew_ms = float(vehicle_ms) - target_ms
+        return {
+            "message": mapping,
+            "received_monotonic_ns": received_ns,
+            "timestamp_ms": float(vehicle_ms),
+            "skew_ms": skew_ms,
+        }
+
     @property
     def stats(self) -> dict[str, Any]:
         """Return a snapshot suitable for progress logs and diagnostics."""
@@ -1002,6 +1042,9 @@ def build_observation(
     ground_agl_max_age_s: float | None = None,
     camera_mount: CameraMount | None = None,
     gimbal_yaw_correction_deg: float | None = None,
+    gimbal_sample: Mapping[str, Any] | None = None,
+    gimbal_max_age_s: float = GIMBAL_FEEDBACK_MAX_AGE_S,
+    camera_geometry: Any = None,
 ) -> dict[str, Any]:
     local, attitude, global_pos, gps = (
         mavlink.get(name)
@@ -1104,7 +1147,11 @@ def build_observation(
     else:
         pose_time_boot_ms = None
         sim_skew_ms = None
-    gimbal_status = mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_status = (
+        gimbal_sample.get("message")
+        if isinstance(gimbal_sample, Mapping)
+        else mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    )
     result = {
         "rgb": rgb_value,
         "depth": sensor.depth,
@@ -1185,20 +1232,46 @@ def build_observation(
     # Gimbal feedback is meaningful only for airframes that declare a gimbal.
     # Fixed mounts retain their legacy projection path; their fixed geometry
     # is represented by the airframe profile rather than a per-frame pose.
-    gimbal = (
-        mavlink.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
-        if camera_mount is not None and camera_mount.kind == "gimbal"
+    gimbal = gimbal_status if camera_mount is not None and camera_mount.kind == "gimbal" else None
+    gimbal_state = parse_gimbal_device_attitude_status(gimbal) if gimbal is not None else None
+    if _field(gimbal, "failure_flags", 0):
+        gimbal_state = None
+    if gimbal_state is not None and camera_geometry is not None:
+        from dataclasses import replace
+        from multidetect.camera_mount import _mat_mul, rpy_rotation
+
+        flags = int(_field(gimbal, "flags", 0) or 0)
+        frame = "world" if flags & (64 | 32) else gimbal_state.yaw_frame
+        rotation = gimbal_state.rotation
+        if flags & 32 and not flags & 64:
+            # Vehicle-frame yaw is relative to vehicle heading; roll/pitch
+            # retain the local horizon reference. Apply heading, not full body
+            # attitude, before deriving the relative C11 joint rotation.
+            heading = rpy_rotation(roll_rad=0, pitch_rad=0,
+                                   yaw_rad=math.radians(result["attitude"]["yaw_deg"]))
+            rotation = _mat_mul(heading, rotation)
+        elif frame == "world" and gimbal_yaw_correction_deg is not None:
+            correction = rpy_rotation(roll_rad=0, pitch_rad=0,
+                                      yaw_rad=math.radians(gimbal_yaw_correction_deg))
+            rotation = _mat_mul(correction, rotation)
+        gimbal_state = replace(gimbal_state, yaw_frame=frame, rotation=rotation,
+                               yaw_rad=math.atan2(rotation[3], rotation[0]))
+    gimbal_received_ns = mavlink.received_monotonic_ns.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+    gimbal_skew_ms = (
+        float(gimbal_sample["skew_ms"])
+        if isinstance(gimbal_sample, Mapping) and _finite_number(gimbal_sample.get("skew_ms"))
+        else (gimbal_state.timestamp_us / 1000 - sensor.sensor_stamp_ns / 1e6)
+        if gimbal_state is not None and gimbal_state.timestamp_us is not None
         else None
     )
-    gimbal_state = parse_gimbal_device_attitude_status(gimbal) if gimbal is not None else None
-    gimbal_received_ns = mavlink.received_monotonic_ns.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
     gimbal_age_s = (
-        None
-        if gimbal_received_ns is None
+        abs(gimbal_skew_ms) / 1000.0
+        if gimbal_skew_ms is not None
+        else None if gimbal_received_ns is None
         else (sensor.received_monotonic_ns - gimbal_received_ns) / 1e9
     )
     gimbal_fresh = gimbal_state is not None and (
-        gimbal_age_s is None or 0.0 <= gimbal_age_s <= GIMBAL_FEEDBACK_MAX_AGE_S
+        gimbal_age_s is not None and 0.0 <= gimbal_age_s <= gimbal_max_age_s
     )
     if gimbal_state is not None and camera_mount is not None and camera_mount.kind == "gimbal":
         within_limits = all(
@@ -1227,12 +1300,25 @@ def build_observation(
             "roll_rad": gimbal_state.roll_rad,
             "rotation": list(gimbal_state.rotation) if gimbal_state.rotation is not None else None,
             "timestamp_us": gimbal_state.timestamp_us,
+            "timestamp_ns": (
+                int(gimbal_sample["timestamp_ms"] * 1e6)
+                if isinstance(gimbal_sample, Mapping) and _finite_number(gimbal_sample.get("timestamp_ms"))
+                else None if gimbal_state.timestamp_us is None else gimbal_state.timestamp_us * 1000
+            ),
             "yaw_frame": gimbal_state.yaw_frame,
             "age_s": gimbal_age_s,
+            "age_ms": None if gimbal_age_s is None else gimbal_age_s * 1000.0,
+            "skew_ms": gimbal_skew_ms,
             "fresh": gimbal_fresh,
             "within_limits": within_limits,
             "out_of_limits": not within_limits,
             "source": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+            "reference_frame": gimbal_state.yaw_frame,
+            "timestamp_clock": "px4_boot_simulation",
+            "frame_timestamp_ns": sensor.sensor_stamp_ns,
+            "pitch_convention": "positive down",
+            "euler_order": "ZYX",
+            "gimbal_device_id": _field(gimbal, "gimbal_device_id", None),
         }
         result["gimbal_joint_state"] = {
             "timestamp_ns": sensor.sensor_stamp_ns,
@@ -1269,6 +1355,10 @@ def build_observation(
                 "gimbal_timestamp_us": gimbal_state.timestamp_us,
                 "gimbal_feedback_fresh": True,
                 "gimbal_feedback_out_of_limits": not within_limits,
+                "reference_frame": "NED",
+                "extrinsics_source": "CameraMount.offset_body_ned_m",
+                "age_ms": gimbal_age_s * 1000.0,
+                "skew_ms": gimbal_skew_ms,
             }
     elif camera_mount is not None:
         # Fixed-camera episodes use the same explicit state shape.  This makes
@@ -1315,6 +1405,29 @@ def build_observation(
         ground_agl = _ground_agl(sensor, mavlink, max_age_s=ground_agl_max_age_s)
         if ground_agl is not None:
             result["ground_agl"] = ground_agl
+    if camera_geometry is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+        geometry_joint = (
+            {**sidecar_gimbal, "source_timestamp_ns": sidecar.get(
+                "source_timestamp_ns", sidecar_gimbal.get("source_timestamp_ns")
+            )}
+            if isinstance(sidecar_gimbal, Mapping) else None
+        )
+        camera_geometry.apply(result, geometry_joint, max_age_ms=gimbal_max_age_s * 1000.0)
+    camera_pose = result.get("camera_pose")
+    if isinstance(camera_pose, dict):
+        camera_pose["world_origin"] = "PX4 LOCAL_POSITION_NED estimator origin"
+        camera_pose["pose_skew_ms"] = sim_skew_ms
+        attitude_ms = _field(attitude, "time_boot_ms", None)
+        attitude_skew_ms = (
+            sensor.sensor_stamp_ns / 1e6 - attitude_ms if _finite_number(attitude_ms) else None
+        )
+        camera_pose["attitude_skew_ms"] = attitude_skew_ms
+        camera_pose["vehicle_pose_source"] = "MAVLink LOCAL_POSITION_NED + ATTITUDE; frame-aligned"
+        camera_pose["age_ms"] = (
+            max(camera_pose["age_ms"], abs(sim_skew_ms), abs(attitude_skew_ms or 0.0))
+            if sim_skew_ms is not None and (camera_geometry is None or attitude_skew_ms is not None)
+            else None
+        )
     return result
 
 
@@ -1328,5 +1441,6 @@ __all__ = [
     "build_observation",
     "gimbal_angles_from_status",
     "gimbal_angles_from_joint_state",
+    "validate_gimbal_frame_observation",
     "validate_gimbal_recording_observation",
 ]

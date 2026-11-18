@@ -7,9 +7,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from multidetect.sim_teacher.gimbal_recording import (
+    DEFAULT_MAX_AGE_MS, check_gimbal_manifest, validate_gimbal_frame_observation,
+)
+
 
 class ContinuousVideoWriter:
-    def __init__(self, episode_dir: str | Path, *, hz: float, max_bytes: int) -> None:
+    def __init__(self, episode_dir: str | Path, *, hz: float, max_bytes: int,
+                 require_gimbal: bool = False, gimbal_max_age_ms: float = DEFAULT_MAX_AGE_MS) -> None:
         if hz <= 0 or max_bytes <= 0:
             raise ValueError("video rate and byte cap must be positive")
         self.root = Path(episode_dir) / "video"
@@ -26,6 +31,13 @@ class ContinuousVideoWriter:
         self.truncated = False
         self.started_at_s: float | None = None
         self._last_stamp_ns: int | None = None
+        self.require_gimbal = require_gimbal
+        self.gimbal_max_age_ms = gimbal_max_age_ms
+        self.capture_errors: list[str] = []
+
+    def record_capture_error(self, reason: str) -> None:
+        if reason not in self.capture_errors:
+            self.capture_errors.append(reason)
 
     def write(self, observation: dict[str, Any], *, action_index: int) -> bool:
         if self.truncated:
@@ -36,6 +48,12 @@ class ContinuousVideoWriter:
         stamp_ns = int(observation["frame_sensor_stamp_ns"])
         if self._last_stamp_ns == stamp_ns:
             return False
+        if self.require_gimbal:
+            try:
+                validate_gimbal_frame_observation(observation, max_age_ms=self.gimbal_max_age_ms)
+            except ValueError as exc:
+                self.record_capture_error(str(exc))
+                raise
         stem = f"{self.frames_written:07d}_{stamp_ns}"
         raw_rgb = observation["rgb"]
         if isinstance(raw_rgb, (bytes, bytearray, memoryview)):
@@ -115,6 +133,11 @@ class ContinuousVideoWriter:
             ),
             "frame_manifest": "manifest.jsonl",
         }
+        if self.require_gimbal:
+            check = check_gimbal_manifest(self.manifest_path, max_age_ms=self.gimbal_max_age_ms)
+            check["capture_errors"] = list(self.capture_errors)
+            check["passed"] = check["passed"] and not self.capture_errors
+            manifest["gimbal_check"] = check
         (self.root / "video.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return manifest
 

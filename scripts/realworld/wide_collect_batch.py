@@ -329,6 +329,17 @@ def evaluate(attempt, job, batch, rc):
         errors.append("episode_stats_container_mismatch")
     if episode.get("status") != "complete":
         errors.append("episode_not_complete")
+    if airframe == DELTA_AIRFRAME:
+        from multidetect.sim_teacher.gimbal_recording import check_gimbal_manifest
+
+        gimbal_check = episode.get("gimbal_check")
+        current = (check_gimbal_manifest(episode_dirs[0].parent / "video" / "manifest.jsonl")
+                   if len(episode_dirs) == 1 else {"passed": False, "frame_count": 0})
+        if (not isinstance(gimbal_check, dict) or gimbal_check.get("passed") is not True
+                or current["passed"] is not True
+                or current["frame_count"] != frames
+                or gimbal_check.get("frame_count") != current["frame_count"]):
+            errors.append("gimbal_state_missing")
     return {"accepted": not errors, "errors": errors, "matrix_returncode": rc,
             "valid_round": raw.get("valid_round") is True, "route_completed": raw.get("route_completed") is True,
             "round_errors": raw.get("round_errors", []), "container_id": container_id,
