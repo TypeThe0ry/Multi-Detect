@@ -6,11 +6,14 @@ body-telemetry latency and command rate limits, not Gazebo servo dynamics.
 
 from __future__ import annotations
 
+import csv
 import math
+from pathlib import Path
 
 import pytest
 
 from multidetect.sim_teacher.horizon_stabilization import HorizonStabilizer
+from scripts.realworld.horizon_report import LEGACY_LIMITS, percentile
 
 AXES = ("roll", "pitch", "yaw")
 TARGET = {"roll": 0.0, "pitch": -45.0, "yaw": 0.0}
@@ -488,17 +491,38 @@ def test_unreachable_zxy_crossing_retains_outer_joint_branch(sign):
         result = stabilizer.update(body, now_s=index*.02, attitude_time_s=index*.02)
         joints = result["joint_deg"]
         joint_command_quaternion(joints)
-        assert joints["yaw"] == pytest.approx(0, abs=1e-6)
-        assert joints["pitch"] == pytest.approx(9, abs=1e-6)
-        assert joints["roll"] == pytest.approx(-sign*45)
         assert not result["target_pose_feasible"]
         if abs(body["roll"]) <= 90:
-            assert result["horizon_feasible"] is True  # yaw-relaxed witness
-        assert result["saturated_axes"] == ["roll"]
-        assert result["degraded"] and "roll_limit" in result["reasons"]
+            assert result["horizon_feasible"] is True
+            assert result["yaw_degraded"]
+            assert result["yaw_error_deg"] > 1.0
+        else:
+            assert result["horizon_feasible"] is False
+            assert result["horizon_feasibility_evidence"] == "no_joint_solution_on_heading_intervals"
+        assert _horizon_error(_angles(_earth(body, joints))) < 1.0
         for axis in AXES:
             assert abs(joints[axis]-previous[axis]) <= 3.6+1e-7
         previous = joints
+
+
+def test_horizon_fallback_stays_near_previous_feasible_joint_solution():
+    # Both separated heading branches can be held when seeded on that branch.
+    from multidetect.camera_mount import _mat_mul, _mat_transpose
+    from multidetect.sim_teacher.horizon_stabilization import rotation_deg, solve_joint_target
+
+    body = {"roll": 80, "pitch": -60, "yaw": 0}
+    for yaw in (-65, 75):
+        relative = _mat_mul(
+            _mat_transpose(rotation_deg(body)), rotation_deg({**TARGET, "yaw": yaw})
+        )
+        stabilizer = HorizonStabilizer(TARGET)
+        _, previous, feasible, _ = solve_joint_target(relative, stabilizer.last_joint, LIMITS)
+        assert feasible
+        stabilizer.last_joint.update(previous)
+        stabilizer.update(body, now_s=0, attitude_time_s=0)
+        output = stabilizer.update(body, now_s=.02, attitude_time_s=.02)
+        assert output["yaw_degraded"]
+        assert output["joint_deg"] == pytest.approx(previous, abs=.02)
 
 
 @pytest.mark.parametrize("yaw", [-180, -179.9999, 179.9999, 180])
@@ -524,6 +548,17 @@ def test_frame_feasibility_distinguishes_heading_requirement_and_measured_satura
     assert result["horizon_feasible"] is True
     assert result["saturated"] and result["saturated_axes"] == ["roll"]
     assert _horizon_error(_angles(_earth(body, result["horizon_witness_joint_deg"]))) < 1e-6
+
+
+def test_unsupported_joint_geometry_is_not_claimed_infeasible():
+    from multidetect.sim_teacher.horizon_stabilization import frame_feasibility, rotation_deg
+
+    result = frame_feasibility(dict.fromkeys(AXES, 0), rotation_deg(TARGET), limits={
+        "roll": (-90, 90), "pitch": (-1, 1), "yaw": (-1, 1),
+    })
+    assert result["target_pose_feasible"] is False
+    assert result["horizon_feasible"] is None
+    assert result["horizon_feasibility_evidence"] is None
 
 
 def test_pitch_saturation_is_distinct_from_static_target_feasibility():
@@ -562,9 +597,77 @@ def test_saturated_frame_annotation_preserves_measured_error_and_control_degrada
     assert state["horizon_error_deg"] > 150
     assert state["target_pose_feasible"] is False
     assert state["horizon_feasible"] is True
+    assert state["yaw_degraded"] is True
+    assert state["yaw_error_deg"] > 30
     assert state["saturated_axes"] == ["roll"]
     assert state["control"]["degraded"] is True
     assert state["frame_geometric_degraded"] is True
     assert "target_pose_unreachable" in state["frame_geometric_reasons"]
     assert "roll_saturated" in state["frame_geometric_reasons"]
     assert "not_frame_aligned" in state["control_alignment"]
+
+
+def test_frame_horizon_degradation_uses_past_command_and_excludes_yaw_only():
+    body = {"roll": 65, "pitch": -74, "yaw": 10}
+    stabilizer = HorizonStabilizer(TARGET)
+    _settle(stabilizer, body)
+    level = stabilizer.last_result
+    assert level["yaw_degraded"] and not level["horizon_degraded"]
+    stabilizer.record_command(level, 1.0)
+    later = stabilizer.update(None, now_s=.02, attitude_time_s=None)
+    stabilizer.record_command(later, 1.1)
+    joints = level["joint_deg"]
+    observation = {
+        "attitude": {a + "_deg": body[a] for a in AXES},
+        "frame_sensor_stamp_ns": 1_050_000_000,
+        "gimbal_state": {"fresh": True, "source": "gazebo_joint_state",
+                         "joint_position_rad": {a: math.radians(joints[a]) for a in AXES}},
+        "camera_pose": {"age_ms": 0, "optical_to_world": _earth(body, joints)},
+    }
+    stabilizer.annotate(observation)
+    state = observation["gimbal_state"]["stabilization"]
+    assert state["control"]["horizon_degraded"] is True
+    assert state["frame_control_age_ms"] == pytest.approx(50)
+    assert state["horizon_degraded"] is False
+    assert state["yaw_degraded"] is True
+    assert state["yaw_error_deg"] == pytest.approx(level["yaw_error_deg"])
+
+
+def test_audited_iowa_frames_horizon_first_replay():
+    # Projection of .tmp/episode-audit.csv. The samples are seconds apart;
+    # hold each audited pose while the 50 Hz controller settles. The dense
+    # telemetry replay separately tests dynamics between these samples.
+    with (Path(__file__).parent / "fixtures/iowa_c11_attitudes.csv").open() as stream:
+        frames = list(csv.DictReader(stream))
+    assert len(frames) == 113
+    stabilizer = HorizonStabilizer(TARGET, limits_deg=LEGACY_LIMITS)
+    stabilizer.last_joint = {a: float(frames[0][f"joint_{a}_deg"]) for a in AXES}
+    errors = []
+    expected_yaw_degraded, yaw_degraded = set(), set()
+    degraded_count = 0
+    tick = 0
+    for row in frames:
+        frame = int(row["frame"])
+        body = {a: float(row[f"body_{a}_deg"]) for a in AXES}
+        if row["exact_pose_feasible"] == "False":
+            expected_yaw_degraded.add(frame)
+        for _ in range(125):
+            before = dict(stabilizer.last_joint)
+            stamp = float(frames[0]["sim_s"]) + tick * .02
+            tick += 1
+            output = stabilizer.update(body, now_s=stamp, attitude_time_s=stamp)
+            assert max(abs(output["joint_deg"][a] - before[a]) for a in AXES) <= 3.6 + 1e-8
+            if not output["rate_limited"]:
+                break
+        assert output["horizon_feasible"] is True
+        actual = _angles(_earth(body, _bridge_decoded(output["joint_deg"])))
+        errors.append(_horizon_error(actual))
+        degraded_count += output["horizon_degraded"]
+        if output["yaw_degraded"]:
+            yaw_degraded.add(frame)
+            assert output["yaw_error_deg"] == pytest.approx(abs(_wrap(actual["yaw"] - body["yaw"])))
+    assert len(expected_yaw_degraded) == 32
+    assert yaw_degraded == expected_yaw_degraded
+    assert percentile(errors, .95) <= 4
+    assert max(errors) <= 8
+    assert degraded_count / len(frames) <= .05

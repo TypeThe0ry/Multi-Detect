@@ -198,7 +198,8 @@
   "sim_params": {
     "GF_MAX_HOR_DIST": 4242.640687119286,
     "GF_MAX_VER_DIST": 180,
-    "GF_ACTION": 1
+    "GF_ACTION": 1,
+    "FW_R_LIM": 35.0
   },
   "boundary": {
     "east_min_m": -3000.0,
@@ -207,5 +208,6 @@
     "north_max_m": 3000.0
   },
   "kind": "vtol",
-  "capture_interval_sim_s": 6.0
+  "capture_interval_sim_s": 6.0,
+  "gimbal_pitch_deg": -56.0
 }

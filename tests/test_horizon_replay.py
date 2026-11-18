@@ -1,4 +1,5 @@
 """Replay the read-only real Iowa episode when mounted; no simulator is started."""
+import csv
 import logging
 import os
 from pathlib import Path
@@ -26,10 +27,17 @@ def test_real_episode_attitudes_and_measured_joints(caplog):
     assert result["max_step_deg"] <= 3.6 + 1e-7
     assert result["measured_fk_max_matrix_difference"] < 1e-12
     assert result["measured"]["max_deg"] == pytest.approx(158.776199)
-    assert result["all_model"]["max_deg"] < 40
+    assert result["horizon_feasible_model"]["count"] == 113
+    assert result["horizon_feasible_model"]["p95_deg"] <= 4
+    assert result["horizon_feasible_model"]["max_deg"] <= 8
+    assert result["horizon_degraded_frames"] <= 0.05 * 113
+    assert result["yaw_degraded_frames"] == 32
+    assert {f["frame_index"] for f in result["frames"] if f["yaw_degraded"]} == {
+        f["frame_index"] for f in result["frames"] if not f["target_pose_feasible"]
+    }
     assert result["feasible_model"]["count"] == 81
     assert result["feasible_model"]["p95_deg"] <= 4
-    assert result["frames"][62]["model_error_deg"] < 40
+    assert result["frames"][62]["model_error_deg"] < 1
     report = summarize(EPISODE, require_iowa_coverage=True)
     assert report["mechanical_infeasible_frames"] == 32
     assert report["saturated_frames"] == 27

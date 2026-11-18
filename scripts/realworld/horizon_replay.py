@@ -90,16 +90,28 @@ def replay(frames, attitudes, *, controller=HorizonStabilizer, delay_s=0.0):
         fk_difference = max(fk_difference, max(abs(x-y) for x, y in zip(measured, recorded)))
         error = horizon_error_deg(desired, _mat_mul(rotation_deg(body),
                                                    c11_rotation_deg(output["joint_deg"])))
+        geometry = classify_frame(frame)
         rows.append({"frame_index": frame["frame_index"], "model_error_deg": error,
                      "measured_error_deg": horizon_error_deg(desired, measured),
-                     "target_pose_feasible": classify_frame(frame)["target_pose_feasible"],
+                     "target_pose_feasible": geometry["target_pose_feasible"],
+                     "horizon_feasible": geometry["horizon_feasible"],
+                     "horizon_degraded": output.get("horizon_degraded"),
+                     "yaw_degraded": output.get("yaw_degraded"),
+                     "yaw_error_deg": output.get("yaw_error_deg"),
                      "joint_deg": output["joint_deg"], "reasons": output["reasons"]})
     return {"model": "ideal emitted-setpoint tracking; initial joints from real readback; "
                      "50 Hz simulation clock, source ATTITUDE ZOH; no servo or bridge dynamics",
             "delay_s": delay_s, "control_steps": len(commands), "max_step_deg": max_step,
             "rate_limited_steps": rate_steps, "measured_fk_max_matrix_difference": fk_difference,
+            "horizon_infeasible_steps": sum(o.get("horizon_feasible") is False for o in commands),
+            "horizon_unknown_steps": sum(o.get("horizon_feasible") is None for o in commands),
             "all_model": stats([r["model_error_deg"] for r in rows]),
             "feasible_model": stats([r["model_error_deg"] for r in rows if r["target_pose_feasible"]]),
+            "horizon_feasible_model": stats([r["model_error_deg"] for r in rows
+                                             if r["horizon_feasible"] is True]),
+            "horizon_degraded_frames": sum(r["horizon_feasible"] is True
+                                           and r["horizon_degraded"] is True for r in rows),
+            "yaw_degraded_frames": sum(r["yaw_degraded"] is True for r in rows),
             "measured": stats([r["measured_error_deg"] for r in rows]), "frames": rows}
 
 

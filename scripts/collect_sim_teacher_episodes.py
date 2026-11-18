@@ -6742,7 +6742,7 @@ def run_episode(
                         a: math.degrees(float(_field(attitude, a, math.nan)))
                         for a in ("roll", "pitch", "yaw")
                     }
-                    return body, time.monotonic() - age
+                    return body, time.monotonic() - age, now_ms / 1000 if now_ms is not None else None
 
                 def send_quaternion(q):
                     return gimbal_send_gate.send(
@@ -6784,7 +6784,7 @@ def run_episode(
                     horizon_loop.check()
                     result = horizon_stabilizer.last_result
                     status, _ = session.latest_attitude or (None, -1)
-                    if result is not None and not result["degraded"]:
+                    if result is not None and not result["horizon_degraded"]:
                         readback = _gimbal_readback(
                             mav_reader,
                             status,

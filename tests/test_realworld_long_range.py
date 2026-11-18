@@ -166,17 +166,58 @@ def test_delta_cpu_plan_compiles_vtol_lifecycle_and_dem_envelope(monkeypatch, ca
     assert collector_plan["video_hz"] == pytest.approx(1 / 6)
     assert collector_plan["video_use_sim_time"] is True
     assert collector_plan["smoke_flight"] is False
+    envelope = plan["fw_turn_envelope"]
+    assert envelope["px4_fw_bank_limit_deg"] == 35
+    assert envelope["guided_ground_speed_mps"] == 15
+    assert envelope["guided_loiter_radius_m"] == 80
+    assert envelope["minimum_turn_radius_m"] == pytest.approx(64.23, abs=0.02)
+    assert envelope["required_bank_at_radius_deg"] == pytest.approx(29.34, abs=0.02)
+    assert plan["gimbal_stabilization"]["target_pitch_deg"] == -56
+    assert envelope["gimbal_witness"]["joint_pitch_range_deg"] == [19, 44]
+    scenario = flight.SCENARIO_ROOT / flight.DELTA / f"{profile}.scenario.json"
+    mission = flight.load_mission(scenario)
+    assert float(dict(flight.collection_plan(scenario, Path("out"), 7, mission).extra_sim_params)["FW_R_LIM"]) == 35
 
 
 def test_delta_policy_reuses_guided_fw_and_mc_commands():
     targets = [(100, 200, -85), (300, -360, -85)]
-    policy = flight.LongRangePolicy(targets, 80, vtol=True)
+    policy = flight.LongRangePolicy(targets, 80, vtol=True, fw_speed_mps=15, gimbal_pitch_deg=-56)
     actions = [policy.next_action() for _ in range(5)]
     assert [(a.kind, getattr(a, "mode", None)) for a in actions] == [
         ("reposition", "FW"), ("reposition", "FW"), ("transition", "MC"),
         ("mc_reposition", "MC"), ("stop", None),
     ]
+    assert all(a.radius_m == 80 and a.speed_mps == 15 for a in actions[:2])
+    assert policy.cruise_gimbal_target == {"roll": 0, "pitch": -56, "yaw": 0}
     assert actions[-2].target_ned == (0, 0, -85)
+    assert actions[-2].speed_mps == 8
+
+
+@pytest.mark.parametrize("pitch_deg", [-10, 0, 15])
+@pytest.mark.parametrize("bank_deg", [-35, 0, 35])
+def test_delta_turn_envelope_has_exact_horizon_witness(pitch_deg, bank_deg):
+    from multidetect.camera_mount import _mat_mul
+    from multidetect.sim_teacher.horizon_stabilization import c11_rotation_deg, rotation_deg
+
+    fw = rotation_deg({"roll": bank_deg, "pitch": pitch_deg, "yaw": 63})
+    body = _mat_mul(fw, rotation_deg({"roll": 0, "pitch": -90, "yaw": 0}))
+    witness = {"roll": 0, "pitch": 34 - pitch_deg, "yaw": bank_deg}
+    camera = _mat_mul(body, c11_rotation_deg(witness))
+    assert camera == pytest.approx(rotation_deg({"roll": 0, "pitch": -56, "yaw": 63}))
+
+
+@pytest.mark.parametrize(("radius", "bank", "pitch", "message"), [
+    (80, 30, -56, "FW_R_LIM"),
+    (80, 40, -56, "FW_R_LIM"),
+    (60, 35, -56, "radius is too small"),
+    (80, 35, -45, "FW pitch envelope"),
+])
+def test_delta_plan_rejects_turns_outside_gimbal_envelope(radius, bank, pitch, message):
+    from types import SimpleNamespace
+
+    profile = json.loads((flight.ROOT / "configs/airframes/delta_tailsitter_gimbal.json").read_text())
+    with pytest.raises(ValueError, match=message):
+        flight._delta_fw_turn_envelope(SimpleNamespace(loiter_radius_m=radius), profile, bank, pitch)
 
 
 def test_delta_dem_audit_rejects_impossible_cruise_corridor():
