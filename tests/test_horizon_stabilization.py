@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from multidetect.sim_teacher.horizon_stabilization import HorizonStabilizer
+from multidetect.sim_teacher.horizon_stabilization import BridgeHorizonTarget, HorizonStabilizer
 from scripts.realworld.horizon_report import LEGACY_LIMITS, percentile
 
 AXES = ("roll", "pitch", "yaw")
@@ -47,8 +47,12 @@ def _rotation(angles, order):
 def _bridge_decoded(joints):
     from multidetect.sim_teacher.horizon_stabilization import joint_command_quaternion
 
-    w, x, y, z = joint_command_quaternion(joints)
-    matrix = (
+    return _angles(_quaternion_rotation(joint_command_quaternion(joints)))
+
+
+def _quaternion_rotation(q):
+    w, x, y, z = q
+    return (
         1 - 2 * (y * y + z * z),
         2 * (x * y - w * z),
         2 * (x * z + w * y),
@@ -59,7 +63,6 @@ def _bridge_decoded(joints):
         2 * (y * z + w * x),
         1 - 2 * (x * x + y * y),
     )
-    return _angles(matrix)
 
 
 def _earth(body, joints):
@@ -298,7 +301,8 @@ def test_bridge_carrier_rejects_ambiguous_or_unrepresentable_pitch(pitch):
         joint_command_quaternion({"roll": 0.0, "pitch": pitch, "yaw": 0.0})
 
 
-def test_frame_stabilization_uses_measured_c11_joints_and_camera_geometry():
+@pytest.mark.parametrize("controller", [HorizonStabilizer, BridgeHorizonTarget])
+def test_frame_stabilization_uses_measured_c11_joints_and_camera_geometry(controller):
     from pathlib import Path
 
     from multidetect.sim_teacher.gimbal_recording import DeltaCameraGeometry
@@ -324,25 +328,82 @@ def test_frame_stabilization_uses_measured_c11_joints_and_camera_geometry():
         },
         max_age_ms=200.0,
     )
-    stabilizer = HorizonStabilizer(target_deg=TARGET, mode="lock", yaw_mode="follow")
-    stabilizer.update(body, now_s=1.0, attitude_time_s=1.0)
+    kwargs = {"status_sender": (1, 1)} if controller is BridgeHorizonTarget else {}
+    stabilizer = controller(target_deg=TARGET, mode="lock", yaw_mode="follow", **kwargs)
+    result = stabilizer.update(body, now_s=1.0, attitude_time_s=1.0)
+    stabilizer.record_command(result, 1.0)
     stabilizer.annotate(observation)
     measured_world = _earth(body, measured_joints)
     assert observation["camera_pose"]["optical_to_world"] == pytest.approx(measured_world)
     state = observation["gimbal_state"]["stabilization"]
+    assert state["source"] == ("bridge" if controller is BridgeHorizonTarget else "host")
     assert state["mode"] == "lock"
     assert state["measured_earth_deg"] == pytest.approx(_angles(measured_world))
     assert state["desired_earth_deg"] == pytest.approx({**TARGET, "yaw": 90.0})
     assert state["horizon_error_deg"] == pytest.approx(_horizon_error(_angles(measured_world)))
     assert state["horizon_error_deg"] > 2.0
-    assert observation["gimbal_state"]["joint_position_rad"] != {
-        axis: math.radians(value) for axis, value in stabilizer.last_result["joint_deg"].items()
-    }
+    if controller is HorizonStabilizer:
+        assert observation["gimbal_state"]["joint_position_rad"] != {
+            axis: math.radians(value) for axis, value in result["joint_deg"].items()
+        }
+    else:
+        assert "joint_deg" not in result
+        assert state["frame_control_age_ms"] == 0.0
+        status = {"message_type": "NAMED_VALUE_FLOAT", "name": "c11_hdeg",
+                  "_source_system": 1, "_source_component": 1, "time_boot_ms": 990, "value": 0.}
+        assert stabilizer.frame_horizon_degraded(1_000_000_000, result) is None
+        stabilizer.record_bridge_status({**status, "_source_component": 2})
+        assert stabilizer.frame_horizon_degraded(1_000_000_000, result) is None
+        stabilizer.record_bridge_status(status)
+        stabilizer.record_bridge_status({**status, "time_boot_ms": 1010, "value": 1.})
+        assert stabilizer.frame_horizon_degraded(1_000_000_000, result) is False
+        assert stabilizer.frame_horizon_degraded(1_010_000_000, result) is True
+        assert stabilizer.frame_horizon_degraded(1_211_000_000, result) is None
+        stabilizer.annotate(observation)
+        state = observation["gimbal_state"]["stabilization"]
+        if state["horizon_feasible"]:
+            assert state["horizon_degraded"] is False
+        assert state["horizon_error_deg"] > 2.0
     observation["gimbal_state"]["fresh"] = False
     stabilizer.annotate(observation)
     state = observation["gimbal_state"]["stabilization"]
     assert state["measured_earth_deg"] is None
     assert state["horizon_error_deg"] is None
+
+
+@pytest.mark.parametrize("mode,yaw_mode,flags", [
+    ("lock", "lock", 92), ("lock", "follow", 44), ("follow", "lock", 32),
+    ("track", "follow", 92),
+])
+def test_bridge_loop_sends_pose_and_flags_without_joint_inverse(mode, yaw_mode, flags):
+    from multidetect.sim_teacher.horizon_stabilization import HostHorizonLoop
+    from multidetect.sim_teacher.target_tracking import WorldTarget
+
+    target = {"roll": 15., "pitch": -35., "yaw": 30.}
+    body = {"roll": 20., "pitch": -30., "yaw": 90.}
+    origin, destination = WorldTarget(40., -90., 100.), WorldTarget(40., -89.999, 100.)
+    stabilizer = BridgeHorizonTarget(target, mode=mode, yaw_mode=yaw_mode, track_targets=[destination])
+    sent = []
+    loop = HostHorizonLoop(stabilizer, lambda: (body, 1., 1., origin),
+                           lambda *args: sent.append(args), clock=lambda: 1.)
+    loop.step()
+    assert len(sent) == 1
+    q, wire_flags = sent[0]
+    assert wire_flags == flags
+    assert "joint_deg" not in stabilizer.last_result
+    if mode == "follow":
+        expected = _rotation(target, ("yaw", "roll", "pitch"))
+    elif mode == "track":
+        from multidetect.sim_teacher.target_tracking import level_target_rotation, world_target_direction
+        expected = level_target_rotation(world_target_direction(origin, destination))
+        assert stabilizer.last_result["target_ref"] == destination.reference()
+    else:
+        expected = _rotation(target, ("yaw", "pitch", "roll"))
+    assert _quaternion_rotation(q) == pytest.approx(expected)
+
+    loop.sample = lambda: (body, 0., 1., origin)
+    loop.step()
+    assert len(sent) == 1
 
 
 def test_legacy_joint_carrier_survives_mavlink2_serialization():

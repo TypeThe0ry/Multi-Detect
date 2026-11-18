@@ -614,6 +614,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="select a named profile's airframe or verify an explicit scenario")
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--gimbal-mode", choices=("lock", "follow", "track"), default="lock")
+    parser.add_argument("--gimbal-bridge-stabilize", action="store_true",
+                        help="send C11 pose targets to the horizon-enabled PX4 image")
+    parser.add_argument("--image", help="local PX4/Gazebo runtime image")
     parser.add_argument("--track-target", type=WorldTarget.parse, action="append", default=[],
                         metavar="LAT,LON,ALT_M", help="world target, altitude AMSL metres (repeatable)")
     parser.add_argument("--gimbal-yaw-mode", choices=("lock", "follow"), default="follow")
@@ -654,11 +657,16 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     plan = collection_plan(scenario, out, args.slot, mission)
+    if args.image is not None:
+        plan = replace(plan, image=args.image)
     is_vtol = mission["airframe"] == DELTA
+    if args.gimbal_bridge_stabilize and not is_vtol:
+        parser.error("--gimbal-bridge-stabilize requires the Delta C11 gimbal")
     if args.gimbal_mode == "track" and not is_vtol:
         parser.error("--gimbal-mode track requires the Delta C11 gimbal")
     if is_vtol:
-        plan = replace(plan, gimbal_mode=args.gimbal_mode, track_targets=tuple(args.track_target))
+        plan = replace(plan, gimbal_mode=args.gimbal_mode, track_targets=tuple(args.track_target),
+                       gimbal_bridge_stabilize=args.gimbal_bridge_stabilize)
     if args.horizon_video_hz is not None:
         if not is_vtol or not math.isfinite(args.horizon_video_hz) or args.horizon_video_hz <= 0:
             parser.error("--horizon-video-hz requires X1 and a finite positive rate")
@@ -680,6 +688,7 @@ def main(argv: list[str] | None = None) -> int:
                           "fw_waypoints_home_ned_m": mission["targets"] if is_vtol else None,
                           "fw_turn_envelope": mission["fw_turn_envelope"],
                           "gimbal_stabilization": ({"mode": args.gimbal_mode,
+                                                     "source": "bridge" if args.gimbal_bridge_stabilize else "host",
                                                      "yaw_mode": args.gimbal_yaw_mode,
                                                      "track_targets": [asdict(point) for point in args.track_target],
                                                      "target_pitch_deg": mission["gimbal_pitch_deg"]}

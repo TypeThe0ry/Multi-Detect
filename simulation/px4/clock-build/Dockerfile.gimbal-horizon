@@ -1,0 +1,4 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+LABEL org.multidetect.gimbal-bridge-stabilize="1"
+COPY px4 /opt/px4-gazebo/bin/px4

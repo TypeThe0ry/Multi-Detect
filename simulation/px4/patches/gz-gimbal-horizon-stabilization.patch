@@ -1,0 +1,404 @@
+diff --git a/src/modules/simulation/gz_bridge/GZGimbal.cpp b/src/modules/simulation/gz_bridge/GZGimbal.cpp
+index f5bc4881..a4044fb4 100644
+--- a/src/modules/simulation/gz_bridge/GZGimbal.cpp
++++ b/src/modules/simulation/gz_bridge/GZGimbal.cpp
+@@ -1,6 +1,158 @@
+ // #define DEBUG_BUILD
+ #include "GZGimbal.hpp"
+ 
++#include <cstdlib>
++#include <cstring>
++#include <algorithm>
++
++namespace
++{
++using Setpoint = gimbal_device_set_attitude_s;
++constexpr auto RollLock = Setpoint::GIMBAL_DEVICE_FLAGS_ROLL_LOCK;
++constexpr auto PitchLock = Setpoint::GIMBAL_DEVICE_FLAGS_PITCH_LOCK;
++constexpr auto YawLock = Setpoint::GIMBAL_DEVICE_FLAGS_YAW_LOCK;
++constexpr auto YawVehicle = Setpoint::GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME;
++constexpr auto YawEarth = Setpoint::GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME;
++constexpr auto Neutral = Setpoint::GIMBAL_DEVICE_FLAGS_NEUTRAL;
++constexpr auto AllowedFlags = RollLock | PitchLock | YawLock | YawVehicle | YawEarth | Neutral;
++constexpr hrt_abstime PoseInterval = 20_ms;
++
++bool earthYaw(uint16_t flags)
++{
++	return (flags & YawEarth) || (!(flags & YawVehicle) && (flags & YawLock));
++}
++
++float nearestTurn(float angle, float previous)
++{
++	return previous + remainderf(angle - previous, 2.f * M_PI_F);
++}
++
++matrix::Dcmf zxy(float roll, float pitch, float yaw)
++{
++	return matrix::Dcmf(matrix::Eulerf(0.f, 0.f, yaw))
++	       * matrix::Dcmf(matrix::Eulerf(roll, 0.f, 0.f))
++	       * matrix::Dcmf(matrix::Eulerf(0.f, pitch, 0.f));
++}
++
++matrix::Vector3f boundedJoints(const matrix::Dcmf &relative, const matrix::Vector3f &previous,
++			      float roll_min, float roll_max, float pitch_min, float pitch_max, bool &exact_pose)
++{
++	const float roll = asinf(math::constrain(relative(2, 1), -1.f, 1.f));
++	const bool singular = fabsf(cosf(roll)) < 1e-6f;
++	const float yaw = singular ? previous(2) : atan2f(-relative(0, 1), relative(1, 1));
++	float pitch = atan2f(-relative(2, 0), relative(2, 2));
++
++	if (singular) {
++		const matrix::Dcmf residual(zxy(roll, 0.f, yaw).transpose() * relative);
++		pitch = atan2f(residual(0, 2), residual(0, 0));
++	}
++	// Match the host branch choice for C11: prefer an exact solution,
++	// then least travel through regions where both branches hit a stop.
++	matrix::Vector3f best{};
++	float best_travel = INFINITY;
++	bool best_exact = false;
++
++	for (int branch = 0; branch < 2; ++branch) {
++		const float r = nearestTurn(branch ? M_PI_F - roll : roll, previous(0));
++		const float p = nearestTurn(pitch + branch * M_PI_F, previous(1));
++		const float y = nearestTurn(yaw + branch * M_PI_F, previous(2));
++		const matrix::Vector3f bounded{math::constrain(r, roll_min, roll_max),
++					      math::constrain(p, pitch_min, pitch_max), y};
++		const bool exact = fabsf(bounded(0) - r) < 1e-6f && fabsf(bounded(1) - p) < 1e-6f;
++		const float travel = (bounded - previous).norm_squared();
++
++		if ((exact && !best_exact) || (exact == best_exact && travel < best_travel)) {
++			best = bounded;
++			best_exact = exact;
++			best_travel = travel;
++		}
++	}
++
++	exact_pose = best_exact;
++	return best;
++}
++
++bool horizonJoints(const matrix::Dcmf &body, const matrix::Dcmf &desired,
++		   const matrix::Vector3f &previous, float roll_min, float roll_max,
++		   float pitch_min, float pitch_max, matrix::Vector3f &joint)
++{
++	// As earth yaw varies, each entry of B^T Rz(yaw) D is
++	// a*cos(yaw) + b*sin(yaw) + c. Roll stops exclude the other
++	// branch. Cut the circle at the roll stops and pitch limit rays,
++	// then check endpoints and intervals as in the host horizon solver.
++	const auto entry = [&](int row, int col) {
++		return matrix::Vector3f(body(0, row) * desired(0, col) + body(1, row) * desired(1, col),
++				       body(1, row) * desired(0, col) - body(0, row) * desired(1, col),
++				       body(2, row) * desired(2, col));
++	};
++	const auto sr = entry(2, 1);
++	const matrix::Vector3f sp = -entry(2, 0);
++	const auto cp = entry(2, 2);
++	constexpr float turn = 2.f * M_PI_F;
++	float cuts[10] {0.f, turn};
++	unsigned count = 2;
++	const auto roots = [&](const matrix::Vector3f &v, float value) {
++		const float amplitude = hypotf(v(0), v(1));
++
++		if (amplitude > 1e-7f && fabsf(value - v(2)) <= amplitude + 1e-6f) {
++			const float phase = atan2f(v(1), v(0));
++			const float delta = acosf(math::constrain((value - v(2)) / amplitude, -1.f, 1.f));
++			cuts[count++] = fmodf(phase + delta + turn, turn);
++			cuts[count++] = fmodf(phase - delta + turn, turn);
++		}
++	};
++	roots(sr, sinf(roll_min));
++	roots(sr, sinf(roll_max));
++	roots(sp * cosf(pitch_min) - cp * sinf(pitch_min), 0.f);
++	roots(sp * cosf(pitch_max) - cp * sinf(pitch_max), 0.f);
++	std::sort(cuts, cuts + count);
++	float best = INFINITY;
++	const auto evaluate = [&](float heading) {
++		const matrix::Vector3f hc(cosf(heading), sinf(heading), 1.f);
++		const float r = asinf(math::constrain(sr.dot(hc), -1.f, 1.f));
++		const float p = atan2f(sp.dot(hc), cp.dot(hc));
++
++		if (r < roll_min - 1e-6f || r > roll_max + 1e-6f || p < pitch_min - 1e-6f || p > pitch_max + 1e-6f) {
++			return INFINITY;
++		}
++
++		const auto relative = body.transpose() * zxy(0.f, 0.f, heading) * desired;
++		const float y = nearestTurn(atan2f(-relative(0, 1), relative(1, 1)), previous(2));
++		const matrix::Vector3f candidate(math::constrain(r, roll_min, roll_max),
++						 math::constrain(p, pitch_min, pitch_max), y);
++		const float travel = (candidate - previous).norm_squared();
++
++		if (travel < best) {
++			best = travel;
++			joint = candidate;
++		}
++
++		return travel;
++	};
++
++	for (unsigned i = 0; i < count; ++i) {
++		evaluate(cuts[i]);
++
++		if (i + 1 < count && PX4_ISFINITE(evaluate((cuts[i] + cuts[i + 1]) / 2.f))) {
++			float lo = cuts[i];
++			float hi = cuts[i + 1];
++
++			for (unsigned j = 0; j < 14; ++j) {
++				const float left = (2.f * lo + hi) / 3.f;
++				const float right = (lo + 2.f * hi) / 3.f;
++				const float left_travel = evaluate(left);
++				const float right_travel = evaluate(right);
++
++				if (left_travel < right_travel) { hi = right; }
++				else { lo = left; }
++			}
++		}
++	}
++
++	return PX4_ISFINITE(best);
++}
++}
++
+ bool GZGimbal::init(const std::string &world_name, const std::string &model_name)
+ {
+ 	// Gazebo communication
+@@ -55,7 +207,14 @@ bool GZGimbal::init(const std::string &world_name, const std::string &model_name
+ 
+ 	updateParameters();
+ 
+-	ScheduleOnInterval(200_ms); // @5Hz
++	const char *enabled = std::getenv("MULTIDETECT_GIMBAL_BRIDGE_STABILIZE");
++	_stabilize = enabled && std::strcmp(enabled, "1") == 0;
++	_last_pose_update = hrt_absolute_time();
++	ScheduleOnInterval(_stabilize ? PoseInterval : 200_ms);
++
++	if (_stabilize) {
++		PX4_INFO("C11 bridge stabilization enabled (20 ms pose interval)");
++	}
+ 
+ 	// Schedule on vehicle command messages
+ 	if (!_vehicle_command_sub.registerCallback()) {
+@@ -75,11 +234,19 @@ void GZGimbal::Run()
+ 
+ 	updateParameters();
+ 
+-	if (pollSetpoint()) {
+-		//TODO handle device flags
++	const bool updated = pollSetpoint();
++
++	if (_pose_active) {
++		// The vehicle command callback can also wake this work item.
++		if (now - _last_pose_update >= PoseInterval - 2_ms) {
++			publishStabilizedPose(now);
++		}
++
++	} else if (updated) {
+ 		publishJointCommand(_gimbal_roll_cmd_publisher, _roll_stp, _roll_rate_stp, _last_roll_stp, _roll_min, _roll_max, dt);
+-		publishJointCommand(_gimbal_pitch_cmd_publisher, _pitch_stp, _pitch_rate_stp, _last_pitch_stp, _mnt_min_pitch,
+-				    _mnt_max_pitch,
++		publishJointCommand(_gimbal_pitch_cmd_publisher, _pitch_stp, _pitch_rate_stp, _last_pitch_stp,
++				    _stabilize ? math::radians(_mnt_min_pitch) : _mnt_min_pitch,
++				    _stabilize ? math::radians(_mnt_max_pitch) : _mnt_max_pitch,
+ 				    dt);
+ 		publishJointCommand(_gimbal_yaw_cmd_publisher, _yaw_stp, _yaw_rate_stp, _last_yaw_stp, _yaw_min, _yaw_max, dt);
+ 	}
+@@ -93,6 +260,104 @@ void GZGimbal::Run()
+ 	pthread_mutex_unlock(&_node_mutex);
+ }
+ 
++void GZGimbal::publishStabilizedPose(hrt_abstime now)
++{
++	const float dt = math::constrain((now - _last_pose_update) / 1e6f, 0.f, 0.05f);
++	_last_pose_update = now;
++	const auto flags = _gimbal_device_flags;
++	matrix::Dcmf relative(_pose_target);
++	matrix::Dcmf body;
++	matrix::Dcmf desired;
++	const bool compensated = (flags & (RollLock | PitchLock)) || earthYaw(flags);
++
++	if (compensated) {
++		_attitude_sub.update(&_body_attitude);
++		matrix::Quatf q_body(_body_attitude.q);
++		const float norm = q_body.norm();
++
++		if (!_body_attitude.timestamp || now < _body_attitude.timestamp
++		    || now - _body_attitude.timestamp > 200_ms || !PX4_ISFINITE(norm) || norm < 1e-6f) {
++			if (!_invalid_attitude) {
++				PX4_WARN("C11 vehicle attitude unavailable; holding joints");
++			}
++
++			_invalid_attitude = true;
++			publishHorizonStatus(now, true);
++			return;
++		}
++
++		_invalid_attitude = false;
++		q_body.normalize();
++		body = matrix::Dcmf(q_body); // FRD body -> NED earth
++
++		if (hypotf(body(0, 0), body(1, 0)) >= 1e-3f) {
++			_heading = atan2f(body(1, 0), body(0, 0));
++		}
++
++		// Preserve the full quaternion for earth pose, including vertical
++		// camera pitch where ZYX heading and roll are ambiguous.
++		if ((flags & RollLock) && (flags & PitchLock)) {
++			if (!earthYaw(flags)) {
++				relative = matrix::Dcmf(matrix::Eulerf(0.f, 0.f, _heading)) * relative;
++			}
++
++		} else {
++			const matrix::Eulerf requested(_pose_target);
++			const matrix::Eulerf followed(q_body * _pose_target);
++			relative = matrix::Dcmf(matrix::Eulerf((flags & RollLock) ? requested.phi() : followed.phi(),
++							(flags & PitchLock) ? requested.theta() : followed.theta(),
++							earthYaw(flags) ? requested.psi() : _heading + requested.psi()));
++		}
++
++		desired = relative;
++		relative = body.transpose() * desired;
++	}
++
++	const float pitch_min = math::radians(_mnt_min_pitch);
++	const float pitch_max = math::radians(_mnt_max_pitch);
++	const matrix::Vector3f previous(_last_roll_stp, _last_pitch_stp, _last_yaw_stp);
++	bool exact = false;
++	auto joint = boundedJoints(relative, previous, _roll_min, _roll_max, pitch_min, pitch_max, exact);
++
++	if (!exact && (flags & RollLock) && (flags & PitchLock) && !earthYaw(flags)) {
++		horizonJoints(body, desired, previous, _roll_min, _roll_max, pitch_min, pitch_max, joint);
++	}
++	const float step = M_PI_F * dt;
++	const auto slew = [step](float value, float previous) {
++		return math::constrain(value, previous - step, previous + step);
++	};
++	// Gazebo yaw is unbounded; retain the nearest winding.
++	publishJointCommand(_gimbal_roll_cmd_publisher, slew(joint(0), _last_roll_stp), NAN,
++			    _last_roll_stp, _roll_min, _roll_max, dt);
++	publishJointCommand(_gimbal_pitch_cmd_publisher, slew(joint(1), _last_pitch_stp), NAN,
++			    _last_pitch_stp, pitch_min, pitch_max, dt);
++	publishJointCommand(_gimbal_yaw_cmd_publisher, slew(joint(2), _last_yaw_stp), NAN,
++			    _last_yaw_stp, _yaw_min, _yaw_max, dt);
++
++	if (compensated) {
++		const matrix::Eulerf target(desired);
++		const matrix::Dcmf world(body * zxy(_last_roll_stp, _last_pitch_stp, _last_yaw_stp));
++		const matrix::Eulerf issued(world);
++		// Float32 tolerance for the horizon of the emitted joint command.
++		const bool degraded = fabsf(remainderf(target.phi() - issued.phi(), 2.f * M_PI_F)) > 1e-4f
++				      || fabsf(target.theta() - issued.theta()) > 1e-4f;
++		publishHorizonStatus(now, degraded);
++
++	} else {
++		publishHorizonStatus(now, (joint - matrix::Vector3f(_last_roll_stp, _last_pitch_stp,
++					   _last_yaw_stp)).norm_squared() > 1e-8f || !exact);
++	}
++}
++
++void GZGimbal::publishHorizonStatus(hrt_abstime now, bool degraded)
++{
++	debug_key_value_s status{};
++	status.timestamp = now;
++	std::memcpy(status.key, "c11_hdeg", sizeof("c11_hdeg"));
++	status.value = degraded ? 1.f : 0.f;
++	_horizon_status_pub.publish(status);
++}
++
+ void GZGimbal::stop()
+ {
+ 	ScheduleClear();
+@@ -140,6 +405,45 @@ bool GZGimbal::pollSetpoint()
+ 		gimbal_device_set_attitude_s msg;
+ 
+ 		if (_gimbal_device_set_attitude_sub.copy(&msg)) {
++			if (_stabilize) {
++				matrix::Quatf target(msg.q);
++				const float norm = target.norm();
++				const bool rates_unused = std::isnan(msg.angular_velocity_x) && std::isnan(msg.angular_velocity_y)
++							  && std::isnan(msg.angular_velocity_z);
++				const bool locked = (msg.flags & (RollLock | PitchLock)) || earthYaw(msg.flags);
++
++				if ((msg.flags & ~AllowedFlags) || ((msg.flags & YawVehicle) && (msg.flags & YawEarth))
++				    || (!(msg.flags & Neutral) && ((locked && !rates_unused)
++					    || (rates_unused && (!PX4_ISFINITE(norm) || norm < 1e-6f))))) {
++					if (!_rejected_command) {
++						PX4_WARN("unsupported C11 pose command; holding previous target");
++					}
++
++					_rejected_command = true;
++					return false;
++				}
++
++				_rejected_command = false;
++
++				if ((msg.flags & Neutral) || rates_unused) {
++					if (msg.flags & Neutral) {
++						_pose_target = matrix::Quatf{};
++						_gimbal_device_flags = 0;
++
++					} else {
++						target.normalize();
++						_pose_target = target;
++						_gimbal_device_flags = msg.flags;
++					}
++
++					_pose_active = true;
++					return true;
++				}
++
++				// Preserve the legacy body-relative rate command path.
++				_pose_active = false;
++			}
++
+ 			const matrix::Eulerf gimbal_att_stp(matrix::Quatf(msg.q));
+ 			_roll_stp = gimbal_att_stp.phi();
+ 			_pitch_stp = gimbal_att_stp.theta();
+@@ -156,6 +460,7 @@ bool GZGimbal::pollSetpoint()
+ 		gimbal_controls_s msg;
+ 
+ 		if (_gimbal_controls_sub.copy(&msg)) {
++			_pose_active = false;
+ 			// map control inputs from [-1;1] to [min_angle; max_angle]
+ 			_roll_stp = math::constrain(math::radians(msg.control[msg.INDEX_ROLL] * _mnt_range_roll / 2), _roll_min, _roll_max);
+ 			_pitch_stp = math::radians(math::constrain(_mnt_min_pitch + 0.5f * (msg.control[msg.INDEX_PITCH] + 1.f) *
+@@ -221,6 +526,7 @@ void GZGimbal::publishDeviceAttitude()
+ 
+ 	gimbal_att.target_system = 0; // Broadcast
+ 	gimbal_att.target_component = 0; // Broadcast
++	gimbal_att.gimbal_device_id = _gimbal_device_id;
+ 	gimbal_att.device_flags = gimbal_device_attitude_status_s::DEVICE_FLAGS_YAW_IN_EARTH_FRAME;
+ 	_q_gimbal.copyTo(gimbal_att.q);
+ 	gimbal_att.angular_velocity_x = _gimbal_rate[0];
+diff --git a/src/modules/simulation/gz_bridge/GZGimbal.hpp b/src/modules/simulation/gz_bridge/GZGimbal.hpp
+index a2a79650..12b46e9c 100644
+--- a/src/modules/simulation/gz_bridge/GZGimbal.hpp
++++ b/src/modules/simulation/gz_bridge/GZGimbal.hpp
+@@ -10,6 +10,8 @@
+ #include <uORB/topics/vehicle_command_ack.h>
+ #include <uORB/topics/gimbal_controls.h>
+ #include <uORB/topics/parameter_update.h>
++#include <uORB/topics/vehicle_attitude.h>
++#include <uORB/topics/debug_key_value.h>
+ #include <uORB/Publication.hpp>
+ #include <uORB/Subscription.hpp>
+ #include <uORB/SubscriptionCallback.hpp>
+@@ -116,7 +118,19 @@ private:
+ 
+ 	const uint8_t _gimbal_device_id = 1;	// Gimbal is implemented by the same component: options are 1..6
+ 	uint16_t _gimbal_device_flags = 0;  // GIMBAL_DEVICE_FLAGS
+-
++	bool _stabilize = false;
++	bool _pose_active = false;
++	bool _rejected_command = false;
++	bool _invalid_attitude = false;
++	float _heading = 0.f;
++	hrt_abstime _last_pose_update = 0;
++	matrix::Quatf _pose_target{};
++	vehicle_attitude_s _body_attitude{};
++	uORB::Subscription _attitude_sub{ORB_ID(vehicle_attitude)};
++	uORB::Publication<debug_key_value_s> _horizon_status_pub{ORB_ID(debug_key_value)};
++
++	void publishStabilizedPose(hrt_abstime now);
++	void publishHorizonStatus(hrt_abstime now, bool degraded);
+ 	bool init(const std::string &world_name, const std::string &model_name);
+ 	void Run() override;
+ 	void stop();
