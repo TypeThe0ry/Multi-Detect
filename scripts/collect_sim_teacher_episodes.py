@@ -2814,10 +2814,15 @@ def _wait_motion_command(
         leg_n, leg_e = command.target_ned[0] - start[0], command.target_ned[1] - start[1]
         leg = math.hypot(leg_n, leg_e)
         timeout = min(MOTION_REPOSITION_TIMEOUT_S, leg / max(cruise_mps, 1.0) * 1.5 + 15.0)
+        sim_clock = _SimClock(reader)
+        sim_started = sim_clock()
         distance = leg
         orbit_angle = 0.0
         previous_yaw: float | None = None
-        while time.monotonic() - started < timeout:
+        while (
+            sim_clock() - sim_started < timeout
+            and time.monotonic() - started < _sim_teacher_hard_wall_timeout_s()
+        ):
             reader.raise_if_failed()
             pose = _state_position(reader.state)
             dn, de = command.target_ned[0] - pose[0], command.target_ned[1] - pose[1]
@@ -2855,7 +2860,12 @@ def _wait_motion_command(
         }
     if kind in {"loiter", "orbit", "mc_hold"} and float(command.duration_s or 0.0) > 0.0:
         hold = min(float(command.duration_s), MOTION_LOITER_MAX_WAIT_S)
-        while time.monotonic() - started < hold:
+        sim_clock = _SimClock(reader)
+        sim_started = sim_clock()
+        while (
+            sim_clock() - sim_started < hold
+            and time.monotonic() - started < _sim_teacher_hard_wall_timeout_s()
+        ):
             reader.raise_if_failed()
             time.sleep(0.2)
         return {"waited": "duration", "elapsed_s": time.monotonic() - started}
@@ -2883,7 +2893,7 @@ def _wait_smoke_reposition(
             "target_ned_m": list(target_ned),
             **reposition_ring_metrics([], target_ned=target_ned, radius_m=FIXED_WING_LOITER_CAPTURE_M),
         }
-    wall_ceiling = max(180.0, float(timeout_s) * 10.0)
+    wall_ceiling = _sim_teacher_hard_wall_timeout_s()
     distance = float("inf")
     sim_elapsed_s = 0.0
     observations: list[dict[str, Any]] = []
@@ -3253,9 +3263,11 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
 
 
 # Wall-clock bound on one primitive when it is timed on the simulation clock.
-PRIMITIVE_MAX_WALL_S = 180.0
+PRIMITIVE_MAX_WALL_S = 3600.0
 LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S = 45.0
 LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_ENV = "LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S"
+SIM_TEACHER_HARD_WALL_TIMEOUT_S = 3600.0
+SIM_TEACHER_HARD_WALL_TIMEOUT_ENV = "SIM_TEACHER_HARD_WALL_TIMEOUT_S"
 
 
 def _linux_primitive_clock_stall_timeout_s() -> float:
@@ -3271,6 +3283,23 @@ def _linux_primitive_clock_stall_timeout_s() -> float:
     if not math.isfinite(value) or value <= 0:
         raise ValueError(
             f"{LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_ENV} must be a finite positive number"
+        )
+    return value
+
+
+def _sim_teacher_hard_wall_timeout_s() -> float:
+    raw = os.environ.get(SIM_TEACHER_HARD_WALL_TIMEOUT_ENV)
+    if raw is None:
+        return SIM_TEACHER_HARD_WALL_TIMEOUT_S
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{SIM_TEACHER_HARD_WALL_TIMEOUT_ENV} must be a finite positive number"
+        ) from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(
+            f"{SIM_TEACHER_HARD_WALL_TIMEOUT_ENV} must be a finite positive number"
         )
     return value
 
@@ -4806,8 +4835,12 @@ class _ReaderAckLink:
 
     def wait_command_ack(self, command: int, timeout_s: float) -> Any:
         started_ns = time.monotonic_ns()
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
+        started_wall = time.monotonic()
+        last_clock_progress_wall = started_wall
+        started_sim_stamp_ns = _pose_sim_stamp_ns(self._reader.state)
+        last_sim_stamp_ns = started_sim_stamp_ns
+        hard_wall_timeout = _sim_teacher_hard_wall_timeout_s()
+        while time.monotonic() - started_wall < hard_wall_timeout:
             per_command = getattr(self._reader.state, "command_acks", {}).get(int(command))
             if per_command is not None and per_command[1] >= started_ns:
                 return {
@@ -4822,6 +4855,22 @@ class _ReaderAckLink:
                 and int(_field(ack, "command", -1)) == int(command)
             ):
                 return {"command": int(command), "result": int(_field(ack, "result", -1))}
+            now = time.monotonic()
+            sim_stamp_ns = _pose_sim_stamp_ns(self._reader.state)
+            if started_sim_stamp_ns is None and sim_stamp_ns is not None:
+                started_sim_stamp_ns = sim_stamp_ns
+                last_sim_stamp_ns = sim_stamp_ns
+                last_clock_progress_wall = now
+            elif sim_stamp_ns is not None and last_sim_stamp_ns is not None:
+                if sim_stamp_ns > last_sim_stamp_ns:
+                    last_sim_stamp_ns = sim_stamp_ns
+                    last_clock_progress_wall = now
+                elif now - last_clock_progress_wall >= LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S:
+                    return None
+                if (sim_stamp_ns - started_sim_stamp_ns) / 1e9 >= timeout_s:
+                    return None
+            elif now - started_wall >= timeout_s:
+                return None
             time.sleep(0.02)
         return None
 
@@ -7121,7 +7170,7 @@ def run_episode(
                                 continuous_fw=False,
                             )
                             return False
-                        wall_ceiling = max(300.0, timeout_s * 10.0)
+                        wall_ceiling = _sim_teacher_hard_wall_timeout_s()
                         fw_duration_s = 0.0
                         orbit_degrees = 0.0
                         previous_sim_ns = started_sim_ns
@@ -7216,7 +7265,7 @@ def run_episode(
                         )
                     # Allow very slow lockstep (the delta tailsitter measured
                     # about 0.12x realtime) while retaining a finite fallback.
-                    wall_ceiling = max(180.0, float(timeout_s) * 10.0)
+                    wall_ceiling = _sim_teacher_hard_wall_timeout_s()
                     while state_clock() - started_sim < timeout_s and time.monotonic() - started_wall < wall_ceiling:
                         mav_reader.raise_if_failed()
                         state = _flight_state_snapshot(mav_reader.state)
