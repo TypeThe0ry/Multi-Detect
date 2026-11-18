@@ -157,18 +157,36 @@ run_one() {
   if [[ -n "$map_root" ]]; then export MULTIDETECT_RTF_MAP_ROOT=$(realpath "$map_root"); else unset MULTIDETECT_RTF_MAP_ROOT; fi
   if [[ -n "$terrain_root" ]]; then export MULTIDETECT_RTF_TERRAIN_ROOT=$(realpath "$terrain_root"); else unset MULTIDETECT_RTF_TERRAIN_ROOT; fi
   if [[ -n "$server_config" ]]; then export MULTIDETECT_RTF_SERVER_CONFIG=$(realpath "$server_config"); else unset MULTIDETECT_RTF_SERVER_CONFIG; fi
-  MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX="$prefix" "$SITL_PYTHON" scripts/realworld/long_range_flight.py \
-    "$SLOT" "$scenario" "$run_dir/flight" "${airframe_args[@]}" >"$run_dir/flight.stdout.log" 2>&1 &
-  flight_pid=$!
-  trap 'if kill -0 "$flight_pid" 2>/dev/null; then kill "$flight_pid" 2>/dev/null || true; fi' RETURN
-  set +e
-  "$TOOLS_PYTHON" scripts/realworld/sample_stats.py --container-prefix "$prefix-" --gpu "$GPU" \
-    --warmup-s "$WARMUP_S" --window-s "$WINDOW_S" --interval-s "$INTERVAL_S" --out "$run_dir/stats.json"
-  stats_rc=$?
-  wait "$flight_pid"
-  flight_rc=$?
-  set -e
-  trap - RETURN
+  export MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX="$prefix"
+  local guard_rc=0
+  if [[ "$SINGLE_ROUND" == 1 ]]; then
+    local flight_json stats_json
+    flight_json=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1:]))' \
+      "$SITL_PYTHON" scripts/realworld/long_range_flight.py "$SLOT" "$scenario" "$run_dir/flight" "${airframe_args[@]}")
+    stats_json=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1:]))' \
+      "$TOOLS_PYTHON" scripts/realworld/sample_stats.py --container-prefix "$prefix-" --gpu "$GPU" \
+      --warmup-s "$WARMUP_S" --window-s "$WINDOW_S" --interval-s "$INTERVAL_S" --out "$run_dir/stats.json")
+    set +e
+    "$TOOLS_PYTHON" scripts/realworld/collection_guard.py run --out "$run_dir" --gpu "$GPU" --prefix "$prefix-" \
+      --flight-command "$flight_json" --stats-command "$stats_json"
+    guard_rc=$?
+    set -e
+    stats_rc=$("$TOOLS_PYTHON" -c 'import json,sys; x=json.load(open(sys.argv[1])); print(x.get("stats_returncode") if x.get("stats_returncode") is not None else 1)' "$run_dir/guard.json")
+    flight_rc=$("$TOOLS_PYTHON" -c 'import json,sys; x=json.load(open(sys.argv[1])); print(x.get("flight_returncode") if x.get("flight_returncode") is not None else 1)' "$run_dir/guard.json")
+  else
+    MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX="$prefix" "$SITL_PYTHON" scripts/realworld/long_range_flight.py \
+      "$SLOT" "$scenario" "$run_dir/flight" "${airframe_args[@]}" >"$run_dir/flight.stdout.log" 2>&1 &
+    local flight_pid=$!
+    trap 'if kill -0 "$flight_pid" 2>/dev/null; then kill "$flight_pid" 2>/dev/null || true; fi' RETURN
+    set +e
+    "$TOOLS_PYTHON" scripts/realworld/sample_stats.py --container-prefix "$prefix-" --gpu "$GPU" \
+      --warmup-s "$WARMUP_S" --window-s "$WINDOW_S" --interval-s "$INTERVAL_S" --out "$run_dir/stats.json"
+    stats_rc=$?
+    wait "$flight_pid"
+    flight_rc=$?
+    set -e
+    trap - RETURN
+  fi
   "$TOOLS_PYTHON" - "$run_dir" "$name" "$extent" "$airframe" "$stats_rc" "$flight_rc" "$attempt" "$SLOT" "$row" "$GPU_UUID" <<'PY'
 import json,sys
 from pathlib import Path
@@ -203,6 +221,7 @@ print(json.dumps(row,ensure_ascii=False))
 raise SystemExit(0 if valid else 1)
 PY
   local result_rc=$?
+  (( guard_rc == 76 )) && return 76
   return "$result_rc"
 }
 
@@ -217,7 +236,9 @@ if [[ "$SINGLE_ROUND" == 1 ]]; then
   mkdir -p "$lock_root"
   exec {gpu_lock}>"$lock_root/$GPU_UUID.lock"
   flock -w "$WAIT_S" "$gpu_lock" || { echo "等待 GPU$GPU 租约超时" >&2; exit 1; }
-  preflight
+  export RTF_MATRIX_START_LOAD_MAX=${RTF_MATRIX_START_LOAD_MAX:-60}
+  export RTF_MATRIX_START_WAIT_S=${RTF_MATRIX_START_WAIT_S:-$WAIT_S}
+  "$TOOLS_PYTHON" scripts/realworld/collection_guard.py gate --out "$OUT" --gpu "$GPU" || exit $?
   run_one "$rows" "$attempt" "$OUT"
   exit 0
 fi
