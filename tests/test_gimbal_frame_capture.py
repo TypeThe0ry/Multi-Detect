@@ -311,6 +311,15 @@ def test_batch_admission_checks_every_frame_even_if_summary_claims_success(tmp_p
         frame = _observation(_gimbal_sample())
         frame.pop("rgb")
         frame["frame_index"] = index
+        frame["gimbal_state"]["stabilization"] = {
+            "mode": "lock",
+            "measurement_fresh": True,
+            "horizon_feasible": True,
+            "horizon_error_deg": 0.0,
+            "horizon_degraded": False,
+            "yaw_degraded": False,
+            "yaw_error_deg": 0.0,
+        }
         frames.append(frame)
         (episode / f"video/rgb/{index}.jpg").write_bytes(b"image")
     if damage in {"gimbal", "forged"}:
@@ -333,5 +342,5 @@ def test_batch_admission_checks_every_frame_even_if_summary_claims_success(tmp_p
            "inputs": {"max_artifact_bytes": 1_000_000}}
     verdict = batch.evaluate(tmp_path, job, {"gpu": 1}, 0)
     assert verdict["accepted"] is (damage is None)
-    assert verdict["errors"] == ([] if damage is None else ["gimbal_state_missing"])
+    assert ("gimbal_state_missing" in verdict["errors"]) is (damage is not None)
 

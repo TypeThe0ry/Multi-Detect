@@ -25,6 +25,7 @@ from multidetect.px4_mission import (  # noqa: E402
     FixedWingMissionGeometry, Px4FixedWingSafetyPolicy, Px4MissionSafetyPolicy, VtolMissionGeometry,
 )
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
+from multidetect.simulation.turn_envelope import coordinated_turn_envelope  # noqa: E402
 from multidetect.terrain_dem import load_local_dem_grid  # noqa: E402
 from scripts.realworld.leased_flight import SITL_PYTHON  # noqa: E402
 from scripts.sitl_lock import SitlLock, sitl_lock_context  # noqa: E402
@@ -46,6 +47,10 @@ MIN_6KM_DISTANCE_M = 4000.0
 DEFAULT_MIN_RTF = 0.9
 DELTA_CRUISE_AGL_M = 85.0
 MAX_CRUISE_AGL_M = 120.0
+# Lowest supported FW_R_LIM in docs/reference/px4-pinned-fw-vtol-params.json.
+DELTA_FW_BANK_LIMIT_DEG = 35.0
+DELTA_FW_PITCH_RANGE_DEG = (-10.0, 15.0)
+DELTA_LONG_RANGE_GIMBAL_PITCH_DEG = -56.0
 
 
 def minimum_distance_for_extent(extent_m: float) -> float:
@@ -187,6 +192,45 @@ def _terrain_agl(dem, ned: tuple[float, float, float]) -> float:
     return dem.origin_elevation_m - dem.sample_local(north, east).elevation_m - down
 
 
+def _delta_fw_turn_envelope(geometry, profile, bank_limit_deg, gimbal_pitch_deg):
+    if (type(bank_limit_deg) not in (int, float) or not math.isfinite(bank_limit_deg)
+            or bank_limit_deg != DELTA_FW_BANK_LIMIT_DEG or bank_limit_deg > profile["max_bank_deg"]):
+        raise ValueError("Delta long-range FW_R_LIM must be 35 degrees")
+
+    # Delta camera is attached to MC FRD, B_mc = B_fw Ry(-90°). With a
+    # yaw pivot to the wing's forward azimuth, the ZXY joint solution is
+    # (yaw, roll, pitch) = (FW bank, 0, 90° + camera pitch - FW pitch).
+    pitch_low, pitch_high = DELTA_FW_PITCH_RANGE_DEG
+    witness_pitch = (90 + gimbal_pitch_deg - pitch_high, 90 + gimbal_pitch_deg - pitch_low)
+    joint_pitch_low, joint_pitch_high = profile["camera"]["gimbal"]["angle_range_deg"]["pitch"]
+    # The Gazebo quaternion command carrier also requires |joint pitch| < 90°.
+    if (witness_pitch[0] < max(joint_pitch_low, -89.9)
+            or witness_pitch[1] > min(joint_pitch_high, 89.9)):
+        raise ValueError("long-range gimbal_pitch_deg must cover the Delta FW pitch envelope")
+
+    # Size the circle for maximum profile airspeed plus its wind allowance.
+    # At constant airspeed and wind smaller than airspeed, the greatest
+    # acceleration required for a ground circle occurs directly downwind.
+    speed = profile["max_airspeed_mps"] + profile["endurance"]["wind_margin_mps"]
+    envelope = coordinated_turn_envelope(
+        true_airspeed_mps=speed, radius_m=geometry.loiter_radius_m, bank_limit_deg=bank_limit_deg
+    )
+    if not envelope["within_configured_bank_limit"]:
+        raise ValueError("Delta long-range loiter radius is too small for its FW bank and speed envelope")
+    return {
+        "px4_fw_bank_limit_deg": bank_limit_deg,
+        "guided_ground_speed_mps": profile["cruise_airspeed_mps"],
+        "guided_loiter_radius_m": geometry.loiter_radius_m,
+        "turn_design_speed_mps": speed,
+        "required_bank_at_radius_deg": envelope["required_bank_deg"],
+        "minimum_turn_radius_m": envelope["minimum_radius_at_bank_limit_m"],
+        "assumed_fw_pitch_range_deg": DELTA_FW_PITCH_RANGE_DEG,
+        "camera_world_pitch_deg": gimbal_pitch_deg,
+        "gimbal_witness": {"yaw_reference": "wing_forward_azimuth", "joint_roll_deg": 0.0,
+                           "joint_pitch_range_deg": witness_pitch},
+    }
+
+
 def _audit_delta_route(geometry, targets, data, dem, minimum):
     start = (0.0, 0.0, -geometry.takeoff_altitude_m)
     farthest = max(targets, key=lambda point: math.hypot(*point[:2]))
@@ -259,14 +303,18 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
     if not math.isfinite(extent) or extent < MIN_WIDE_EXTENT_M:
         raise ValueError(f"long-range extent_m must be at least {MIN_WIDE_EXTENT_M:g}")
     terrain = agl_envelope = None
-    gimbal_pitch_deg = None
+    gimbal_pitch_deg = fw_turn_envelope = None
     if airframe == DELTA:
         gimbal_config = profile["camera"]["gimbal"]
-        gimbal_pitch_deg = data.get("gimbal_pitch_deg", gimbal_config["default_angles_deg"]["fw"]["pitch"])
+        gimbal_pitch_deg = data.get("gimbal_pitch_deg", DELTA_LONG_RANGE_GIMBAL_PITCH_DEG)
         lower, upper = gimbal_config["angle_range_deg"]["pitch"]
         if (type(gimbal_pitch_deg) not in (int, float) or not math.isfinite(gimbal_pitch_deg)
                 or not lower <= gimbal_pitch_deg <= upper):
             raise ValueError("long-range gimbal_pitch_deg must be finite and within profile pitch limits")
+        sim_params = dict(data.get("sim_params", {}))
+        sim_params.setdefault("FW_R_LIM", DELTA_FW_BANK_LIMIT_DEG)
+        fw_turn_envelope = _delta_fw_turn_envelope(geometry, profile, sim_params["FW_R_LIM"], gimbal_pitch_deg)
+        data = {**data, "sim_params": sim_params, "gimbal_pitch_deg": gimbal_pitch_deg}
         if extent != 6000 or not 40 <= geometry.takeoff_altitude_m <= 90:
             raise ValueError("VTOL requires a 6 km world and a 40–90 m vertical climb")
         if data.get("capture_interval_sim_s") != 6.0:
@@ -280,7 +328,7 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
             raise ValueError("VTOL mission home does not match the DEM origin")
         agl_envelope = _audit_delta_route(geometry, targets, data, terrain, minimum)
     return {"source": data, "geometry": geometry, "compiled": compiled, "airframe": airframe,
-            "gimbal_pitch_deg": gimbal_pitch_deg,
+            "gimbal_pitch_deg": gimbal_pitch_deg, "fw_turn_envelope": fw_turn_envelope,
             "terrain": terrain, "planned_agl_envelope_m": agl_envelope,
             "targets": targets, "minimum_max_distance_m": minimum,
             "planned_max_distance_m": maximum, "minimum_rtf": required_rtf,
@@ -365,7 +413,9 @@ def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
         "boundary": {"east_min_m": -half, "east_max_m": half,
                      "north_min_m": -half, "north_max_m": half}}
     if is_vtol:
-        body.update(kind="vtol", capture_interval_sim_s=6.0)
+        body.update(kind="vtol", capture_interval_sim_s=6.0,
+                    gimbal_pitch_deg=DELTA_LONG_RANGE_GIMBAL_PITCH_DEG)
+        body["sim_params"]["FW_R_LIM"] = DELTA_FW_BANK_LIMIT_DEG
     destination = sidecar_path(scenario)
     destination.write_text(json.dumps(body, ensure_ascii=False, indent=2) + "\n")
     load_mission(scenario)  # Compiler validates route, turns, approach and energy before delivery.
@@ -404,10 +454,11 @@ def collection_plan(scenario: Path, out: Path, slot: int, mission: dict[str, Any
 class LongRangePolicy:
     def __init__(self, targets: list[tuple[float, float, float]], radius: float, *, vtol: bool = False,
                  gimbal_pitch_deg: float = -45.0, gimbal_mode: str = "lock",
-                 gimbal_yaw_mode: str = "follow") -> None:
+                 gimbal_yaw_mode: str = "follow", fw_speed_mps: float | None = None) -> None:
         self.targets = iter(targets)
         self.radius = radius
         self.vtol = vtol
+        self.fw_speed_mps = fw_speed_mps
         self.gimbal_mode, self.gimbal_yaw_mode = gimbal_mode, gimbal_yaw_mode
         self.cruise_gimbal_target = (
             {"pitch": float(gimbal_pitch_deg), "yaw": 0.0, "roll": 0.0} if vtol else None
@@ -422,7 +473,7 @@ class LongRangePolicy:
         target = next(self.targets, None)
         if target is None:
             return next(self.return_actions, None) or ActionPrimitive.stop()
-        return MotionCommand("reposition", target_ned=target, radius_m=self.radius,
+        return MotionCommand("reposition", target_ned=target, radius_m=self.radius, speed_mps=self.fw_speed_mps,
                              action=ActionPrimitive.hold(1.0),
                              mode="FW" if self.vtol else None,
                              metadata={"long_range_home_relative": True})
@@ -611,8 +662,10 @@ def main(argv: list[str] | None = None) -> int:
                           "planned_max_distance_m": mission["planned_max_distance_m"],
                           "planned_agl_envelope_m": mission["planned_agl_envelope_m"],
                           "fw_waypoints_home_ned_m": mission["targets"] if is_vtol else None,
+                          "fw_turn_envelope": mission["fw_turn_envelope"],
                           "gimbal_stabilization": ({"mode": args.gimbal_mode,
-                                                     "yaw_mode": args.gimbal_yaw_mode}
+                                                     "yaw_mode": args.gimbal_yaw_mode,
+                                                     "target_pitch_deg": mission["gimbal_pitch_deg"]}
                                                     if is_vtol else None),
                           "compiled_mission_uploaded": False,
                           "compiled_mission": mission["compiled"].to_mapping(),
@@ -628,6 +681,7 @@ def main(argv: list[str] | None = None) -> int:
             if is_vtol:
                 policy = LongRangePolicy(
                     mission["targets"], mission["geometry"].loiter_radius_m, vtol=True,
+                    fw_speed_mps=mission["fw_turn_envelope"]["guided_ground_speed_mps"],
                     gimbal_pitch_deg=mission["gimbal_pitch_deg"],
                     gimbal_mode=args.gimbal_mode, gimbal_yaw_mode=args.gimbal_yaw_mode,
                 )
@@ -666,7 +720,7 @@ def main(argv: list[str] | None = None) -> int:
               "compiled_mission_uploaded": False}
     if is_vtol:
         result.update(capture_ok=capture_ok, cruise_video=metadata.get("video"),
-                      gimbal_check=metadata.get("gimbal_check"))
+                      gimbal_check=metadata.get("gimbal_check"), fw_turn_envelope=mission["fw_turn_envelope"])
     (out / "long-range-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if passed else 1

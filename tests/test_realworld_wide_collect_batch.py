@@ -74,9 +74,17 @@ if row["airframe"] == "delta_tailsitter_gimbal_cam":
              "gimbal_state": {"roll_rad": 0, "pitch_rad": 0, "yaw_rad": 0,
                               "reference_frame": "body_FRD", "source": "gazebo_joint_state",
                               "timestamp_ns": 1000, "frame_timestamp_ns": 1000,
-                              "age_ms": 0, "skew_ms": 0, "fresh": True},
+                              "age_ms": 0, "skew_ms": 0, "fresh": True,
+                              "stabilization": {"mode": "lock", "measurement_fresh": True,
+                                                "horizon_feasible": True, "horizon_error_deg": 1.0,
+                                                "horizon_degraded": False, "yaw_degraded": True,
+                                                "yaw_error_deg": 32.0}},
              "camera_pose": {"center_ned": [0, 0, 0], "optical_to_world": [1,0,0,0,1,0,0,0,1],
                              "reference_frame": "NED", "extrinsics_source": "fixture.sdf", "age_ms": 0}}
+    if mode == "missing_horizon":
+        del frame["gimbal_state"]["stabilization"]
+    elif mode == "bad_horizon":
+        frame["gimbal_state"]["stabilization"]["horizon_error_deg"] = 9.0
     (episode / "video/manifest.jsonl").write_text(json.dumps(frame) + chr(10))
     metadata["gimbal_check"] = {"passed": True, "frame_count": 1}
 (episode / "episode.json").write_text(json.dumps(metadata))
@@ -139,6 +147,11 @@ def test_expand_airframe_defaults_overrides_and_identity(spec):
     assert inherited["matrix"]["scenario"] == str(delta_scenario)
     assert inherited["inputs"]["airframe"] == inherited["matrix"]["airframe"] == delta
     assert overridden["job_id"] == original["jobs"][0]["job_id"]
+    assert inherited["job_id"] != batch.digest({
+        **inherited["inputs"],
+        "roots": {key: inherited["matrix"][key] for key in batch.ROOT_FIELDS if key in inherited["matrix"]},
+        "schema_version": 1,
+    })
     explicit_source = {**job, "scenario": inherited["matrix"]["scenario"]}
     explicit = batch.expand({**spec, "jobs": [
         {**explicit_source, "airframe": delta}, {**explicit_source, "airframe": rc},
@@ -254,11 +267,23 @@ def test_delta_stages_vtol_geometry_and_checks_matrix_airframe(spec, matrix, tmp
     assert batch.run_batch(plan, matrix) == 1
     rejected, = rows(root / "results.jsonl")
     assert rejected["errors"] == ["matrix_airframe_mismatch"]
+    monkeypatch.setenv("FAKE_MATRIX_MODE", "missing_horizon")
+    assert batch.run_batch(plan, matrix) == 1
+    missing = rows(root / "results.jsonl")[-1]
+    assert "horizon_data_missing" in missing["errors"]
+    assert missing["horizon_acceptance"]["missing_frames"] == 1
+    monkeypatch.setenv("FAKE_MATRIX_MODE", "bad_horizon")
+    assert batch.run_batch(plan, matrix) == 1
+    bad = rows(root / "results.jsonl")[-1]
+    assert bad["errors"] == ["horizon_feasible_p95_exceeded", "horizon_feasible_max_exceeded"]
+    assert not (root / "accepted.jsonl").exists()
     monkeypatch.delenv("FAKE_MATRIX_MODE")
     assert batch.run_batch(plan, matrix) == 0
     accepted, = rows(root / "accepted.jsonl")
     assert accepted["inputs"]["airframe"] == DELTA
     assert accepted["frame_count"] == 1
+    assert accepted["horizon_acceptance"]["passed"] is True
+    assert accepted["horizon_acceptance"]["yaw_degraded_fraction"] == 1
 
 
 def test_size_and_frames_counts_only_the_airframe_layout(tmp_path):

@@ -159,10 +159,12 @@ def expand(spec):
             else "artifacts/cache/gz-fuel/resolved")))
         inputs = dict(site=site, altitude_m=float(altitude), time_of_day=tod, weather=wx, seed=seed,
                       scenario=str(scenario), max_artifact_bytes=maximum)
-        # Keep the legacy RC identity and omit execution placement from capture identity.
+        # A legacy Delta verdict does not cover the horizon gate.
+        # Keep legacy RC identity and omit execution placement from capture identity.
         if airframe != AIRFRAME:
             inputs["airframe"] = airframe
-        job_id = digest({**inputs, "roots": roots, "schema_version": 1})
+        job_id = digest({**inputs, "roots": roots,
+                         "schema_version": 2 if airframe == DELTA_AIRFRAME else 1})
         if job_id not in jobs:
             jobs[job_id] = {"job_id": job_id, "inputs": inputs, "weather_preset": preset,
                             "slot": slots[len(jobs) % len(slots)],
@@ -336,17 +338,29 @@ def evaluate(attempt, job, batch, rc):
         errors.append("episode_stats_container_mismatch")
     if episode.get("status") != "complete":
         errors.append("episode_not_complete")
+    gimbal_evidence = {}
     if airframe == DELTA_AIRFRAME:
         from multidetect.sim_teacher.gimbal_recording import check_gimbal_manifest
+        from scripts.realworld.horizon_report import summarize as summarize_horizon
 
         gimbal_check = episode.get("gimbal_check")
-        current = (check_gimbal_manifest(episode_dirs[0].parent / "video" / "manifest.jsonl")
-                   if len(episode_dirs) == 1 else {"passed": False, "frame_count": 0})
+        manifest = (episode_dirs[0].parent / "video" / "manifest.jsonl"
+                    if len(episode_dirs) == 1 else None)
+        current = (check_gimbal_manifest(manifest)
+                   if manifest is not None else {"passed": False, "frame_count": 0})
         if (not isinstance(gimbal_check, dict) or gimbal_check.get("passed") is not True
                 or current["passed"] is not True
                 or current["frame_count"] != frames
                 or gimbal_check.get("frame_count") != current["frame_count"]):
             errors.append("gimbal_state_missing")
+        horizon = {"passed": False, "errors": ["horizon_data_missing"]}
+        if manifest is not None:
+            try:
+                horizon = summarize_horizon(manifest)["horizon_acceptance"]
+            except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:
+                horizon["error"] = str(exc)
+        errors.extend(horizon["errors"])
+        gimbal_evidence["horizon_acceptance"] = horizon
     return {"accepted": not errors, "errors": errors, "matrix_returncode": rc,
             "valid_round": raw.get("valid_round") is True, "route_completed": raw.get("route_completed") is True,
             "round_errors": raw.get("round_errors", []), "container_id": container_id,
@@ -354,7 +368,8 @@ def evaluate(attempt, job, batch, rc):
             "rtf_window_median": rtf if number(rtf) else None,
             "rtf_delta_sim_over_delta_real": ratio if number(ratio) else None,
             "max_distance_from_spawn_m": distance if number(distance) else None,
-            "frame_count": frames, "artifact_bytes": artifact_bytes, "episode_bytes": episode_bytes}
+            "frame_count": frames, "artifact_bytes": artifact_bytes, "episode_bytes": episode_bytes,
+            **gimbal_evidence}
 
 
 def indexed(path, key, *, repair_tail=False):
