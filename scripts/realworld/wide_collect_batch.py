@@ -478,6 +478,9 @@ def run_locked(batch, command, lock_fd):
             if job_id not in accepted:
                 accepted[job_id] = record
                 atomic_text(accepted_path, "".join(dump(row) + "\n" for row in accepted.values()))
+        elif (os.environ.get("WIDE_COLLECT_KEEP_HORIZON_REJECTED") == "1"
+              and record.get("errors") and all(str(e).startswith("horizon_") for e in record["errors"])):
+            pass  # keep episodes rejected only by the horizon gate, for diagnosis (stored on NAS, ~160 MB each)
         else:
             remove_episodes(attempt)
         if record["attempt_id"] not in results:
