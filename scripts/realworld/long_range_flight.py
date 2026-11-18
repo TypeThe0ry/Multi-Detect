@@ -191,7 +191,7 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None) -> dict[st
     return {"source": data, "geometry": geometry, "compiled": compiled,
             "targets": targets, "minimum_max_distance_m": minimum,
             "planned_max_distance_m": maximum, "minimum_rtf": required_rtf,
-            "profile": str(manifest["scenario_id"])}
+            "profile": str(manifest["scenario_id"]), "seed": runtime_input.get("seed", 91000)}
 
 
 def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
@@ -273,8 +273,8 @@ def collection_plan(scenario: Path, out: Path, slot: int, mission: dict[str, Any
     seconds = float(mission["source"].get("max_wall_s", 14400.0))
     return collector.CollectionPlan(
         str(scenario), str(runtime), str(truth), "explore", 1,
-        len(mission["targets"]) + 1, 91000, str(out), airframe=AIRFRAME,
-        smoke_flight=True, container_prefix=f"md-rw-long-slot-{slot}",
+        len(mission["targets"]) + 1, mission.get("seed", 91000), str(out), airframe=AIRFRAME,
+        smoke_flight=True, container_prefix=os.environ.get("MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX", f"md-rw-long-slot-{slot}"),
         control_port=14560 + 10 * slot, telemetry_port=14561 + 10 * slot,
         timeout_s=seconds, max_episode_s=seconds,
         takeoff_altitude_m=geometry.takeoff_altitude_m,

@@ -17,6 +17,9 @@ WINDOW_S=${RTF_MATRIX_WINDOW_S:-120}
 WARMUP_S=${RTF_MATRIX_WARMUP_S:-45}
 INTERVAL_S=${RTF_MATRIX_INTERVAL_S:-2}
 OUT=${RTF_MATRIX_OUT:-$ROOT/.tmp/rtf-matrix-$(date -u +%Y%m%dT%H%M%SZ)}
+SINGLE_ROUND=${RTF_MATRIX_SINGLE_ROUND:-0}
+RUN_TAG=${RTF_MATRIX_RUN_TAG:-}
+GPU_UUID=
 MANIFEST=
 
 usage() {
@@ -25,8 +28,9 @@ usage() {
 
 FILE 是 JSON 数组；每项至少包含 name、scenario、resolved_root、extent_m，
 可选 airframe（默认 rc_cessna_mono_cam）。每项会在 RTF_MATRIX_SLOT 指定的 slot 顺序执行，
-仅允许 slot 5、6、7（默认 7），固定使用 GPU 1；
+仅允许 slot 5、6、7（默认 7），可使用 GPU 1（默认）或 GPU 3；
 固定翼长航程由 .venv-vlm 运行，stats 采样由同一项目环境运行。
+RTF_MATRIX_SINGLE_ROUND=1 时要求恰好一项，直接写入 --out，不重试或清理 episode。
 
 可无人值守运行：
   systemd-run --user --unit=multidetect-rtf-matrix --collect \\
@@ -47,6 +51,7 @@ done
 [[ -x "$SITL_PYTHON" ]] || { echo "缺少 SITL Python：$SITL_PYTHON" >&2; exit 2; }
 [[ "$SLOT" =~ ^[567]$ ]] || { echo "只允许 slot 5、6、7" >&2; exit 2; }
 [[ "$GPU" =~ ^[13]$ ]] || { echo "矩阵只允许 GPU1 或 GPU3（RTF_MATRIX_GPU）" >&2; exit 2; }
+[[ -z "$RUN_TAG" || "$RUN_TAG" =~ ^[a-z0-9]{1,32}$ ]] || { echo "无效的 RTF_MATRIX_RUN_TAG" >&2; exit 2; }
 mkdir -p "$OUT"
 
 export PYTHONPATH="$ROOT/src:$ROOT"
@@ -125,7 +130,7 @@ preflight() {
 }
 
 run_one() {
-  local row=$1 attempt=$2 name scenario root extent airframe overlay model_root world_root map_root terrain_root server_config run_dir flight_pid stats_rc flight_rc
+  local row=$1 attempt=$2 name scenario root extent airframe overlay model_root world_root map_root terrain_root server_config run_dir flight_pid stats_rc flight_rc prefix
   name=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$row")
   scenario=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["scenario"])' "$row")
   root=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["resolved_root"])' "$row")
@@ -137,7 +142,8 @@ run_one() {
   server_config=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("server_config", ""))' "$row")
   extent=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["extent_m"])' "$row")
   airframe=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("airframe","rc_cessna_mono_cam"))' "$row")
-  run_dir="$OUT/$name/attempt-$attempt"
+  run_dir=${3:-"$OUT/$name/attempt-$attempt"}
+  prefix="md-rw-long-slot-$SLOT${RUN_TAG:+-$RUN_TAG}"
   mkdir -p "$run_dir"
   echo "[$name] extent=${extent}m scenario=$scenario" | tee "$run_dir/status.log"
   export MULTIDETECT_SIM_FUEL_RESOLVED_ROOT=$(realpath "$root")
@@ -147,18 +153,18 @@ run_one() {
   if [[ -n "$map_root" ]]; then export MULTIDETECT_RTF_MAP_ROOT=$(realpath "$map_root"); else unset MULTIDETECT_RTF_MAP_ROOT; fi
   if [[ -n "$terrain_root" ]]; then export MULTIDETECT_RTF_TERRAIN_ROOT=$(realpath "$terrain_root"); else unset MULTIDETECT_RTF_TERRAIN_ROOT; fi
   if [[ -n "$server_config" ]]; then export MULTIDETECT_RTF_SERVER_CONFIG=$(realpath "$server_config"); else unset MULTIDETECT_RTF_SERVER_CONFIG; fi
-  "$SITL_PYTHON" scripts/realworld/long_range_flight.py "$SLOT" "$scenario" "$run_dir/flight" >"$run_dir/flight.stdout.log" 2>&1 &
+  MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX="$prefix" "$SITL_PYTHON" scripts/realworld/long_range_flight.py "$SLOT" "$scenario" "$run_dir/flight" >"$run_dir/flight.stdout.log" 2>&1 &
   flight_pid=$!
   trap 'if kill -0 "$flight_pid" 2>/dev/null; then kill "$flight_pid" 2>/dev/null || true; fi' RETURN
   set +e
-  "$TOOLS_PYTHON" scripts/realworld/sample_stats.py --container-prefix "md-rw-long-slot-$SLOT-" --gpu "$GPU" \
+  "$TOOLS_PYTHON" scripts/realworld/sample_stats.py --container-prefix "$prefix-" --gpu "$GPU" \
     --warmup-s "$WARMUP_S" --window-s "$WINDOW_S" --interval-s "$INTERVAL_S" --out "$run_dir/stats.json"
   stats_rc=$?
   wait "$flight_pid"
   flight_rc=$?
   set -e
   trap - RETURN
-  "$TOOLS_PYTHON" - "$run_dir" "$name" "$extent" "$airframe" "$stats_rc" "$flight_rc" "$attempt" "$SLOT" "$row" <<'PY'
+  "$TOOLS_PYTHON" - "$run_dir" "$name" "$extent" "$airframe" "$stats_rc" "$flight_rc" "$attempt" "$SLOT" "$row" "$GPU_UUID" <<'PY'
 import json,sys
 from pathlib import Path
 out=Path(sys.argv[1]); stats_path=out/'stats.json'; flight_path=out/'flight/long-range-result.json'
@@ -185,7 +191,7 @@ row={'name':sys.argv[2], 'variant':manifest.get("variant",sys.argv[2].split("_")
      'airframe':sys.argv[4], 'stats_returncode':int(sys.argv[5]), 'flight_returncode':int(sys.argv[6]),
      'route_completed':route, 'max_distance_from_spawn_m':distance, 'flight_status':flight.get("status"),
      'container_name_slot_verified':slot_name_ok, 'valid_round':valid, 'round_errors':issues,
-     'measurement_complete':False}
+     'measurement_complete':False, 'gpu_uuid':sys.argv[10] or None}
 row.update(stats)
 (out/'result.json').write_text(json.dumps(row,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 print(json.dumps(row,ensure_ascii=False))
@@ -194,6 +200,22 @@ PY
   local result_rc=$?
   return "$result_rc"
 }
+
+if [[ "$SINGLE_ROUND" == 1 ]]; then
+  row=$(json_rows)
+  [[ -n "$row" && "$row" != *$'\n'* ]] || { echo "单轮模式要求一项 manifest" >&2; exit 2; }
+  attempt=${RTF_MATRIX_ATTEMPT:-1}
+  [[ "$attempt" =~ ^[1-9][0-9]*$ ]] || { echo "无效的 RTF_MATRIX_ATTEMPT" >&2; exit 2; }
+  GPU_UUID=$(nvidia-smi -i "$GPU" --query-gpu=uuid --format=csv,noheader)
+  [[ "$GPU_UUID" =~ ^GPU-[a-fA-F0-9-]+$ ]] || { echo "无法确认 GPU$GPU UUID" >&2; exit 1; }
+  lock_root=${RTF_MATRIX_GPU_LOCK_ROOT:-/data/scratch/multidetect-rtf-gpu-locks}
+  mkdir -p "$lock_root"
+  exec {gpu_lock}>"$lock_root/$GPU_UUID.lock"
+  flock -w "$WAIT_S" "$gpu_lock" || { echo "等待 GPU$GPU 租约超时" >&2; exit 1; }
+  preflight
+  run_one "$row" "$attempt" "$OUT"
+  exit 0
+fi
 
 : > "$OUT/matrix.jsonl"
 MAX_ATTEMPTS=${RTF_MATRIX_MAX_ATTEMPTS:-3}
