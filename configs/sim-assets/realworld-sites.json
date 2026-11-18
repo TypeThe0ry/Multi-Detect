@@ -53,6 +53,14 @@
       "kind": "urban",
       "provider": "swiss"
     },
+    "rw_city_zurich_w6km": {
+      "title": "苏黎世老城与湖滨",
+      "lat": 47.366373353,
+      "lon": 8.554568286,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "swiss"
+    },
     "rw_alpine_grindelwald": {
       "title": "格林德瓦山村",
       "lat": 46.6245,
