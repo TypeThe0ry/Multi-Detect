@@ -349,7 +349,9 @@ def evaluate(attempt, job, batch, rc):
         horizon = {"passed": False, "errors": ["horizon_data_missing"]}
         if manifest is not None:
             try:
-                horizon = summarize_horizon(manifest)["horizon_acceptance"]
+                # Batch jobs request the default lock mode. Do not silently
+                # admit a tracking capture under the lock collection identity.
+                horizon = summarize_horizon(manifest, expected_mode="lock")["horizon_acceptance"]
             except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:
                 horizon["error"] = str(exc)
         errors.extend(horizon["errors"])

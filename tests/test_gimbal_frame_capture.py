@@ -344,3 +344,14 @@ def test_batch_admission_checks_every_frame_even_if_summary_claims_success(tmp_p
     assert verdict["accepted"] is (damage is None)
     assert ("gimbal_state_missing" in verdict["errors"]) is (damage is not None)
 
+
+
+def test_world_target_position_uses_amsl_and_global_sample_clock():
+    state = _state()
+    state.messages["GLOBAL_POSITION_INT"].update(alt=340000, time_boot_ms=950)
+    obs = build_observation(_frame(), state)
+    assert obs["pose"]["alt_m"] == 30.0
+    assert obs["pose"]["alt_amsl_m"] == 340.0
+    assert obs["pose"]["global_position_skew_ms"] == 50.0
+    del state.messages["GLOBAL_POSITION_INT"]["alt"]
+    assert build_observation(_frame(), state)["pose"]["alt_amsl_m"] is None

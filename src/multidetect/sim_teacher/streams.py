@@ -1179,6 +1179,12 @@ def build_observation(
             "lat_deg": float(_field(global_pos, "lat", 0)) / 1e7,
             "lon_deg": float(_field(global_pos, "lon", 0)) / 1e7,
             "alt_m": float(_field(global_pos, "relative_alt", 0)) / 1000.0,
+            "alt_amsl_m": (float(_field(global_pos, "alt")) / 1000.0
+                           if _finite_number(_field(global_pos, "alt")) else None),
+            "global_position_skew_ms": (
+                sensor.sensor_stamp_ns / 1e6 - _field(global_pos, "time_boot_ms")
+                if _finite_number(_field(global_pos, "time_boot_ms")) else None
+            ),
         },
         "attitude": {
             "roll_deg": math.degrees(float(_field(attitude, "roll", 0.0))),
