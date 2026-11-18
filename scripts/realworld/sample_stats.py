@@ -104,6 +104,22 @@ def host_sample() -> dict:
     return {"loadavg": list(os.getloadavg()), "cpu_count": os.cpu_count(), "pressure": pressure}
 
 
+def window_rtf_median(stats: list[dict]) -> float | None:
+    """Median of adjacent Gazebo Δsim/Δreal, including a stalled (zero RTF) clock.
+
+    Shared by the fixed measurement and the collection watchdog. A clock reset
+    invalidates the window; host wall time is never substituted for Gazebo time.
+    """
+    values = []
+    for previous, current in zip(stats, stats[1:]):
+        sim = current["sim_time_s"] - previous["sim_time_s"]
+        real = current["real_time_s"] - previous["real_time_s"]
+        if not math.isfinite(sim) or not math.isfinite(real) or sim < 0 or real <= 0:
+            return None
+        values.append(sim / real)
+    return median(values) if values else None
+
+
 def summarize(stats: list[dict], resources: list[dict], errors: list[str]) -> dict:
     issues = list(errors)
     sim_delta = real_delta = host_delta = rtf = host_rtf = None
@@ -148,7 +164,7 @@ def summarize(stats: list[dict], resources: list[dict], errors: list[str]) -> di
             issues.append("stats and resource sampling windows do not overlap")
     return {"measurement_complete": not issues, "errors": issues,
             "rtf_delta_sim_over_delta_real": rtf, "rtf_delta_sim_over_host_monotonic": host_rtf,
-            "rtf_window_median": median(window_rtfs) if window_rtfs else None,
+            "rtf_window_median": window_rtf_median(stats) if rtf is not None else None,
             "rtf_window_sample_count": len(window_rtfs),
             "delta_sim_s": sim_delta, "delta_gazebo_real_s": real_delta,
             "delta_host_monotonic_s": host_delta, "stats_sample_count": len(stats),

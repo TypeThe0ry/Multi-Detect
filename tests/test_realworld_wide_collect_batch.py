@@ -29,6 +29,9 @@ def spec(tmp_path):
 
 @pytest.fixture
 def matrix(tmp_path, monkeypatch):
+    from scripts.realworld import collection_guard
+    monkeypatch.setattr(collection_guard, "gpu_blockers", lambda _gpu: [])
+    monkeypatch.setattr(collection_guard.os, "getloadavg", lambda: (1.0, 1.0, 1.0))
     monkeypatch.setattr(batch, "MIN_FREE_BYTES", 0)
     command = tmp_path / "fake-rtf-matrix"
     command.write_text(f"#!{sys.executable}\n" + '''
@@ -311,6 +314,64 @@ def test_oversize_valid_round_is_rejected(spec, matrix):
     assert not (root / "accepted.jsonl").exists()
 
 
+def test_voided_attempt_requeues_at_tail_and_records_load_and_retry_count(spec, matrix, monkeypatch):
+    spec["jobs"].append({**spec["jobs"][0], "seed": 43})
+    spec["retry_backoff_s"] = 0
+    spec["retry_backoff_max_s"] = 0
+    plan = batch.expand(spec)
+    seen = []
+
+    def attempt(path, job, _batch, _command, _lock_fd, gate):
+        seen.append(job["inputs"]["seed"])
+        void = job["inputs"]["seed"] == 42 and seen.count(42) == 1
+        return {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{path.name}",
+                "attempt_dir": str(path), "accepted": not void, "errors": ["voided:load_spike"] if void else [],
+                "voided_reason": "load_spike" if void else None, "start_load": gate["start_load"],
+                "max_load": 135 if void else 47, "valid_round": not void, "frame_count": 1}
+
+    monkeypatch.setattr(batch, "run_attempt", attempt)
+    monkeypatch.setattr("scripts.realworld.collection_guard.wait_for_start",
+                        lambda *_: {"start_load": 47, "waited_s": 0})
+    assert batch.run_batch(plan, matrix) == 0
+    assert seen == [42, 43, 42]
+    records = rows(Path(plan["output_root"]) / "results.jsonl")
+    assert records[0]["voided_reason"] == "load_spike"
+    assert records[0]["start_load"] == 47 and records[0]["max_load"] == 135
+    assert records[0]["requeue_count"] == 1
+    assert records[0]["retry_exhausted"] is False
+    assert records[0]["next_retry_at"] is not None
+    assert records[2]["accepted"] is True
+
+
+def test_void_retry_limit_and_accepted_job_are_persistent(spec, matrix, monkeypatch):
+    spec["jobs"].append({**spec["jobs"][0], "seed": 43})
+    spec["max_retries"] = 1
+    spec["retry_backoff_s"] = spec["retry_backoff_max_s"] = 0
+    plan = batch.expand(spec)
+    calls = []
+
+    def attempt(path, job, _batch, _command, _lock_fd, gate):
+        calls.append(job["inputs"]["seed"])
+        void = job["inputs"]["seed"] == 42
+        return {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{path.name}",
+                "attempt_dir": str(path), "inputs": job["inputs"], "accepted": not void, "errors": [],
+                "voided_reason": "rtf_drop" if void else None, "start_load": gate["start_load"],
+                "max_load": 47, "valid_round": not void, "frame_count": 1}
+
+    monkeypatch.setattr(batch, "run_attempt", attempt)
+    monkeypatch.setattr("scripts.realworld.collection_guard.wait_for_start",
+                        lambda *_: {"start_load": 47, "waited_s": 0})
+    assert batch.run_batch(plan, matrix) == 1
+    assert calls == [42, 43, 42]
+    assert batch.run_batch(plan, matrix) == 1
+    assert calls == [42, 43, 42]
+    records = rows(Path(plan["output_root"]) / "results.jsonl")
+    assert [row["requeue_count"] for row in records if row["job_id"] == plan["jobs"][0]["job_id"]] == [1, 1]
+    assert records[-1]["retry_exhausted"] is True
+    accepted = rows(Path(plan["output_root"]) / "accepted.jsonl")
+    assert [row["inputs"]["seed"] for row in accepted] == [43]
+
+
 def test_interrupted_before_checkpoint_is_cleaned_and_recorded(spec, matrix):
     plan = batch.expand(spec)
     root = Path(plan["output_root"])
@@ -343,6 +404,23 @@ def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, s
     python.write_text('''#!/bin/bash
 set -e
 case "$1" in
+  */collection_guard.py)
+    action="$2"; shift 2
+    while (($#)); do case "$1" in --out) out="$2"; shift 2;; --flight-command) flight_json="$2"; shift 2;; --stats-command) stats_json="$2"; shift 2;; *) shift;; esac; done
+    mkdir -p "$out"
+    if [[ "$action" == gate ]]; then printf '{"start_load":1,"waited_s":0}' > "$out/gate.json"; exit 0; fi
+    flight_out=$("$FAKE_REAL_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])[4])' "$flight_json")
+    stats_out=$("$FAKE_REAL_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])[-1])' "$stats_json")
+    frame_dir="$flight_out/episodes/episode-fixture/rgb"; frame_name=000001.png
+    if [[ "$FAKE_EXPECTED_AIRFRAME" == delta_tailsitter_gimbal_cam ]]; then frame_dir="$flight_out/episodes/episode-fixture/video/rgb"; frame_name=000001.jpg; fi
+    mkdir -p "$frame_dir"
+    printf '{"route_completed":true,"max_distance_from_spawn_m":4100}' > "$flight_out/long-range-result.json"
+    printf 'data' > "$frame_dir/$frame_name"
+    printf '{"status":"complete","simulator_container":{"container_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","container_name":"md-rw-long-slot-5-test-episode"}}' > "$flight_out/episodes/episode-fixture/episode.json"
+    printf '{"container_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","container_name":"md-rw-long-slot-5-test-episode","measurement_complete":%s,"rtf_window_median":0.95,"errors":[]}' "$FAKE_VALID" > "$stats_out"
+    printf '{"start_load":1,"max_load":1,"voided_reason":null,"flight_returncode":0,"stats_returncode":0}' > "$out/guard.json"
+    exit 0
+    ;;
   */long_range_flight.py)
     [[ "$MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX" == md-rw-long-slot-5-test ]]
     if [[ -n "$FAKE_EXPECTED_AIRFRAME" ]]; then

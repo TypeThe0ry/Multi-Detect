@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+from collections import deque
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -96,7 +98,10 @@ def validate_airframe(value, field):
 
 def expand(spec):
     unknown = spec.keys() - {"batch_id", "gpu", "slots", "share_gpu", "output_root", "jobs",
-                             "airframe", "max_artifact_bytes", *ROOT_FIELDS}
+                             "airframe", "max_artifact_bytes", *ROOT_FIELDS,
+                             "start_load_max", "start_wait_s", "poll_interval_s", "abort_rtf",
+                             "abort_load_max", "abort_duration_s", "rtf_window_s", "max_retries",
+                             "retry_backoff_s", "retry_backoff_max_s"}
     if unknown:
         raise ValueError(f"unknown batch fields: {', '.join(sorted(unknown))}")
     default_airframe = validate_airframe(spec.get("airframe", AIRFRAME), "airframe")
@@ -168,7 +173,9 @@ def expand(spec):
     if not isinstance(batch_id, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", batch_id):
         raise ValueError("batch_id must be a plain identifier")
     output_root = absolute(spec.get("output_root", str(BATCHES / batch_id)), "output_root")
-    return {"schema_version": 1, "batch_id": batch_id, "output_root": str(output_root),
+    from scripts.realworld.collection_guard import DEFAULTS, settings
+    guard = settings({key: spec[key] for key in DEFAULTS if key in spec})
+    return {"schema_version": 1, "batch_id": batch_id, "output_root": str(output_root), **guard,
             "gpu": gpu, "slots": slots, "share_gpu": share_gpu, "jobs": list(jobs.values())}
 
 
@@ -362,10 +369,12 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def run_attempt(attempt, job, batch, command, lock_fd):
+def run_attempt(attempt, job, batch, command, lock_fd, gate):
     record = {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{attempt.name}",
               "attempt_dir": str(attempt), "gpu": batch["gpu"], "slot": job["slot"],
-              "inputs": job["inputs"], "started_at": now()}
+              "inputs": job["inputs"], "started_at": now(), "start_load": gate["start_load"],
+              "max_load": gate["start_load"], "voided_reason": None, "requeue_count": 0,
+              "retry_exhausted": False, "next_retry_at": None}
     try:
         staged, assets = prepare(job, attempt / "scenario")
         record["assets"] = assets
@@ -378,16 +387,35 @@ def run_attempt(attempt, job, batch, command, lock_fd):
         env = dict(os.environ, RTF_MATRIX_GPU=str(batch["gpu"]), RTF_MATRIX_SLOT=str(job["slot"]),
                    RTF_MATRIX_SINGLE_ROUND="1", RTF_MATRIX_ATTEMPT=attempt.name.split("-")[-1],
                    RTF_MATRIX_RUN_TAG=hashlib.sha256(os.urandom(16)).hexdigest()[:16],
+                   RTF_MATRIX_START_LOAD_MAX=str(batch["start_load_max"]),
+                   RTF_MATRIX_START_WAIT_S=str(batch["start_wait_s"]),
+                   RTF_MATRIX_POLL_INTERVAL_S=str(batch["poll_interval_s"]),
+                   RTF_MATRIX_ABORT_RTF=str(batch["abort_rtf"]),
+                   RTF_MATRIX_ABORT_LOAD_MAX=str(batch["abort_load_max"]),
+                   RTF_MATRIX_ABORT_DURATION_S=str(batch["abort_duration_s"]),
+                   RTF_MATRIX_RTF_WINDOW_S=str(batch["rtf_window_s"]),
                    MULTIDETECT_SITL_SLOTS="8")
         if batch["share_gpu"] is not None:
             env["RTF_MATRIX_SHARE_GPU"] = str(int(batch["share_gpu"]))
         manifest = attempt / "manifest.json"
+        atomic_text(attempt / "gate.json", dump(gate) + "\n")
         atomic_text(manifest, dump([{**job["matrix"], "scenario": str(staged)}]) + "\n")
         with (attempt / "matrix.stdout.log").open("wb") as log:
             proc = subprocess.run([str(command), "--manifest", str(manifest), "--out", str(attempt)],
                                   cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
                                   pass_fds=(lock_fd,), check=False)
         record.update(evaluate(attempt, job, batch, proc.returncode))
+        guard_path = attempt / "guard.json"
+        if guard_path.exists():
+            guard = read_object(guard_path)
+            for key in ("start_load", "max_load", "voided_reason", "rtf_window_median"):
+                value = guard.get(key)
+                if value is not None:
+                    record[key] = value
+            if record["voided_reason"]:
+                record["accepted"] = False
+                record["errors"] = [f"voided:{record['voided_reason']}"]
+                record["valid_round"] = False
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         record.update(accepted=False, errors=[f"attempt_error: {exc}"])
     record["finished_at"] = now()
@@ -432,8 +460,12 @@ def run_locked(batch, command, lock_fd):
             sync_dir(root)
             results[record["attempt_id"]] = record
 
+    from scripts.realworld.collection_guard import GateTimeout, settings, wait_for_start
+    config = settings({key: batch[key] for key in batch if key in settings()})
+    queue = deque(batch["jobs"])
     pending = False
-    for job in batch["jobs"]:
+    while queue:
+        job = queue.popleft()
         job_id = job["job_id"]
         job_dir = root / "jobs" / job_id
         attempts = sorted((path for path in job_dir.glob("attempt-*")
@@ -448,7 +480,9 @@ def run_locked(batch, command, lock_fd):
                 record = read_object(checkpoint)
             else:
                 record = {"job_id": job_id, "attempt_id": attempt_id, "attempt_dir": str(attempt),
-                          "accepted": False, "errors": ["interrupted_before_batch_verdict"], "finished_at": now()}
+                          "accepted": False, "errors": ["interrupted_before_batch_verdict"],
+                          "start_load": None, "max_load": None, "voided_reason": None,
+                          "requeue_count": 0, "finished_at": now()}
                 atomic_text(checkpoint, dump(record) + "\n")
             if record["attempt_id"] != attempt_id or record["job_id"] != job_id:
                 raise ValueError(f"attempt checkpoint identity mismatch: {checkpoint}")
@@ -463,12 +497,69 @@ def run_locked(batch, command, lock_fd):
             print(f"PAUSED: {free} bytes free; next job {job_id}", file=sys.stderr)
             return 75
         paused.unlink(missing_ok=True)
+        prior = [row for row in results.values() if row.get("job_id") == job_id]
+        voided = [row for row in prior if row.get("voided_reason")]
+        requeues = max((row.get("requeue_count", 0) for row in prior), default=0)
+        if len(voided) > batch["max_retries"]:
+            pending = True
+            continue
         next_attempt = 1 if not attempts else int(attempts[-1].name.split("-")[-1]) + 1
+        if voided:
+            delay = min(batch["retry_backoff_s"] * (2 ** max(0, requeues - 1)), batch["retry_backoff_max_s"])
+            deadline = voided[-1].get("next_retry_epoch", 0)
+            remaining = max(delay, deadline - time.time())
+            if remaining > 0 and queue:
+                from scripts.realworld.collection_guard import write_status
+                write_status(root / "WAITING", {"state": "WAITING", "reason": "retry_backoff",
+                                                  "job_id": job_id, "requeue_count": requeues,
+                                                  "wait_remaining_s": remaining})
+                queue.append(job)
+                continue
+            if remaining > 0:
+                time.sleep(remaining)
         attempt = job_dir / f"attempt-{next_attempt}"
         attempt.mkdir(parents=True)
-        record = run_attempt(attempt, job, batch, command, lock_fd)
+        gate = None
+        try:
+            gate = wait_for_start(root / "WAITING", batch["gpu"], config)
+            write_status = __import__("scripts.realworld.collection_guard", fromlist=["write_status"]).write_status
+            write_status(attempt / "gate.json", gate)
+            record = run_attempt(attempt, job, batch, command, lock_fd, gate)
+        except GateTimeout as exc:
+            record = {"job_id": job_id, "attempt_id": f"{job_id}/{attempt.name}",
+                      "attempt_dir": str(attempt), "accepted": False, "errors": [str(exc)],
+                      "start_load": None, "max_load": None, "voided_reason": None,
+                      "requeue_count": requeues, "finished_at": now()}
+        record.setdefault("requeue_count", requeues)
+        record.setdefault("start_load", gate.get("start_load") if gate else None)
+        record.setdefault("max_load", record.get("start_load"))
+        record.setdefault("voided_reason", None)
+        record.setdefault("retry_exhausted", False)
+        record.setdefault("next_retry_at", None)
         publish(attempt, record)
-        pending |= not record["accepted"]
+        if record.get("voided_reason"):
+            new_requeues = requeues + 1 if requeues < batch["max_retries"] else requeues
+            record["requeue_count"] = new_requeues
+            if new_requeues > requeues:
+                delay = min(batch["retry_backoff_s"] * (2 ** max(0, new_requeues - 1)),
+                            batch["retry_backoff_max_s"])
+                record["next_retry_epoch"] = time.time() + delay
+                record["next_retry_at"] = datetime.fromtimestamp(
+                    record["next_retry_epoch"], timezone.utc).isoformat()
+                record["retry_exhausted"] = False
+            else:
+                record["next_retry_at"] = None
+                record["retry_exhausted"] = True
+            # Refresh the append-only row and checkpoint with retry metadata.
+            results[record["attempt_id"]] = record
+            atomic_text(attempt / "batch-result.json", dump(record) + "\n")
+            atomic_text(results_path, "".join(dump(row) + "\n" for row in results.values()))
+            if new_requeues > requeues:
+                queue.append(job)
+            else:
+                pending = True
+        else:
+            pending |= not record["accepted"]
         print(f"{job_id} {attempt.name}: {'accepted' if record['accepted'] else 'rejected'}")
     paused.unlink(missing_ok=True)
     return int(pending)
