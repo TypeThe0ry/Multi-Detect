@@ -170,3 +170,103 @@ def test_exactly_fifteen_percent_unavailable_is_accepted(tmp_path):
     horizon = summarize(path)["horizon_acceptance"]
     assert horizon["passed"]
     assert horizon["unavailable_fraction"] == 0.15
+
+
+def track_row(pointing, *, reachable=True, horizon=80, fresh=True):
+    result = row(horizon, mode="track", fresh=fresh)
+    result["gimbal_state"]["stabilization"] = {
+        "mode": "track", "target_ref": {"kind": "world_point", "lat_deg": 42,
+                                          "lon_deg": -93, "alt_m": 300},
+        "pointing_error_deg": pointing, "target_reachable": reachable,
+        "horizon_error_deg": horizon, "horizon_feasible_given_target": False,
+        "measurement_fresh": fresh,
+    }
+    return result
+
+
+def test_track_acceptance_has_separate_reachable_pointing_and_horizon_statistics(tmp_path):
+    path = tmp_path / "manifest.jsonl"
+    # P95 exactly 2°, max exactly 5°, plus unreachable target errors that must
+    # remain visible without polluting the reachable pointing threshold.
+    frames = [track_row(2) for _ in range(39)] + [track_row(5)]
+    frames += [track_row(140, reachable=False)]
+    path.write_text("\n".join(map(json.dumps, frames)))
+    report = summarize(path, expected_mode="track")
+    track = report["track_acceptance"]
+    assert report["passed"] and track["passed"]
+    assert track["reachable_pointing_error"]["p95_deg"] == 2
+    assert track["reachable_pointing_error"]["max_deg"] == 5
+    assert track["unreachable_frames"] == 1
+    assert track["unreachable_pointing_error"]["max_deg"] == 140
+    assert track["horizon_error"]["max_deg"] == 80
+    assert track["horizon_infeasible_given_target_frames"] == 41
+    assert report["horizon_acceptance"]["frame_count"] == 0
+    assert not report["horizon_acceptance"]["passed"]
+    assert summarize(path)["passed"]
+    assert main([str(path), "--expected-mode", "track"]) == 0
+
+
+@pytest.mark.parametrize("frames,reason", [
+    ([track_row(5.01)] + [track_row(1) for _ in range(20)], "track_reachable_max_exceeded"),
+    ([track_row(2.01)], "track_reachable_p95_exceeded"),
+    ([track_row(0, fresh=False)], "track_measurement_stale"),
+    ([track_row(0, reachable=None)], "track_data_missing"),
+    ([track_row(100, reachable=False)], "track_no_reachable_frames"),
+    ([track_row(float("nan"))], "track_data_missing"),
+    ([track_row(-1)], "track_data_missing"),
+    ([track_row(0), {"event": "truncated"}], "track_manifest_truncated"),
+])
+def test_track_acceptance_rejects_bad_pointing_and_incomplete_evidence(tmp_path, frames, reason):
+    path = tmp_path / "manifest.jsonl"
+    path.write_text("\n".join(map(json.dumps, frames)))
+    report = summarize(path, expected_mode="track")
+    assert not report["passed"]
+    assert reason in report["track_acceptance"]["errors"]
+
+
+@pytest.mark.parametrize("field", ["target_ref", "pointing_error_deg", "target_reachable",
+                                  "horizon_error_deg", "horizon_feasible_given_target"])
+def test_track_requires_per_frame_schema(tmp_path, field):
+    frame = track_row(1)
+    del frame["gimbal_state"]["stabilization"][field]
+    path = tmp_path / "manifest.jsonl"
+    path.write_text(json.dumps(frame))
+    assert "track_data_missing" in summarize(path)["track_acceptance"]["errors"]
+
+
+def test_vertical_track_can_report_undefined_horizon_without_rejection(tmp_path):
+    frame = track_row(0.1, horizon=None)
+    frame["gimbal_state"]["stabilization"]["horizon_feasible_given_target"] = None
+    path = tmp_path / "manifest.jsonl"
+    path.write_text(json.dumps(frame))
+    result = summarize(path)
+    assert result["passed"]
+    assert result["track_acceptance"]["horizon_error"]["count"] == 0
+    assert result["track_acceptance"]["horizon_unknown_given_target_frames"] == 1
+
+
+def test_mixed_track_and_lock_use_independent_gates_and_explicit_expected_mode(tmp_path):
+    path = tmp_path / "manifest.jsonl"
+    path.write_text("\n".join(map(json.dumps, [row(1), track_row(0.1)])))
+    result = summarize(path)
+    assert result["passed"]
+    assert result["horizon_acceptance"]["frame_count"] == 1
+    assert result["track_acceptance"]["frame_count"] == 1
+    assert "track_unexpected_mode_frames" in summarize(path, expected_mode="track")["track_acceptance"]["errors"]
+    assert "horizon_unexpected_track_frames" in summarize(path, expected_mode="lock")["horizon_acceptance"]["errors"]
+    path.write_text("\n".join(map(json.dumps, [row(9), track_row(0.1)])))
+    assert not summarize(path)["passed"]
+    path.write_text("\n".join(map(json.dumps, [row(1), track_row(6)])))
+    assert not summarize(path)["passed"]
+
+
+def test_track_iowa_coverage_is_separate_from_lock(tmp_path):
+    path = tmp_path / "manifest.jsonl"
+    frames = [{**track_row(0.1), "flight_state": {"vtol_state": state},
+               "attitude": {"roll_deg": 35, "pitch_deg": -85}}
+              for state in (1, 2, 3, 4) for _ in range(2)]
+    path.write_text("\n".join(map(json.dumps, frames)))
+    assert summarize(path, require_iowa_coverage=True, expected_mode="track")["passed"]
+    path.write_text("\n".join(map(json.dumps, frames[:-1])))
+    assert "track_iowa_coverage_missing" in summarize(
+        path, require_iowa_coverage=True, expected_mode="track")["track_acceptance"]["errors"]

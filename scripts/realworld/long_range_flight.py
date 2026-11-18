@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import asdict, replace
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ from multidetect.px4_mission import (  # noqa: E402
     FixedWingMissionGeometry, Px4FixedWingSafetyPolicy, Px4MissionSafetyPolicy, VtolMissionGeometry,
 )
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
+from multidetect.sim_teacher.target_tracking import WorldTarget, track_cli_argv  # noqa: E402
 from multidetect.simulation.turn_envelope import coordinated_turn_envelope  # noqa: E402
 from multidetect.terrain_dem import load_local_dem_grid  # noqa: E402
 from scripts.realworld.leased_flight import SITL_PYTHON  # noqa: E402
@@ -454,12 +456,17 @@ def collection_plan(scenario: Path, out: Path, slot: int, mission: dict[str, Any
 class LongRangePolicy:
     def __init__(self, targets: list[tuple[float, float, float]], radius: float, *, vtol: bool = False,
                  gimbal_pitch_deg: float = -45.0, gimbal_mode: str = "lock",
-                 gimbal_yaw_mode: str = "follow", fw_speed_mps: float | None = None) -> None:
+                 gimbal_yaw_mode: str = "follow", fw_speed_mps: float | None = None,
+                 track_targets: tuple[WorldTarget, ...] = ()) -> None:
         self.targets = iter(targets)
         self.radius = radius
         self.vtol = vtol
         self.fw_speed_mps = fw_speed_mps
         self.gimbal_mode, self.gimbal_yaw_mode = gimbal_mode, gimbal_yaw_mode
+        self.track_targets = tuple(track_targets)
+        if self.gimbal_mode == "track" and not self.track_targets:
+            logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
+            self.gimbal_mode = "lock"
         self.cruise_gimbal_target = (
             {"pitch": float(gimbal_pitch_deg), "yaw": 0.0, "roll": 0.0} if vtol else None
         )
@@ -606,14 +613,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--airframe", choices=AIRFRAME_PROFILES,
                         help="select a named profile's airframe or verify an explicit scenario")
     parser.add_argument("--plan-only", action="store_true")
-    parser.add_argument("--gimbal-mode", choices=("lock", "follow"), default="lock")
+    parser.add_argument("--gimbal-mode", choices=("lock", "follow", "track"), default="lock")
+    parser.add_argument("--track-target", type=WorldTarget.parse, action="append", default=[],
+                        metavar="LAT,LON,ALT_M", help="world target, altitude AMSL metres (repeatable)")
     parser.add_argument("--gimbal-yaw-mode", choices=("lock", "follow"), default="follow")
     parser.add_argument("--horizon-video-hz", type=float,
                         help="override X1 video sampling rate in simulation seconds")
     parser.add_argument("--write-mission", action="store_true", help="为已有独立 scenario 生成可复现长航程 sidecar")
     parser.add_argument("--extent-m", type=float, default=6000.0)
     parser.add_argument("--min-rtf", type=float, default=None)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(track_cli_argv(sys.argv[1:] if argv is None else argv))
+    if args.gimbal_mode == "track" and not args.track_target:
+        logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
+        args.gimbal_mode = "lock"
     if int(os.environ.get("MULTIDETECT_SITL_SLOTS", "8")) < 8:
         parser.error("long-range validation requires MULTIDETECT_SITL_SLOTS>=8")
     try:
@@ -643,6 +655,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
     plan = collection_plan(scenario, out, args.slot, mission)
     is_vtol = mission["airframe"] == DELTA
+    if args.gimbal_mode == "track" and not is_vtol:
+        parser.error("--gimbal-mode track requires the Delta C11 gimbal")
+    if is_vtol:
+        plan = replace(plan, gimbal_mode=args.gimbal_mode, track_targets=tuple(args.track_target))
     if args.horizon_video_hz is not None:
         if not is_vtol or not math.isfinite(args.horizon_video_hz) or args.horizon_video_hz <= 0:
             parser.error("--horizon-video-hz requires X1 and a finite positive rate")
@@ -665,6 +681,7 @@ def main(argv: list[str] | None = None) -> int:
                           "fw_turn_envelope": mission["fw_turn_envelope"],
                           "gimbal_stabilization": ({"mode": args.gimbal_mode,
                                                      "yaw_mode": args.gimbal_yaw_mode,
+                                                     "track_targets": [asdict(point) for point in args.track_target],
                                                      "target_pitch_deg": mission["gimbal_pitch_deg"]}
                                                     if is_vtol else None),
                           "compiled_mission_uploaded": False,
@@ -684,6 +701,7 @@ def main(argv: list[str] | None = None) -> int:
                     fw_speed_mps=mission["fw_turn_envelope"]["guided_ground_speed_mps"],
                     gimbal_pitch_deg=mission["gimbal_pitch_deg"],
                     gimbal_mode=args.gimbal_mode, gimbal_yaw_mode=args.gimbal_yaw_mode,
+                    track_targets=tuple(args.track_target),
                 )
                 episode = collector.run_episode(plan, Path(plan.truth), 0,
                                                 policy_override=policy, land_after_route=True)
@@ -721,6 +739,16 @@ def main(argv: list[str] | None = None) -> int:
     if is_vtol:
         result.update(capture_ok=capture_ok, cruise_video=metadata.get("video"),
                       gimbal_check=metadata.get("gimbal_check"), fw_turn_envelope=mission["fw_turn_envelope"])
+    if is_vtol and args.gimbal_mode == "track":
+        from scripts.realworld.horizon_report import summarize
+
+        try:
+            track_acceptance = summarize(episode, expected_mode="track")["track_acceptance"]
+        except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:
+            track_acceptance = {"passed": False, "errors": ["track_data_missing"], "error": str(exc)}
+        result["track_acceptance"] = track_acceptance
+        passed = passed and track_acceptance["passed"]
+        result["status"] = "pass" if passed else "fail"
     (out / "long-range-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if passed else 1

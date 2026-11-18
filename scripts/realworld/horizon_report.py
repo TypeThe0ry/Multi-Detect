@@ -45,6 +45,8 @@ HORIZON_P95_DEG = 4.0
 HORIZON_MAX_DEG = 8.0
 HORIZON_DEGRADED_MAX_FRACTION = 0.05
 HORIZON_UNAVAILABLE_MAX_FRACTION = 0.15
+TRACK_P95_DEG = 2.0
+TRACK_MAX_DEG = 5.0
 
 
 def percentile(values, fraction):
@@ -60,12 +62,21 @@ def finite_number(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
-def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverage=False):
+def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverage=False,
+              expected_mode=None):
     if not 0 <= threshold_deg <= HORIZON_P95_DEG:
         raise ValueError(f"P95 threshold must be in [0, {HORIZON_P95_DEG}] degrees")
+    if expected_mode not in (None, "lock", "track"):
+        raise ValueError("expected_mode must be lock, track or None")
     if path.is_dir():
         path = path / "video" / "manifest.jsonl"
-    groups = {mode: [] for mode in ("lock", "follow")}
+    groups = {mode: [] for mode in ("lock", "follow", "track")}
+    mode_counts = dict.fromkeys(groups, 0)
+    track_missing = track_stale = track_reachable = track_unreachable = track_unknown = 0
+    track_horizon_feasible = track_horizon_infeasible = track_horizon_unknown = 0
+    track_errors, track_unreachable_errors = [], []
+    track_coverage = dict.fromkeys(IOWA_MIN_FRAMES, 0)
+    horizon_stale = 0
     frames = missing = stale = degraded = 0
     truncated = False
     stages = {}
@@ -96,12 +107,58 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
             stabilization = state.get("stabilization") or {}
             error = stabilization.get("horizon_error_deg")
             mode = stabilization.get("mode")
+            if mode in mode_counts:
+                mode_counts[mode] += 1
             if mode in groups and (
                 state.get("fresh") is not True or stabilization.get("measurement_fresh") is not True
             ):
                 stale += 1
             if (stabilization.get("control") or {}).get("degraded") is True:
                 degraded += 1
+            if mode == "track":
+                pointing = stabilization.get("pointing_error_deg")
+                reachable = stabilization.get("target_reachable")
+                horizon_possible = stabilization.get("horizon_feasible_given_target")
+                valid_pointing = finite_number(pointing) and 0 <= pointing <= 180
+                valid_horizon = error is None or (finite_number(error) and error >= 0)
+                valid_track = (
+                    valid_pointing and type(reachable) is bool
+                    and bool(stabilization.get("target_ref"))
+                    and "horizon_error_deg" in stabilization and valid_horizon
+                    and "horizon_feasible_given_target" in stabilization
+                    and (type(horizon_possible) is bool or horizon_possible is None)
+                )
+                track_missing += not valid_track
+                missing += not valid_track
+                fresh = state.get("fresh") is True and stabilization.get("measurement_fresh") is True
+                track_stale += not fresh
+                track_reachable += reachable is True
+                track_unreachable += reachable is False
+                track_unknown += type(reachable) is not bool
+                track_horizon_feasible += horizon_possible is True
+                track_horizon_infeasible += horizon_possible is False
+                track_horizon_unknown += type(horizon_possible) is not bool
+                if valid_pointing:
+                    if reachable is True:
+                        track_errors.append(pointing)
+                    elif reachable is False:
+                        track_unreachable_errors.append(pointing)
+                if finite_number(error) and error >= 0:
+                    groups["track"].append(error)
+                if fresh:
+                    attitude = row.get("attitude") or {}
+                    roll = attitude.get("roll_deg")
+                    vtol = VTOL_STATES.get((row.get("flight_state") or {}).get("vtol_state"))
+                    if vtol in {"transition_to_fw", "transition_to_mc"}:
+                        track_coverage[vtol] += 1
+                    elif vtol == "mc":
+                        track_coverage["mc_hover"] += 1
+                    elif vtol == "fw" and finite_number(roll) and 25 <= abs(roll) <= 180:
+                        track_coverage["banked_fw"] += 1
+                continue
+            horizon_stale += mode in groups and (
+                state.get("fresh") is not True or stabilization.get("measurement_fresh") is not True
+            )
             valid_measurement = mode in groups and finite_number(error) and error >= 0
             reachability = stabilization.get("horizon_feasible")
             valid_reachability = "horizon_feasible" in stabilization and (
@@ -183,27 +240,30 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
     lock = groups["lock"]
     coverage_ok = all(coverage[phase] >= count for phase, count in IOWA_MIN_FRAMES.items())
     legacy_strict_passed = (
-        bool(lock) and not groups["follow"] and not truncated
+        bool(lock) and not mode_counts["follow"] and not mode_counts["track"] and not truncated
         and missing == stale == 0 and max(lock) <= threshold_deg
         and (coverage_ok or not require_iowa_coverage)
     )
     recommended_passed = (
-        bool(feasible_errors) and not groups["follow"] and not truncated
+        bool(feasible_errors) and not mode_counts["follow"] and not mode_counts["track"] and not truncated
         and missing == stale == feasibility_unknown == 0
         and percentile(feasible_errors, 0.95) <= threshold_deg
         and (coverage_ok or not require_iowa_coverage)
     )
     horizon_stats = stats(horizon_errors)
-    horizon_unavailable = frames - horizon_feasible
-    unavailable_fraction = horizon_unavailable / frames if frames else None
+    horizon_frames = frames - mode_counts["track"]
+    horizon_unavailable = horizon_frames - horizon_feasible
+    unavailable_fraction = horizon_unavailable / horizon_frames if horizon_frames else None
     degraded_fraction = horizon_degraded / horizon_feasible if horizon_feasible else None
     gate_errors = []
-    if not frames or horizon_missing:
+    if not horizon_frames or horizon_missing:
         gate_errors.append("horizon_data_missing")
-    if stale:
+    if horizon_stale:
         gate_errors.append("horizon_measurement_stale")
-    if groups["follow"]:
+    if mode_counts["follow"]:
         gate_errors.append("horizon_follow_frames")
+    if expected_mode == "lock" and mode_counts["track"]:
+        gate_errors.append("horizon_unexpected_track_frames")
     if truncated:
         gate_errors.append("horizon_manifest_truncated")
     if not horizon_errors:
@@ -229,7 +289,7 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
             "unavailable_max_fraction": HORIZON_UNAVAILABLE_MAX_FRACTION,
             "require_iowa_coverage": require_iowa_coverage,
         },
-        "frame_count": frames,
+        "frame_count": horizon_frames,
         "feasible_frames": horizon_feasible,
         "feasible_error": horizon_stats,
         "infeasible_frames": horizon_infeasible,
@@ -239,16 +299,67 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
         "degraded_frames": horizon_degraded,
         "degraded_fraction_of_feasible": degraded_fraction if not horizon_degraded_unknown else None,
         "missing_frames": horizon_missing,
-        "stale_frames": stale,
+        "stale_frames": horizon_stale,
         "yaw_degraded_frames": yaw_degraded_frames,
-        "yaw_degraded_fraction": yaw_degraded_frames / frames if frames and not yaw_degraded_unknown else None,
+        "yaw_degraded_fraction": (yaw_degraded_frames / horizon_frames
+                                  if horizon_frames and not yaw_degraded_unknown else None),
         "yaw_degraded_absolute_error": stats(yaw_errors),
     }
+    track_stats = stats(track_errors)
+    track_gate_errors = []
+    if not mode_counts["track"] or track_missing:
+        track_gate_errors.append("track_data_missing")
+    if track_stale:
+        track_gate_errors.append("track_measurement_stale")
+    if truncated:
+        track_gate_errors.append("track_manifest_truncated")
+    if expected_mode == "track" and frames != mode_counts["track"]:
+        track_gate_errors.append("track_unexpected_mode_frames")
+    if not track_errors:
+        track_gate_errors.append("track_no_reachable_frames")
+    else:
+        if track_stats["p95_deg"] > TRACK_P95_DEG:
+            track_gate_errors.append("track_reachable_p95_exceeded")
+        if track_stats["max_deg"] > TRACK_MAX_DEG:
+            track_gate_errors.append("track_reachable_max_exceeded")
+    track_coverage_ok = all(track_coverage[phase] >= count for phase, count in IOWA_MIN_FRAMES.items())
+    if require_iowa_coverage and not track_coverage_ok:
+        track_gate_errors.append("track_iowa_coverage_missing")
+    track_acceptance = {
+        "passed": not track_gate_errors,
+        "errors": track_gate_errors,
+        "criteria": {"reachable_p95_max_deg": TRACK_P95_DEG, "reachable_max_deg": TRACK_MAX_DEG,
+                     "horizon_is_diagnostic_only": True, "require_iowa_coverage": require_iowa_coverage},
+        "frame_count": mode_counts["track"],
+        "reachable_frames": track_reachable,
+        "unreachable_frames": track_unreachable,
+        "unknown_frames": track_unknown,
+        "reachable_pointing_error": track_stats,
+        "unreachable_pointing_error": stats(track_unreachable_errors),
+        "horizon_error": stats(groups["track"]),
+        "horizon_feasible_given_target_frames": track_horizon_feasible,
+        "horizon_infeasible_given_target_frames": track_horizon_infeasible,
+        "horizon_unknown_given_target_frames": track_horizon_unknown,
+        "missing_frames": track_missing,
+        "stale_frames": track_stale,
+        "iowa_coverage": track_coverage,
+        "iowa_coverage_passed": track_coverage_ok,
+    }
+    if expected_mode == "track":
+        passed = track_acceptance["passed"]
+    elif expected_mode == "lock":
+        passed = horizon_acceptance["passed"]
+    else:
+        passed = ((not horizon_frames or horizon_acceptance["passed"])
+                  and (not mode_counts["track"] or track_acceptance["passed"]) and bool(frames))
     return {
         "horizon_acceptance": horizon_acceptance,
+        "track_acceptance": track_acceptance,
+        "expected_mode": expected_mode,
+        "mode_frame_counts": mode_counts,
         "horizon_only_lock": stats(diagnostic_horizon_errors),
         "horizon_only_p95_passed": (
-            bool(diagnostic_horizon_errors) and not groups["follow"] and not truncated
+            bool(diagnostic_horizon_errors) and not mode_counts["follow"] and not mode_counts["track"] and not truncated
             and missing == stale == feasibility_unknown == horizon_unknown == 0
             and percentile(diagnostic_horizon_errors, 0.95) <= threshold_deg
             and (coverage_ok or not require_iowa_coverage)
@@ -289,8 +400,8 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
         "iowa_coverage_passed": coverage_ok,
         "vertical_mc_frames": vertical_mc_frames,
         "legacy_strict_passed": legacy_strict_passed,
-        "passed": horizon_acceptance["passed"],
-        "scope": "recorded frames only; follow is not lock acceptance",
+        "passed": passed,
+        "scope": "recorded frames; lock horizon and track pointing are accepted independently; follow is rejected",
     }
 
 
@@ -300,10 +411,12 @@ def main(argv=None):
     parser.add_argument("--threshold-deg", type=float, default=HORIZON_P95_DEG,
                         help="stricter P95 error threshold on horizon-feasible frames (default: 4 degrees)")
     parser.add_argument("--require-iowa-coverage", action="store_true")
+    parser.add_argument("--expected-mode", choices=("lock", "track"))
     args = parser.parse_args(argv)
     try:
         result = summarize(args.path, threshold_deg=args.threshold_deg,
-                           require_iowa_coverage=args.require_iowa_coverage)
+                           require_iowa_coverage=args.require_iowa_coverage,
+                           expected_mode=args.expected_mode)
     except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:
         print(json.dumps({"passed": False, "error": str(exc)}))
         return 1

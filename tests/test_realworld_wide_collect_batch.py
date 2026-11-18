@@ -85,6 +85,10 @@ if row["airframe"] == "delta_tailsitter_gimbal_cam":
         del frame["gimbal_state"]["stabilization"]
     elif mode == "bad_horizon":
         frame["gimbal_state"]["stabilization"]["horizon_error_deg"] = 9.0
+    elif mode == "track":
+        frame["gimbal_state"]["stabilization"].update(
+            mode="track", target_ref={"kind": "world_point", "lat_deg": 42, "lon_deg": -93, "alt_m": 300},
+            pointing_error_deg=0.1, target_reachable=True, horizon_feasible_given_target=True)
     (episode / "video/manifest.jsonl").write_text(json.dumps(frame) + chr(10))
     metadata["gimbal_check"] = {"passed": True, "frame_count": 1}
 (episode / "episode.json").write_text(json.dumps(metadata))
@@ -276,6 +280,10 @@ def test_delta_stages_vtol_geometry_and_checks_matrix_airframe(spec, matrix, tmp
     assert batch.run_batch(plan, matrix) == 1
     bad = rows(root / "results.jsonl")[-1]
     assert bad["errors"] == ["horizon_feasible_p95_exceeded", "horizon_feasible_max_exceeded"]
+    monkeypatch.setenv("FAKE_MATRIX_MODE", "track")
+    assert batch.run_batch(plan, matrix) == 1
+    unexpected_track = rows(root / "results.jsonl")[-1]
+    assert "horizon_unexpected_track_frames" in unexpected_track["errors"]
     assert not (root / "accepted.jsonl").exists()
     monkeypatch.delenv("FAKE_MATRIX_MODE")
     assert batch.run_batch(plan, matrix) == 0

@@ -13,6 +13,7 @@ import csv
 import dataclasses
 import io
 import json
+import logging
 import math
 import os
 import queue
@@ -69,6 +70,9 @@ from multidetect.sim_teacher.gimbal_recording import (
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
 from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
     HorizonStabilizer, HostHorizonLoop,
+)
+from multidetect.sim_teacher.target_tracking import (  # noqa: E402
+    WorldTarget, track_cli_argv, world_target_from_mavlink,
 )
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.executor import (  # noqa: E402
@@ -752,8 +756,18 @@ class CollectionPlan:
     operator_port: int = 14580
     requested_image: str | None = None
     runtime_image_verification: dict | None = None
+    # None preserves policy-owned stabilization for existing collection tasks.
+    gimbal_mode: str | None = None
+    track_targets: tuple[WorldTarget, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.gimbal_mode not in {None, "lock", "follow", "track"}:
+            raise ValueError("gimbal_mode must be lock, follow or track")
+        if any(not isinstance(target, WorldTarget) for target in self.track_targets):
+            raise ValueError("track_targets must contain WorldTarget values")
+        if self.gimbal_mode == "track" and not self.track_targets:
+            logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
+            object.__setattr__(self, "gimbal_mode", "lock")
         # Bind the selected image before metadata, progress headers or Docker argv
         # are emitted. Later environment changes cannot silently change a plan.
         automatic_image = self.image is None and "MULTIDETECT_SIM_IMAGE" not in os.environ
@@ -3597,6 +3611,45 @@ def _snapshot_mavlink_state(state: MavlinkState) -> MavlinkState:
     )
 
 
+def _fresh_track_position(state: MavlinkState, *, now_ns: int, max_age_s: float = 0.2):
+    """Require fresh position on both host and PX4 clocks before aiming."""
+    message = state.get("GLOBAL_POSITION_INT")
+    received = state.received_monotonic_ns.get("GLOBAL_POSITION_INT")
+    stamp = _field(message, "time_boot_ms", None)
+    now_ms = state.vehicle_time_boot_ms
+    if None in (received, stamp, now_ms):
+        return None
+    if not (0 <= (now_ns - received) / 1e9 <= max_age_s
+            and 0 <= (now_ms - stamp) / 1000 <= max_age_s):
+        return None
+    return world_target_from_mavlink(message)
+
+
+def _collection_gimbal_config(plan: CollectionPlan, policy, profile):
+    """Resolve explicit collection options without modifying the flight policy."""
+    target = getattr(policy, "cruise_gimbal_target", None)
+    mode = plan.gimbal_mode or getattr(policy, "gimbal_mode", "lock")
+    track_targets = plan.track_targets or tuple(getattr(policy, "track_targets", ()))
+    if mode == "track" and not track_targets:
+        logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
+        mode = "lock"
+    if plan.gimbal_mode is not None:
+        if not _uses_gazebo_gimbal_body_joints(profile):
+            raise ValueError("--gimbal-mode requires the supported C11 simulation gimbal")
+        target = target or {"roll": 0.0, "pitch": -45.0, "yaw": 0.0}
+    return target, mode, getattr(policy, "gimbal_yaw_mode", "follow"), track_targets
+
+
+def _stabilization_command_settled(result, mode):
+    """Readback can settle on a nearest reachable pointing with tilted horizon."""
+    if result is None:
+        return False
+    if mode == "track":
+        return (type(result.get("target_reachable")) is bool
+                and not result.get("rate_limited", True))
+    return not result["horizon_degraded"]
+
+
 def _is_terminal_action(action: Any) -> bool:
     """Return whether a policy action terminates the primitive sequence."""
     return str(getattr(action, "kind", "")) == "stop"
@@ -6186,6 +6239,9 @@ def run_episode(
     else:
         policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
+    stabilization_target, stabilization_mode, stabilization_yaw_mode, track_targets = (
+        _collection_gimbal_config(plan, policy, airframe_profile)
+    )
     recorder = EpisodeRecorder(
         plan.out,
         episode_id,
@@ -6346,14 +6402,14 @@ def run_episode(
                 _progress("mover_driver_started", command=mover_driver["command"])
                 _wait_for_mover_driver_start(plan, environment, mover_driver)
                 _progress("mover_driver_initial_visibility_ready")
-            if getattr(policy, "cruise_gimbal_target", None):
+            if stabilization_target:
                 # GIMBAL_MANAGER_SET_ATTITUDE requires the MAVLink 2 dialect.
                 os.environ["MAVLINK20"] = "1"
             try:
                 from pymavlink import mavutil
             except ImportError as exc:
                 raise RuntimeError("pymavlink is required for a real SIM episode") from exc
-            if (getattr(policy, "cruise_gimbal_target", None)
+            if (stabilization_target
                     and mavutil.mavlink.WIRE_PROTOCOL_VERSION != "2.0"):
                 mavutil.set_dialect(mavutil.current_dialect)
             telemetry_connection = mavutil.mavlink_connection(
@@ -6721,7 +6777,7 @@ def run_episode(
 
             def _start_horizon_stabilization():
                 nonlocal horizon_loop, horizon_stabilizer
-                target = getattr(policy, "cruise_gimbal_target", None)
+                target = stabilization_target
                 if (
                     horizon_loop is not None
                     or not target
@@ -6749,10 +6805,13 @@ def run_episode(
                 # Request new ATTITUDE messages at the control cadence. A 50 Hz
                 # wall loop alone would just resend the same lower-rate telemetry.
                 attitude_interval_us = 20_000
-                for message_id, interval_us in (
+                intervals = [
                     (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, attitude_interval_us),
                     (mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE, 100_000),
-                ):
+                ]
+                if stabilization_mode == "track":
+                    intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, attitude_interval_us))
+                for message_id, interval_us in intervals:
                     telemetry_connection.mav.command_long_send(
                         *session.target, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
                         message_id, interval_us, 0, 0, 0, 0, 0,
@@ -6764,9 +6823,10 @@ def run_episode(
                 bounds["yaw"] = (max(bounds["yaw"][0], -179.9), min(bounds["yaw"][1], 179.9))
                 horizon_stabilizer = HorizonStabilizer(
                     target,
-                    mode=getattr(policy, "gimbal_mode", "lock"),
-                    yaw_mode=getattr(policy, "gimbal_yaw_mode", "follow"),
+                    mode=stabilization_mode,
+                    yaw_mode=stabilization_yaw_mode,
                     limits_deg=bounds,
+                    track_targets=track_targets,
                 )
 
                 def sample():
@@ -6791,7 +6851,9 @@ def run_episode(
                         a: math.degrees(float(_field(attitude, a, math.nan)))
                         for a in ("roll", "pitch", "yaw")
                     }
-                    return body, time.monotonic() - age, now_ms / 1000 if now_ms is not None else None
+                    position = _fresh_track_position(state, now_ns=time.monotonic_ns())
+                    return (body, time.monotonic() - age,
+                            now_ms / 1000 if now_ms is not None else None, position)
 
                 def send_quaternion(q):
                     return gimbal_send_gate.send(
@@ -6818,6 +6880,7 @@ def run_episode(
                     "mode": horizon_stabilizer.mode,
                     "yaw_mode": horizon_stabilizer.yaw_mode,
                     "target_deg": target,
+                    "track_targets": [asdict(point) for point in track_targets],
                     "host_hz": 50.0,
                     "requested_attitude_interval_us": attitude_interval_us,
                     "max_age_s": 0.2,
@@ -6833,7 +6896,7 @@ def run_episode(
                     horizon_loop.check()
                     result = horizon_stabilizer.last_result
                     status, _ = session.latest_attitude or (None, -1)
-                    if result is not None and not result["horizon_degraded"]:
+                    if _stabilization_command_settled(result, horizon_stabilizer.mode):
                         readback = _gimbal_readback(
                             mav_reader,
                             status,
@@ -7712,7 +7775,7 @@ def run_episode(
             # PX4 releases gimbal manager control once a land primitive starts
             # (255/190 -> 1/1 -> 0/0), so later pitch/yaw commands are DENIED.
             landing_started = False
-            cruise_gimbal_target = getattr(policy, "cruise_gimbal_target", None)
+            cruise_gimbal_target = stabilization_target
             _start_horizon_stabilization()
             if (horizon_loop is None and camera_mount is not None
                     and camera_mount.kind == "gimbal" and cruise_gimbal_target):
@@ -8509,6 +8572,10 @@ def build_parser() -> argparse.ArgumentParser:
         "observe from the hover stations (use with --no-vtol-hover-mission)",
     )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
+    parser.add_argument("--gimbal-mode", choices=("lock", "follow", "track"), default=None,
+                        help="C11 host stabilization; omitted keeps the existing policy default")
+    parser.add_argument("--track-target", type=WorldTarget.parse, action="append", default=[],
+                        metavar="LAT,LON,ALT_M", help="world target, altitude AMSL metres (repeatable)")
     parser.add_argument(
         "--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route"
     )
@@ -8671,7 +8738,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
-    args = build_parser().parse_args(list(argv) if argv is not None else None)
+    args = build_parser().parse_args(track_cli_argv(sys.argv[1:] if argv is None else argv))
     if args.long_range_profile:
         from scripts.realworld import long_range_flight
 
@@ -8701,6 +8768,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             "--airframe",
             airframe,
         ]
+        if args.gimbal_mode is not None:
+            delegated.extend(("--gimbal-mode", args.gimbal_mode))
+        for target in args.track_target:
+            delegated.append(f"--track-target={target.lat_deg},{target.lon_deg},{target.alt_m}")
         if args.dry_run:
             delegated.append("--plan-only")
         return long_range_flight.main(delegated)
@@ -8731,6 +8802,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SystemExit(f"scenario not found: {scenario}")
     runtime_path, truth_path = _scenario_channels(scenario)
     _airframe_profile(args.airframe)
+    if args.gimbal_mode is not None and not _uses_gazebo_gimbal_body_joints(_airframe_profile(args.airframe)):
+        raise SystemExit("--gimbal-mode requires the supported C11 simulation gimbal")
     _validate_runtime(runtime_path, args.airframe)
     sim_climb_timeout_injection = False
     if args.onboard_config is not None:
@@ -8817,6 +8890,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         ),
         worker_index=args.worker_index,
         operator_port=args.operator_port,
+        gimbal_mode=args.gimbal_mode,
+        track_targets=tuple(args.track_target),
     )
     _validate_spawn_clearance(plan)
     # Reject deterministic CPU configuration errors before contacting Docker.

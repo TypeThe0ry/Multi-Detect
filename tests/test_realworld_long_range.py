@@ -193,6 +193,63 @@ def test_delta_policy_reuses_guided_fw_and_mc_commands():
     assert actions[-2].speed_mps == 8
 
 
+def test_delta_track_cpu_plan_preserves_repeated_world_targets(monkeypatch, capsys):
+    from scripts import collect_sim_teacher_episodes as collector
+
+    monkeypatch.delenv("MULTIDETECT_SIM_LISTEN_HOST", raising=False)
+    monkeypatch.setattr(collector, "docker_command", lambda *_a, **_kw: pytest.fail("Docker planning invoked"))
+    assert flight.main(["7", "--profile", flight.DEFAULT_PROFILE, "--plan-only",
+                        "--gimbal-mode", "track", "--track-target", "42,-93,300",
+                        "--track-target", "42.001,-93.002,302"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    refs = [{"lat_deg": 42., "lon_deg": -93., "alt_m": 300.},
+            {"lat_deg": 42.001, "lon_deg": -93.002, "alt_m": 302.}]
+    assert plan["gimbal_stabilization"]["mode"] == "track"
+    assert plan["gimbal_stabilization"]["track_targets"] == refs
+    assert plan["collector_plan"]["gimbal_mode"] == "track"
+    assert plan["collector_plan"]["track_targets"] == refs
+
+
+def test_delta_track_without_target_warns_and_falls_back_to_lock(monkeypatch, capsys, caplog):
+    monkeypatch.delenv("MULTIDETECT_SIM_LISTEN_HOST", raising=False)
+    assert flight.main(["7", "--profile", flight.DEFAULT_PROFILE, "--plan-only",
+                        "--gimbal-mode", "track"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["gimbal_stabilization"]["mode"] == "lock"
+    assert plan["collector_plan"]["gimbal_mode"] == "lock"
+    assert "falling back to lock" in caplog.text
+
+
+@pytest.mark.parametrize("value", ["42,-93", "nan,0,0", "91,0,0", "0,181,0", "1,2,3,4"])
+def test_track_cli_rejects_invalid_world_targets(value):
+    with pytest.raises(SystemExit):
+        flight.main(["7", "--plan-only", "--track-target", value])
+
+
+def test_collector_delegates_track_options_and_targets(monkeypatch):
+    from scripts import collect_sim_teacher_episodes as collector
+
+    calls = []
+    monkeypatch.setattr(flight, "main", lambda argv: calls.append(argv) or 0)
+    assert collector.main(["--long-range-profile", flight.DEFAULT_PROFILE, "--teacher", "explore",
+                           "--episodes", "1", "--steps-per-episode", "10",
+                           "--dry-run", "--gimbal-mode", "track", "--track-target", "42,-93,300",
+                           "--track-target", "43,-94,301"]) == 0
+    argv = calls[0]
+    assert argv[argv.index("--gimbal-mode") + 1] == "track"
+    assert [value.partition("=")[2] for value in argv if value.startswith("--track-target=")] == [
+        "42.0,-93.0,300.0", "43.0,-94.0,301.0"]
+
+
+def test_track_cli_supports_space_form_with_negative_latitude(monkeypatch, capsys):
+    monkeypatch.delenv("MULTIDETECT_SIM_LISTEN_HOST", raising=False)
+    assert flight.main(["7", "--profile", flight.DEFAULT_PROFILE, "--plan-only",
+                        "--gimbal-mode", "track", "--track-target", "-35.3,149.1,600"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["gimbal_stabilization"]["track_targets"] == [
+        {"lat_deg": -35.3, "lon_deg": 149.1, "alt_m": 600.}]
+
+
 @pytest.mark.parametrize("pitch_deg", [-10, 0, 15])
 @pytest.mark.parametrize("bank_deg", [-35, 0, 35])
 def test_delta_turn_envelope_has_exact_horizon_witness(pitch_deg, bank_deg):

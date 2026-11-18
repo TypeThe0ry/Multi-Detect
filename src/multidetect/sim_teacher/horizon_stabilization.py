@@ -16,6 +16,10 @@ from collections import deque
 from collections.abc import Mapping
 
 from multidetect.camera_mount import _mat_mul, _mat_transpose, rpy_rotation
+from .target_tracking import (
+    WorldTarget, pointing_error_deg, solve_track_target, track_horizon_error_deg,
+    unit, world_offset_ned, world_target_direction,
+)
 
 AXES = ("roll", "pitch", "yaw")
 C11_LIMITS = {"roll": (-45.0, 45.0), "pitch": (-135.0, 45.0), "yaw": (-360.0, 360.0)}
@@ -336,14 +340,18 @@ class HorizonStabilizer:
         *,
         mode="lock",
         yaw_mode="follow",
+        track_targets=(),
         limits_deg=None,
         max_rate_deg_s=180.0,
         max_age_s=0.2,
     ):
-        if mode not in {"lock", "follow"} or yaw_mode not in {"lock", "follow"}:
-            raise ValueError("mode/yaw_mode must be lock or follow")
+        if mode not in {"lock", "follow", "track"} or yaw_mode not in {"lock", "follow"}:
+            raise ValueError("mode must be lock, follow or track; yaw_mode must be lock or follow")
         self.target_deg = dict(target_deg or {"roll": 0.0, "pitch": -45.0, "yaw": 0.0})
         self.mode, self.yaw_mode = mode, yaw_mode
+        self.track_targets = tuple(track_targets)
+        if any(not isinstance(target, WorldTarget) for target in self.track_targets):
+            raise ValueError("track_targets must contain WorldTarget points")
         self.limits_deg = dict(C11_LIMITS if limits_deg is None else limits_deg)
         self.rates = (
             {a: float(max_rate_deg_s[a]) for a in AXES}
@@ -374,8 +382,8 @@ class HorizonStabilizer:
         self._command_history = deque(maxlen=512)
         self._command_history_lock = threading.Lock()
 
-    def desired_rotation(self, body_deg, *, heading=None):
-        if self.mode == "follow":
+    def desired_rotation(self, body_deg, *, heading=None, mode=None):
+        if (mode or self.mode) == "follow":
             return _mat_mul(rotation_deg(body_deg), c11_rotation_deg(self.target_deg))
         desired = dict(self.target_deg)
         if self.yaw_mode == "follow":
@@ -383,7 +391,14 @@ class HorizonStabilizer:
             desired["yaw"] += body_deg["yaw"] if heading is None else heading
         return rotation_deg(desired)
 
-    def update(self, body_deg, *, now_s, attitude_time_s):
+    def set_mode(self, mode):
+        """Switch without resetting joint winding, slew state or queued history."""
+        if mode not in {"lock", "follow", "track"}:
+            raise ValueError("unknown gimbal mode")
+        self.mode = mode
+
+    def update(self, body_deg, *, now_s, attitude_time_s, position=None,
+               track_direction_ned=None, target_ref=None):
         reasons = []
         valid = (
             body_deg is not None
@@ -404,14 +419,40 @@ class HorizonStabilizer:
             if abs(math.cos(math.radians(body_deg["pitch"]))) < 1e-3 and self._heading is not None:
                 heading = self._heading
             self._heading = heading
+        direction = None
+        if self.mode == "track" and valid:
+            try:
+                if track_direction_ned is not None:
+                    direction = unit(track_direction_ned)
+                    target_ref = target_ref or {"kind": "direction_ned", "vector": list(direction)}
+                elif position is not None and self.track_targets:
+                    active = min(self.track_targets, key=lambda t: math.hypot(*world_offset_ned(position, t)))
+                    direction = world_target_direction(position, active)
+                    target_ref = active.reference()
+            except (ValueError, TypeError):
+                direction = None
+            if direction is None:
+                valid = False
+                reasons.append("track_target_or_position_missing_hold_last")
         desired = self.desired_rotation(body_deg, heading=self._heading) if valid else None
         target = dict(self.last_joint)
         geometry = {"target_pose_feasible": None, "horizon_feasible": None}
+        if self.mode == "track":
+            geometry = {"target_reachable": None, "horizon_feasible_given_target": None,
+                        "target_ref": target_ref, "target_direction_ned": direction}
         yaw_degraded = False
         bounded_horizon_target = False
         body_rotation = rotation_deg(body_deg) if valid else None
         if not valid:
             reasons.append("attitude_stale_or_invalid_hold_last")
+        elif self.mode == "track":
+            target, desired, track_geometry = solve_track_target(
+                body_rotation, direction, self.last_joint, self.limits_deg
+            )
+            geometry.update(track_geometry)
+            bounded_horizon_target = True
+            if not geometry["target_reachable"]:
+                reasons.append("target_unreachable_nearest_pointing")
         elif self.mode == "follow":
             target = dict(self.target_deg)
             _, geometry = _solve_pose(body_rotation, desired, self.last_joint, self.limits_deg)
@@ -454,13 +495,15 @@ class HorizonStabilizer:
             self.last_joint[axis] = value
         self.last_time = now_s
         measured = _mat_mul(body_rotation, c11_rotation_deg(self.last_joint)) if valid else None
+        track_error = track_horizon_error_deg(measured) if measured is not None and self.mode == "track" else None
         result = {
             "mode": self.mode,
             "yaw_mode": self.yaw_mode,
             "joint_deg": dict(self.last_joint),
             "desired_earth_deg": earth_angles_deg(desired) if desired else None,
             "degraded": bool(reasons),
-            "horizon_degraded": not valid or horizon_error_deg(desired, measured) > 1e-6,
+            "horizon_degraded": (not valid or (track_error is not None and track_error > 1e-6)
+                                 if self.mode == "track" else not valid or horizon_error_deg(desired, measured) > 1e-6),
             "yaw_degraded": yaw_degraded,
             "yaw_error_deg": _yaw_error_deg(desired, measured) if valid else None,
             "rate_limited": rate_limited,
@@ -470,6 +513,9 @@ class HorizonStabilizer:
             **geometry,
             **_saturation(self.last_joint if valid else None, self.limits_deg),
         }
+        if self.mode == "track":
+            result.update(pointing_error_deg=pointing_error_deg(direction, measured) if valid else None,
+                          horizon_error_deg=track_error)
         warnings = tuple(r for r in reasons if "rate_limit" not in r and r != "horizon_first_yaw")
         if warnings and warnings != self._warned:
             LOG.warning("C11 horizon stabilization: %s", ", ".join(warnings))
@@ -507,12 +553,16 @@ class HorizonStabilizer:
             return
         body = {a: observation["attitude"][a + "_deg"] for a in AXES}
         frame_command, command_age_ms = self._command_at(observation.get("frame_sensor_stamp_ns"))
+        mode = frame_command["mode"] if frame_command is not None else self.mode
+        if mode == "track":
+            self._annotate_track(observation, body, state, frame_command, command_age_ms)
+            return
         heading = None
-        if (self.mode == "lock" and self.yaw_mode == "follow"
+        if (mode == "lock" and self.yaw_mode == "follow"
                 and abs(math.cos(math.radians(body["pitch"]))) < 1e-3
                 and frame_command is not None and frame_command["desired_earth_deg"] is not None):
             heading = frame_command["desired_earth_deg"]["yaw"] - self.target_deg["yaw"]
-        desired = self.desired_rotation(body, heading=heading)
+        desired = self.desired_rotation(body, heading=heading, mode=mode)
         camera = observation.get("camera_pose")
         fresh = (
             camera is not None
@@ -532,10 +582,10 @@ class HorizonStabilizer:
         if not feasibility["target_pose_feasible"]:
             frame_reasons.append("target_pose_unreachable")
         frame_reasons.extend(a + "_saturated" for a in feasibility["saturated_axes"])
-        yaw_degraded = (self.mode == "lock" and feasibility["target_pose_feasible"] is False
+        yaw_degraded = (mode == "lock" and feasibility["target_pose_feasible"] is False
                         and feasibility["horizon_feasible"] is True)
         state["stabilization"] = {
-            "mode": self.mode,
+            "mode": mode,
             "yaw_mode": self.yaw_mode,
             "desired_earth_deg": earth_angles_deg(desired),
             "measured_earth_deg": earth_angles_deg(measured) if measured else None,
@@ -555,6 +605,58 @@ class HorizonStabilizer:
             **feasibility,
             "frame_geometric_degraded": bool(frame_reasons),
             "frame_geometric_reasons": frame_reasons,
+        }
+
+    def _annotate_track(self, observation, body, state, command, command_age_ms):
+        """Use the selected target at the frame time and measured optical centre."""
+        camera = observation.get("camera_pose")
+        fresh = (camera is not None and state.get("fresh") is True
+                 and state.get("source") == "gazebo_joint_state"
+                 and isinstance(camera.get("age_ms"), (float, int))
+                 and 0 <= camera["age_ms"] <= self.max_age_s * 1000)
+        measured = camera.get("optical_to_world") if fresh else None
+        ref = command.get("target_ref") if command is not None else None
+        direction = None
+        geometry = {"target_reachable": None, "horizon_feasible_given_target": None}
+        desired = None
+        reasons = []
+        try:
+            if ref is not None and ref.get("kind") == "world_point":
+                pose = observation["pose"]
+                # alt_m in old observations is relative altitude: never use it.
+                position_skew = pose.get("global_position_skew_ms", 0.)
+                if position_skew is None or not 0 <= abs(position_skew) <= self.max_age_s * 1000:
+                    raise ValueError("frame global position missing or stale")
+                origin = WorldTarget(pose["lat_deg"], pose["lon_deg"], pose["alt_amsl_m"])
+                target = WorldTarget(ref["lat_deg"], ref["lon_deg"], ref["alt_m"])
+                offset = tuple(c-p for c, p in zip(camera["center_ned"], pose["local_ned_m"], strict=True)) if fresh else (0., 0., 0.)
+                direction = world_target_direction(origin, target, camera_offset_ned=offset)
+            elif ref is not None and ref.get("kind") == "direction_ned":
+                direction = unit(ref["vector"])
+            if direction is not None:
+                joints = {a: math.degrees(state["joint_position_rad"][a]) for a in AXES}
+                _, desired, geometry = solve_track_target(rotation_deg(body), direction, joints, self.limits_deg)
+        except (KeyError, TypeError, ValueError):
+            direction = None
+        if not fresh:
+            reasons.append("measurement_stale_or_missing")
+        if command is None or direction is None:
+            reasons.append("frame_track_reference_missing")
+        if geometry["target_reachable"] is False:
+            reasons.append("target_unreachable")
+        state["stabilization"] = {
+            "mode": "track", "yaw_mode": self.yaw_mode, "target_ref": ref,
+            "pointing_error_deg": pointing_error_deg(direction, measured) if direction is not None and measured is not None else None,
+            "horizon_error_deg": track_horizon_error_deg(measured) if measured is not None else None,
+            "desired_earth_deg": earth_angles_deg(desired) if desired else None,
+            "measured_earth_deg": earth_angles_deg(measured) if measured is not None else None,
+            "measurement_source": state.get("source"), "measurement_fresh": fresh,
+            "control": self.last_result, "control_alignment": "latest_host_snapshot_not_frame_aligned",
+            "frame_control_age_ms": command_age_ms,
+            "frame_control_alignment": "latest_queued_host_command_on_px4_clock_at_or_before_frame",
+            **geometry, **_saturation({a: math.degrees(state["joint_position_rad"][a]) for a in AXES}
+                                     if state.get("joint_position_rad") else None, self.limits_deg),
+            "frame_geometric_degraded": bool(reasons), "frame_geometric_reasons": reasons,
         }
 
 
@@ -588,7 +690,8 @@ class HostHorizonLoop:
             if self.ticket.error is not None:
                 raise RuntimeError("horizon transport failed") from self.ticket.error
         body, timestamp, *source = self.sample()
-        result = self.stabilizer.update(body, now_s=self.clock(), attitude_time_s=timestamp)
+        kwargs = {"position": source[1]} if len(source) > 1 else {}
+        result = self.stabilizer.update(body, now_s=self.clock(), attitude_time_s=timestamp, **kwargs)
         self.ticket = self.send(joint_command_quaternion(result["joint_deg"]))
         if source:
             self.stabilizer.record_command(result, source[0])
