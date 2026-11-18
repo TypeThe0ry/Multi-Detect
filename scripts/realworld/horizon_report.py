@@ -8,7 +8,35 @@ import gzip
 import json
 import math
 import statistics
+import sys
 from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+
+from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
+    AXES, C11_LIMITS, frame_feasibility, rotation_deg,
+)
+
+# Pinned Eulerf bridge restrictions, distinct from the SDF mechanical stops.
+LEGACY_LIMITS = {**C11_LIMITS, "pitch": (-89.9, 45.0), "yaw": (-179.9, 179.9)}
+
+
+def classify_frame(row):
+    state = row.get("gimbal_state") or {}
+    stabilization = state.get("stabilization") or {}
+    try:
+        body = {a: row["attitude"][a + "_deg"] for a in AXES}
+        desired = stabilization["desired_earth_deg"]
+        joints = {a: math.degrees(state["joint_position_rad"][a]) for a in AXES}
+        if not all(type(v) in (int, float) and math.isfinite(v)
+                   for values in (body, desired, joints) for v in values.values()):
+            return None
+        return frame_feasibility(body, rotation_deg(desired), joints,
+                                 limits=stabilization.get("limits_deg", LEGACY_LIMITS))
+    except (KeyError, TypeError, ValueError):
+        return None
+
 
 VTOL_STATES = {1: "transition_to_fw", 2: "transition_to_mc", 3: "mc", 4: "fw"}
 IOWA_MIN_FRAMES = {"mc_hover": 2, "banked_fw": 2, "transition_to_fw": 2,
@@ -36,6 +64,13 @@ def summarize(path: Path, *, threshold_deg=4.0, require_iowa_coverage=False):
     vtol_states = {}
     coverage = dict.fromkeys(IOWA_MIN_FRAMES, 0)
     vertical_mc_frames = 0
+    feasible_errors = []
+    infeasible_errors = []
+    feasibility_unknown = saturated = mechanical_infeasible = command_infeasible = 0
+    saturated_axes = dict.fromkeys(AXES, 0)
+    feasible_stages = {}
+    horizon_proven = horizon_unknown = 0
+    horizon_errors = []
     opener = gzip.open if path.suffix == ".gz" else open
     with opener(path, "rt", encoding="utf-8") as stream:
         for line in stream:
@@ -63,6 +98,25 @@ def summarize(path: Path, *, threshold_deg=4.0, require_iowa_coverage=False):
                 missing += 1
                 continue
             groups[mode].append(error)
+            classification = classify_frame(row)
+            if classification is None:
+                feasibility_unknown += 1
+            else:
+                horizon_proven += classification["horizon_feasible"] is True
+                if mode == "lock" and classification["horizon_feasible"] is True:
+                    horizon_errors.append(error)
+                horizon_unknown += classification["horizon_feasible"] is None
+                saturated += classification["saturated"]
+                for axis in classification["saturated_axes"]:
+                    saturated_axes[axis] += 1
+                mechanical_infeasible += not classification["mechanical_feasible"]
+                command_infeasible += not classification["command_feasible"]
+                if mode == "lock":
+                    if classification["target_pose_feasible"]:
+                        feasible_errors.append(error)
+                        feasible_stages.setdefault(row.get("flight_stage", "unknown"), []).append(error)
+                    else:
+                        infeasible_errors.append(error)
             stages.setdefault(row.get("flight_stage", "unknown"), []).append(error)
             vtol_value = (row.get("flight_state") or {}).get("vtol_state")
             vtol_state = VTOL_STATES.get(vtol_value, "unknown")
@@ -96,7 +150,42 @@ def summarize(path: Path, *, threshold_deg=4.0, require_iowa_coverage=False):
         and missing == stale == 0 and max(lock) <= threshold_deg
         and (coverage_ok or not require_iowa_coverage)
     )
+    recommended_passed = (
+        bool(feasible_errors) and not groups["follow"] and not truncated
+        and missing == stale == feasibility_unknown == 0
+        and percentile(feasible_errors, 0.95) <= threshold_deg
+        and (coverage_ok or not require_iowa_coverage)
+    )
     return {
+        "horizon_only_lock": stats(horizon_errors),
+        "horizon_only_p95_passed": (
+            bool(horizon_errors) and not groups["follow"] and not truncated
+            and missing == stale == feasibility_unknown == horizon_unknown == 0
+            and percentile(horizon_errors, 0.95) <= threshold_deg
+            and (coverage_ok or not require_iowa_coverage)
+        ),
+        "feasibility_scope": "full target pose including yaw; horizon-only may remain reachable",
+        "horizon_only_proven_feasible_frames": horizon_proven,
+        "horizon_only_unknown_frames": horizon_unknown,
+        "feasible_lock": stats(feasible_errors),
+        "infeasible_lock": stats(infeasible_errors),
+        "feasible_flight_stages": {k: stats(v) for k, v in feasible_stages.items()},
+        "feasibility_unknown_frames": feasibility_unknown,
+        "mechanical_infeasible_frames": mechanical_infeasible,
+        "command_infeasible_frames": command_infeasible,
+        "saturated_frames": saturated,
+        "saturated_axes": saturated_axes,
+        "recommended_passed": recommended_passed,
+        "recommended_criteria": {
+            "feasible_lock_p95_max_deg": threshold_deg,
+            "require_nonempty_feasible_lock": True,
+            "require_complete_fresh_classifiable_frames": True,
+            "exclude_only_static_full_reference_unreachable": True,
+            "exclude_degraded_or_rate_limited": False,
+            "require_iowa_coverage": require_iowa_coverage,
+            "note": "Static full reference includes yaw; report excluded fraction and all-frame max. "
+                    "This proposed P95 gate does not replace the strict all-frame max gate.",
+        },
         "manifest": str(path),
         "frame_count": frames,
         "missing_frames": missing,

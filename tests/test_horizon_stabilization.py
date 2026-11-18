@@ -471,3 +471,100 @@ def test_effective_legacy_yaw_limit_avoids_carrier_wrap_jump():
         saw_limit |= "yaw_limit" in result["reasons"]
         last = yaw
     assert saw_limit
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_unreachable_zxy_crossing_retains_outer_joint_branch(sign):
+    from multidetect.sim_teacher.horizon_stabilization import joint_command_quaternion
+
+    stabilizer = HorizonStabilizer(
+        TARGET, limits_deg={**LIMITS, "pitch": (-89.9, 45), "yaw": (-179.9, 179.9)}
+    )
+    _settle(stabilizer, {"roll": sign*85, "pitch": -54, "yaw": 179})
+    previous = dict(stabilizer.last_joint)
+    for index in range(501):
+        body = {"roll": sign*(85+6*math.sin(index/100)), "pitch": -54,
+                "yaw": _wrap(179+index*.02)}
+        result = stabilizer.update(body, now_s=index*.02, attitude_time_s=index*.02)
+        joints = result["joint_deg"]
+        joint_command_quaternion(joints)
+        assert joints["yaw"] == pytest.approx(0, abs=1e-6)
+        assert joints["pitch"] == pytest.approx(9, abs=1e-6)
+        assert joints["roll"] == pytest.approx(-sign*45)
+        assert not result["target_pose_feasible"]
+        if abs(body["roll"]) <= 90:
+            assert result["horizon_feasible"] is True  # yaw-relaxed witness
+        assert result["saturated_axes"] == ["roll"]
+        assert result["degraded"] and "roll_limit" in result["reasons"]
+        for axis in AXES:
+            assert abs(joints[axis]-previous[axis]) <= 3.6+1e-7
+        previous = joints
+
+
+@pytest.mark.parametrize("yaw", [-180, -179.9999, 179.9999, 180])
+def test_yaw_follow_wrap_does_not_change_joint_solution(yaw):
+    stabilizer = HorizonStabilizer(TARGET)
+    body = {"roll": 20, "pitch": -70, "yaw": yaw}
+    _settle(stabilizer, body)
+    result = stabilizer.update(body, now_s=0, attitude_time_s=0)
+    assert result["joint_deg"] == pytest.approx({"roll": -20, "pitch": 25, "yaw": 0})
+    assert result["target_pose_feasible"]
+    assert _horizon_error(_angles(_earth(body, result["joint_deg"]))) < 1e-7
+
+
+def test_frame_feasibility_distinguishes_heading_requirement_and_measured_saturation():
+    from multidetect.sim_teacher.horizon_stabilization import frame_feasibility, rotation_deg
+
+    body = {"roll": -89.7979, "pitch": -54.327, "yaw": -85.204}
+    desired = {**TARGET, "yaw": body["yaw"]}
+    result = frame_feasibility(body, rotation_deg(desired),
+                               {"roll": 45, "pitch": -75.796, "yaw": -66.026})
+    assert result["target_pose_feasible"] is False
+    assert result["mechanical_feasible"] is False
+    assert result["horizon_feasible"] is True
+    assert result["saturated"] and result["saturated_axes"] == ["roll"]
+    assert _horizon_error(_angles(_earth(body, result["horizon_witness_joint_deg"]))) < 1e-6
+
+
+def test_pitch_saturation_is_distinct_from_static_target_feasibility():
+    from multidetect.sim_teacher.horizon_stabilization import frame_feasibility, rotation_deg
+
+    result = frame_feasibility({"roll": 0, "pitch": 0, "yaw": 0}, rotation_deg(TARGET),
+                               {"roll": 0, "pitch": 45, "yaw": 0})
+    assert result["target_pose_feasible"]
+    assert result["saturated_axes"] == ["pitch"]
+
+
+@pytest.mark.parametrize("roll", [-90, 90])
+def test_exact_singular_coupling_reconstructs_with_nonzero_previous_yaw(roll):
+    from multidetect.sim_teacher.horizon_stabilization import _zxy_branches, c11_rotation_deg
+
+    desired = _rotation({"roll": roll, "pitch": 17, "yaw": -31}, ("yaw", "roll", "pitch"))
+    branches, singular = _zxy_branches(desired, {"roll": 0, "pitch": 0, "yaw": 42})
+    assert singular
+    for branch in branches:
+        assert c11_rotation_deg(branch) == pytest.approx(desired, abs=1e-8)
+
+
+def test_saturated_frame_annotation_preserves_measured_error_and_control_degradation():
+    stabilizer = HorizonStabilizer(TARGET)
+    body = {"roll": -89.7979, "pitch": -54.327, "yaw": -85.204}
+    joints = {"roll": 45, "pitch": -75.796, "yaw": -66.026}
+    stabilizer.update(body, now_s=1, attitude_time_s=1)
+    observation = {
+        "attitude": {a+"_deg": body[a] for a in AXES},
+        "gimbal_state": {"fresh": True, "source": "gazebo_joint_state",
+                         "joint_position_rad": {a: math.radians(joints[a]) for a in AXES}},
+        "camera_pose": {"age_ms": 0, "optical_to_world": _earth(body, joints)},
+    }
+    stabilizer.annotate(observation)
+    state = observation["gimbal_state"]["stabilization"]
+    assert state["horizon_error_deg"] > 150
+    assert state["target_pose_feasible"] is False
+    assert state["horizon_feasible"] is True
+    assert state["saturated_axes"] == ["roll"]
+    assert state["control"]["degraded"] is True
+    assert state["frame_geometric_degraded"] is True
+    assert "target_pose_unreachable" in state["frame_geometric_reasons"]
+    assert "roll_saturated" in state["frame_geometric_reasons"]
+    assert "not_frame_aligned" in state["control_alignment"]

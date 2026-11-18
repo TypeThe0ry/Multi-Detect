@@ -58,6 +58,114 @@ def horizon_error_deg(desired_rotation, measured_rotation):
     return max(abs(wrap_deg(measured[a] - desired[a])) for a in ("roll", "pitch"))
 
 
+def _continuous(value, previous):
+    return value + 360.0 * round((previous - value) / 360.0)
+
+
+def _zxy_branches(relative, previous):
+    roll = math.asin(max(-1.0, min(1.0, relative[7])))
+    singular = abs(math.cos(roll)) < 1e-7
+    if singular:
+        yaw = math.radians(previous["yaw"])
+        residual = _mat_mul(
+            _mat_transpose(c11_rotation_deg({
+                "roll": math.degrees(roll), "pitch": 0.0, "yaw": previous["yaw"],
+            })), relative,
+        )
+        pitch = math.atan2(residual[2], residual[0])
+    else:
+        yaw = math.atan2(-relative[1], relative[4])
+        pitch = math.atan2(-relative[6], relative[8])
+    principal = dict(zip(AXES, map(math.degrees, (roll, pitch, yaw)), strict=True))
+    other = {"roll": 180.0 - principal["roll"],
+             "pitch": principal["pitch"] + 180.0, "yaw": principal["yaw"] + 180.0}
+    return (principal, other), singular
+
+
+def solve_joint_target(relative, previous, limits):
+    """Select ZXY branch *after* stops, avoiding a clipped Euler branch flip.
+
+    At joint roll +/-90 the two exact solutions exchange. Although neither
+    roll is mechanically reachable on C11, their clipped pitch/yaw need not be
+    equivalent. Prefer bounded rotation error when reachable, and continuity
+    when unreachable. Rate limiting never changes static feasibility.
+    """
+    branches, singular = _zxy_branches(relative, previous)
+    candidates = []
+    feasible = False
+    for branch in branches:
+        continuous = {a: _continuous(branch[a], previous[a]) for a in AXES}
+        bounded = {a: min(limits[a][1], max(limits[a][0], continuous[a])) for a in AXES}
+        # Test existence independently of the previous winding/cable stop.
+        feasible |= all(any(limits[a][0] - 1e-7 <= branch[a] + 360*k <= limits[a][1] + 1e-7
+                            for k in range(-2, 3)) for a in AXES)
+        rotation = c11_rotation_deg(bounded)
+        distance = sum((x-y)**2 for x, y in zip(rotation, relative, strict=True))
+        travel = sum((bounded[a] - previous[a])**2 for a in AXES)
+        candidates.append((distance, travel, continuous, bounded))
+    if not feasible:
+        # Both exact branches are beyond a stop: preserve the outer-axis
+        # branch through the unreachable roll +/-90 region. A greedy nearest
+        # rotation would swap pitch/yaw by 180 for a tiny residual improvement.
+        chosen = min(candidates, key=lambda c: c[1])
+        return chosen[2], chosen[3], feasible, singular
+    best_distance = min(c[0] for c in candidates)
+    # A tiny matrix tolerance prevents numerical noise at the singular crossing
+    # from forcing a 180-degree pitch/yaw excursion.
+    chosen = min((c for c in candidates if c[0] <= best_distance + 1e-10), key=lambda c: c[1])
+    return chosen[2], chosen[3], feasible, singular
+
+
+def frame_feasibility(body, desired, joints=None, *, limits=None):
+    """Separate full target reachability from a proven yaw-relaxed horizon pose.
+
+    A roll-zero witness proves horizon-only reachability for level-roll targets.
+    Failure to find that witness means unknown, not physically unreachable.
+    Neither dynamic lag nor stale feedback can change static reachability.
+    """
+    previous = joints or dict.fromkeys(AXES, 0.0)
+    relative = _mat_mul(_mat_transpose(rotation_deg(body)), desired)
+    effective = C11_LIMITS if limits is None else limits
+    _, _, command_feasible, singular = solve_joint_target(relative, previous, effective)
+    _, _, mechanical_feasible, _ = solve_joint_target(relative, previous, C11_LIMITS)
+    target_feasible = mechanical_feasible and command_feasible
+    witness = None
+    desired_angles = earth_angles_deg(desired)
+    if abs(desired_angles["roll"]) < 1e-7 and effective["roll"][0] <= 0 <= effective["roll"][1]:
+        # B^T * earth-down; Rz(-yaw) puts this in the joint pitch plane.
+        body_rotation = rotation_deg(body)
+        x, y, z = body_rotation[6:9]
+        yaw = math.degrees(math.atan2(y, x))
+        pitch = math.degrees(math.atan2(math.hypot(x, y), z)) + desired_angles["pitch"]
+        for candidate in ({"roll": 0.0, "pitch": pitch, "yaw": yaw},
+                          {"roll": 0.0,
+                           "pitch": -math.degrees(math.atan2(math.hypot(x, y), z))
+                                    + desired_angles["pitch"], "yaw": yaw + 180.0}):
+            candidate = {a: wrap_deg(candidate[a]) for a in AXES}
+            if all(effective[a][0] <= candidate[a] <= effective[a][1] for a in AXES):
+                measured = _mat_mul(body_rotation, c11_rotation_deg(candidate))
+                if horizon_error_deg(desired, measured) < 1e-6:
+                    witness = candidate
+                    break
+    saturated = [a for a in AXES if joints is not None and
+                 min(abs(joints[a] - v) for v in C11_LIMITS[a]) <= 0.05]
+    command_saturated = [a for a in AXES if joints is not None and
+                         min(abs(joints[a] - v) for v in effective[a]) <= 0.05]
+    return {
+        "target_pose_feasible": target_feasible,
+        "horizon_feasible": True if target_feasible or witness is not None else None,
+        "horizon_witness_joint_deg": witness,
+        "mechanical_feasible": mechanical_feasible,
+        "command_feasible": command_feasible,
+        "feasibility_definition": "target_pose_includes_yaw; horizon_allows_yaw_relaxation",
+        "saturated_axes": saturated,
+        "saturated": bool(saturated),
+        "command_saturated_axes": command_saturated,
+        "zxy_singular": singular,
+        "limits_deg": {a: list(effective[a]) for a in AXES},
+    }
+
+
 def joint_command_quaternion(joints):
     """ZYX carrier; bridge Eulerf(q) must recover the joint numbers.
 
@@ -166,27 +274,9 @@ class HorizonStabilizer:
             target = dict(self.target_deg)
         else:
             relative = _mat_mul(_mat_transpose(rotation_deg(body_deg)), desired)
-            roll = math.asin(max(-1.0, min(1.0, relative[7])))
-            if abs(math.cos(roll)) < 1e-7:
-                # ZXY singularity is JOINT roll +/-90, not BODY pitch +/-90.
-                # Retain previous yaw and solve coupled pitch continuously.
-                yaw = math.radians(self.last_joint["yaw"])
-                residual = _mat_mul(
-                    _mat_transpose(
-                        rotation_deg(
-                            {"roll": math.degrees(roll), "pitch": 0.0, "yaw": math.degrees(yaw)}
-                        )
-                    ),
-                    relative,
-                )
-                pitch = math.atan2(residual[2], residual[0])
+            target, _, _, singular = solve_joint_target(relative, self.last_joint, self.limits_deg)
+            if singular:
                 reasons.append("zxy_singular")
-            else:
-                yaw, pitch = (
-                    math.atan2(-relative[1], relative[4]),
-                    math.atan2(-relative[6], relative[8]),
-                )
-            target = dict(zip(AXES, map(math.degrees, (roll, pitch, yaw)), strict=True))
         # Choose a realizable turn nearest the last joint; respect cable limits.
         for axis in AXES:
             low, high = self.limits_deg[axis]
@@ -216,6 +306,10 @@ class HorizonStabilizer:
             "degraded": bool(reasons),
             "reasons": reasons,
             "time_s": now_s,
+            "attitude_age_s": now_s - attitude_time_s if valid else None,
+            **(frame_feasibility(body_deg, desired, self.last_joint, limits=self.limits_deg)
+               if valid else {"target_pose_feasible": None, "horizon_feasible": None,
+                              "saturated_axes": [], "saturated": False}),
         }
         warnings = tuple(r for r in reasons if "rate_limit" not in r)
         if warnings and warnings != self._warned:
@@ -241,6 +335,16 @@ class HorizonStabilizer:
             and 0 <= camera["age_ms"] <= self.max_age_s * 1000
         )
         measured = camera.get("optical_to_world") if fresh else None
+        feasibility = frame_feasibility(
+            body, desired,
+            {a: math.degrees(state["joint_position_rad"][a]) for a in AXES}
+            if state.get("joint_position_rad") else None,
+            limits=self.limits_deg,
+        )
+        frame_reasons = (["measurement_stale_or_missing"] if not fresh else [])
+        if not feasibility["target_pose_feasible"]:
+            frame_reasons.append("target_pose_unreachable")
+        frame_reasons.extend(a + "_saturated" for a in feasibility["saturated_axes"])
         state["stabilization"] = {
             "mode": self.mode,
             "yaw_mode": self.yaw_mode,
@@ -248,8 +352,12 @@ class HorizonStabilizer:
             "measured_earth_deg": earth_angles_deg(measured) if measured else None,
             "horizon_error_deg": horizon_error_deg(desired, measured) if measured else None,
             "control": self.last_result,
+            "control_alignment": "latest_host_snapshot_not_frame_aligned",
             "measurement_source": state.get("source"),
             "measurement_fresh": fresh,
+            **feasibility,
+            "frame_geometric_degraded": bool(frame_reasons),
+            "frame_geometric_reasons": frame_reasons,
         }
 
 
