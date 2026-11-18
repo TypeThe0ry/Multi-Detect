@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -366,10 +367,11 @@ def test_w6km_world_defaults_to_wide_area_camera_overlay(
     not WIDE_AREA_SCENARIO.is_file(),
     reason="wide-area scenario fixture is not present in this checkout",
 )
-def test_w6km_plan_mounts_default_overlay(
+def test_w6km_plan_mounts_default_overlay_and_server_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+    monkeypatch.delenv("MULTIDETECT_RTF_SERVER_CONFIG", raising=False)
     monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
 
     plan = build_docker_simulator_plan(
@@ -379,11 +381,58 @@ def test_w6km_plan_mounts_default_overlay(
     )
 
     overlay_root = (ROOT / "simulation/gazebo/models-wide-area").resolve()
+    server_config = (ROOT / "simulation/gazebo/server-wide-area.config").resolve()
+    server_config_sha256 = hashlib.sha256(server_config.read_bytes()).hexdigest()
+    mount_target = "/opt/multidetect-rtf-server.config"
+    evidence = plan.to_mapping()
     assert plan.world_path.name == "rw_farm_iowa_w6km__clear_noon.sdf"
     assert plan.rtf_model_root == overlay_root
-    assert plan.to_mapping()["mounts"]["rtf_model_overlay"]["sha256"] == (
+    assert evidence["mounts"]["rtf_model_overlay"]["sha256"] == (
         plan.rtf_model_root_sha256
     )
+    assert plan.rtf_server_config == server_config
+    assert plan.rtf_server_config_sha256 == server_config_sha256
+    assert evidence["mounts"]["rtf_server_config"] == {
+        "host": str(server_config),
+        "container": mount_target,
+        "readonly": True,
+        "sha256": server_config_sha256,
+    }
+    assert plan.evidence_hash != replace(plan, rtf_server_config_sha256="0" * 64).evidence_hash
+    assert f"type=bind,source={server_config},target={mount_target},readonly" in plan.command
+    assert dict(plan.environment)["GZ_SIM_SERVER_CONFIG_PATH"] == mount_target
+    assert f"sed '/gz-sim-magnetometer-system/d' {mount_target} " in plan.command[-1]
+
+
+@pytest.mark.skipif(
+    not WIDE_AREA_SCENARIO.is_file(),
+    reason="wide-area scenario fixture is not present in this checkout",
+)
+def test_explicit_rtf_server_config_overrides_w6km_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "override.config"
+    config.write_bytes(b"<server_config><plugins/></server_config>\n")
+    monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(config))
+    monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+
+    plan = build_docker_simulator_plan(
+        WIDE_AREA_SCENARIO, repository_root=ROOT, job_dir=tmp_path / "override-plan"
+    )
+
+    assert plan.rtf_model_root == (ROOT / "simulation/gazebo/models-wide-area").resolve()
+    assert plan.rtf_server_config == config.resolve()
+    assert plan.to_mapping()["mounts"]["rtf_server_config"]["sha256"] == (
+        hashlib.sha256(config.read_bytes()).hexdigest()
+    )
+
+
+@pytest.mark.parametrize("name", ["rw_farm_iowa_w2km__clear_noon.sdf", "rw_farm_iowa_w6km-clear_noon.sdf"])
+def test_rtf_server_config_pattern_rejects_near_misses(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_SERVER_CONFIG", raising=False)
+    assert simulator_docker._resolve_rtf_server_config(ROOT, Path(name)) is None
 
 
 def test_explicit_rtf_model_root_overrides_w6km_default(
@@ -412,6 +461,51 @@ def test_non_w6km_world_does_not_auto_mount_wide_area_overlay(
     assert plan.world_path.name != "rw_farm_iowa_w6km__clear_noon.sdf"
     assert plan.rtf_model_root is None
     assert "rtf_model_overlay" not in plan.to_mapping()["mounts"]
+
+
+def test_optional_rtf_server_config_is_hash_bound_mounted_readonly_and_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "server.config"
+    config.write_text("<server_config><plugins/></server_config>", encoding="utf-8")
+    monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(config))
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "server-config-plan",
+    )
+    evidence = plan.to_mapping()
+    mount = evidence["mounts"]["rtf_server_config"]
+    assert mount["host"] == str(config.resolve())
+    assert mount["container"] == "/opt/multidetect-rtf-server.config"
+    assert mount["readonly"] is True
+    assert mount["sha256"] == plan.rtf_server_config_sha256
+    assert dict(plan.environment)["GZ_SIM_SERVER_CONFIG_PATH"] == mount["container"]
+    assert any(
+        token == "type=bind,source=" + str(config.resolve()) + ",target=" + mount["container"] + ",readonly"
+        for token in plan.command
+    )
+    startup = plan.command[-1]
+    assert "sed '/gz-sim-magnetometer-system/d' " + mount["container"] in startup
+    assert "export GZ_SIM_SERVER_CONFIG_PATH=/tmp/multidetect-gz-server.config; " in startup
+
+
+def test_rtf_server_config_is_optional_and_must_be_a_regular_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_SERVER_CONFIG", raising=False)
+    default_plan = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "server-config-default"
+    )
+    assert "rtf_server_config" not in default_plan.to_mapping()["mounts"]
+    assert "GZ_SIM_SERVER_CONFIG_PATH" not in dict(default_plan.environment)
+
+    missing = tmp_path / "missing.config"
+    monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(missing))
+    with pytest.raises(DockerSimulatorPlanError, match="is not a file"):
+        build_docker_simulator_plan(
+            SCENARIO, repository_root=ROOT, job_dir=tmp_path / "server-config-missing"
+        )
 
 
 def test_docker_plan_uses_selected_network_for_container_and_px4_target(

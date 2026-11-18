@@ -113,6 +113,69 @@ def test_v8_combines_v6_camera_rate_and_v7_collision_policy(tmp_path: Path) -> N
     assert rtf_variants.VARIANTS["V7"]["remove_building_collision"] is True
 
 
+def test_v9_removes_only_gstreamer_and_optical_flow_plugins(tmp_path: Path) -> None:
+    source = tmp_path / "source.sdf"
+    source.write_text('<sdf version="1.9"><world name="default"><physics/></world></sdf>')
+    server_source = tmp_path / "base-server.config"
+    server_source.write_text(
+        '<server_config><plugins>'
+        '<plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics">'
+        '<max_step_size>0.004</max_step_size></plugin>'
+        '<plugin filename="libGstCameraSystem.so" name="GstCameraSystem"/>'
+        '<plugin filename="libOpticalFlowSystem.so" name="OpticalFlowSystem"/>'
+        '<plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"/>'
+        '<plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>'
+        '</plugins></server_config>',
+        encoding="utf-8",
+    )
+
+    result = rtf_variants.generate(source, tmp_path / "V9", variant="V9",
+                                  airframe="rc_cessna_mono_cam",
+                                  server_config_source=server_source)
+    root = ET.parse(result["server_config"]).getroot()
+    plugins = root.findall("plugins/plugin")
+    identities = [(p.get("filename"), p.get("name")) for p in plugins]
+    assert all("GstCameraSystem" not in " ".join(row) for row in identities)
+    assert all("OpticalFlowSystem" not in " ".join(row) for row in identities)
+    assert len(plugins) == 3
+    assert plugins[0].attrib == {
+        "filename": "gz-sim-physics-system",
+        "name": "gz::sim::systems::Physics",
+    }
+    assert plugins[0].findtext("max_step_size") == "0.004"
+    assert any("Magnetometer" in " ".join(row) for row in identities)
+    assert any("ApplyLinkWrench" in " ".join(row) for row in identities)
+    assert result["camera"]["update_rate_hz"] == 10
+    assert Path(result["overlay_root"]).is_dir()
+
+
+def test_v9_requires_both_target_plugins(tmp_path: Path) -> None:
+    source = tmp_path / "source.sdf"
+    source.write_text('<sdf version="1.9"><world name="default"><physics/></world></sdf>')
+    server_source = tmp_path / "incomplete.config"
+    server_source.write_text('<server_config><plugins><plugin name="GstCameraSystem"/></plugins></server_config>')
+    with pytest.raises(ValueError, match="OpticalFlowSystem"):
+        rtf_variants.generate(source, tmp_path / "V9", variant="V9",
+                              airframe="rc_cessna_mono_cam",
+                              server_config_source=server_source)
+
+
+def test_v9_cli_generates_standalone_without_image_config(tmp_path: Path) -> None:
+    source = tmp_path / "source.sdf"
+    source.write_text('<sdf version="1.9"><world name="default"><physics/></world></sdf>')
+    out = tmp_path / "V9"
+
+    assert rtf_variants.main([
+        "--source-world", str(source), "--out", str(out), "--variant", "V9",
+    ]) == 0
+    plugins = ET.parse(out / "server.config").getroot().findall("plugins/plugin")
+    filenames = {plugin.get("filename") for plugin in plugins}
+    assert "gz-sim-sensors-system" in filenames
+    assert "libGstCameraSystem.so" not in filenames
+    assert "libOpticalFlowSystem.so" not in filenames
+    assert (out / "models/mono_cam/model.sdf").is_file()
+
+
 def test_scenario_world_path_uses_explicit_rtf_world_root(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(collector, "ROOT", tmp_path)
     scenario_id = "rw_variant"

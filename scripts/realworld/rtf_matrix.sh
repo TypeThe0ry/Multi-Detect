@@ -102,12 +102,19 @@ preflight() {
   local avail_g
   avail_g=$(df --output=avail -BG "$OUT" | tail -1 | tr -dc '0-9')
   (( avail_g >= ${RTF_MATRIX_MIN_FREE_GB:-40} )) || { echo "磁盘剩余 ${avail_g}G 低于 ${RTF_MATRIX_MIN_FREE_GB:-40}G，拒绝开跑" >&2; return 1; }
-  local start=$SECONDS load used
+  local start=$SECONDS load used total
   while :; do
     load=$(awk '{print $1}' /proc/loadavg)
     used=$(nvidia-smi -i "$GPU" --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | tr -d '[:space:]' || echo 999999)
-    if ! training_or_busy_gpu && awk -v l="$load" -v max="$CPU_MAX" 'BEGIN{exit !(l <= max)}' \
-       && awk -v u="$used" -v max="$GPU_MAX_MIB" 'BEGIN{exit !(u <= max)}'; then
+    local gpu_ok=0
+    if [[ "${RTF_MATRIX_SHARE_GPU:-0}" == 1 ]]; then
+      # 与已确认的训练共享同一张卡：只要求剩余显存足够（总量 20 GiB）。
+      total=$(nvidia-smi -i "$GPU" --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | tr -d '[:space:]' || echo 0)
+      awk -v u="$used" -v t="$total" -v need="${RTF_MATRIX_SHARE_MIN_FREE_MIB:-9000}" 'BEGIN{exit !(t-u >= need)}' && gpu_ok=1
+    elif ! training_or_busy_gpu && awk -v u="$used" -v max="$GPU_MAX_MIB" 'BEGIN{exit !(u <= max)}'; then
+      gpu_ok=1
+    fi
+    if (( gpu_ok )) && awk -v l="$load" -v max="$CPU_MAX" 'BEGIN{exit !(l <= max)}'; then
       echo "GPU$GPU/CPU 空闲：load=$load gpu_used_mib=$used" >&2
       return 0
     fi
@@ -118,7 +125,7 @@ preflight() {
 }
 
 run_one() {
-  local row=$1 attempt=$2 name scenario root extent airframe overlay model_root world_root map_root terrain_root run_dir flight_pid stats_rc flight_rc
+  local row=$1 attempt=$2 name scenario root extent airframe overlay model_root world_root map_root terrain_root server_config run_dir flight_pid stats_rc flight_rc
   name=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$row")
   scenario=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["scenario"])' "$row")
   root=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["resolved_root"])' "$row")
@@ -127,6 +134,7 @@ run_one() {
   world_root=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("variant_world_root", ""))' "$row")
   map_root=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("variant_map_root", ""))' "$row")
   terrain_root=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("variant_terrain_root", ""))' "$row")
+  server_config=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("server_config", ""))' "$row")
   extent=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["extent_m"])' "$row")
   airframe=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("airframe","rc_cessna_mono_cam"))' "$row")
   run_dir="$OUT/$name/attempt-$attempt"
@@ -138,6 +146,7 @@ run_one() {
   if [[ -n "$world_root" ]]; then export MULTIDETECT_RTF_WORLD_ROOT=$(realpath "$world_root"); else unset MULTIDETECT_RTF_WORLD_ROOT; fi
   if [[ -n "$map_root" ]]; then export MULTIDETECT_RTF_MAP_ROOT=$(realpath "$map_root"); else unset MULTIDETECT_RTF_MAP_ROOT; fi
   if [[ -n "$terrain_root" ]]; then export MULTIDETECT_RTF_TERRAIN_ROOT=$(realpath "$terrain_root"); else unset MULTIDETECT_RTF_TERRAIN_ROOT; fi
+  if [[ -n "$server_config" ]]; then export MULTIDETECT_RTF_SERVER_CONFIG=$(realpath "$server_config"); else unset MULTIDETECT_RTF_SERVER_CONFIG; fi
   "$SITL_PYTHON" scripts/realworld/long_range_flight.py "$SLOT" "$scenario" "$run_dir/flight" >"$run_dir/flight.stdout.log" 2>&1 &
   flight_pid=$!
   trap 'if kill -0 "$flight_pid" 2>/dev/null; then kill "$flight_pid" 2>/dev/null || true; fi' RETURN

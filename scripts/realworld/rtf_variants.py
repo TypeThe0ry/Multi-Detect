@@ -28,7 +28,34 @@ VARIANTS = {
     "V6_5": {"description": "V6 子变体：保持 1280x960 与标定，只将 RGB/深度相机降至 5 Hz", "camera_hz": 5, "width": 1280, "height": 960, "camera_overlay": True, "preserve_camera_geometry": True},
     "V7": {"description": "关闭合并建筑碰撞，保留完整 8 m 地形碰撞", "remove_building_collision": True, "camera_overlay": False},
     "V8": {"description": "V6 + V7：1280x960 RGB/深度相机 10 Hz，并关闭合并建筑碰撞", "compose": ("V6", "V7"), "camera_overlay": True},
+    "V9": {"description": "V6 + 移除 GstCameraSystem 与 OpticalFlowSystem", "compose": ("V6",),
+           "remove_server_plugins": ("GstCameraSystem", "OpticalFlowSystem")},
 }
+
+# Fallback plugin template for offline generation. Callers should provide the
+# pinned image's extracted file via ``server_config_source`` to preserve its
+# exact plugin settings and any additional systems.
+DEFAULT_SERVER_CONFIG = """<?xml version="1.0"?>
+<server_config>
+  <plugins>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"/>
+    <plugin filename="gz-sim-air-speed-system" name="gz::sim::systems::AirSpeed"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>
+    <plugin filename="libGstCameraSystem.so" name="gz::sim::systems::GstCameraSystem"/>
+    <plugin filename="libOpticalFlowSystem.so" name="gz::sim::systems::OpticalFlowSystem"/>
+  </plugins>
+</server_config>
+"""
 
 
 def _set_text(root: ET.Element, path: str, value: object) -> None:
@@ -84,7 +111,30 @@ def _rewrite_model(source: Path, destination: Path, *, width: int, height: int, 
     destination.write_text(ET.tostring(root, encoding="unicode") + "\n", encoding="utf-8")
 
 
-def generate(source_world: Path, out_dir: Path, *, variant: str, airframe: str, scenario: Path | None = None) -> dict:
+def _rewrite_server_config(source: Path | None, destination: Path, *, remove_plugins: tuple[str, ...]) -> None:
+    raw = source.read_text(encoding="utf-8") if source is not None else DEFAULT_SERVER_CONFIG
+    root = ET.fromstring(raw)
+    plugins = root.find("plugins")
+    if plugins is None:
+        raise ValueError("server.config is missing <plugins>")
+    removed = set()
+    for plugin in list(plugins.findall("plugin")):
+        identity = " ".join((plugin.get("name", ""), plugin.get("filename", "")))
+        for target in remove_plugins:
+            if target.lower() in identity.lower():
+                plugins.remove(plugin)
+                removed.add(target)
+                break
+    missing = set(remove_plugins) - removed
+    if missing:
+        raise ValueError(f"server.config is missing requested plugin(s): {', '.join(sorted(missing))}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    ET.indent(root, space="  ")
+    destination.write_text(ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n", encoding="utf-8")
+
+
+def generate(source_world: Path, out_dir: Path, *, variant: str, airframe: str, scenario: Path | None = None,
+             server_config_source: Path | None = None) -> dict:
     if variant not in VARIANTS:
         raise ValueError(f"unknown variant {variant}; choose from {', '.join(VARIANTS)}")
     settings = VARIANTS[variant]
@@ -115,11 +165,18 @@ def generate(source_world: Path, out_dir: Path, *, variant: str, airframe: str, 
         shutil.copy2(wrapper_source / "model.config", wrapper / "model.config")
         _rewrite_model(wrapper_source / "model.sdf", wrapper / "model.sdf", width=settings["width"], height=settings["height"],
                        hz=settings["camera_hz"], preserve_camera_geometry=settings.get("preserve_camera_geometry", False))
+    server_config = None
+    if settings.get("remove_server_plugins"):
+        server_config = out_dir / "server.config"
+        _rewrite_server_config(server_config_source, server_config,
+                               remove_plugins=settings["remove_server_plugins"])
     result = {"schema_version": 1, "variant": variant, "description": settings["description"], "world": str(world),
               "overlay_root": str(models) if camera_overlay else None,
               "camera": {"width": settings.get("width", 1280), "height": settings.get("height", 960),
                          "update_rate_hz": settings.get("camera_hz", 30)},
               "source_world": str(source_world)}
+    if server_config is not None:
+        result["server_config"] = str(server_config)
     if "terrain_budget_profile" in settings:
         result["terrain"] = {"budget_profile": settings["terrain_budget_profile"], "visual_grid_m": 8,
                              "near_field_core_half_extent_m": 300, "near_field_core_grid_m": 2,
@@ -252,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--variant", choices=tuple(VARIANTS), required=True)
     parser.add_argument("--airframe", default="rc_cessna_mono_cam")
     parser.add_argument("--scenario", type=Path, help="源 scenario.json；生成独立 runtime/truth channel")
+    parser.add_argument("--server-config-source", type=Path,
+                        help="V9 使用的基础 server.config；未提供时使用内置插件模板")
     parser.add_argument("--raw-root", type=Path, help="V5 build_scene 原始站点数据根目录")
     parser.add_argument("--builder-python", type=Path, default=Path(sys.prefix) / "bin/python",
                         help="build_scene 使用的 Python（默认当前虚拟环境）")
@@ -259,7 +318,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="可选的已构建 budget_6km 模型目录；会校验 6 km profile 后复制到 --out")
     args = parser.parse_args(argv)
     result = generate(args.source_world.resolve(), args.out.resolve(), variant=args.variant, airframe=args.airframe,
-                      scenario=args.scenario.resolve() if args.scenario else None)
+                      scenario=args.scenario.resolve() if args.scenario else None,
+                      server_config_source=args.server_config_source.resolve() if args.server_config_source else None)
     if args.variant == "V5":
         config = json.loads((ROOT / "configs/sim-assets/realworld-sites.json").read_text(encoding="utf-8"))
         raw_root = args.raw_root.resolve() if args.raw_root else Path(config["asset_root"]) / "sites"

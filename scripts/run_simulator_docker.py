@@ -46,6 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
 CONTAINER_MODEL_ROOT = "/opt/multidetect-gazebo-models"
 CONTAINER_RTF_MODEL_ROOT = "/opt/multidetect-rtf-models"
+_WIDE_AREA_WORLD_PATTERN = "*_w6km__*"
 CONTAINER_WORLD_ROOT = "/opt/px4-gazebo/share/gz/worlds"
 CONTAINER_WORLD = f"{CONTAINER_WORLD_ROOT}/default.sdf"
 CONTAINER_EXTERNAL_WORLD_ROOT = "/opt/polaris-sim-world-resources"
@@ -108,6 +109,7 @@ SIM_SENSOR_PARAMETERS = (
 )
 IMAGE_SERVER_CONFIG = "/opt/px4-gazebo/share/gz/server.config"
 CONTAINER_SERVER_CONFIG = "/tmp/multidetect-gz-server.config"
+CONTAINER_RTF_SERVER_CONFIG = "/opt/multidetect-rtf-server.config"
 _DROP_GAZEBO_MAGNETOMETER = (
     f"sed '/gz-sim-magnetometer-system/d' {IMAGE_SERVER_CONFIG} > {CONTAINER_SERVER_CONFIG}; "
     f"grep -q gz-sim-sensors-system {CONTAINER_SERVER_CONFIG} || exit 71; "
@@ -365,6 +367,8 @@ class DockerSimulatorPlan:
     # Optional isolated model root for a local RTF experiment variant.
     rtf_model_root: Path | None = None
     rtf_model_root_sha256: str = ""
+    rtf_server_config: Path | None = None
+    rtf_server_config_sha256: str = ""
     external_world_sdf: bool = False
     external_world_resource_root: Path | None = None
     gpu_render: bool = False
@@ -565,6 +569,13 @@ class DockerSimulatorPlan:
                 "readonly": True,
                 "sha256": self.rtf_model_root_sha256,
             }
+        if self.rtf_server_config is not None:
+            document["mounts"]["rtf_server_config"] = {
+                "host": str(self.rtf_server_config),
+                "container": CONTAINER_RTF_SERVER_CONFIG,
+                "readonly": True,
+                "sha256": self.rtf_server_config_sha256,
+            }
         return document
 
     def to_mapping_with_hash(self) -> dict[str, object]:
@@ -648,7 +659,7 @@ def _resolve_rtf_model_root(root: Path, world_path: Path) -> Path | None:
             candidate if candidate.is_absolute() else root / candidate,
             label="MULTIDETECT_RTF_MODEL_ROOT",
         )
-    elif fnmatchcase(world_path.stem, "*_w6km__*"):
+    elif fnmatchcase(world_path.stem, _WIDE_AREA_WORLD_PATTERN):
         model_root = _path(
             root / "simulation" / "gazebo" / "models-wide-area",
             label="default wide-area RTF model root",
@@ -663,6 +674,22 @@ def _resolve_rtf_model_root(root: Path, world_path: Path) -> Path | None:
         )
         raise DockerSimulatorPlanError(f"{label} is not a directory: {model_root}")
     return model_root
+
+
+def _resolve_rtf_server_config(root: Path, world_path: Path) -> Path | None:
+    configured = os.environ.get("MULTIDETECT_RTF_SERVER_CONFIG", "").strip()
+    if configured:
+        label = "MULTIDETECT_RTF_SERVER_CONFIG"
+        candidate = root / Path(configured).expanduser()
+    elif fnmatchcase(world_path.stem, _WIDE_AREA_WORLD_PATTERN):
+        label = "default wide-area RTF server config"
+        candidate = root / "simulation" / "gazebo" / "server-wide-area.config"
+    else:
+        return None
+    server_config = _path(candidate, label=label)
+    if not server_config.is_file():
+        raise DockerSimulatorPlanError(f"{label} is not a file: {server_config}")
+    return server_config
 
 
 def build_docker_simulator_plan(
@@ -758,6 +785,11 @@ def build_docker_simulator_plan(
     rtf_model_root = _resolve_rtf_model_root(root, world_path)
     rtf_model_root_sha256 = (
         _directory_assets_sha256(rtf_model_root) if rtf_model_root is not None else ""
+    )
+    rtf_server_config = _resolve_rtf_server_config(root, world_path)
+    rtf_server_config_sha256 = (
+        hashlib.sha256(rtf_server_config.read_bytes()).hexdigest()
+        if rtf_server_config is not None else ""
     )
     repository_world_root = (root / "simulation" / "gazebo" / "worlds").resolve()
     external_world_resource_root = (
@@ -877,6 +909,8 @@ def build_docker_simulator_plan(
         "GZ_VERBOSE": "0",
         **{f"PX4_PARAM_{name}": value for name, value in SIM_SENSOR_PARAMETERS},
     }
+    if rtf_server_config is not None:
+        container_environment["GZ_SIM_SERVER_CONFIG_PATH"] = CONTAINER_RTF_SERVER_CONFIG
     logger_mode = resolve_px4_logger_mode(px4_logger_mode)
     container_environment[PX4_LOGGER_MODE_ENV] = logger_mode
     daemon_mode = resolve_px4_daemon_mode()
@@ -1019,7 +1053,17 @@ def build_docker_simulator_plan(
             ),
             f"export PX4_GZ_MODELS={container_model_root}; ",
             "export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds; ",
-            SIM_STARTUP_PATCHES,
+            (
+                "sed '/gz-sim-magnetometer-system/d' "
+                f"{CONTAINER_RTF_SERVER_CONFIG} > {CONTAINER_SERVER_CONFIG}; "
+                f"grep -q gz-sim-sensors-system {CONTAINER_SERVER_CONFIG} || exit 71; "
+                f"if grep -q gz-sim-magnetometer-system {CONTAINER_SERVER_CONFIG}; then exit 70; fi; "
+                f"export GZ_SIM_SERVER_CONFIG_PATH={CONTAINER_SERVER_CONFIG}; "
+                + _ENABLE_WIND_EFFECTS
+                + _WAIT_LONGER_FOR_GAZEBO
+                if rtf_server_config is not None
+                else SIM_STARTUP_PATCHES
+            ),
             "export GZ_SIM_RESOURCE_PATH=",
             (f"{CONTAINER_RTF_MODEL_ROOT}:" if rtf_model_root is not None else ""),
             (f"{CONTAINER_EXTERNAL_WORLD_ROOT}:" if external_world_resource_root else ""),
@@ -1064,6 +1108,8 @@ def build_docker_simulator_plan(
         *network_tokens,
         "--mount",
         _mount(model_root, CONTAINER_MODEL_ROOT),
+        *(("--mount", _mount(rtf_server_config, CONTAINER_RTF_SERVER_CONFIG))
+          if rtf_server_config is not None else ()),
         *(("--mount", _mount(rtf_model_root, CONTAINER_RTF_MODEL_ROOT))
           if rtf_model_root is not None else ()),
         *extra_mounts,
@@ -1126,6 +1172,8 @@ def build_docker_simulator_plan(
         fuel_resolved_root=resolved_root if has_resolved_root else None,
         rtf_model_root=rtf_model_root,
         rtf_model_root_sha256=rtf_model_root_sha256,
+        rtf_server_config=rtf_server_config,
+        rtf_server_config_sha256=rtf_server_config_sha256,
         external_world_sdf=world_sdf_path is not None,
         external_world_resource_root=external_world_resource_root,
         gpu_render=gpu_render,
