@@ -2,7 +2,7 @@
 """Re-target a scenario at a fixed-wing or VTOL (same world, truth and task).
 
 Without ``--airframe`` (or with ``fixed_wing``) the runway fixed-wing runtime is
-derived; ``--airframe standard_vtol`` / ``quadtailsitter`` spawns that VTOL at home.
+derived. Selecting a VTOL such as ``delta_tailsitter_gimbal`` spawns it at home.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--worlds-dir", type=Path, default=ROOT / "simulation/gazebo/worlds")
     parser.add_argument("--runway-heading-deg", type=float, default=None)
+    parser.add_argument("--spawn-heading-deg", type=float, help="VTOL spawn heading clockwise from north")
     parser.add_argument("--corridor-half-width-m", type=float, default=15.0)
     parser.add_argument(
         "--vehicle-model", choices=("px4_fixed_wing_standard", "rc_cessna_mono_cam"),
@@ -37,9 +38,12 @@ def main(argv: list[str] | None = None) -> int:
         "--airframe", choices=("fixed_wing", *sorted(VTOL_VEHICLES)), default="fixed_wing"
     )
     args = parser.parse_args(argv)
+    if args.airframe == "fixed_wing" and args.spawn_heading_deg is not None:
+        parser.error("--spawn-heading-deg requires a VTOL airframe")
     for scenario in args.scenarios:
         if args.airframe != "fixed_wing":
-            entry = derive_vtol_scenario(scenario, args.out, airframe=args.airframe)
+            entry = derive_vtol_scenario(scenario, args.out, airframe=args.airframe,
+                                        spawn_heading_deg=args.spawn_heading_deg)
         else:
             entry = derive_fixed_wing_scenario(
                 scenario,

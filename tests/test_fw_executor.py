@@ -195,6 +195,14 @@ def test_vtol_takeoff_and_landing_transition_sequence() -> None:
     assert [name for name, _, _ in fake.calls[-2:]] == ["vtol_transition", "fw_land"]
 
 
+def test_vtol_lands_in_mc_without_reissuing_the_transition():
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(fake, airframe="vtol", landing_method="vtol")
+    assert executor.execute(MotionCommand("transition", mode="MC")).status == "success"
+    assert executor.land(already_in_mc=True).status == "success"
+    assert [name for name, _, _ in fake.calls] == ["vtol_transition", "fw_land"]
+
+
 def test_profile_alias_uses_vtol_sequence_and_nonzero_ack_timeout() -> None:
     fake = FakeVehicle()
     executor = FixedWingVtolExecutor(fake, airframe="standard_vtol_mono_cam")

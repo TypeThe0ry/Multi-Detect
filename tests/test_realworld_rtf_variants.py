@@ -187,3 +187,16 @@ def test_scenario_world_path_uses_explicit_rtf_world_root(tmp_path: Path, monkey
     runtime.write_text('{"scenario_id":"rw_variant"}', encoding="utf-8")
     monkeypatch.setenv("MULTIDETECT_RTF_WORLD_ROOT", str(world_root))
     assert collector.scenario_world_path(runtime) == world
+
+
+def test_wide_area_delta_overlay_only_changes_rgb_and_depth_rate(tmp_path):
+    root = Path("simulation/gazebo")
+    delta = "delta_tailsitter_gimbal_cam"
+    output = tmp_path / "model.sdf"
+    rtf_variants._rewrite_model(root / "models" / delta / "model.sdf", output,
+                               width=1280, height=960, hz=10, preserve_camera_geometry=True)
+    overlay = root / "models-wide-area" / delta / "model.sdf"
+    assert overlay.read_bytes() == output.read_bytes()
+    sensors = ET.parse(overlay).getroot().findall(".//sensor")
+    assert {s.get("type"): s.findtext("update_rate") for s in sensors
+            if s.get("type") in {"camera", "depth_camera"}} == {"camera": "10", "depth_camera": "10"}

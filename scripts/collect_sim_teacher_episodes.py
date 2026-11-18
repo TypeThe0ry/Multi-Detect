@@ -721,6 +721,7 @@ class CollectionPlan:
     min_free_gb: float = 15.0
     disk_check_interval_steps: int = 10
     video_hz: float = 0.0
+    video_use_sim_time: bool = False
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
     airframe: str = "x500_mono_cam"
     vtol_hover_mission: bool | None = None
@@ -766,7 +767,7 @@ class CollectionPlan:
             object.__setattr__(self, "gpu_device", device)
             object.__setattr__(self, "gpu_devices", devices)
 
-    def to_mapping(self) -> dict[str, Any]:
+    def to_mapping(self, *, include_docker_command: bool = True) -> dict[str, Any]:
         result = asdict(self)
         result["requested_image"] = self.requested_image or self.image
         result["image_identity_status"] = "content_verified" if self.runtime_image_verification else "planned_reference"
@@ -775,7 +776,9 @@ class CollectionPlan:
         result["takeoff_altitude_source"] = source
         result["px4_logger_mode"] = _effective_px4_logger_mode(self)
         result["px4_daemon_mode"] = resolve_px4_daemon_mode()
-        result["docker_command"] = None if self.attach_container else docker_command(self)
+        result["docker_command"] = (
+            docker_command(self) if include_docker_command and not self.attach_container else None
+        )
         if self.attach_container:
             # An attachment cannot know its runtime identity before Docker inspect.
             result["requested_image"] = self.image
@@ -933,14 +936,14 @@ def _delta_fw_ring_metrics_from_files(
     return _delta_fw_ring_metrics(_jsonl(mavlink_path), _jsonl(steps_path))
 
 
-def _new_video_sample(sample: Any, last_written_ns: int) -> bool:
+def _new_video_sample(sample: Any, last_written_ns: int, *, due_ns: int = 0) -> bool:
     """A camera sample the continuous video has not written yet.
 
     The image pipeline always lags the newest pose, so requiring the sample to
     be at or after the current pose stamp wrote no frame at all; the pose for
     the frame comes from ``aligned_state`` at the image's own stamp instead.
     """
-    return sample is not None and int(sample.sensor_stamp_ns) > last_written_ns
+    return sample is not None and int(sample.sensor_stamp_ns) >= max(last_written_ns + 1, due_ns)
 
 
 def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
@@ -2371,6 +2374,7 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
 def resolve_takeoff_altitude(
     runtime_path: str | Path,
     explicit_altitude_m: float | None = None,
+    *, maximum_m: float = MAX_TAKEOFF_ALTITUDE_M,
 ) -> tuple[float, str]:
     """Resolve an explicit or scenario-derived takeoff altitude."""
     if explicit_altitude_m is not None:
@@ -2379,14 +2383,16 @@ def resolve_takeoff_altitude(
             raise ValueError(
                 f"takeoff altitude must be finite and >= {DEFAULT_TAKEOFF_ALTITUDE_M:g} m"
             )
-        if altitude > MAX_TAKEOFF_ALTITUDE_M:
-            raise ValueError(f"takeoff altitude must be <= {MAX_TAKEOFF_ALTITUDE_M:g} m")
+        if altitude > maximum_m:
+            raise ValueError(f"takeoff altitude must be <= {maximum_m:g} m")
         return altitude, "explicit_cli"
     return auto_takeoff_altitude_m(scenario_world_path(runtime_path))
 
 
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
-    altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
+    profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
+    maximum_m = 90.0 if profile is not None and profile.category == "vtol" else MAX_TAKEOFF_ALTITUDE_M
+    altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m, maximum_m=maximum_m)
     hover_floor_m: float | None = None
     # Generated teacher intent is the authoritative camera geometry.  Resolve it
     # before launch so PX4 takeoff and episode metadata agree with the route.
@@ -2408,7 +2414,6 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
                 hover_floor_m = float(observation["vtol_hover_floor_m"])
         except (OSError, json.JSONDecodeError):
             pass
-    profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
     if profile is None or profile.category == "multirotor":
         return altitude, source
     # A hover-only tailsitter mission never transitions, so the scenario may lower the
@@ -5528,6 +5533,7 @@ def _fixed_wing_or_vtol_land_and_wait(
     reader: MavlinkReader,
     *,
     timeout_s: float | None = None,
+    already_in_mc: bool = False,
     clock: callable = time.monotonic,
     sleep: callable = time.sleep,
 ) -> dict[str, Any]:
@@ -5555,7 +5561,7 @@ def _fixed_wing_or_vtol_land_and_wait(
             "command": None,
             "already_landed": True,
         }
-    result = executor.land()
+    result = executor.land(already_in_mc=True) if already_in_mc else executor.land()
     if result.status != "success":
         raise RuntimeError(f"fixed-wing/VTOL landing command failed: {_plain_record(result.ack)}")
     remaining_s = (
@@ -6023,6 +6029,8 @@ def run_episode(
     episode_index: int,
     *,
     free_space_fn: Any = free_space_bytes,
+    policy_override: Any = None,
+    land_after_route: bool = False,
 ) -> Path:
     plan = freeze_collection_runtime(plan)
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
@@ -6047,7 +6055,10 @@ def run_episode(
     )
     strict_delta_smoke = False
     sensor_frame_wait_s = SENSOR_FRAME_WAIT_S
-    if plan.smoke_flight:
+    if policy_override is not None:
+        policy = policy_override
+        task_text = plan.task_text or "Guided route"
+    elif plan.smoke_flight:
         smoke_profile = _airframe_profile(plan.airframe)
         strict_delta_smoke = bool(
             smoke_profile is not None
@@ -6098,6 +6109,8 @@ def run_episode(
         else None
     )
     last_video_stamp_ns: list[int] = [-1]
+    next_video_sim_ns: int | None = None
+    next_video_request_s = 0.0
     # Persist the effective per-episode seed/index so a campaign can retry an
     # individual failed recording exactly, even when its next invocation uses a
     # different --episodes value.
@@ -7582,52 +7595,68 @@ def run_episode(
                                                   daemon=managed_gimbal_action is not None)
                 execute_thread.start()
                 def _action_tick() -> None:
-                    nonlocal next_video_s
+                    nonlocal next_video_s, next_video_sim_ns, next_video_request_s
                     episode_watchdog.check()
                     now = time.monotonic()
-                    if video_writer is not None and now >= next_video_s:
-                        try:
+                    if video_writer is None or video_writer.truncated:
+                        return
+                    try:
+                        if plan.video_use_sim_time:
+                            # Share one cadence across FW legs. Start the clock at the first leg.
+                            if motion is None or motion.kind != "reposition" or motion.mode != "FW":
+                                return
+                            video_stamp = _pose_sim_stamp_ns(mav_reader.state)
+                            if video_stamp is None:
+                                return
+                            if next_video_sim_ns is None:
+                                next_video_sim_ns = video_stamp
+                            if video_stamp < next_video_sim_ns:
+                                return
+                            sample = sensor_reader.latest
+                            if not _new_video_sample(sample, last_video_stamp_ns[0], due_ns=next_video_sim_ns):
+                                if now >= next_video_request_s:
+                                    next_video_request_s = now + 1.0
+                                    sensor_reader.request(next_video_sim_ns)
+                                return
+                        elif now >= next_video_s:
                             video_stamp = _pose_sim_stamp_ns(
                                 _snapshot_mavlink_state(mav_reader.state)
                             )
                             sensor_reader.request(video_stamp or 0)
                             sample = sensor_reader.latest
-                            if _new_video_sample(sample, last_video_stamp_ns[0]):
-                                last_video_stamp_ns[0] = sample.sensor_stamp_ns
-                                aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
-                                video_obs = _png_observation(
-                                    build_observation(
-                                        sample,
-                                        aligned,
-                                        camera_mount=camera_mount,
-                                        gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
-                                        camera_info={
-                                            **DEFAULT_CAMERA_INFO,
-                                            "width": plan.rgb_size[0],
-                                            "height": plan.rgb_size[1],
-                                            "fx": DEFAULT_CAMERA_INFO["fx"]
-                                            * plan.rgb_size[0]
-                                            / 1280.0,
-                                            "fy": DEFAULT_CAMERA_INFO["fy"]
-                                            * plan.rgb_size[1]
-                                            / 960.0,
-                                            "cx": DEFAULT_CAMERA_INFO["cx"]
-                                            * plan.rgb_size[0]
-                                            / 1280.0,
-                                            "cy": DEFAULT_CAMERA_INFO["cy"]
-                                            * plan.rgb_size[1]
-                                            / 960.0,
-                                        },
-                                    )
+                        else:
+                            return
+                        if _new_video_sample(sample, last_video_stamp_ns[0]):
+                            last_video_stamp_ns[0] = sample.sensor_stamp_ns
+                            if plan.video_use_sim_time:
+                                next_video_sim_ns = sample.sensor_stamp_ns + round(1e9 / plan.video_hz)
+                            aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
+                            video_obs = _png_observation(
+                                build_observation(
+                                    sample,
+                                    aligned,
+                                    camera_mount=camera_mount,
+                                    gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
+                                    camera_info={
+                                        **DEFAULT_CAMERA_INFO,
+                                        "width": plan.rgb_size[0],
+                                        "height": plan.rgb_size[1],
+                                        "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                                        "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                                        "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                                        "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                                    },
                                 )
-                                video_obs["flight_stage"] = "action"
-                                if not plan.capture_depth:
-                                    video_obs["depth"] = None
-                                video_writer.write(video_obs, action_index=index)
-                        except Exception as exc:
-                            recorder.record_mavlink(
-                                {"message_type": "video_capture_error", "error": str(exc)}
                             )
+                            if plan.video_use_sim_time and camera_mount is not None and camera_mount.kind == "gimbal":
+                                validate_gimbal_recording_observation(video_obs)
+                            video_obs["flight_stage"] = "action"
+                            if not plan.capture_depth:
+                                video_obs["depth"] = None
+                            video_writer.write(video_obs, action_index=index)
+                    except Exception as exc:
+                        recorder.record_mavlink({"message_type": "video_capture_error", "error": str(exc)})
+                    if not plan.video_use_sim_time:
                         next_video_s += 1.0 / plan.video_hz
 
                 try:
@@ -7663,7 +7692,7 @@ def run_episode(
                 timing.setdefault("completion_check_ms", 0.0)
                 timing.setdefault("timeout_ms", timing["command_and_primitive_wait_ms"] if result.status == "timeout" else 0.0)
                 timing["primitive_status"] = result.status
-                if video_writer is not None:
+                if video_writer is not None and not plan.video_use_sim_time:
                     # Ensure the final in-flight frame is represented at the
                     # primitive boundary when the simulator emitted one.
                     sample = sensor_reader.latest
@@ -7850,6 +7879,8 @@ def run_episode(
                         json.dumps(recorder.meta, indent=2), encoding="utf-8"
                     )
                     _progress("fw_overspeed_recovery_end", **overspeed_result)
+                if land_after_route and result.status != "success":
+                    raise RuntimeError(f"guided VTOL route step {index} failed: {result.status}")
                 # STOP is a terminal policy action.  Keep this step in the
                 # episode (including its observation pair), then immediately
                 # leave the primitive loop so we do not execute redundant
@@ -7867,7 +7898,10 @@ def run_episode(
             # make a fixed wall-clock wait expire before PX4 reaches the ground.
             mav_reader.raise_if_failed()
             _progress("land")
-            if not use_multirotor_executor:
+            if land_after_route:
+                if _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3:
+                    raise RuntimeError("guided VTOL landing requires confirmed MC mode")
+            elif not use_multirotor_executor:
                 rtl_started_ns = time.monotonic_ns()
                 executor.rtl()
                 # Confirm PX4 is really in AUTO.RTL before anything else is sent:
@@ -7914,7 +7948,9 @@ def run_episode(
                     setpoint_streamer,
                 )
             else:
-                land_result = _fixed_wing_or_vtol_land_and_wait(executor, mav_reader)
+                land_result = _fixed_wing_or_vtol_land_and_wait(
+                    executor, mav_reader, already_in_mc=land_after_route
+                )
             land_result["flight_state"] = _flight_state_snapshot(mav_reader.state)
             recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
             if video_writer is not None:
@@ -8070,9 +8106,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scenario", type=Path, required=False)
     parser.add_argument(
         "--long-range-profile",
-        choices=("rw_farm_iowa_w6km__clear_noon",),
+        choices=("rw_farm_iowa_w6km__clear_noon", "rw_city_zurich_w6km__clear_noon"),
         default=None,
-        help="dispatch the fixed-wing collector to the validated 6 km long-range route",
+        help="dispatch to the selected 6 km wide-area route",
     )
     parser.add_argument(
         "--long-range-slot",
@@ -8271,8 +8307,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.long_range_profile:
         from scripts.realworld import long_range_flight
 
-        if args.airframe != "rc_cessna_mono_cam":
-            raise SystemExit("--long-range-profile requires --airframe rc_cessna_mono_cam")
+        airframe = (long_range_flight.DELTA if args.airframe == "x500_mono_cam" and args.scenario is None
+                    else args.airframe)
+        if airframe not in long_range_flight.AIRFRAME_PROFILES:
+            raise SystemExit("--long-range-profile requires --airframe delta_tailsitter_gimbal_cam or rc_cessna_mono_cam")
         if args.teacher != "explore" or args.episodes != 1:
             raise SystemExit("--long-range-profile requires --teacher explore and --episodes 1")
         if not math.isfinite(args.min_rtf) or args.min_rtf < long_range_flight.DEFAULT_MIN_RTF:
@@ -8280,7 +8318,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 f"--min-rtf must be at least {long_range_flight.DEFAULT_MIN_RTF:g}"
             )
         try:
-            scenario = long_range_flight.resolve_profile(args.long_range_profile, args.scenario)
+            scenario = long_range_flight.resolve_profile(args.long_range_profile, args.scenario, airframe)
         except (OSError, ValueError) as exc:
             raise SystemExit(str(exc)) from exc
         if not scenario.is_file():
@@ -8292,6 +8330,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             str(out),
             "--min-rtf",
             str(args.min_rtf),
+            "--airframe",
+            airframe,
         ]
         if args.dry_run:
             delegated.append("--plan-only")

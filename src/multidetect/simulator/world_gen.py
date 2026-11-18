@@ -1715,7 +1715,8 @@ VTOL_VEHICLES = {
 
 
 def derive_vtol_scenario(
-    scenario_path: str | Path, out_dir: str | Path, *, airframe: str
+    scenario_path: str | Path, out_dir: str | Path, *, airframe: str,
+    spawn_heading_deg: float | None = None,
 ) -> dict[str, Any]:
     """Re-target a generated scenario at a VTOL airframe (same world, truth and task).
 
@@ -1724,6 +1725,8 @@ def derive_vtol_scenario(
     """
     if airframe not in VTOL_VEHICLES:
         raise ValueError(f"unsupported VTOL airframe {airframe!r}; use {sorted(VTOL_VEHICLES)}")
+    if spawn_heading_deg is not None and not math.isfinite(spawn_heading_deg):
+        raise ValueError("VTOL spawn heading must be finite")
     model, profile_id, spawn_up = VTOL_VEHICLES[airframe]
     scenario_path = Path(scenario_path)
     source = json.loads(scenario_path.read_text(encoding="utf-8"))
@@ -1746,7 +1749,8 @@ def derive_vtol_scenario(
             "z_up_m": spawn_up,
             "roll_rad": 0.0,
             "pitch_rad": 0.0,
-            "yaw_rad": float(spawn.get("yaw_rad", 0.0)),
+            "yaw_rad": (float(spawn.get("yaw_rad", 0.0)) if spawn_heading_deg is None
+                        else math.radians((90.0 - spawn_heading_deg) % 360.0)),
         },
     }
     telemetry = [s for s in runtime.get("sensors", []) if s.get("kind") == "mavlink_telemetry"]

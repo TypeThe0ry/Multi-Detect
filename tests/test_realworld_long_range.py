@@ -67,7 +67,9 @@ def test_w2km_derived_runtime_heading_matches_mission() -> None:
     assert math.sin(yaw) == pytest.approx(math.cos(math.radians(heading)), abs=1e-5)
 
 
-def test_collector_profile_entry_delegates_without_starting_runtime(monkeypatch) -> None:
+@pytest.mark.parametrize("airframe,profile", [(flight.AIRFRAME, flight.DEFAULT_PROFILE),
+                                              (flight.DELTA, flight.PROFILES[1])])
+def test_collector_profile_entry_delegates_without_starting_runtime(monkeypatch, airframe, profile) -> None:
     from scripts import collect_sim_teacher_episodes as collector
 
     calls: list[list[str]] = []
@@ -80,9 +82,9 @@ def test_collector_profile_entry_delegates_without_starting_runtime(monkeypatch)
     result = collector.main(
         [
             "--long-range-profile",
-            "rw_farm_iowa_w6km__clear_noon",
+            profile,
             "--airframe",
-            "rc_cessna_mono_cam",
+            airframe,
             "--teacher",
             "explore",
             "--episodes",
@@ -93,13 +95,16 @@ def test_collector_profile_entry_delegates_without_starting_runtime(monkeypatch)
         ]
     )
     assert result == 17
+    scenario = flight.SCENARIO_ROOT / airframe / f"{profile}.scenario.json"
     assert calls == [
         [
             "7",
-            str(flight.DEFAULT_SCENARIO.resolve()),
-            str(flight.default_output_path(flight.DEFAULT_SCENARIO, 0.9).resolve()),
+            str(scenario.resolve()),
+            str(flight.default_output_path(scenario, 0.9).resolve()),
             "--min-rtf",
             "0.9",
+            "--airframe",
+            airframe,
             "--plan-only",
         ]
     ]
@@ -137,3 +142,45 @@ def test_plan_only_requires_reserved_slot_count(monkeypatch, tmp_path: Path) -> 
     monkeypatch.setenv("MULTIDETECT_SITL_SLOTS", "7")
     with pytest.raises(SystemExit):
         flight.main(["7", "missing.scenario.json", str(tmp_path), "--plan-only"])
+
+
+@pytest.mark.parametrize("profile", flight.PROFILES)
+def test_delta_cpu_plan_compiles_vtol_lifecycle_and_dem_envelope(monkeypatch, capsys, profile):
+    from scripts import collect_sim_teacher_episodes as collector
+
+    monkeypatch.delenv("MULTIDETECT_SIM_LISTEN_HOST", raising=False)
+    monkeypatch.setattr(collector, "docker_command", lambda *_a, **_kw: pytest.fail("Docker planning invoked"))
+    assert flight.main(["7", "--profile", profile, "--plan-only"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["flight_started"] is False
+    assert plan["airframe"] == flight.DELTA
+    assert plan["minimum_rtf"] == 0.9
+    assert plan["planned_max_distance_m"] > plan["minimum_max_distance_m"] == 4000
+    assert 40 <= plan["planned_agl_envelope_m"][0] <= plan["planned_agl_envelope_m"][1] <= 120
+    assert 250 <= math.hypot(*plan["fw_waypoints_home_ned_m"][-1][:2]) <= 650
+    wire = plan["compiled_mission"]["compiled_mission"]["wire_items"]
+    assert [item["command"] for item in wire] == [84, 3000, *([16] * 7), 19, 3000, 85]
+    assert [wire[1]["param1"], wire[-2]["param1"]] == [4, 3]
+    collector_plan = plan["collector_plan"]
+    assert collector_plan["takeoff_altitude_m"] == 65
+    assert collector_plan["video_hz"] == pytest.approx(1 / 6)
+    assert collector_plan["video_use_sim_time"] is True
+    assert collector_plan["smoke_flight"] is False
+
+
+def test_delta_policy_reuses_guided_fw_and_mc_commands():
+    targets = [(100, 200, -85), (300, -360, -85)]
+    policy = flight.LongRangePolicy(targets, 80, vtol=True)
+    actions = [policy.next_action() for _ in range(5)]
+    assert [(a.kind, getattr(a, "mode", None)) for a in actions] == [
+        ("reposition", "FW"), ("reposition", "FW"), ("transition", "MC"),
+        ("mc_reposition", "MC"), ("stop", None),
+    ]
+    assert actions[-2].target_ned == (0, 0, -85)
+
+
+def test_delta_dem_audit_rejects_impossible_cruise_corridor():
+    mission = flight.load_mission(flight.DEFAULT_SCENARIO)
+    targets = [(north, east, down - 50) for north, east, down in mission["targets"]]
+    with pytest.raises(ValueError, match="DEM route envelope"):
+        flight._audit_delta_route(mission["geometry"], targets, mission["source"], mission["terrain"], 4000)

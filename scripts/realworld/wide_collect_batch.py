@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a resumable batch of prepared 6 km fixed-wing collection scenarios."""
+"""Run a resumable batch of prepared 6 km collection scenarios."""
 from __future__ import annotations
 
 import argparse
@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS = ROOT / "configs/scenarios/realworld/rc_cessna_mono_cam"
 BATCHES = Path("/data/datasets/multidetect-sim-assets/wide-collect/batches")
 AIRFRAME = "rc_cessna_mono_cam"
+DELTA_AIRFRAME = "delta_tailsitter_gimbal_cam"
 V9_CONFIG = ROOT / "simulation/gazebo/server-wide-area.config"
 MIN_FREE_BYTES = 100 * 10**9
 DEFAULT_MAX_BYTES = 8 * 1024**3
@@ -87,11 +88,18 @@ def number(value):
     return type(value) in (float, int) and math.isfinite(value)
 
 
+def validate_airframe(value, field):
+    if value not in (AIRFRAME, DELTA_AIRFRAME):
+        raise ValueError(f"{field} must be {AIRFRAME} or {DELTA_AIRFRAME}")
+    return value
+
+
 def expand(spec):
     unknown = spec.keys() - {"batch_id", "gpu", "slots", "share_gpu", "output_root", "jobs",
-                             "max_artifact_bytes", *ROOT_FIELDS}
+                             "airframe", "max_artifact_bytes", *ROOT_FIELDS}
     if unknown:
         raise ValueError(f"unknown batch fields: {', '.join(sorted(unknown))}")
+    default_airframe = validate_airframe(spec.get("airframe", AIRFRAME), "airframe")
     gpu = spec.get("gpu", 1)
     slots = spec.get("slots", [5, 6, 7])
     share_gpu = spec.get("share_gpu")
@@ -112,9 +120,10 @@ def expand(spec):
         if not isinstance(job, dict):
             raise ValueError(f"jobs[{index}] must be an object")
         unknown = job.keys() - {"site", "scenario", "altitude_m", "time_of_day", "weather", "seed",
-                                "max_artifact_bytes", *ROOT_FIELDS}
+                                "airframe", "max_artifact_bytes", *ROOT_FIELDS}
         if unknown:
             raise ValueError(f"jobs[{index}] unknown fields: {', '.join(sorted(unknown))}")
+        airframe = validate_airframe(job.get("airframe", default_airframe), f"jobs[{index}].airframe")
         site, altitude, seed = (job.get(key) for key in ("site", "altitude_m", "seed"))
         if not isinstance(site, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", site):
             raise ValueError(f"jobs[{index}].site must be a site slug")
@@ -128,7 +137,8 @@ def expand(spec):
             raise ValueError(f"jobs[{index}] unsupported time_of_day/weather: {tod!r}/{wx!r}")
         source = job.get("scenario", site)
         if source == site:
-            source = str(SCENARIOS / f"{site}_w6km__{preset}.scenario.json")
+            scenario_dir = SCENARIOS if airframe == AIRFRAME else SCENARIOS.with_name(airframe)
+            source = str(scenario_dir / f"{site}_w6km__{preset}.scenario.json")
         scenario = absolute(source, "scenario")
         if not re.fullmatch(rf"{re.escape(site)}_w6km[a-z0-9_]*__{preset}\.scenario\.json",
                             scenario.name):
@@ -144,13 +154,15 @@ def expand(spec):
             else "artifacts/cache/gz-fuel/resolved")))
         inputs = dict(site=site, altitude_m=float(altitude), time_of_day=tod, weather=wx, seed=seed,
                       scenario=str(scenario), max_artifact_bytes=maximum)
-        # Execution placement is intentionally not part of capture identity.
+        # Keep the legacy RC identity and omit execution placement from capture identity.
+        if airframe != AIRFRAME:
+            inputs["airframe"] = airframe
         job_id = digest({**inputs, "roots": roots, "schema_version": 1})
         if job_id not in jobs:
             jobs[job_id] = {"job_id": job_id, "inputs": inputs, "weather_preset": preset,
                             "slot": slots[len(jobs) % len(slots)],
                             "matrix": {"name": job_id, "scenario": str(scenario), **roots,
-                                       "variant": "V9", "extent_m": 6000, "airframe": AIRFRAME,
+                                       "variant": "V9", "extent_m": 6000, "airframe": airframe,
                                        "minimum_rtf": MIN_RTF, "minimum_max_distance_m": MIN_DISTANCE_M}}
     batch_id = spec.get("batch_id", digest({"jobs": list(jobs)})[:16])
     if not isinstance(batch_id, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", batch_id):
@@ -165,6 +177,7 @@ def prepare(job, snapshot):
     from scripts.realworld.long_range_flight import load_mission, sidecar_path
 
     row = job["matrix"]
+    airframe = row.get("airframe", AIRFRAME)
     source = Path(row["scenario"])
     manifest = read_object(source)
     channels = {}
@@ -176,6 +189,8 @@ def prepare(job, snapshot):
         channels[key] = body
 
     runtime = channels["runtime_input"]
+    if runtime["vehicle"]["model"] != airframe:
+        raise ValueError(f"{source}: runtime vehicle model must match batch airframe {airframe}")
     runtime["seed"] = job["inputs"]["seed"]
     world_id = manifest["scenario_id"]
     if world_id != source.name.removesuffix(".scenario.json"):
@@ -211,9 +226,12 @@ def prepare(job, snapshot):
         point["altitude_m"] = height(point) - home_elevation + job["inputs"]["altitude_m"]
         point["altitude_reference"] = "relative_home"
     centerline = mission["task"]["geometry"]["centerline"]
-    if len(centerline) != len(cruise) + 2:
-        raise ValueError(f"{source}: expected a fixed-wing circuit centerline matching the waypoints")
-    mission["task"]["geometry"]["centerline"] = [centerline[0], *cruise, centerline[-1]]
+    if len(centerline) == len(cruise) + 2:
+        mission["task"]["geometry"]["centerline"] = [centerline[0], *cruise, centerline[-1]]
+    elif airframe == DELTA_AIRFRAME and len(centerline) == len(cruise):
+        mission["task"]["geometry"]["centerline"] = cruise
+    else:
+        raise ValueError(f"{source}: expected a centerline matching the waypoints")
 
     snapshot.mkdir()
     staged = snapshot / source.name
@@ -223,12 +241,16 @@ def prepare(job, snapshot):
         manifest["channels"][key] = {"path": name, "sha256": digest(body)}
     atomic_text(staged, dump(manifest) + "\n")
     atomic_text(sidecar_path(staged), dump(mission) + "\n")
-    load_mission(staged, minimum_rtf=MIN_RTF)
+    if airframe == AIRFRAME:
+        load_mission(staged, minimum_rtf=MIN_RTF)
+    else:
+        load_mission(staged, minimum_rtf=MIN_RTF, dem_path=assets["dem"])
     return staged, evidence
 
 
-def size_and_frames(attempt):
+def size_and_frames(attempt, *, airframe=AIRFRAME):
     total = episode_bytes = frames = 0
+    episodes = attempt / "flight/episodes"
     for root, _, files in os.walk(attempt):
         for name in files:
             path = Path(root) / name
@@ -236,9 +258,19 @@ def size_and_frames(attempt):
                 continue
             size = path.stat().st_size
             total += size
-            if path.is_relative_to(attempt / "flight/episodes"):
+            if path.is_relative_to(episodes):
                 episode_bytes += size
-                if path.parent.name == "rgb" and path.suffix == ".png" and size > 0:
+                if size == 0:
+                    continue
+                if airframe == DELTA_AIRFRAME:
+                    episode_dir_parts = path.parent.relative_to(episodes).parts
+                    is_frame = (
+                        episode_dir_parts[1:] == ("video", "rgb")
+                        and path.suffix in (".jpg", ".jpeg")
+                    )
+                else:
+                    is_frame = path.parent.name == "rgb" and path.suffix == ".png"
+                if is_frame:
                     frames += 1
     return total, episode_bytes, frames
 
@@ -254,7 +286,8 @@ def remove_episodes(attempt):
 
 
 def evaluate(attempt, job, batch, rc):
-    artifact_bytes, episode_bytes, frames = size_and_frames(attempt)
+    airframe = job["matrix"].get("airframe", AIRFRAME)
+    artifact_bytes, episode_bytes, frames = size_and_frames(attempt, airframe=airframe)
     errors = []
     if artifact_bytes > job["inputs"]["max_artifact_bytes"]:
         errors.append("artifact_size_limit_exceeded")
@@ -271,6 +304,8 @@ def evaluate(attempt, job, batch, rc):
         errors.append("route_not_completed")
     if raw.get("name") != job["job_id"] or str(raw.get("gpu")) != str(batch["gpu"]):
         errors.append("matrix_job_or_gpu_mismatch")
+    if raw.get("airframe", AIRFRAME) != airframe:
+        errors.append("matrix_airframe_mismatch")
     rtf = raw.get("rtf_window_median")
     ratio = raw.get("rtf_delta_sim_over_delta_real")
     distance = raw.get("max_distance_from_spawn_m")

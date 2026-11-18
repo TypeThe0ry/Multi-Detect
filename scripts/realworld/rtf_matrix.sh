@@ -27,9 +27,9 @@ usage() {
 用法：$0 --manifest FILE [--out DIR]
 
 FILE 是 JSON 数组；每项至少包含 name、scenario、resolved_root、extent_m，
-可选 airframe（默认 rc_cessna_mono_cam）。每项会在 RTF_MATRIX_SLOT 指定的 slot 顺序执行，
+可选 airframe（rc_cessna_mono_cam 默认，或 delta_tailsitter_gimbal_cam）。每项会在 RTF_MATRIX_SLOT 指定的 slot 顺序执行，
 仅允许 slot 5、6、7（默认 7），可使用 GPU 1（默认）或 GPU 3；
-固定翼长航程由 .venv-vlm 运行，stats 采样由同一项目环境运行。
+长航程由 .venv-vlm 运行，stats 采样由同一项目环境运行。
 RTF_MATRIX_SINGLE_ROUND=1 时要求恰好一项，直接写入 --out，不重试或清理 episode。
 
 可无人值守运行：
@@ -77,6 +77,8 @@ for i,row in enumerate(rows):
     if not isinstance(row, dict): raise SystemExit(f'第 {i} 项不是对象')
     for key in ('name','scenario','resolved_root','extent_m'):
         if key not in row: raise SystemExit(f'第 {i} 项缺少 {key}')
+    if row.get('airframe', 'rc_cessna_mono_cam') not in ('rc_cessna_mono_cam', 'delta_tailsitter_gimbal_cam'):
+        raise SystemExit(f'第 {i} 项 airframe 必须是 rc_cessna_mono_cam 或 delta_tailsitter_gimbal_cam')
     minimum_rtf=float(row.get('minimum_rtf', 0.9))
     if not math.isfinite(minimum_rtf) or minimum_rtf < 0.9: raise SystemExit(f'第 {i} 项 minimum_rtf 必须是 >= 0.9 的有限数')
     print(json.dumps(row, ensure_ascii=False, separators=(',', ':')))
@@ -131,6 +133,7 @@ preflight() {
 
 run_one() {
   local row=$1 attempt=$2 name scenario root extent airframe overlay model_root world_root map_root terrain_root server_config run_dir flight_pid stats_rc flight_rc prefix
+  local -a airframe_args=()
   name=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$row")
   scenario=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["scenario"])' "$row")
   root=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["resolved_root"])' "$row")
@@ -142,6 +145,7 @@ run_one() {
   server_config=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("server_config", ""))' "$row")
   extent=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["extent_m"])' "$row")
   airframe=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("airframe","rc_cessna_mono_cam"))' "$row")
+  if [[ "$airframe" != rc_cessna_mono_cam ]]; then airframe_args=(--airframe "$airframe"); fi
   run_dir=${3:-"$OUT/$name/attempt-$attempt"}
   prefix="md-rw-long-slot-$SLOT${RUN_TAG:+-$RUN_TAG}"
   mkdir -p "$run_dir"
@@ -153,7 +157,8 @@ run_one() {
   if [[ -n "$map_root" ]]; then export MULTIDETECT_RTF_MAP_ROOT=$(realpath "$map_root"); else unset MULTIDETECT_RTF_MAP_ROOT; fi
   if [[ -n "$terrain_root" ]]; then export MULTIDETECT_RTF_TERRAIN_ROOT=$(realpath "$terrain_root"); else unset MULTIDETECT_RTF_TERRAIN_ROOT; fi
   if [[ -n "$server_config" ]]; then export MULTIDETECT_RTF_SERVER_CONFIG=$(realpath "$server_config"); else unset MULTIDETECT_RTF_SERVER_CONFIG; fi
-  MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX="$prefix" "$SITL_PYTHON" scripts/realworld/long_range_flight.py "$SLOT" "$scenario" "$run_dir/flight" >"$run_dir/flight.stdout.log" 2>&1 &
+  MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX="$prefix" "$SITL_PYTHON" scripts/realworld/long_range_flight.py \
+    "$SLOT" "$scenario" "$run_dir/flight" "${airframe_args[@]}" >"$run_dir/flight.stdout.log" 2>&1 &
   flight_pid=$!
   trap 'if kill -0 "$flight_pid" 2>/dev/null; then kill "$flight_pid" 2>/dev/null || true; fi' RETURN
   set +e
@@ -201,9 +206,9 @@ PY
   return "$result_rc"
 }
 
+rows=$(json_rows) || exit 2
 if [[ "$SINGLE_ROUND" == 1 ]]; then
-  row=$(json_rows)
-  [[ -n "$row" && "$row" != *$'\n'* ]] || { echo "单轮模式要求一项 manifest" >&2; exit 2; }
+  [[ -n "$rows" && "$rows" != *$'\n'* ]] || { echo "单轮模式要求一项 manifest" >&2; exit 2; }
   attempt=${RTF_MATRIX_ATTEMPT:-1}
   [[ "$attempt" =~ ^[1-9][0-9]*$ ]] || { echo "无效的 RTF_MATRIX_ATTEMPT" >&2; exit 2; }
   GPU_UUID=$(nvidia-smi -i "$GPU" --query-gpu=uuid --format=csv,noheader)
@@ -213,7 +218,7 @@ if [[ "$SINGLE_ROUND" == 1 ]]; then
   exec {gpu_lock}>"$lock_root/$GPU_UUID.lock"
   flock -w "$WAIT_S" "$gpu_lock" || { echo "等待 GPU$GPU 租约超时" >&2; exit 1; }
   preflight
-  run_one "$row" "$attempt" "$OUT"
+  run_one "$rows" "$attempt" "$OUT"
   exit 0
 fi
 
@@ -238,7 +243,7 @@ while IFS= read -r row; do
     (( attempt < MAX_ATTEMPTS )) && sleep "$GAP_S"
   done
   sleep "$GAP_S"
-done < <(json_rows)
+done <<< "$rows"
 
 "$TOOLS_PYTHON" - "$OUT/matrix.jsonl" "$OUT/summary.json" "$MANIFEST" <<'PY'
 import json,sys

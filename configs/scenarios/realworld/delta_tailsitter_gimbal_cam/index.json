@@ -1,0 +1,16 @@
+{
+  "generator": "multidetect.simulator.world_gen.derive_vtol_scenario",
+  "schema_version": 1,
+  "worlds": [
+    {
+      "airframe": "delta_tailsitter_gimbal",
+      "source_scenario": "rw_farm_iowa_w6km__clear_noon.scenario.json",
+      "world_id": "rw_farm_iowa_w6km__clear_noon"
+    },
+    {
+      "airframe": "delta_tailsitter_gimbal",
+      "source_scenario": "rw_city_zurich_w6km__clear_noon.scenario.json",
+      "world_id": "rw_city_zurich_w6km__clear_noon"
+    }
+  ]
+}

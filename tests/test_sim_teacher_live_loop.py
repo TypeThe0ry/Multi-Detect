@@ -769,7 +769,7 @@ def test_collector_current_step_routes_first_and_alternating_actions_without_pri
     policy = SimpleNamespace(next_action=lambda **kwargs: actions.pop(0))
     env = {'plan': SimpleNamespace(teacher='hover'), 'policy': policy,
            'pose': (0, 0, -10), 'yaw': 0.0, 'before': {}, 'timing': {},
-           'camera_mount': CameraMount.gimbal(), 'gimbal_session': None,
+           'camera_mount': CameraMount.gimbal(), 'gimbal_session': None, 'landing_started': False,
            'gimbal_controller': object(),
            '_managed_teacher_gimbal_action': collector._managed_teacher_gimbal_action,
            '_ensure_gimbal_session': lambda: ensures.append(True),

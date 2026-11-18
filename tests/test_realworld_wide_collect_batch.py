@@ -14,6 +14,7 @@ from scripts.realworld import wide_collect_batch as batch
 
 IOWA = "rw_farm_iowa"
 STEM = "rw_farm_iowa_w6km__clear_noon"
+DELTA = "delta_tailsitter_gimbal_cam"
 
 
 @pytest.fixture
@@ -49,20 +50,30 @@ scenario = Path(row["scenario"])
 assert scenario.parent == a.out / "scenario"
 runtime_path = json.loads(scenario.read_text())["channels"]["runtime_input"]["path"]
 assert json.loads((scenario.parent / runtime_path).read_text())["seed"] >= 42
-assert row["extent_m"] == 6000 and row["airframe"] == "rc_cessna_mono_cam"
+assert row["extent_m"] == 6000
+assert row["airframe"] == os.environ.get("FAKE_EXPECTED_AIRFRAME", "rc_cessna_mono_cam")
 mode = os.environ.get("FAKE_MATRIX_MODE")
 slot = os.environ["RTF_MATRIX_SLOT"]
 gpu = os.environ["RTF_MATRIX_GPU"]
 name = f"md-rw-long-slot-{slot}-fake"
 episode = a.out / "flight/episodes/episode-fixture"
-(episode / "rgb").mkdir(parents=True)
-(episode / "rgb/000001.png").write_bytes(b"data" * 10_000)
+if row["airframe"] == "delta_tailsitter_gimbal_cam":
+    rgb = episode / "video/rgb"
+    rgb.mkdir(parents=True)
+    (rgb / "000001.jpg").write_bytes(b"data" * 10_000)
+else:
+    (episode / "rgb").mkdir(parents=True)
+    (episode / "rgb/000001.png").write_bytes(b"data" * 10_000)
 identity = {"container_id": "a" * 64, "container_name": name}
 (episode / "episode.json").write_text(json.dumps({"status": "complete", "simulator_container": identity}))
 (a.out / "stats.json").write_text("{}")
 result = {**identity, "name": row["name"], "gpu": gpu, "valid_round": True,
           "route_completed": True, "rtf_window_median": 0.94,
           "rtf_delta_sim_over_delta_real": 0.88, "max_distance_from_spawn_m": 4100}
+if row["airframe"] != "rc_cessna_mono_cam":
+    result["airframe"] = row["airframe"]
+if mode == "wrong_airframe":
+    result["airframe"] = "rc_cessna_mono_cam"
 if mode == "invalid":
     result["valid_round"] = False
 if mode == "truthy":
@@ -94,6 +105,43 @@ def test_expand_is_deterministic_deduplicates_and_assigns_slots(spec):
     assert batch.expand({**spec, "gpu": 1, "slots": [7]})["jobs"][0]["job_id"] == plan["jobs"][0]["job_id"]
     defaults = batch.expand({"jobs": [first]})
     assert Path(defaults["output_root"]) == batch.BATCHES / defaults["batch_id"]
+    legacy_job = plan["jobs"][0]
+    assert "airframe" not in legacy_job["inputs"]
+    assert legacy_job["job_id"] == batch.digest({
+        **legacy_job["inputs"],
+        "roots": {key: legacy_job["matrix"][key] for key in batch.ROOT_FIELDS if key in legacy_job["matrix"]},
+        "schema_version": 1,
+    })
+
+
+def test_expand_airframe_defaults_overrides_and_identity(spec):
+    original = batch.expand(spec)
+    job = spec["jobs"][0]
+    rc, delta = batch.AIRFRAME, DELTA
+    assert batch.expand({**spec, "airframe": rc}) == original
+    plan = batch.expand({**spec, "airframe": delta, "jobs": [job, {**job, "airframe": rc}]})
+    inherited, overridden = plan["jobs"]
+    delta_scenario = batch.ROOT / "configs/scenarios/realworld" / delta / f"{STEM}.scenario.json"
+    assert inherited["matrix"]["scenario"] == str(delta_scenario)
+    assert inherited["inputs"]["airframe"] == inherited["matrix"]["airframe"] == delta
+    assert overridden["job_id"] == original["jobs"][0]["job_id"]
+    explicit_source = {**job, "scenario": inherited["matrix"]["scenario"]}
+    explicit = batch.expand({**spec, "jobs": [
+        {**explicit_source, "airframe": delta}, {**explicit_source, "airframe": rc},
+        {**explicit_source, "airframe": delta},
+    ]})
+    assert [item["matrix"]["airframe"] for item in explicit["jobs"]] == [delta, rc]
+    assert explicit["jobs"][0]["job_id"] == inherited["job_id"]
+    assert explicit["jobs"][1]["job_id"] != inherited["job_id"]
+
+
+@pytest.mark.parametrize("value", [None, "../delta_tailsitter_gimbal_cam", "x500", False])
+def test_rejects_invalid_airframe(spec, value):
+    with pytest.raises(ValueError, match="^airframe must be"):
+        batch.expand({**spec, "airframe": value})
+    spec["jobs"][0]["airframe"] = value
+    with pytest.raises(ValueError, match=r"^jobs\[0\]\.airframe must be"):
+        batch.expand(spec)
 
 
 @pytest.mark.parametrize("field,value", [("altitude_m", 121), ("altitude_m", True), ("weather", "fog"),
@@ -124,6 +172,92 @@ def test_accepts_once_and_preserves_accepted_attempt(spec, matrix):
     assert list(attempt.parent.iterdir()) == [attempt]
     assert (root / "accepted.jsonl").stat().st_ino == before
     assert rows(root / "results.jsonl") == [record]
+
+
+def test_delta_stages_vtol_geometry_and_checks_matrix_airframe(spec, matrix, tmp_path, monkeypatch):
+    from multidetect.px4_mission import VtolMissionGeometry
+    from multidetect.terrain_dem import load_local_dem_grid
+    from scripts.realworld import long_range_flight
+
+    rc = batch.SCENARIOS / f"{STEM}.scenario.json"
+    source = tmp_path / rc.name
+    manifest = batch.read_object(rc)
+    for key, channel in manifest["channels"].items():
+        body = batch.read_object(rc.with_name(channel["path"]))
+        if key == "runtime_input":
+            body["vehicle"].update(model=DELTA, airframe_profile_id="delta_tailsitter_gimbal")
+            channel["sha256"] = batch.digest(body)
+        source.with_name(channel["path"]).write_text(batch.dump(body))
+    source.write_text(batch.dump(manifest))
+
+    mission = batch.read_object(long_range_flight.sidecar_path(rc))
+    mission["airframe"] = DELTA
+    mission["kind"] = "vtol"
+    runtime = mission["mission_compile_runtime"]
+    runtime["vehicle_class"] = "vtol"
+    fixed_wing = runtime["mission_geometry"]
+    geometry = {key: fixed_wing[key] for key in (
+        "waypoints", "landing", "takeoff_altitude_m", "acceptance_radius_m",
+    )}
+    geometry.update(loiter_time_s=1.0, loiter_radius_m=40.0)
+    runtime["mission_geometry"] = geometry
+    VtolMissionGeometry.from_runtime_mapping(runtime)
+    mission["task"]["geometry"]["centerline"] = geometry["waypoints"]
+    long_range_flight.sidecar_path(source).write_text(batch.dump(mission))
+    terrain = tmp_path / "terrain"
+    terrain.mkdir()
+    dem_override = terrain / f"{STEM}.dem.json"
+    shutil.copyfile(batch.ROOT / "simulation/terrain" / dem_override.name, dem_override)
+    spec["variant_terrain_root"] = str(terrain)
+    dem = load_local_dem_grid(dem_override)
+
+    def height(point):
+        return dem.sample_wgs84(point["latitude_deg"], point["longitude_deg"]).elevation_m
+
+    def check_staged(staged, *, minimum_rtf, dem_path):
+        assert minimum_rtf == 0.9
+        assert dem_path == dem_override
+        staged_mission = batch.read_object(long_range_flight.sidecar_path(staged))
+        staged_runtime = staged_mission["mission_compile_runtime"]
+        parsed = VtolMissionGeometry.from_runtime_mapping(staged_runtime)
+        assert staged_runtime.keys() == runtime.keys()
+        staged_geometry = staged_runtime["mission_geometry"]
+        assert {**staged_geometry, "waypoints": geometry["waypoints"]} == geometry
+        for point, original in zip(parsed.waypoints, geometry["waypoints"], strict=True):
+            expected = 90 + height(original) - height(runtime["home_position"])
+            assert point.altitude_m == pytest.approx(expected)
+        assert staged_mission["task"]["geometry"]["centerline"] == staged_geometry["waypoints"]
+
+    monkeypatch.setattr(long_range_flight, "load_mission", check_staged)
+    spec["jobs"][0].update(airframe=DELTA, scenario=str(source))
+    monkeypatch.setenv("FAKE_EXPECTED_AIRFRAME", DELTA)
+    monkeypatch.setenv("FAKE_MATRIX_MODE", "wrong_airframe")
+    plan = batch.expand(spec)
+    wrong_model, = batch.expand({**spec, "jobs": [{**spec["jobs"][0], "airframe": batch.AIRFRAME}]})["jobs"]
+    with pytest.raises(ValueError, match="runtime vehicle model must match batch airframe"):
+        batch.prepare(wrong_model, tmp_path / "wrong-model")
+    root = Path(plan["output_root"])
+    assert batch.run_batch(plan, matrix) == 1
+    rejected, = rows(root / "results.jsonl")
+    assert rejected["errors"] == ["matrix_airframe_mismatch"]
+    monkeypatch.delenv("FAKE_MATRIX_MODE")
+    assert batch.run_batch(plan, matrix) == 0
+    accepted, = rows(root / "accepted.jsonl")
+    assert accepted["inputs"]["airframe"] == DELTA
+    assert accepted["frame_count"] == 1
+
+
+def test_size_and_frames_counts_only_the_airframe_layout(tmp_path):
+    episode = tmp_path / "flight/episodes/episode-fixture"
+    for name, contents in {
+        "video/rgb/1.jpg": b"a", "video/rgb/2.jpeg": b"b", "video/rgb/3.jpg": b"",
+        "video/aux/1.jpg": b"c", "rgb/1.jpg": b"d", "rgb/1.png": b"e",
+    }.items():
+        frame = episode / name
+        frame.parent.mkdir(parents=True, exist_ok=True)
+        frame.write_bytes(contents)
+    assert batch.size_and_frames(tmp_path, airframe=DELTA) == (5, 5, 2)
+    assert batch.size_and_frames(tmp_path) == (5, 5, 1)
 
 
 @pytest.mark.parametrize("mode,reason", [
@@ -200,13 +334,22 @@ def test_repairs_interrupted_results_append_from_verdict(spec, matrix):
     assert results.read_bytes() == complete
 
 
-@pytest.mark.parametrize("valid", [True, False])
-def test_real_shell_single_round_with_stubbed_tools(tmp_path, monkeypatch, valid):
+@pytest.mark.parametrize("airframe,valid,single_round", [
+    (None, True, True), (None, False, True), (DELTA, True, True), (DELTA, False, True),
+    (DELTA, True, False),
+])
+def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, single_round):
     python = tmp_path / "fake-python"
     python.write_text('''#!/bin/bash
+set -e
 case "$1" in
   */long_range_flight.py)
     [[ "$MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX" == md-rw-long-slot-5-test ]]
+    if [[ -n "$FAKE_EXPECTED_AIRFRAME" ]]; then
+      [[ "$#" == 6 && "$5" == --airframe && "$6" == "$FAKE_EXPECTED_AIRFRAME" ]]
+    else
+      [[ "$#" == 4 ]]
+    fi
     mkdir -p "$4/episodes"
     printf '{"route_completed":true,"max_distance_from_spawn_m":4100}' > "$4/long-range-result.json"
     ;;
@@ -230,18 +373,48 @@ esac
     for key, value in {
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
         "TOOLS_PYTHON": str(python), "SITL_PYTHON": str(python), "FAKE_REAL_PYTHON": sys.executable,
-        "FAKE_VALID": json.dumps(valid), "RTF_MATRIX_SINGLE_ROUND": "1", "RTF_MATRIX_ATTEMPT": "2",
+        "FAKE_EXPECTED_AIRFRAME": airframe or "",
+        "FAKE_VALID": json.dumps(valid), "RTF_MATRIX_SINGLE_ROUND": str(int(single_round)),
+        "RTF_MATRIX_ATTEMPT": "2", "RTF_MATRIX_GAP_S": "0", "RTF_MATRIX_MAX_ATTEMPTS": "1",
         "RTF_MATRIX_RUN_TAG": "test", "RTF_MATRIX_GPU": "3", "RTF_MATRIX_SLOT": "5",
         "RTF_MATRIX_MIN_FREE_GB": "0", "RTF_MATRIX_CPU_MAX": "1000000000", "RTF_MATRIX_SHARE_GPU": "0",
         "RTF_MATRIX_WAIT_S": "1", "RTF_MATRIX_GPU_LOCK_ROOT": str(tmp_path / "locks"),
     }.items():
         monkeypatch.setenv(key, value)
     manifest = tmp_path / "manifest.json"
-    manifest.write_text(json.dumps([dict(name="fixture", scenario="unused", resolved_root=str(tmp_path), extent_m=6000)]))
-    out = tmp_path / "attempt-2"
+    row = dict(name="fixture", scenario="unused", resolved_root=str(tmp_path), extent_m=6000)
+    if airframe is not None:
+        row["airframe"] = airframe
+    manifest.write_text(json.dumps([row]))
+    out = tmp_path / "out"
     result = subprocess.run([str(batch.ROOT / "scripts/realworld/rtf_matrix.sh"), "--manifest", str(manifest),
                              "--out", str(out)], capture_output=True, text=True)
     assert result.returncode == (0 if valid else 1), result.stderr
-    raw = json.loads((out / "result.json").read_text())
-    assert raw["valid_round"] is valid and raw["attempt"] == 2 and raw["gpu_uuid"] == "GPU-123-abc"
-    assert (out / "flight/episodes").exists()  # Only the batch decides whether to remove it.
+    attempt = out if single_round else out / "fixture/attempt-1"
+    raw = json.loads((attempt / "result.json").read_text())
+    assert raw["valid_round"] is valid
+    assert raw["attempt"] == (2 if single_round else 1)
+    assert raw["gpu_uuid"] == ("GPU-123-abc" if single_round else None)
+    assert raw["airframe"] == (airframe or batch.AIRFRAME)
+    assert raw["flight_returncode"] == raw["stats_returncode"] == 0
+    assert (attempt / "flight/episodes").exists()
+    if not single_round:
+        assert json.loads((out / "summary.json").read_text())["all_requested_rounds_valid"] is True
+
+
+@pytest.mark.parametrize("single_round", ["0", "1"])
+def test_real_shell_rejects_invalid_airframe_before_running(tmp_path, monkeypatch, single_round):
+    manifest = tmp_path / "manifest.json"
+    row = dict(name="fixture", scenario="unused", resolved_root=str(tmp_path), extent_m=6000)
+    manifest.write_text(json.dumps([{**row, "airframe": "unknown"}]))
+    out = tmp_path / "out"
+    for key, value in {
+        "SITL_PYTHON": sys.executable, "TOOLS_PYTHON": sys.executable,
+        "RTF_MATRIX_SINGLE_ROUND": single_round, "RTF_MATRIX_SLOT": "5", "RTF_MATRIX_GPU": "1",
+        "MULTIDETECT_SITL_SLOTS": "8",
+    }.items():
+        monkeypatch.setenv(key, value)
+    proc = subprocess.run([str(batch.ROOT / "scripts/realworld/rtf_matrix.sh"), "--manifest", str(manifest),
+                           "--out", str(out)], capture_output=True, text=True)
+    assert proc.returncode == 2 and "airframe" in proc.stderr
+    assert not list(out.iterdir())
