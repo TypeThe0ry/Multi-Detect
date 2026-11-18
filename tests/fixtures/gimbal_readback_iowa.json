@@ -1,0 +1,131 @@
+{
+  "source": "/data/datasets/multidetect-sim-assets/wide-collect/batches/x1-iowa-first/jobs/60cce42020cd15606fc2a8480002fd393cbfd01145be09ea2c8e34e264c48b80/attempt-1/flight/episodes/episode-0000-f43d9b1b/mavlink.jsonl",
+  "yaw_correction_deg": -135.0,
+  "target_deg": {
+    "yaw": 0.0,
+    "roll": 0.0,
+    "pitch": -45.0
+  },
+  "cases": [
+    {
+      "name": "smoke_wire",
+      "source_line": 19518,
+      "status": {
+        "mavpackettype": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+        "target_system": 0,
+        "target_component": 0,
+        "time_boot_ms": 55200,
+        "flags": 64,
+        "q": [
+          0.656037449836731,
+          0.25528380274772644,
+          -0.2534315288066864,
+          0.6634888648986816
+        ],
+        "angular_velocity_x": 0.0056709786877036095,
+        "angular_velocity_y": -0.4363625645637512,
+        "angular_velocity_z": 0.006220011971890926,
+        "failure_flags": 0,
+        "delta_yaw": 0.0,
+        "delta_yaw_velocity": 0.0,
+        "gimbal_device_id": 0,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+        "receive_monotonic_ns": 241624319465263,
+        "receive_wall_time": 1794987919.993835
+      },
+      "attitude": {
+        "mavpackettype": "ATTITUDE",
+        "time_boot_ms": 55200.0,
+        "roll": -0.0018577155191451312,
+        "pitch": 0.002183961123228073,
+        "yaw": -0.7926065921783447,
+        "rollspeed": -0.00030473580409307033,
+        "pitchspeed": 0.0020098248030990364,
+        "yawspeed": 0.007859330996870995,
+        "_source_system": 1.0,
+        "_source_component": 1.0,
+        "message_type": "ATTITUDE",
+        "receive_monotonic_ns": 241624147051243.0,
+        "receive_wall_time": 1794987919.821421
+      }
+    },
+    {
+      "name": "transition_large_tilt",
+      "source_line": 22160,
+      "status": {
+        "mavpackettype": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+        "target_system": 0,
+        "target_component": 0,
+        "time_boot_ms": 62000,
+        "flags": 64,
+        "q": [
+          -0.258248507976532,
+          -0.6367173790931702,
+          0.6601887345314026,
+          -0.3033965229988098
+        ],
+        "angular_velocity_x": 0.15531432628631592,
+        "angular_velocity_y": 0.07842560112476349,
+        "angular_velocity_z": 0.16133801639080048,
+        "failure_flags": 0,
+        "delta_yaw": 0.0,
+        "delta_yaw_velocity": 0.0,
+        "gimbal_device_id": 0,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+        "receive_monotonic_ns": 241631146272648,
+        "receive_wall_time": 1794987926.8206422
+      },
+      "attitude": {
+        "mavpackettype": "ATTITUDE",
+        "time_boot_ms": 62000.0,
+        "roll": -1.067016339302063,
+        "pitch": -1.4898463010787963,
+        "yaw": 0.2736949920654297,
+        "rollspeed": -0.006641559023410082,
+        "pitchspeed": 0.06773827373981475,
+        "yawspeed": 0.223075994849205,
+        "_source_system": 1.0,
+        "_source_component": 1.0,
+        "message_type": "ATTITUDE",
+        "receive_monotonic_ns": 241630974286807.0,
+        "receive_wall_time": 1794987926.6486564
+      }
+    },
+    {
+      "name": "smoke_after_snapshot",
+      "source": "episode.json:gimbal_smoke.measurement_after_command",
+      "status": {
+        "mavpackettype": "GIMBAL_DEVICE_ATTITUDE_STATUS",
+        "target_system": 0,
+        "target_component": 0,
+        "time_boot_ms": 55600,
+        "flags": 64,
+        "q": [
+          0.6475756168365479,
+          0.27453893423080444,
+          -0.27118420600891113,
+          0.6570640802383423
+        ],
+        "angular_velocity_x": 0.00814252533018589,
+        "angular_velocity_y": -0.02328140288591385,
+        "angular_velocity_z": 0.003874610411003232,
+        "failure_flags": 0,
+        "delta_yaw": 0.0,
+        "delta_yaw_velocity": 0.0,
+        "gimbal_device_id": 0,
+        "_source_system": 1,
+        "_source_component": 1
+      },
+      "attitude": {
+        "roll": -0.0018794630654156209,
+        "pitch": 0.0025897168088704348,
+        "yaw": -0.7918432235717774,
+        "time_boot_ms": 55400.0
+      }
+    }
+  ]
+}

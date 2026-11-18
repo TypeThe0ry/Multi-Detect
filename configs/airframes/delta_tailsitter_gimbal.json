@@ -101,7 +101,8 @@
       },
       "stabilization_reference": "world_horizon",
       "angle_source": "GIMBAL_DEVICE_ATTITUDE_STATUS or Gazebo joint state",
-      "simulation_yaw_correction": "spawn_yaw_deg"
+      "simulation_yaw_correction": "spawn_yaw_deg",
+      "simulation_readback": "gazebo_world_quaternion_body_joints"
     }
   },
   "endurance": {

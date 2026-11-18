@@ -590,6 +590,31 @@ class MavlinkReader:
             }
         return snapshot
 
+    def attitude_at(self, time_boot_ms: float, *, max_skew_ms: float = 200.0) -> dict[str, Any] | None:
+        """Sample full body attitude for a gimbal readback, without waiting for video pose."""
+        with self._pose_condition:
+            history = self._pose_history["ATTITUDE"]
+            selected = _select_pose_sample(history, time_boot_ms)
+            if selected is None:
+                return None
+            row, _, _, method, source_ms = selected
+            if method == "interpolated":
+                index = bisect_left([sample[0] for sample in history], time_boot_ms)
+                if max(time_boot_ms - history[index - 1][0], history[index][0] - time_boot_ms) > max_skew_ms:
+                    return None
+                # Unlike a level multirotor, a tailsitter can cross +/-pi
+                # roll during transition. Interpolate that angle across the
+                # short arc as _select_pose_sample already does for yaw.
+                before, after = history[index - 1], history[index]
+                ratio = (time_boot_ms - before[0]) / (after[0] - before[0])
+                roll_before, roll_after = before[1].get("roll"), after[1].get("roll")
+                if isinstance(roll_before, (int, float)) and isinstance(roll_after, (int, float)):
+                    delta = (roll_after - roll_before + math.pi) % (2 * math.pi) - math.pi
+                    row["roll"] = roll_before + ratio * delta
+            elif abs(float(source_ms) - time_boot_ms) > max_skew_ms:
+                return None
+            return row
+
     def gimbal_sample_at(self, frame_sensor_stamp_ns: int, *, device_id: int = 1) -> dict[str, Any] | None:
         """Return the nearest recorded device attitude in PX4 simulation time."""
         target_ms = frame_sensor_stamp_ns / 1_000_000.0
