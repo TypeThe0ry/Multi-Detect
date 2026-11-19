@@ -1182,8 +1182,19 @@ def _docker_executable(plan: CollectionPlan) -> str:
     return executable
 
 
+class BridgeStabilizeMismatch(RuntimeError):
+    def __init__(self, identity: dict[str, Any]):
+        super().__init__("--gimbal-bridge-stabilize requires the horizon image and matching container setting")
+        self.identity = identity
+
+
 def _record_container_started(recorder, environment: DockerSimEnvironment) -> None:
-    identity = environment.remember_px4_process()
+    try:
+        identity = environment.remember_px4_process()
+    except BridgeStabilizeMismatch as exc:
+        # The failure handler writes this evidence into the failed episode.
+        recorder.meta["simulator_container"] = exc.identity
+        raise
     recorder.meta["simulator_container"] = identity
     recorder.meta["simulator_image"] = identity["image"]
     recorder.meta["requested_simulator_image"] = identity["requested_image"]
@@ -1670,9 +1681,28 @@ class DockerSimEnvironment:
 
     def remember_px4_process(self) -> dict[str, Any]:
         snapshot = self._container_snapshot()
-        if (bool(snapshot.get("gimbal_bridge_stabilize")) != self.plan.gimbal_bridge_stabilize
-                or (self.plan.gimbal_bridge_stabilize and not snapshot.get("gimbal_bridge_capable"))):
-            raise RuntimeError("--gimbal-bridge-stabilize requires the horizon image and matching container setting")
+        requested = self.plan.gimbal_bridge_stabilize
+        env_enabled = snapshot.get("gimbal_bridge_stabilize")
+        capable = snapshot.get("gimbal_bridge_capable")
+        mismatch = bool(env_enabled) != requested or (requested and not capable)
+        identity = {
+            "container_name": self.name,
+            "container_id": snapshot.get("container_id"),
+            "image": self.runtime_image,
+            "image_id": snapshot.get("image"),
+            "requested_image": self.plan.requested_image or self.plan.image,
+            "runtime_image_verification": self.plan.runtime_image_verification,
+            "image_identity_source": "container_inspect" if self.attached or self.plan.runtime_image_verification else "launch_plan",
+            "px4_host_pids": snapshot.get("px4_host_pids", []),
+            "bridge_stabilize_check": {
+                "requested": requested,
+                "env_enabled": env_enabled,
+                "capable": capable,
+                "passed": False if mismatch else (True if env_enabled is not None else None),
+            },
+        }
+        if mismatch:
+            raise BridgeStabilizeMismatch(identity)
         if self.plan.runtime_image_verification and not self.attached and (
             snapshot.get("image") != self.runtime_image
             or re.fullmatch(r"[0-9a-f]{64}", str(snapshot.get("container_id", ""))) is None
@@ -1684,15 +1714,7 @@ class DockerSimEnvironment:
             or snapshot.get("image") != self.runtime_image
         ):
             raise RuntimeError("Attached container identity changed or is unavailable")
-        return {
-            "container_name": self.name,
-            "container_id": snapshot.get("container_id"),
-            "image": self.runtime_image,
-            "requested_image": self.plan.requested_image or self.plan.image,
-            "runtime_image_verification": self.plan.runtime_image_verification,
-            "image_identity_source": "container_inspect" if self.attached or self.plan.runtime_image_verification else "launch_plan",
-            "px4_host_pids": snapshot.get("px4_host_pids", []),
-        }
+        return identity
 
     def capture_failure_diagnostics(
         self, reason: str, *, px4_clock_diagnostics: dict[str, Any] | None = None

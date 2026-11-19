@@ -15,6 +15,8 @@ from scripts.realworld import wide_collect_batch as batch
 IOWA = "rw_farm_iowa"
 STEM = "rw_farm_iowa_w6km__clear_noon"
 DELTA = "delta_tailsitter_gimbal_cam"
+BRIDGE_IMAGE = "multidetect/px4-sitl-gazebo:gz-rendering-830-r1-gimbal-horizon1"
+IMAGE_ID = "sha256:" + "f" * 64
 
 
 @pytest.fixture
@@ -65,6 +67,14 @@ else:
     (episode / "rgb").mkdir(parents=True)
     (episode / "rgb/000001.png").write_bytes(b"data" * 10_000)
 identity = {"container_id": "a" * 64, "container_name": name}
+if "image" in row:
+    assert row["image"] == os.environ["FAKE_EXPECTED_IMAGE"]
+    bridge = row["gimbal_bridge_stabilize"]
+    assert bridge is True
+    identity.update(requested_image=row["image"], image_id="sha256:" + "f" * 64,
+                    bridge_stabilize_check={"requested": bridge, "env_enabled": bridge,
+                                            "capable": mode != "bridge_mismatch",
+                                            "passed": mode != "bridge_mismatch"})
 metadata = {"status": "complete", "simulator_container": identity}
 if row["airframe"] == "delta_tailsitter_gimbal_cam":
     frame = {"frame_index": 0, "sensor_stamp_ns": 1000,
@@ -107,6 +117,8 @@ if mode == "low_rtf":
     result["rtf_window_median"] = 0.89
 if mode == "wrong_container":
     result["container_id"] = "b" * 64
+if mode == "bridge_mismatch":
+    result["valid_round"] = False
 if mode != "missing":
     (a.out / "result.json").write_text(json.dumps(result))
 ''')
@@ -163,6 +175,37 @@ def test_expand_airframe_defaults_overrides_and_identity(spec):
     assert explicit["jobs"][1]["job_id"] != inherited["job_id"]
 
 
+def test_runtime_options_are_hashed_only_when_present(spec):
+    first = {**spec["jobs"][0], "airframe": DELTA}
+    variants = [{}, {"image": BRIDGE_IMAGE}, {"gimbal_bridge_stabilize": False},
+                {"image": BRIDGE_IMAGE, "gimbal_bridge_stabilize": False},
+                {"image": BRIDGE_IMAGE, "gimbal_bridge_stabilize": True},
+                {"image": "multidetect/px4-sitl-gazebo:gz-rendering-830-r1", "gimbal_bridge_stabilize": False}]
+    jobs = batch.expand({**spec, "jobs": [{**first, **options} for options in variants]})["jobs"]
+    assert len({job["job_id"] for job in jobs}) == len(variants)
+    legacy = jobs[0]
+    assert legacy["job_id"] == batch.digest({
+        **{key: legacy["inputs"][key] for key in ("site", "altitude_m", "time_of_day", "weather", "seed",
+                                                  "scenario", "max_artifact_bytes", "airframe")},
+        "roots": {key: legacy["matrix"][key] for key in batch.ROOT_FIELDS if key in legacy["matrix"]},
+        "schema_version": 2,
+    })
+    for job, options in zip(jobs, variants, strict=True):
+        for mapping in (job["inputs"], job["matrix"]):
+            assert {key: mapping[key] for key in variants[4] if key in mapping} == options
+
+
+@pytest.mark.parametrize("field,value", [
+    ("image", None), ("image", ""), ("image", "bad\n--option"), ("image", True),
+    ("gimbal_bridge_stabilize", None), ("gimbal_bridge_stabilize", "false"),
+    ("gimbal_bridge_stabilize", 0), ("gimbal_bridge_stabilize", True),  # Default RC airframe.
+])
+def test_rejects_invalid_runtime_option(spec, field, value):
+    spec["jobs"][0][field] = value
+    with pytest.raises(ValueError, match=rf"^jobs\[0\]\.{field} "):
+        batch.expand(spec)
+
+
 @pytest.mark.parametrize("value", [None, "../delta_tailsitter_gimbal_cam", "x500", False])
 def test_rejects_invalid_airframe(spec, value):
     with pytest.raises(ValueError, match="^airframe must be"):
@@ -188,6 +231,8 @@ def test_accepts_once_and_preserves_accepted_attempt(spec, matrix):
     assert record["valid_round"] is True and record["route_completed"] is True
     assert record["rtf_window_median"] == 0.94 and record["rtf_delta_sim_over_delta_real"] == 0.88
     assert record["gpu"] == 3 and record["slot"] == 6 and record["frame_count"] == 1
+    assert record["bridge_stabilize"] is False
+    assert record["bridge_stabilize_check"] is record["image"] is record["image_id"] is None
     assert record["artifact_bytes"] >= record["episode_bytes"] > 40_000
     assert record["world_sha256"] == batch.file_hash(Path(spec["variant_world_root"]) / f"{STEM}.sdf")
     assert record["v9_config_sha256"] == batch.file_hash(batch.V9_CONFIG)
@@ -289,6 +334,26 @@ def test_delta_stages_vtol_geometry_and_checks_matrix_airframe(spec, matrix, tmp
     assert accepted["frame_count"] == 1
     assert accepted["horizon_acceptance"]["passed"] is True
     assert accepted["horizon_acceptance"]["yaw_degraded_fraction"] == 1
+
+    spec["jobs"][0].update(image=BRIDGE_IMAGE, gimbal_bridge_stabilize=True)
+    plan = batch.expand(spec)
+    monkeypatch.setenv("FAKE_EXPECTED_IMAGE", BRIDGE_IMAGE)
+    monkeypatch.setenv("FAKE_MATRIX_MODE", "bridge_mismatch")
+    assert batch.run_batch(plan, matrix) == 1
+    rejected = rows(root / "results.jsonl")[-1]
+    assert rejected["bridge_stabilize_check"] == {
+        "requested": True, "env_enabled": True, "capable": False, "passed": False}
+    assert not (Path(rejected["attempt_dir"]) / "flight/episodes").exists()
+
+    monkeypatch.delenv("FAKE_MATRIX_MODE")
+    assert batch.run_batch(plan, matrix) == 0
+    legacy, bridge = rows(root / "accepted.jsonl")
+    assert legacy == accepted
+    assert bridge == rows(root / "results.jsonl")[-1]
+    assert bridge["image"] == BRIDGE_IMAGE and bridge["image_id"] == IMAGE_ID
+    assert bridge["bridge_stabilize"] is True
+    assert bridge["bridge_stabilize_check"] == {
+        "requested": True, "env_enabled": True, "capable": True, "passed": True}
 
 
 def test_size_and_frames_counts_only_the_airframe_layout(tmp_path):
