@@ -69,7 +69,8 @@ from multidetect.sim_teacher.gimbal_recording import (
 )
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
 from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
-    HorizonStabilizer, HostHorizonLoop,
+    BRIDGE_STABILIZE_ENV, BRIDGE_STABILIZE_LABEL, BridgeHorizonTarget,
+    HorizonStabilizer, HostHorizonLoop, bridge_pose_readback,
 )
 from multidetect.sim_teacher.target_tracking import (  # noqa: E402
     WorldTarget, track_cli_argv, world_target_from_mavlink,
@@ -758,6 +759,7 @@ class CollectionPlan:
     runtime_image_verification: dict | None = None
     # None preserves policy-owned stabilization for existing collection tasks.
     gimbal_mode: str | None = None
+    gimbal_bridge_stabilize: bool = False
     track_targets: tuple[WorldTarget, ...] = ()
 
     def __post_init__(self) -> None:
@@ -1151,6 +1153,8 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
     # json-file logs grew Docker's WSL disk by tens of GB. Keep a small rolling tail.
     if "run" in command:
         at = command.index("run") + 1
+        if plan.gimbal_bridge_stabilize:
+            command[at:at] = ["--env", f"{BRIDGE_STABILIZE_ENV}=1"]
         command[at:at] = ["--log-opt", "max-size=5m", "--log-opt", "max-file=2"]
         invocation = os.environ.get("MD_GIMBAL_INVOCATION")
         if invocation is not None:
@@ -1178,8 +1182,19 @@ def _docker_executable(plan: CollectionPlan) -> str:
     return executable
 
 
+class BridgeStabilizeMismatch(RuntimeError):
+    def __init__(self, identity: dict[str, Any]):
+        super().__init__("--gimbal-bridge-stabilize requires the horizon image and matching container setting")
+        self.identity = identity
+
+
 def _record_container_started(recorder, environment: DockerSimEnvironment) -> None:
-    identity = environment.remember_px4_process()
+    try:
+        identity = environment.remember_px4_process()
+    except BridgeStabilizeMismatch as exc:
+        # The failure handler writes this evidence into the failed episode.
+        recorder.meta["simulator_container"] = exc.identity
+        raise
     recorder.meta["simulator_container"] = identity
     recorder.meta["simulator_image"] = identity["image"]
     recorder.meta["requested_simulator_image"] = identity["requested_image"]
@@ -1619,6 +1634,10 @@ class DockerSimEnvironment:
                 state = details.get("State") or {}
                 snapshot["container_id"] = details.get("Id")
                 snapshot["image"] = details.get("Image")
+                config = details.get("Config") or {}
+                env = config.get("Env") or []
+                snapshot["gimbal_bridge_stabilize"] = f"{BRIDGE_STABILIZE_ENV}=1" in env
+                snapshot["gimbal_bridge_capable"] = (config.get("Labels") or {}).get(BRIDGE_STABILIZE_LABEL) == "1"
                 snapshot["state"] = {
                     "running": state.get("Running"),
                     "exit_code": state.get("ExitCode"),
@@ -1662,6 +1681,28 @@ class DockerSimEnvironment:
 
     def remember_px4_process(self) -> dict[str, Any]:
         snapshot = self._container_snapshot()
+        requested = self.plan.gimbal_bridge_stabilize
+        env_enabled = snapshot.get("gimbal_bridge_stabilize")
+        capable = snapshot.get("gimbal_bridge_capable")
+        mismatch = bool(env_enabled) != requested or (requested and not capable)
+        identity = {
+            "container_name": self.name,
+            "container_id": snapshot.get("container_id"),
+            "image": self.runtime_image,
+            "image_id": snapshot.get("image"),
+            "requested_image": self.plan.requested_image or self.plan.image,
+            "runtime_image_verification": self.plan.runtime_image_verification,
+            "image_identity_source": "container_inspect" if self.attached or self.plan.runtime_image_verification else "launch_plan",
+            "px4_host_pids": snapshot.get("px4_host_pids", []),
+            "bridge_stabilize_check": {
+                "requested": requested,
+                "env_enabled": env_enabled,
+                "capable": capable,
+                "passed": False if mismatch else (True if env_enabled is not None else None),
+            },
+        }
+        if mismatch:
+            raise BridgeStabilizeMismatch(identity)
         if self.plan.runtime_image_verification and not self.attached and (
             snapshot.get("image") != self.runtime_image
             or re.fullmatch(r"[0-9a-f]{64}", str(snapshot.get("container_id", ""))) is None
@@ -1673,15 +1714,7 @@ class DockerSimEnvironment:
             or snapshot.get("image") != self.runtime_image
         ):
             raise RuntimeError("Attached container identity changed or is unavailable")
-        return {
-            "container_name": self.name,
-            "container_id": snapshot.get("container_id"),
-            "image": self.runtime_image,
-            "requested_image": self.plan.requested_image or self.plan.image,
-            "runtime_image_verification": self.plan.runtime_image_verification,
-            "image_identity_source": "container_inspect" if self.attached or self.plan.runtime_image_verification else "launch_plan",
-            "px4_host_pids": snapshot.get("px4_host_pids", []),
-        }
+        return identity
 
     def capture_failure_diagnostics(
         self, reason: str, *, px4_clock_diagnostics: dict[str, Any] | None = None
@@ -3633,9 +3666,9 @@ def _collection_gimbal_config(plan: CollectionPlan, policy, profile):
     if mode == "track" and not track_targets:
         logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
         mode = "lock"
-    if plan.gimbal_mode is not None:
+    if plan.gimbal_mode is not None or plan.gimbal_bridge_stabilize:
         if not _uses_gazebo_gimbal_body_joints(profile):
-            raise ValueError("--gimbal-mode requires the supported C11 simulation gimbal")
+            raise ValueError("gimbal stabilization options require the supported C11 simulation gimbal")
         target = target or {"roll": 0.0, "pitch": -45.0, "yaw": 0.0}
     return target, mode, getattr(policy, "gimbal_yaw_mode", "follow"), track_targets
 
@@ -6465,6 +6498,9 @@ def run_episode(
             def _record_mavlink(row: dict[str, Any]) -> None:
                 if str(row.get("message_type", "")).upper() == "STATUSTEXT":
                     launch_status_texts.append(str(row.get("text", "")))
+                controller = horizon_stabilizer
+                if isinstance(controller, BridgeHorizonTarget):
+                    controller.record_bridge_status(row)
                 recorder.record_mavlink(row)
 
             mav_reader = MavlinkReader(telemetry_connection, on_message=_record_mavlink).start()
@@ -6811,6 +6847,8 @@ def run_episode(
                 ]
                 if stabilization_mode == "track":
                     intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, attitude_interval_us))
+                if plan.gimbal_bridge_stabilize:
+                    intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_NAMED_VALUE_FLOAT, attitude_interval_us))
                 for message_id, interval_us in intervals:
                     telemetry_connection.mav.command_long_send(
                         *session.target, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
@@ -6819,14 +6857,17 @@ def run_episode(
                 bounds = dict(airframe_profile.camera.gimbal["angle_range_deg"])
                 # Legacy Eulerf carrier cannot express pitch beyond +/-90 or
                 # retain yaw windings across +/-180. Expose saturation as a limit.
-                bounds["pitch"] = (max(bounds["pitch"][0], -89.9), min(bounds["pitch"][1], 89.9))
-                bounds["yaw"] = (max(bounds["yaw"][0], -179.9), min(bounds["yaw"][1], 179.9))
-                horizon_stabilizer = HorizonStabilizer(
+                if not plan.gimbal_bridge_stabilize:
+                    bounds["pitch"] = (max(bounds["pitch"][0], -89.9), min(bounds["pitch"][1], 89.9))
+                    bounds["yaw"] = (max(bounds["yaw"][0], -179.9), min(bounds["yaw"][1], 179.9))
+                stabilizer_cls = BridgeHorizonTarget if plan.gimbal_bridge_stabilize else HorizonStabilizer
+                horizon_stabilizer = stabilizer_cls(
                     target,
                     mode=stabilization_mode,
                     yaw_mode=stabilization_yaw_mode,
                     limits_deg=bounds,
                     track_targets=track_targets,
+                    **({"status_sender": session.target} if plan.gimbal_bridge_stabilize else {}),
                 )
 
                 def sample():
@@ -6855,11 +6896,11 @@ def run_episode(
                     return (body, time.monotonic() - age,
                             now_ms / 1000 if now_ms is not None else None, position)
 
-                def send_quaternion(q):
+                def send_quaternion(q, flags=GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME):
                     return gimbal_send_gate.send(
                         sender,
                         *session.target,
-                        mavutil.mavlink.GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME,
+                        flags,
                         session.device_id,
                         q,
                         math.nan,
@@ -6877,6 +6918,7 @@ def run_episode(
                 gimbal_send_gate.before_close = horizon_loop.close
                 horizon_loop.start()
                 recorder.meta["horizon_stabilization"] = {
+                    "source": horizon_stabilizer.source,
                     "mode": horizon_stabilizer.mode,
                     "yaw_mode": horizon_stabilizer.yaw_mode,
                     "target_deg": target,
@@ -6885,8 +6927,11 @@ def run_episode(
                     "requested_attitude_interval_us": attitude_interval_us,
                     "max_age_s": 0.2,
                     "max_rate_deg_s": 180.0,
-                    "transport_flags": 32,
-                    "bridge_actuation_hz": "unverified; pinned timer is 5 Hz",
+                    "transport_flags": (horizon_stabilizer.transport_flags
+                                        if plan.gimbal_bridge_stabilize else 32),
+                    "bridge_actuation_hz": ("unverified; candidate timer is 50 Hz"
+                                            if plan.gimbal_bridge_stabilize else
+                                            "unverified; pinned timer is 5 Hz"),
                 }
                 # Settle before the first transition; startup slew is not a
                 # horizon-lock acceptance window. Only measured feedback admits it.
@@ -6896,7 +6941,21 @@ def run_episode(
                     horizon_loop.check()
                     result = horizon_stabilizer.last_result
                     status, _ = session.latest_attitude or (None, -1)
-                    if _stabilization_command_settled(result, horizon_stabilizer.mode):
+                    if plan.gimbal_bridge_stabilize and result is not None:
+                        readback = _gimbal_readback(
+                            mav_reader, status, dict.fromkeys(("roll", "pitch", "yaw"), 0.0),
+                            gazebo_body_joints=True,
+                            yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                        )
+                        stamp = readback["time_boot_ms"]
+                        now = mav_reader.state.vehicle_time_boot_ms
+                        if (stamp is not None and now is not None and 0 <= now - stamp <= 200
+                                and horizon_stabilizer.frame_horizon_degraded(now * 1_000_000, result) is not None):
+                            readback = bridge_pose_readback(horizon_stabilizer, result, readback)
+                            if readback is not None:
+                                recorder.meta["horizon_stabilization"]["initial_readback"] = readback
+                                break
+                    elif not plan.gimbal_bridge_stabilize and _stabilization_command_settled(result, horizon_stabilizer.mode):
                         readback = _gimbal_readback(
                             mav_reader,
                             status,
@@ -6919,7 +6978,7 @@ def run_episode(
                     time.sleep(0.02)
                 else:
                     raise RuntimeError(
-                        "host horizon stabilization did not settle with fresh readback"
+                        f"{horizon_stabilizer.source} horizon stabilization did not settle with fresh readback"
                     )
 
             def _video_tick(action_index: int, flight_stage: str, *, wall_due_s=None):
@@ -8573,7 +8632,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
     parser.add_argument("--gimbal-mode", choices=("lock", "follow", "track"), default=None,
-                        help="C11 host stabilization; omitted keeps the existing policy default")
+                        help="C11 stabilization mode; omitted keeps the existing policy default")
+    parser.add_argument("--gimbal-bridge-stabilize", action="store_true",
+                        help="send C11 pose targets to the horizon-enabled PX4 image")
     parser.add_argument("--track-target", type=WorldTarget.parse, action="append", default=[],
                         metavar="LAT,LON,ALT_M", help="world target, altitude AMSL metres (repeatable)")
     parser.add_argument(
@@ -8770,6 +8831,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         ]
         if args.gimbal_mode is not None:
             delegated.extend(("--gimbal-mode", args.gimbal_mode))
+        if args.gimbal_bridge_stabilize:
+            delegated.append("--gimbal-bridge-stabilize")
+        if args.image is not None:
+            delegated.extend(("--image", args.image))
         for target in args.track_target:
             delegated.append(f"--track-target={target.lat_deg},{target.lon_deg},{target.alt_m}")
         if args.dry_run:
@@ -8802,8 +8867,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SystemExit(f"scenario not found: {scenario}")
     runtime_path, truth_path = _scenario_channels(scenario)
     _airframe_profile(args.airframe)
-    if args.gimbal_mode is not None and not _uses_gazebo_gimbal_body_joints(_airframe_profile(args.airframe)):
-        raise SystemExit("--gimbal-mode requires the supported C11 simulation gimbal")
+    if (args.gimbal_mode is not None or args.gimbal_bridge_stabilize) and not _uses_gazebo_gimbal_body_joints(_airframe_profile(args.airframe)):
+        raise SystemExit("gimbal stabilization options require the supported C11 simulation gimbal")
     _validate_runtime(runtime_path, args.airframe)
     sim_climb_timeout_injection = False
     if args.onboard_config is not None:
@@ -8891,6 +8956,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         worker_index=args.worker_index,
         operator_port=args.operator_port,
         gimbal_mode=args.gimbal_mode,
+        gimbal_bridge_stabilize=args.gimbal_bridge_stabilize,
         track_targets=tuple(args.track_target),
     )
     _validate_spawn_clearance(plan)

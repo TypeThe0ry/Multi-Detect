@@ -31,6 +31,7 @@ FILE 是 JSON 数组；每项至少包含 name、scenario、resolved_root、exte
 仅允许 slot 5、6、7（默认 7），可使用 GPU 1（默认）或 GPU 3；
 长航程由 .venv-vlm 运行，stats 采样由同一项目环境运行。
 RTF_MATRIX_SINGLE_ROUND=1 时要求恰好一项，直接写入 --out，不重试或清理 episode。
+单轮可选 image（容器镜像引用）、gimbal_bridge_stabilize（JSON 布尔值，true 仅支持 Delta）。
 
 可无人值守运行：
   systemd-run --user --unit=multidetect-rtf-matrix --collect \\
@@ -68,8 +69,9 @@ export MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=${MULTIDETECT_SIM_FIRST_FRAME_WAIT_S:-
 (( MULTIDETECT_SITL_SLOTS >= 8 )) || { echo "MULTIDETECT_SITL_SLOTS 必须至少为 8" >&2; exit 2; }
 
 json_rows() {
-  "$TOOLS_PYTHON" - "$MANIFEST" <<'PY'
+  "$TOOLS_PYTHON" - "$MANIFEST" "$SINGLE_ROUND" <<'PY'
 import json, math, sys
+from scripts.realworld.collection_runtime import runtime_options
 rows=json.load(open(sys.argv[1], encoding='utf-8'))
 if not isinstance(rows, list) or not rows:
     raise SystemExit('manifest 必须是非空 JSON 数组')
@@ -77,8 +79,14 @@ for i,row in enumerate(rows):
     if not isinstance(row, dict): raise SystemExit(f'第 {i} 项不是对象')
     for key in ('name','scenario','resolved_root','extent_m'):
         if key not in row: raise SystemExit(f'第 {i} 项缺少 {key}')
-    if row.get('airframe', 'rc_cessna_mono_cam') not in ('rc_cessna_mono_cam', 'delta_tailsitter_gimbal_cam'):
+    airframe=row.get('airframe', 'rc_cessna_mono_cam')
+    if airframe not in ('rc_cessna_mono_cam', 'delta_tailsitter_gimbal_cam'):
         raise SystemExit(f'第 {i} 项 airframe 必须是 rc_cessna_mono_cam 或 delta_tailsitter_gimbal_cam')
+    if sys.argv[2] == '1':
+        try:
+            runtime_options(row, airframe, f'manifest[{i}]')
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
     minimum_rtf=float(row.get('minimum_rtf', 0.9))
     if not math.isfinite(minimum_rtf) or minimum_rtf < 0.9: raise SystemExit(f'第 {i} 项 minimum_rtf 必须是 >= 0.9 的有限数')
     print(json.dumps(row, ensure_ascii=False, separators=(',', ':')))
@@ -133,7 +141,8 @@ preflight() {
 
 run_one() {
   local row=$1 attempt=$2 name scenario root extent airframe overlay model_root world_root map_root terrain_root server_config run_dir flight_pid stats_rc flight_rc prefix
-  local -a airframe_args=()
+  local runtime_argv
+  local -a flight_args=() runtime_args=()
   name=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$row")
   scenario=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["scenario"])' "$row")
   root=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["resolved_root"])' "$row")
@@ -145,7 +154,22 @@ run_one() {
   server_config=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("server_config", ""))' "$row")
   extent=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1])["extent_m"])' "$row")
   airframe=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.loads(sys.argv[1]).get("airframe","rc_cessna_mono_cam"))' "$row")
-  if [[ "$airframe" != rc_cessna_mono_cam ]]; then airframe_args=(--airframe "$airframe"); fi
+  if [[ "$airframe" != rc_cessna_mono_cam ]]; then flight_args=(--airframe "$airframe"); fi
+  if [[ "$SINGLE_ROUND" == 1 ]]; then
+    runtime_argv=$("$TOOLS_PYTHON" - "$row" <<'PY'
+import json, sys
+row = json.loads(sys.argv[1])
+if 'image' in row:
+    print('--image', row['image'], sep='\n')
+if row.get('gimbal_bridge_stabilize') is True:
+    print('--gimbal-bridge-stabilize')
+PY
+    ) || return 2
+    if [[ -n "$runtime_argv" ]]; then
+      mapfile -t runtime_args <<< "$runtime_argv"
+      flight_args+=("${runtime_args[@]}")
+    fi
+  fi
   run_dir=${3:-"$OUT/$name/attempt-$attempt"}
   prefix="md-rw-long-slot-$SLOT${RUN_TAG:+-$RUN_TAG}"
   mkdir -p "$run_dir"
@@ -158,11 +182,11 @@ run_one() {
   if [[ -n "$terrain_root" ]]; then export MULTIDETECT_RTF_TERRAIN_ROOT=$(realpath "$terrain_root"); else unset MULTIDETECT_RTF_TERRAIN_ROOT; fi
   if [[ -n "$server_config" ]]; then export MULTIDETECT_RTF_SERVER_CONFIG=$(realpath "$server_config"); else unset MULTIDETECT_RTF_SERVER_CONFIG; fi
   export MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX="$prefix"
-  local guard_rc=0
+  local guard_rc=0 result_rc=0
   if [[ "$SINGLE_ROUND" == 1 ]]; then
     local flight_json stats_json
     flight_json=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1:]))' \
-      "$SITL_PYTHON" scripts/realworld/long_range_flight.py "$SLOT" "$scenario" "$run_dir/flight" "${airframe_args[@]}")
+      "$SITL_PYTHON" scripts/realworld/long_range_flight.py "$SLOT" "$scenario" "$run_dir/flight" "${flight_args[@]}")
     stats_json=$("$TOOLS_PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1:]))' \
       "$TOOLS_PYTHON" scripts/realworld/sample_stats.py --container-prefix "$prefix-" --gpu "$GPU" \
       --warmup-s "$WARMUP_S" --window-s "$WINDOW_S" --interval-s "$INTERVAL_S" --out "$run_dir/stats.json")
@@ -174,9 +198,9 @@ run_one() {
     stats_rc=$("$TOOLS_PYTHON" -c 'import json,sys; x=json.load(open(sys.argv[1])); print(x.get("stats_returncode") if x.get("stats_returncode") is not None else 1)' "$run_dir/guard.json")
     flight_rc=$("$TOOLS_PYTHON" -c 'import json,sys; x=json.load(open(sys.argv[1])); print(x.get("flight_returncode") if x.get("flight_returncode") is not None else 1)' "$run_dir/guard.json")
   else
-    MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX="$prefix" "$SITL_PYTHON" scripts/realworld/long_range_flight.py \
-      "$SLOT" "$scenario" "$run_dir/flight" "${airframe_args[@]}" >"$run_dir/flight.stdout.log" 2>&1 &
-    local flight_pid=$!
+    "$SITL_PYTHON" scripts/realworld/long_range_flight.py \
+      "$SLOT" "$scenario" "$run_dir/flight" "${flight_args[@]}" >"$run_dir/flight.stdout.log" 2>&1 &
+    flight_pid=$!
     trap 'if kill -0 "$flight_pid" 2>/dev/null; then kill "$flight_pid" 2>/dev/null || true; fi' RETURN
     set +e
     "$TOOLS_PYTHON" scripts/realworld/sample_stats.py --container-prefix "$prefix-" --gpu "$GPU" \
@@ -187,9 +211,10 @@ run_one() {
     set -e
     trap - RETURN
   fi
-  "$TOOLS_PYTHON" - "$run_dir" "$name" "$extent" "$airframe" "$stats_rc" "$flight_rc" "$attempt" "$SLOT" "$row" "$GPU_UUID" <<'PY'
+  "$TOOLS_PYTHON" - "$run_dir" "$name" "$extent" "$airframe" "$stats_rc" "$flight_rc" "$attempt" "$SLOT" "$row" "$GPU_UUID" "$SINGLE_ROUND" <<'PY' || result_rc=$?
 import json,sys
 from pathlib import Path
+from scripts.realworld.collection_runtime import read_episode_metadata, runtime_evidence
 out=Path(sys.argv[1]); stats_path=out/'stats.json'; flight_path=out/'flight/long-range-result.json'
 flight=json.loads(flight_path.read_text(encoding='utf-8')) if flight_path.exists() else {}
 stats=json.loads(stats_path.read_text(encoding='utf-8')) if stats_path.exists() else {}
@@ -216,11 +241,13 @@ row={'name':sys.argv[2], 'variant':manifest.get("variant",sys.argv[2].split("_")
      'container_name_slot_verified':slot_name_ok, 'valid_round':valid, 'round_errors':issues,
      'measurement_complete':False, 'gpu_uuid':sys.argv[10] or None}
 row.update(stats)
+if sys.argv[11] == '1':
+    episode = read_episode_metadata(list((out / 'flight/episodes').glob('*/episode.json')))
+    row.update(runtime_evidence(manifest, episode))
 (out/'result.json').write_text(json.dumps(row,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 print(json.dumps(row,ensure_ascii=False))
 raise SystemExit(0 if valid else 1)
 PY
-  local result_rc=$?
   (( guard_rc == 76 )) && return 76
   return "$result_rc"
 }

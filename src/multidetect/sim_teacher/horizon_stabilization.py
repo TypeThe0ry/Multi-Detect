@@ -1,4 +1,4 @@
-"""Host compensation for the pinned C11 bridge (NED/FRD, degrees, pitch up).
+"""C11 stabilization targets and frame measurements (NED/FRD, degrees, pitch up).
 
 The bridge decodes a ZYX quaternion as three joint angles, while the physical
 chain is ZXY. Send a *ZYX encoding of solved joint numbers*, not the desired
@@ -17,13 +17,15 @@ from collections.abc import Mapping
 
 from multidetect.camera_mount import _mat_mul, _mat_transpose, rpy_rotation
 from .target_tracking import (
-    WorldTarget, pointing_error_deg, solve_track_target, track_horizon_error_deg,
+    WorldTarget, level_target_rotation, pointing_error_deg, solve_track_target, track_horizon_error_deg,
     unit, world_offset_ned, world_target_direction,
 )
 
 AXES = ("roll", "pitch", "yaw")
 C11_LIMITS = {"roll": (-45.0, 45.0), "pitch": (-135.0, 45.0), "yaw": (-360.0, 360.0)}
 LOG = logging.getLogger(__name__)
+BRIDGE_STABILIZE_ENV = "MULTIDETECT_GIMBAL_BRIDGE_STABILIZE"
+BRIDGE_STABILIZE_LABEL = "org.multidetect.gimbal-bridge-stabilize"
 
 
 def wrap_deg(value):
@@ -316,7 +318,11 @@ def joint_command_quaternion(joints):
         raise ValueError("bridge ZYX carrier pitch is singular or unrepresentable")
     if not -180.0 < joints["yaw"] < 180.0:
         raise ValueError("bridge ZYX carrier cannot retain yaw winding")
-    r, p, y = (math.radians(joints[a]) / 2 for a in AXES)
+    return _attitude_quaternion(joints)
+
+
+def _attitude_quaternion(angles):
+    r, p, y = (math.radians(angles[a]) / 2 for a in AXES)
     cr, cp, cy, sr, sp, sy = (
         math.cos(r),
         math.cos(p),
@@ -334,6 +340,8 @@ def joint_command_quaternion(joints):
 
 
 class HorizonStabilizer:
+    source = "host"
+
     def __init__(
         self,
         target_deg=None,
@@ -546,6 +554,9 @@ class HorizonStabilizer:
                     break
         return None, None
 
+    def frame_horizon_degraded(self, frame_stamp_ns, command):
+        return None if command is None else command.get("horizon_degraded")
+
     def annotate(self, observation):
         """Frame-aligned measured FK only; never substitute a command for feedback."""
         state = observation.get("gimbal_state")
@@ -585,6 +596,7 @@ class HorizonStabilizer:
         yaw_degraded = (mode == "lock" and feasibility["target_pose_feasible"] is False
                         and feasibility["horizon_feasible"] is True)
         state["stabilization"] = {
+            "source": self.source,
             "mode": mode,
             "yaw_mode": self.yaw_mode,
             "desired_earth_deg": earth_angles_deg(desired),
@@ -596,7 +608,7 @@ class HorizonStabilizer:
             "frame_control_alignment": "latest_queued_host_command_on_px4_clock_at_or_before_frame",
             "horizon_degraded": (
                 True if not fresh or feasibility["horizon_feasible"] is not True
-                else None if frame_command is None else frame_command["horizon_degraded"]
+                else self.frame_horizon_degraded(observation.get("frame_sensor_stamp_ns"), frame_command)
             ),
             "yaw_degraded": yaw_degraded,
             "yaw_error_deg": _yaw_error_deg(desired, measured) if measured is not None else None,
@@ -645,6 +657,7 @@ class HorizonStabilizer:
         if geometry["target_reachable"] is False:
             reasons.append("target_unreachable")
         state["stabilization"] = {
+            "source": self.source,
             "mode": "track", "yaw_mode": self.yaw_mode, "target_ref": ref,
             "pointing_error_deg": pointing_error_deg(direction, measured) if direction is not None and measured is not None else None,
             "horizon_error_deg": track_horizon_error_deg(measured) if measured is not None else None,
@@ -658,6 +671,114 @@ class HorizonStabilizer:
                                      if state.get("joint_position_rad") else None, self.limits_deg),
             "frame_geometric_degraded": bool(reasons), "frame_geometric_reasons": reasons,
         }
+
+
+class BridgeHorizonTarget(HorizonStabilizer):
+    """Send poses on the C11 bridge contract; solve joints only for frame analysis."""
+
+    source = "bridge"
+
+    def __init__(self, *args, status_sender=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.status_sender = status_sender
+        self._bridge_history = deque(maxlen=512)
+
+    def record_bridge_status(self, row):
+        if (row.get("message_type") != "NAMED_VALUE_FLOAT" or row.get("name") != "c11_hdeg"
+                or (row.get("_source_system"), row.get("_source_component")) != self.status_sender):
+            return
+        stamp = row.get("time_boot_ms")
+        value = row.get("value")
+        if not isinstance(stamp, int) or stamp < 0 or value not in (0., 1.):
+            return
+        with self._command_history_lock:
+            if not self._bridge_history or stamp > self._bridge_history[-1][0]:
+                self._bridge_history.append((stamp, bool(value)))
+
+    def frame_horizon_degraded(self, frame_stamp_ns, command):
+        if frame_stamp_ns is None:
+            return None
+        frame_ms = frame_stamp_ns / 1e6
+        with self._command_history_lock:
+            for stamp, degraded in reversed(self._bridge_history):
+                if 0 <= frame_ms - stamp <= self.max_age_s * 1000:
+                    return degraded
+                if frame_ms - stamp > self.max_age_s * 1000:
+                    break
+        return None
+
+    @property
+    def transport_flags(self):
+        # PX4's pinned manager uses legacy YAW_LOCK internally, then adds
+        # explicit device frame bits. Both references agree on the wire.
+        if self.mode == "follow":
+            return 32
+        return 4 | 8 | (16 | 64 if self.mode == "track" or self.yaw_mode == "lock" else 32)
+
+    def update(self, body_deg, *, now_s, attitude_time_s, position=None,
+               track_direction_ned=None, target_ref=None):
+        if (body_deg is None or not all(math.isfinite(body_deg.get(a, math.nan)) for a in AXES)
+                or attitude_time_s is None or not 0 <= now_s - attitude_time_s <= self.max_age_s):
+            return None
+        if abs(math.cos(math.radians(body_deg["pitch"]))) >= 1e-3:
+            self._heading = body_deg["yaw"]
+        heading = self._heading if self._heading is not None else 0.0
+        desired = self.desired_rotation(body_deg, heading=heading)
+        if self.mode == "track":
+            try:
+                if track_direction_ned is not None:
+                    direction = unit(track_direction_ned)
+                    target_ref = target_ref or {"kind": "direction_ned", "vector": list(direction)}
+                elif position is not None and self.track_targets:
+                    active = min(self.track_targets, key=lambda t: math.hypot(*world_offset_ned(position, t)))
+                    direction = world_target_direction(position, active)
+                    target_ref = active.reference()
+                else:
+                    return None
+                desired = level_target_rotation(direction)
+            except (ValueError, TypeError):
+                return None
+            x, y, z = direction
+            # A vertical ray has no horizon: pick the level_target_rotation
+            # reference heading instead of decomposing a singular matrix.
+            angles = {"roll": 0., "pitch": math.degrees(math.atan2(-z, math.hypot(x, y))),
+                      "yaw": math.degrees(math.atan2(y, x)) if math.hypot(x, y) > 1e-10 else 0.}
+        elif self.mode == "follow":
+            # Encode the C11 relative pose itself, not a ZYX joint carrier.
+            angles = earth_angles_deg(c11_rotation_deg(self.target_deg))
+        else:
+            angles = self.target_deg
+        result = {
+            "source": self.source, "mode": self.mode, "yaw_mode": self.yaw_mode,
+            "quaternion": _attitude_quaternion(angles), "transport_flags": self.transport_flags,
+            "desired_earth_deg": earth_angles_deg(desired), "target_ref": target_ref, "time_s": now_s,
+        }
+        self.last_result = result
+        return result
+
+
+def bridge_pose_readback(stabilizer, result, readback):
+    """Require fresh measured pose before flight; compare by forward kinematics."""
+    actual = readback.get("actual_deg")
+    body = readback.get("vehicle_attitude_deg")
+    if actual is None or body is None:
+        return None
+    measured = _mat_mul(rotation_deg(body), c11_rotation_deg(actual))
+    mode = result["mode"]
+    if mode == "track":
+        desired = rotation_deg(result["desired_earth_deg"])
+    else:
+        desired = stabilizer.desired_rotation(body, heading=stabilizer._heading, mode=mode)
+    if mode == "lock" and stabilizer.yaw_mode == "follow":
+        error = horizon_error_deg(desired, measured)
+    else:
+        trace = sum(a * b for a, b in zip(desired, measured, strict=True))
+        error = math.degrees(math.acos(max(-1., min(1., (trace - 1.) / 2.))))
+    if error > 2.0:
+        return None
+    return {**readback, "comparison_frame": "earth_NED", "joint_readback_deg": actual,
+            "actual_deg": earth_angles_deg(measured), "target_deg": earth_angles_deg(desired),
+            "error_deg": None, "pose_error_deg": error}
 
 
 class HostHorizonLoop:
@@ -678,6 +799,7 @@ class HostHorizonLoop:
         self.error = None
         self.sent_count = 0
         self.ticket = None
+        self._dispatch_sequence = None
 
     def step(self):
         if self.session is not None:
@@ -689,13 +811,27 @@ class HostHorizonLoop:
                 return
             if self.ticket.error is not None:
                 raise RuntimeError("horizon transport failed") from self.ticket.error
+            started_ns = getattr(self.ticket, "started_ns", None)
+            if self.record is not None and started_ns is not None and self._dispatch_sequence is not None:
+                self.record({
+                    "message_type": "host_horizon_dispatch", "sequence": self._dispatch_sequence,
+                    "send_started_monotonic_ns": started_ns,
+                    "send_started_vehicle_ms": self.ticket.started_vehicle_ms,
+                })
+            self._dispatch_sequence = None
         body, timestamp, *source = self.sample()
         kwargs = {"position": source[1]} if len(source) > 1 else {}
         result = self.stabilizer.update(body, now_s=self.clock(), attitude_time_s=timestamp, **kwargs)
-        self.ticket = self.send(joint_command_quaternion(result["joint_deg"]))
+        if result is None:
+            return
+        if self.stabilizer.source == "bridge":
+            self.ticket = self.send(result["quaternion"], result["transport_flags"])
+        else:
+            self.ticket = self.send(joint_command_quaternion(result["joint_deg"]))
         if source:
             self.stabilizer.record_command(result, source[0])
         self.sent_count += 1
+        self._dispatch_sequence = self.sent_count
         if self.record is not None and self.sent_count % 10 == 1:
             self.record({
                 "message_type": "host_horizon_command",

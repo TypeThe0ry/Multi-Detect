@@ -20,6 +20,11 @@ from collections import deque
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if __name__ == "__main__":
+    sys.path[:0] = [str(ROOT), str(ROOT / "src")]
+
+from scripts.realworld.collection_runtime import read_episode_metadata, runtime_evidence, runtime_options  # noqa: E402
+
 SCENARIOS = ROOT / "configs/scenarios/realworld/rc_cessna_mono_cam"
 BATCHES = Path("/data/datasets/multidetect-sim-assets/wide-collect/batches")
 AIRFRAME = "rc_cessna_mono_cam"
@@ -125,10 +130,11 @@ def expand(spec):
         if not isinstance(job, dict):
             raise ValueError(f"jobs[{index}] must be an object")
         unknown = job.keys() - {"site", "scenario", "altitude_m", "time_of_day", "weather", "seed",
-                                "airframe", "max_artifact_bytes", *ROOT_FIELDS}
+                                "airframe", "max_artifact_bytes", "image", "gimbal_bridge_stabilize", *ROOT_FIELDS}
         if unknown:
             raise ValueError(f"jobs[{index}] unknown fields: {', '.join(sorted(unknown))}")
         airframe = validate_airframe(job.get("airframe", default_airframe), f"jobs[{index}].airframe")
+        runtime = runtime_options(job, airframe, f"jobs[{index}]")
         site, altitude, seed = (job.get(key) for key in ("site", "altitude_m", "seed"))
         if not isinstance(site, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", site):
             raise ValueError(f"jobs[{index}].site must be a site slug")
@@ -163,6 +169,8 @@ def expand(spec):
         # Keep legacy RC identity and omit execution placement from capture identity.
         if airframe != AIRFRAME:
             inputs["airframe"] = airframe
+        # Presence is significant, even for an explicit false. Legacy inputs omit these keys.
+        inputs.update(runtime)
         job_id = digest({**inputs, "roots": roots,
                          "schema_version": 2 if airframe == DELTA_AIRFRAME else 1})
         if job_id not in jobs:
@@ -170,7 +178,8 @@ def expand(spec):
                             "slot": slots[len(jobs) % len(slots)],
                             "matrix": {"name": job_id, "scenario": str(scenario), **roots,
                                        "variant": "V9", "extent_m": 6000, "airframe": airframe,
-                                       "minimum_rtf": MIN_RTF, "minimum_max_distance_m": MIN_DISTANCE_M}}
+                                       "minimum_rtf": MIN_RTF, "minimum_max_distance_m": MIN_DISTANCE_M,
+                                       **runtime}}
     batch_id = spec.get("batch_id", digest({"jobs": list(jobs)})[:16])
     if not isinstance(batch_id, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", batch_id):
         raise ValueError("batch_id must be a plain identifier")
@@ -325,10 +334,7 @@ def evaluate(attempt, job, batch, rc):
     if frames == 0:
         errors.append("no_rgb_frames")
     episode_dirs = list((attempt / "flight/episodes").glob("*/episode.json"))
-    try:
-        episode = read_object(episode_dirs[0]) if len(episode_dirs) == 1 else {}
-    except (OSError, ValueError):
-        episode = {}
+    episode = read_episode_metadata(episode_dirs)
     identity = episode.get("simulator_container", {})
     container_id = raw.get("container_id")
     container_name = raw.get("container_name")
@@ -371,7 +377,7 @@ def evaluate(attempt, job, batch, rc):
             "rtf_delta_sim_over_delta_real": ratio if number(ratio) else None,
             "max_distance_from_spawn_m": distance if number(distance) else None,
             "frame_count": frames, "artifact_bytes": artifact_bytes, "episode_bytes": episode_bytes,
-            **gimbal_evidence}
+            **gimbal_evidence, **runtime_evidence(job["inputs"], episode)}
 
 
 def indexed(path, key, *, repair_tail=False):
@@ -402,7 +408,8 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
               "attempt_dir": str(attempt), "gpu": batch["gpu"], "slot": job["slot"],
               "inputs": job["inputs"], "started_at": now(), "start_load": gate["start_load"],
               "max_load": gate["start_load"], "voided_reason": None, "requeue_count": 0,
-              "retry_exhausted": False, "next_retry_at": None}
+              "retry_exhausted": False, "next_retry_at": None,
+              **runtime_evidence(job["inputs"], {})}
     try:
         staged, assets = prepare(job, attempt / "scenario")
         record["assets"] = assets
@@ -510,10 +517,12 @@ def run_locked(batch, command, lock_fd):
             if checkpoint.exists():
                 record = read_object(checkpoint)
             else:
+                episode = read_episode_metadata(list((attempt / "flight/episodes").glob("*/episode.json")))
                 record = {"job_id": job_id, "attempt_id": attempt_id, "attempt_dir": str(attempt),
                           "accepted": False, "errors": ["interrupted_before_batch_verdict"],
                           "start_load": None, "max_load": None, "voided_reason": None,
-                          "requeue_count": 0, "finished_at": now()}
+                          "requeue_count": 0, "finished_at": now(),
+                          **runtime_evidence(job["inputs"], episode)}
                 atomic_text(checkpoint, dump(record) + "\n")
             if record["attempt_id"] != attempt_id or record["job_id"] != job_id:
                 raise ValueError(f"attempt checkpoint identity mismatch: {checkpoint}")
@@ -613,5 +622,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.path[:0] = [str(ROOT), str(ROOT / "src")]
     raise SystemExit(main())
