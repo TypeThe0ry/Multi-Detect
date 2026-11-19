@@ -14,16 +14,22 @@ jobs=${PX4_BUILD_JOBS:-8}
 out=
 tag=
 dry_run=0
+compile_check=0
 
 die() { printf '%s\n' "$*" >&2; exit 2; }
 usage() {
     printf '%s\n' "Usage: $0 [--from LOCAL_BASE_TAG] [--tag NEW_TAG] [--source PINNED_CHECKOUT]" \
         '       [--microcdr LOCAL_GIT_REPO] [--out NEW_BUILD_DIR] [--dry-run]' \
+        "       $0 --compile-check --out EXISTING_BUILD_DIR [--dry-run]" \
+        'Refresh the recorded --out/src bridge files; compile only GZGimbal.cpp.o and prerequisites.' \
+        'Writes --out/compile-check.log and compile-check.diff; never packages or tags.' \
+        'Native caches use local CMake; /work caches use the pinned offline toolchain container.' \
         'Default base: multidetect/px4-sitl-gazebo:gz-rendering-830-r1' \
         'Default output tag: <base-tag>-gimbal-horizon1. No existing tag is replaced.'
 }
 while (($#)); do
     case "$1" in
+        --compile-check) compile_check=1; shift ;;
         --dry-run) dry_run=1; shift ;;
         --help|-h) usage; exit 0 ;;
         --from|--tag|--source|--microcdr|--out)
@@ -44,10 +50,57 @@ done
 tag=${tag:-$base-gimbal-horizon1}
 [[ $tag != "$base" && $tag != -* && $tag != sha256:* && $tag != *@* && ${tag##*/} == *:* ]] ||
     die '--tag must be a different repository:tag'
+(( ! compile_check )) || [[ -n $out ]] || die '--compile-check requires --out EXISTING_BUILD_DIR'
 out=${out:-/data/scratch/px4-gimbal-horizon-$(date -u +%Y%m%dT%H%M%S)-$$}
 lockstep="$repo/simulation/px4/patches/lockstep-lifetime-r1.patch"
 horizon="$repo/simulation/px4/patches/gz-gimbal-horizon-stabilization.patch"
 dockerfile="$repo/simulation/px4/clock-build/Dockerfile.gimbal-horizon"
+
+if ((compile_check)); then
+    bridge=src/modules/simulation/gz_bridge
+    target=$bridge/CMakeFiles/modules__simulation__gz_bridge.dir/GZGimbal.cpp.o
+    printf 'compile-check: output=%s target=%s\n' "$out" "$target"
+    sha256sum "$horizon"
+    if ((dry_run)); then
+        echo 'Dry run: refresh the recorded bridge sources, build only the object and prerequisites. No Docker calls or writes.'
+        exit 0
+    fi
+
+    out=$(realpath -e "$out")
+    src=$out/src
+    build=$out/build
+    cache=$build/CMakeCache.txt
+    [[ -d $src/.git && -f $out/applied.diff && -f $build/build.ninja && -f $cache ]] ||
+        die 'Expected an existing --out with src, applied.diff and a configured Ninja build'
+    [[ $(git -C "$src" rev-parse HEAD) == "$commit" ]] || die 'Wrong PX4 build tree revision'
+    grep -Fxq 'CMAKE_GENERATOR:INTERNAL=Ninja' "$cache" || die 'Expected Ninja cache'
+    if grep -Fxq "CMAKE_HOME_DIRECTORY:INTERNAL=$src" "$cache" && grep -Fxq "CMAKE_CACHEFILE_DIR:INTERNAL=$build" "$cache"; then
+        command=(cmake --build "$build")
+    elif grep -Fxq 'CMAKE_HOME_DIRECTORY:INTERNAL=/work/src' "$cache" && grep -Fxq 'CMAKE_CACHEFILE_DIR:INTERNAL=/work/build' "$cache"; then
+        command=(docker run --rm --pull=never --network none --cpus="$jobs" --memory=64g --memory-swap=64g
+                 --mount "type=bind,src=$out,dst=/work" --workdir /work/src --env GZ_DISTRO=harmonic
+                 --entrypoint cmake "$toolchain" --build /work/build)
+    else
+        die 'Cache paths match neither this host tree nor the original /work mount'
+    fi
+
+    # The failed build still contains the previous patch. Refresh only the two
+    # bridge files, and never overwrite unrecorded edits or the original build receipt.
+    stage=$(mktemp -d)
+    trap 'rm -rf -- "$stage"' EXIT
+    git -C "$src" diff --binary HEAD > "$stage/before.diff"
+    cmp -s "$stage/before.diff" "$out/applied.diff" || cmp -s "$stage/before.diff" "$out/compile-check.diff" ||
+        die 'Unrecorded tracked edits in --out/src; refusing to replace bridge sources'
+    files=("$bridge/GZGimbal.cpp" "$bridge/GZGimbal.hpp")
+    git -C "$src" archive "$commit" -- "${files[@]}" | tar -x -C "$stage"
+    (cd "$stage" && git init -q && git apply "$horizon")
+    for file in "${files[@]}"; do
+        cmp -s "$stage/$file" "$src/$file" || cp -- "$stage/$file" "$src/$file"
+    done
+    git -C "$src" diff --binary HEAD > "$out/compile-check.diff"
+    "${command[@]}" --target "$target" -j"$jobs" 2>&1 | tee "$out/compile-check.log"
+    exit 0
+fi
 
 printf 'base=%s\ntag=%s\npx4_commit=%s\nsource=%s\ntoolchain=%s\nmicrocdr=%s\noutput=%s\n' \
     "$base" "$tag" "$commit" "$source_root" "$toolchain" "$microcdr" "$out"
