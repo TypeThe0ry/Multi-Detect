@@ -2,7 +2,7 @@ diff --git a/src/modules/simulation/gz_bridge/GZGimbal.cpp b/src/modules/simulat
 index f5bc4881..011e562e 100644
 --- a/src/modules/simulation/gz_bridge/GZGimbal.cpp
 +++ b/src/modules/simulation/gz_bridge/GZGimbal.cpp
-@@ -1,6 +1,171 @@
+@@ -1,6 +1,191 @@
  // #define DEBUG_BUILD
  #include "GZGimbal.hpp"
  
@@ -21,6 +21,26 @@ index f5bc4881..011e562e 100644
 +constexpr auto Neutral = Setpoint::GIMBAL_DEVICE_FLAGS_NEUTRAL;
 +constexpr auto AllowedFlags = RollLock | PitchLock | YawLock | YawVehicle | YawEarth | Neutral;
 +constexpr hrt_abstime PoseInterval = 20_ms;
++constexpr hrt_abstime RateMaxAge = 60_ms;
++constexpr float PreviewSeconds = 0.20f;
++constexpr float PreviewMaxAngle = 12.f * M_PI_F / 180.f;
++
++matrix::Dcmf previewBody(const matrix::Quatf &attitude, const vehicle_angular_velocity_s &rate, hrt_abstime now)
++{
++	const matrix::Vector3f omega(rate.xyz);
++	const float speed = omega.norm();
++
++	if (!rate.timestamp_sample || now < rate.timestamp_sample || now - rate.timestamp_sample > RateMaxAge
++	    || !PX4_ISFINITE(speed) || speed <= 1e-6f) {
++		return matrix::Dcmf(attitude);
++	}
++
++	// Right-compose the FRD body-rate delta. This stays continuous at vertical pitch.
++	const float half_angle = 0.5f * math::min(speed * PreviewSeconds, PreviewMaxAngle);
++	const float scale = sinf(half_angle) / speed;
++	const matrix::Quatf delta(cosf(half_angle), omega(0) * scale, omega(1) * scale, omega(2) * scale);
++	return matrix::Dcmf(attitude * delta);
++}
 +
 +bool earthYaw(uint16_t flags)
 +{
@@ -174,7 +194,7 @@ index f5bc4881..011e562e 100644
  bool GZGimbal::init(const std::string &world_name, const std::string &model_name)
  {
  	// Gazebo communication
-@@ -55,7 +220,14 @@ bool GZGimbal::init(const std::string &world_name, const std::string &model_name
+@@ -55,7 +240,14 @@ bool GZGimbal::init(const std::string &world_name, const std::string &model_name
  
  	updateParameters();
  
@@ -190,7 +210,7 @@ index f5bc4881..011e562e 100644
  
  	// Schedule on vehicle command messages
  	if (!_vehicle_command_sub.registerCallback()) {
-@@ -75,11 +247,19 @@ void GZGimbal::Run()
+@@ -75,11 +267,19 @@ void GZGimbal::Run()
  
  	updateParameters();
  
@@ -214,7 +234,7 @@ index f5bc4881..011e562e 100644
  				    dt);
  		publishJointCommand(_gimbal_yaw_cmd_publisher, _yaw_stp, _yaw_rate_stp, _last_yaw_stp, _yaw_min, _yaw_max, dt);
  	}
-@@ -93,6 +273,104 @@ void GZGimbal::Run()
+@@ -93,6 +293,113 @@ void GZGimbal::Run()
  	pthread_mutex_unlock(&_node_mutex);
  }
  
@@ -225,6 +245,7 @@ index f5bc4881..011e562e 100644
 +	const auto flags = _gimbal_device_flags;
 +	matrix::Dcmf relative(_pose_target);
 +	matrix::Dcmf body;
++	matrix::Dcmf solve_body;
 +	matrix::Dcmf desired;
 +	const bool compensated = (flags & (RollLock | PitchLock)) || earthYaw(flags);
 +
@@ -268,7 +289,15 @@ index f5bc4881..011e562e 100644
 +		}
 +
 +		desired = relative;
-+		relative = body.transpose() * desired;
++		solve_body = body;
++
++		if ((flags & RollLock) && (flags & PitchLock) && !earthYaw(flags)
++		    && now - _body_attitude.timestamp <= RateMaxAge) {
++			_angular_velocity_sub.update(&_body_rate);
++			solve_body = previewBody(q_body, _body_rate, now);
++		}
++
++		relative = solve_body.transpose() * desired;
 +	}
 +
 +	const float pitch_min = math::radians(_mnt_min_pitch);
@@ -278,7 +307,7 @@ index f5bc4881..011e562e 100644
 +	auto joint = boundedJoints(relative, previous, _roll_min, _roll_max, pitch_min, pitch_max, exact);
 +
 +	if (!exact && (flags & RollLock) && (flags & PitchLock) && !earthYaw(flags)) {
-+		horizonJoints(body, desired, previous, _roll_min, _roll_max, pitch_min, pitch_max, joint);
++		horizonJoints(solve_body, desired, previous, _roll_min, _roll_max, pitch_min, pitch_max, joint);
 +	}
 +	const float step = M_PI_F * dt;
 +	const auto slew = [step](float value, float last_value) {
@@ -294,9 +323,9 @@ index f5bc4881..011e562e 100644
 +
 +	if (compensated) {
 +		const matrix::Eulerf target(desired);
-+		const matrix::Dcmf world(body * zxy(_last_roll_stp, _last_pitch_stp, _last_yaw_stp));
++		const matrix::Dcmf world(solve_body * zxy(_last_roll_stp, _last_pitch_stp, _last_yaw_stp));
 +		const matrix::Eulerf issued(world);
-+		// Float32 tolerance for the horizon of the emitted joint command.
++		// Command residual at the solve epoch; frame acceptance uses measured joints.
 +		const bool degraded = fabsf(remainderf(target.phi() - issued.phi(), 2.f * M_PI_F)) > 1e-4f
 +				      || fabsf(target.theta() - issued.theta()) > 1e-4f;
 +		publishHorizonStatus(now, degraded);
@@ -319,7 +348,7 @@ index f5bc4881..011e562e 100644
  void GZGimbal::stop()
  {
  	ScheduleClear();
-@@ -140,6 +418,45 @@ bool GZGimbal::pollSetpoint()
+@@ -140,6 +447,45 @@ bool GZGimbal::pollSetpoint()
  		gimbal_device_set_attitude_s msg;
  
  		if (_gimbal_device_set_attitude_sub.copy(&msg)) {
@@ -365,7 +394,7 @@ index f5bc4881..011e562e 100644
  			const matrix::Eulerf gimbal_att_stp(matrix::Quatf(msg.q));
  			_roll_stp = gimbal_att_stp.phi();
  			_pitch_stp = gimbal_att_stp.theta();
-@@ -156,6 +473,7 @@ bool GZGimbal::pollSetpoint()
+@@ -156,6 +502,7 @@ bool GZGimbal::pollSetpoint()
  		gimbal_controls_s msg;
  
  		if (_gimbal_controls_sub.copy(&msg)) {
@@ -373,7 +402,7 @@ index f5bc4881..011e562e 100644
  			// map control inputs from [-1;1] to [min_angle; max_angle]
  			_roll_stp = math::constrain(math::radians(msg.control[msg.INDEX_ROLL] * _mnt_range_roll / 2), _roll_min, _roll_max);
  			_pitch_stp = math::radians(math::constrain(_mnt_min_pitch + 0.5f * (msg.control[msg.INDEX_PITCH] + 1.f) *
-@@ -221,6 +539,7 @@ void GZGimbal::publishDeviceAttitude()
+@@ -221,6 +568,7 @@ void GZGimbal::publishDeviceAttitude()
  
  	gimbal_att.target_system = 0; // Broadcast
  	gimbal_att.target_component = 0; // Broadcast
@@ -385,16 +414,17 @@ diff --git a/src/modules/simulation/gz_bridge/GZGimbal.hpp b/src/modules/simulat
 index a2a79650..12b46e9c 100644
 --- a/src/modules/simulation/gz_bridge/GZGimbal.hpp
 +++ b/src/modules/simulation/gz_bridge/GZGimbal.hpp
-@@ -10,6 +10,8 @@
+@@ -10,6 +10,9 @@
  #include <uORB/topics/vehicle_command_ack.h>
  #include <uORB/topics/gimbal_controls.h>
  #include <uORB/topics/parameter_update.h>
 +#include <uORB/topics/vehicle_attitude.h>
++#include <uORB/topics/vehicle_angular_velocity.h>
 +#include <uORB/topics/debug_key_value.h>
  #include <uORB/Publication.hpp>
  #include <uORB/Subscription.hpp>
  #include <uORB/SubscriptionCallback.hpp>
-@@ -116,7 +118,19 @@ private:
+@@ -116,7 +119,21 @@ private:
  
  	const uint8_t _gimbal_device_id = 1;	// Gimbal is implemented by the same component: options are 1..6
  	uint16_t _gimbal_device_flags = 0;  // GIMBAL_DEVICE_FLAGS
@@ -407,7 +437,9 @@ index a2a79650..12b46e9c 100644
 +	hrt_abstime _last_pose_update = 0;
 +	matrix::Quatf _pose_target{};
 +	vehicle_attitude_s _body_attitude{};
++	vehicle_angular_velocity_s _body_rate{};
 +	uORB::Subscription _attitude_sub{ORB_ID(vehicle_attitude)};
++	uORB::Subscription _angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
 +	uORB::Publication<debug_key_value_s> _horizon_status_pub{ORB_ID(debug_key_value)};
 +
 +	void publishStabilizedPose(hrt_abstime now);

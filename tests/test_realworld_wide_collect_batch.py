@@ -605,3 +605,25 @@ def test_real_shell_rejects_invalid_airframe_before_running(tmp_path, monkeypatc
                            "--out", str(out)], capture_output=True, text=True)
     assert proc.returncode == 2 and "airframe" in proc.stderr
     assert not list(out.iterdir())
+
+
+def test_resumes_past_usable_rejection_and_disk_stop(spec, matrix, monkeypatch):
+    spec["jobs"].extend({**spec["jobs"][0], "seed": seed} for seed in (43, 44))
+    spec["max_retries"] = 0
+    plan = batch.expand(spec)
+    calls = []
+
+    def attempt(path, job, _batch, _command, _lock_fd, _gate):
+        seed = job["inputs"]["seed"]
+        calls.append(seed)
+        return {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{path.name}",
+                "attempt_dir": str(path), "accepted": seed != 42 and calls != [42, 43],
+                "errors": ["horizon_feasible_p95_exceeded"] if seed == 42 else [],
+                "voided_reason": "host_disk_below_floor" if calls == [42, 43] else None}
+
+    monkeypatch.setattr(batch, "run_attempt", attempt)
+    completed = lambda row, job: row["accepted"] or row["errors"] == ["horizon_feasible_p95_exceeded"]
+    assert batch.run_batch(plan, matrix, completed=completed) == 75
+    assert calls == [42, 43]
+    assert batch.run_batch(plan, matrix, completed=completed) == 0
+    assert calls == [42, 43, 43, 44]

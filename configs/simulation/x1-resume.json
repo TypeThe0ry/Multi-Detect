@@ -1,0 +1,21 @@
+{
+  "image": "multidetect/px4-sitl-gazebo:gz-rendering-830-r1-gimbal-horizon2",
+  "ab": [[201, true], [202, false], [203, true], [204, false]],
+  "final_seeds": [301, 302, 303],
+  "world_sha256": "4e09aa4febff6b78568201a94bc4552ac5bbc6420f2c128d0784e1845bb9999c",
+  "batch": {
+    "airframe": "delta_tailsitter_gimbal_cam",
+    "gpu": 3,
+    "slots": [5],
+    "share_gpu": false,
+    "start_load_max": 60,
+    "variant_world_root": "/data/datasets/multidetect-sim-assets/wide-collect/assets/rw_farm_iowa_w6km/x1-baseline/worlds",
+    "resolved_root": "/data/datasets/multidetect-sim-assets/wide-collect/assets/rw_farm_iowa_w6km/restored/models"
+  },
+  "job": {
+    "site": "rw_farm_iowa",
+    "altitude_m": 85,
+    "time_of_day": "noon",
+    "weather": "clear"
+  }
+}

@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import threading
 import time
@@ -25,6 +26,7 @@ DEFAULTS = dict(start_load_max=60, start_wait_s=3600, poll_interval_s=2,
                 abort_rtf=0.8, abort_load_max=120, abort_duration_s=90,
                 rtf_window_s=30, max_retries=3, retry_backoff_s=30,
                 retry_backoff_max_s=600)
+HOST_DISK_REASONS = {"host_disk_below_floor", "host_disk_probe_failed"}
 
 
 def settings(overrides=None):
@@ -83,9 +85,25 @@ class GateTimeout(RuntimeError):
     pass
 
 
+def host_disk_reason():
+    """Optional /data free-space floor, in exact GiB, for NAS-backed jobs."""
+    floor = int(os.environ.get("RTF_MATRIX_HOST_DISK_MIN_GIB", "0"))
+    if not floor:
+        return None
+    try:
+        if shutil.disk_usage("/data").free < floor * 1024**3:
+            return "host_disk_below_floor"
+    except OSError:
+        return "host_disk_probe_failed"
+    return None
+
+
 def wait_for_start(status_path, gpu, config):
     started = time.monotonic()
     while True:
+        reason = host_disk_reason()
+        if reason:
+            raise GateTimeout(reason)
         load = os.getloadavg()[0]
         reasons = gpu_blockers(gpu)
         if not math.isfinite(load) or load > config["start_load_max"]:
@@ -185,6 +203,9 @@ def supervise(out, prefix, gpu, config, flight_command, stats_command):
 
     try:
         with (out / "flight.stdout.log").open("wb") as flight_log, (out / "stats.stdout.log").open("wb") as stats_log:
+            summary["voided_reason"] = host_disk_reason()
+            if summary["voided_reason"]:
+                return 76
             flight = subprocess.Popen(flight_command, stdout=flight_log, stderr=subprocess.STDOUT,
                                       start_new_session=True)
             measurement = subprocess.Popen(stats_command, stdout=stats_log, stderr=subprocess.STDOUT,
@@ -194,8 +215,9 @@ def supervise(out, prefix, gpu, config, flight_command, stats_command):
                 observed_at = time.monotonic()
                 with sample_lock:
                     snapshot = list(samples)
-                reason = monitor.observe(observed_at, os.getloadavg()[0], snapshot)
+                reason = host_disk_reason() or monitor.observe(observed_at, os.getloadavg()[0], snapshot)
                 if reason:
+                    summary["voided_reason"] = reason
                     write_status(out / "guard.json", summary)
                     break
                 if flight.poll() is not None:
@@ -224,7 +246,7 @@ def supervise(out, prefix, gpu, config, flight_command, stats_command):
         stop_owned(flight)
         stop_owned(measurement)
         stop_owned(subscriber)
-        if summary["voided_reason"] or summary["errors"]:
+        if flight is not None and (summary["voided_reason"] or summary["errors"]):
             try:
                 if summary["container_id"] is None:
                     deadline = time.monotonic() + 5
@@ -271,6 +293,8 @@ def main(argv=None):
         return supervise(args.out, args.prefix, args.gpu, config,
                          json.loads(args.flight_command), json.loads(args.stats_command))
     except GateTimeout as exc:
+        if args.action == "gate" and str(exc) in HOST_DISK_REASONS:
+            write_status(args.out / "guard.json", {"voided_reason": str(exc)})
         print(str(exc), file=__import__("sys").stderr)
         return 75
     except (OSError, ValueError) as exc:

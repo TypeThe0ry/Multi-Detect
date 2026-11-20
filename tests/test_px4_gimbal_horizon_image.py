@@ -37,7 +37,7 @@ def test_horizon_image_dry_run_uses_selected_tag_and_never_calls_docker(tmp_path
     result = subprocess.run([str(BUILD), "--dry-run", "--from", "local/px4:baseline", "--out", str(out)],
                             env=env, capture_output=True, text=True, check=True)
     assert "base=local/px4:baseline\n" in result.stdout
-    assert "tag=local/px4:baseline-gimbal-horizon1\n" in result.stdout
+    assert "tag=local/px4:baseline-gimbal-horizon2\n" in result.stdout
     assert hashlib.sha256(PATCH.read_bytes()).hexdigest() in result.stdout
     assert not marker.exists()
     assert not out.exists()

@@ -36,6 +36,26 @@ def rotation_deg(angles):
     return rpy_rotation(**{axis + "_rad": math.radians(angles[axis]) for axis in AXES})
 
 
+BRIDGE_PREVIEW_S = 0.20
+BRIDGE_MAX_PREVIEW_RAD = math.radians(12.0)
+
+
+def preview_body_rotation(body_rotation, omega_body_rad_s, preview_s):
+    """Right-integrate FRD body rates on SO(3), including near vertical pitch."""
+    speed = math.hypot(*omega_body_rad_s)
+    if not math.isfinite(speed) or speed <= 1e-6 or preview_s <= 0:
+        return body_rotation
+    angle = min(speed * preview_s, BRIDGE_MAX_PREVIEW_RAD)
+    x, y, z = (value / speed for value in omega_body_rad_s)
+    c, s = math.cos(angle), math.sin(angle)
+    one_minus_c = 1.0 - c
+    return _mat_mul(body_rotation, (
+        c+x*x*one_minus_c, x*y*one_minus_c-z*s, x*z*one_minus_c+y*s,
+        y*x*one_minus_c+z*s, c+y*y*one_minus_c, y*z*one_minus_c-x*s,
+        z*x*one_minus_c-y*s, z*y*one_minus_c+x*s, c+z*z*one_minus_c,
+    ))
+
+
 def c11_rotation_deg(angles):
     result = rotation_deg(dict.fromkeys(AXES, 0.0))
     for axis in ("yaw", "roll", "pitch"):
@@ -406,7 +426,7 @@ class HorizonStabilizer:
         self.mode = mode
 
     def update(self, body_deg, *, now_s, attitude_time_s, position=None,
-               track_direction_ned=None, target_ref=None):
+               track_direction_ned=None, target_ref=None, body_rotation_for_solve=None):
         reasons = []
         valid = (
             body_deg is not None
@@ -451,6 +471,7 @@ class HorizonStabilizer:
         yaw_degraded = False
         bounded_horizon_target = False
         body_rotation = rotation_deg(body_deg) if valid else None
+        solve_rotation = body_rotation_for_solve if body_rotation_for_solve is not None else body_rotation
         if not valid:
             reasons.append("attitude_stale_or_invalid_hold_last")
         elif self.mode == "track":
@@ -465,7 +486,7 @@ class HorizonStabilizer:
             target = dict(self.target_deg)
             _, geometry = _solve_pose(body_rotation, desired, self.last_joint, self.limits_deg)
         else:
-            target, geometry = _solve_pose(body_rotation, desired, self.last_joint, self.limits_deg)
+            target, geometry = _solve_pose(solve_rotation, desired, self.last_joint, self.limits_deg)
             yaw_degraded = geometry["horizon_witness_joint_deg"] is not None
             if yaw_degraded:
                 reasons.append("horizon_first_yaw")
@@ -474,7 +495,7 @@ class HorizonStabilizer:
                 reasons.append("horizon_unreachable" if geometry["horizon_feasible"] is False
                                else "horizon_feasibility_unknown")
                 projected = _closest_level_pitch(
-                    body_rotation, desired, self.last_joint, self.limits_deg
+                    solve_rotation, desired, self.last_joint, self.limits_deg
                 )
                 if projected is not None:
                     target = projected

@@ -25,7 +25,7 @@ usage() {
         'Writes --out/compile-check.log and compile-check.diff; never packages or tags.' \
         'Native caches use local CMake; /work caches use the pinned offline toolchain container.' \
         'Default base: multidetect/px4-sitl-gazebo:gz-rendering-830-r1' \
-        'Default output tag: <base-tag>-gimbal-horizon1. No existing tag is replaced.'
+        'Default output tag: <base-tag>-gimbal-horizon2. No existing tag is replaced.'
 }
 while (($#)); do
     case "$1" in
@@ -47,7 +47,7 @@ while (($#)); do
 done
 [[ $jobs =~ ^([1-9]|1[0-2])$ ]] || die 'PX4_BUILD_JOBS must be 1..12'
 [[ $base != sha256:* && $base != *@* && $base != -* && ${base##*/} == *:* ]] || die '--from requires a local repository:tag'
-tag=${tag:-$base-gimbal-horizon1}
+tag=${tag:-$base-gimbal-horizon2}
 [[ $tag != "$base" && $tag != -* && $tag != sha256:* && $tag != *@* && ${tag##*/} == *:* ]] ||
     die '--tag must be a different repository:tag'
 (( ! compile_check )) || [[ -n $out ]] || die '--compile-check requires --out EXISTING_BUILD_DIR'

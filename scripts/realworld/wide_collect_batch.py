@@ -458,7 +458,8 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
     return record
 
 
-def run_batch(batch, command):
+def run_batch(batch, command, *, completed=None):
+    """Run the batch, optionally recognizing usable verdicts for comparison trials."""
     root = Path(batch["output_root"])
     root.mkdir(parents=True, exist_ok=True)
     with (root / ".lock").open("a") as lock:
@@ -466,10 +467,10 @@ def run_batch(batch, command):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise ValueError(f"batch is already running: {root}") from exc
-        return run_locked(batch, command, lock.fileno())
+        return run_locked(batch, command, lock.fileno(), completed=completed)
 
 
-def run_locked(batch, command, lock_fd):
+def run_locked(batch, command, lock_fd, *, completed=None):
     root = Path(batch["output_root"])
     manifest = root / "manifest.json"
     accepted_path, results_path, paused = (root / name for name in ("accepted.jsonl", "results.jsonl", "PAUSED"))
@@ -498,7 +499,7 @@ def run_locked(batch, command, lock_fd):
             sync_dir(root)
             results[record["attempt_id"]] = record
 
-    from scripts.realworld.collection_guard import GateTimeout, settings, wait_for_start
+    from scripts.realworld.collection_guard import HOST_DISK_REASONS, GateTimeout, settings, wait_for_start
     config = settings({key: batch[key] for key in batch if key in settings()})
     queue = deque(batch["jobs"])
     pending = False
@@ -527,7 +528,11 @@ def run_locked(batch, command, lock_fd):
             if record["attempt_id"] != attempt_id or record["job_id"] != job_id:
                 raise ValueError(f"attempt checkpoint identity mismatch: {checkpoint}")
             publish(attempt, record)
-        if job_id in accepted:
+        prior = [row for row in results.values() if row.get("job_id") == job_id]
+        if completed is None:
+            if job_id in accepted:
+                continue
+        elif any(completed(row, job) for row in prior):
             continue
         free = shutil.disk_usage(root).free
         if free < MIN_FREE_BYTES:
@@ -537,23 +542,22 @@ def run_locked(batch, command, lock_fd):
             print(f"PAUSED: {free} bytes free; next job {job_id}", file=sys.stderr)
             return 75
         paused.unlink(missing_ok=True)
-        prior = [row for row in results.values() if row.get("job_id") == job_id]
-        voided = [row for row in prior if row.get("voided_reason")]
+        voided = [row for row in prior if row.get("voided_reason") and row["voided_reason"] not in HOST_DISK_REASONS]
         requeues = max((row.get("requeue_count", 0) for row in prior), default=0)
         if len(voided) > batch["max_retries"]:
             pending = True
             continue
         next_attempt = 1 if not attempts else int(attempts[-1].name.split("-")[-1]) + 1
         if voided:
-            delay = min(batch["retry_backoff_s"] * (2 ** max(0, requeues - 1)), batch["retry_backoff_max_s"])
             deadline = voided[-1].get("next_retry_epoch", 0)
-            remaining = max(delay, deadline - time.time())
+            remaining = deadline - time.time()
             if remaining > 0 and queue:
                 from scripts.realworld.collection_guard import write_status
                 write_status(root / "WAITING", {"state": "WAITING", "reason": "retry_backoff",
                                                   "job_id": job_id, "requeue_count": requeues,
                                                   "wait_remaining_s": remaining})
                 queue.append(job)
+                time.sleep(min(config["poll_interval_s"], remaining))
                 continue
             if remaining > 0:
                 time.sleep(remaining)
@@ -568,7 +572,8 @@ def run_locked(batch, command, lock_fd):
         except GateTimeout as exc:
             record = {"job_id": job_id, "attempt_id": f"{job_id}/{attempt.name}",
                       "attempt_dir": str(attempt), "accepted": False, "errors": [str(exc)],
-                      "start_load": None, "max_load": None, "voided_reason": None,
+                      "start_load": None, "max_load": None,
+                      "voided_reason": str(exc) if str(exc) in HOST_DISK_REASONS else None,
                       "requeue_count": requeues, "finished_at": now()}
         record.setdefault("requeue_count", requeues)
         record.setdefault("start_load", gate.get("start_load") if gate else None)
@@ -577,6 +582,8 @@ def run_locked(batch, command, lock_fd):
         record.setdefault("retry_exhausted", False)
         record.setdefault("next_retry_at", None)
         publish(attempt, record)
+        if record.get("voided_reason") in HOST_DISK_REASONS:
+            return 75
         if record.get("voided_reason"):
             new_requeues = requeues + 1 if requeues < batch["max_retries"] else requeues
             record["requeue_count"] = new_requeues

@@ -193,7 +193,8 @@ def test_monitor_uses_sliding_window_and_same_rtf_metric_as_sampler():
     assert monitor.summary["rtf_window_median"] == expected == 1
 
 
-def test_abort_stops_only_owned_process_groups_and_removes_only_attempt_episodes(tmp_path, monkeypatch):
+@pytest.mark.parametrize("reason", ["load_spike", "host_disk_below_floor"])
+def test_abort_stops_only_owned_process_groups_and_removes_only_attempt_episodes(tmp_path, monkeypatch, reason):
     out = tmp_path / "attempt"
     episodes = out / "flight/episodes/partial"
     episodes.mkdir(parents=True)
@@ -224,6 +225,10 @@ def test_abort_stops_only_owned_process_groups_and_removes_only_attempt_episodes
     clock = [0.0]
     monkeypatch.setattr(guard.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(guard.time, "sleep", lambda _s: clock.__setitem__(0, clock[0] + 1))
+    if reason == "host_disk_below_floor":
+        monkeypatch.setattr(guard.shutil, "disk_usage",
+                            lambda _: type("Disk", (), {"free": 53 * 1024**3 - (clock[0] >= 1)})())
+        monkeypatch.setenv("RTF_MATRIX_HOST_DISK_MIN_GIB", "53")
 
     def killpg(pid, sig):
         signalled.append((pid, sig))
@@ -244,6 +249,7 @@ def test_abort_stops_only_owned_process_groups_and_removes_only_attempt_episodes
     config_ = config(abort_duration_s=1, abort_load_max=120)
     result = guard.supervise(out, "md-attempt-1-", "3", config_, ["flight"], ["stats"])
     assert result == 76
+    assert json.loads((out / "guard.json").read_text())["voided_reason"] == reason
     assert signalled and all(pid == child.pid for pid, _ in signalled)
     assert stopped == [container_id]
     assert not (out / "flight/episodes").exists()
