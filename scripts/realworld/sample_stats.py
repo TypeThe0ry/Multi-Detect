@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 TOPIC = "/world/default/stats"
+DEFAULT_STARTUP_WAIT_S = 240
 
 
 def run_read(command: list[str], timeout: float = 10) -> str:
@@ -174,35 +175,70 @@ def summarize(stats: list[dict], resources: list[dict], errors: list[str]) -> di
             "stats_first": stats[0] if stats else None, "stats_last": stats[-1] if stats else None}
 
 
-def collect(container: str, gpu: str, warmup_s: float, window_s: float, interval_s: float) -> dict:
-    time.sleep(warmup_s)
-    started = time.monotonic()
-    deadline = started + window_s
+def collect(container: str, gpu: str, warmup_s: float, window_s: float, interval_s: float,
+            startup_wait_s: float = DEFAULT_STARTUP_WAIT_S) -> dict:
     stats: list[dict] = []
     resources: list[dict] = []
     errors: list[str] = []
-    # timeout is owned by this probe and bounds its subscriber inside the container.
-    command = ["docker", "exec", container, "bash", "-c",
-               f"source /opt/ros/*/setup.bash 2>/dev/null; exec timeout -k 2s {window_s + 2:g}s "
-               f"gz topic -e --json-output -t {TOPIC}"]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    ready_or_eof = threading.Event()
+    window: tuple[float, float, float] | None = None
+    # Closing the host's control pipe fires the owned GNU timeout timer early.
+    # The hard limit also bounds the subscriber if the pipe cannot stop it.
+    command = ["docker", "exec", "-i", container, "bash", "-c", f"""
+source /opt/ros/*/setup.bash 2>/dev/null
+exec 3<&0
+timeout -k 2s "$1" gz topic -e --json-output -t {TOPIC} &
+probe=$!
+(read -r _ <&3; kill -s ALRM "$probe" 2>/dev/null) &
+control=$!
+wait "$probe"
+status=$?
+kill "$control" 2>/dev/null
+wait "$control" 2>/dev/null
+exit "$status"
+""", "stats-probe", f"{startup_wait_s + warmup_s + window_s + 2:g}s"]
+    probe_started = time.monotonic()
+    startup_deadline = probe_started + startup_wait_s
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True)
 
     def read_stats() -> None:
-        assert process.stdout is not None
-        for line in process.stdout:
-            now = time.monotonic()
-            if now > deadline:
-                continue
-            try:
-                stats.append(normalize_stats(json.loads(line), now, time.time()))
-            except (ValueError, TypeError, KeyError) as exc:
-                errors.append(f"invalid stats message: {exc}")
+        nonlocal window
+        try:
+            assert process.stdout is not None
+            for line in process.stdout:
+                now = time.monotonic()
+                if now > (startup_deadline if window is None else window[2]):
+                    continue
+                try:
+                    row = normalize_stats(json.loads(line), now, time.time())
+                except (ValueError, TypeError, KeyError) as exc:
+                    if window is not None and now >= window[1]:
+                        errors.append(f"invalid stats message: {exc}")
+                    continue
+                # Gazebo JSON may omit paused when it is false.
+                if window is None and row["sim_time_s"] > 0 and row["paused"] is not True:
+                    start = now + warmup_s
+                    window = (now, start, start + window_s)
+                    ready_or_eof.set()
+                if window is not None and now >= window[1]:
+                    stats.append(row)
+        except OSError as exc:
+            errors.append(f"stats reader failed: {exc}")
+        finally:
+            ready_or_eof.set()
 
     reader = threading.Thread(target=read_stats, daemon=True)
-    reader.start()
-    next_sample = started
     try:
-        while time.monotonic() < deadline:
+        reader.start()
+        notified = ready_or_eof.wait(timeout=max(0, startup_deadline - time.monotonic()))
+        ready_at, started, deadline = window if notified and window is not None else (None, None, None)
+        if started is None:
+            errors.append("no advancing, unpaused Gazebo stats before startup deadline")
+        else:
+            time.sleep(max(0, started - time.monotonic()))
+        next_sample = started
+        while next_sample is not None and deadline is not None and time.monotonic() < deadline:
             row = {"host_monotonic_s": time.monotonic(), "host_wall_s": time.time(), **host_sample()}
             try:
                 pids = {line.strip() for line in run_read(["docker", "top", container, "-eo", "pid"]).splitlines()
@@ -219,22 +255,25 @@ def collect(container: str, gpu: str, warmup_s: float, window_s: float, interval
                 resources.append(row)
             next_sample += interval_s
             time.sleep(max(0, min(next_sample, deadline) - time.monotonic()))
+    finally:
+        assert process.stdin is not None
+        process.stdin.close()
         try:
             process.wait(timeout=8)
         except subprocess.TimeoutExpired:
-            errors.append("stats subscriber exceeded its bounded lifetime")
+            errors.append("stats subscriber did not exit after closing its control pipe")
             # This is only the docker exec CLI process started above, never Gazebo/PX4.
             process.terminate()
-            process.wait(timeout=5)
-        reader.join(timeout=2)
-        if reader.is_alive():
-            errors.append("stats reader failed to finish")
-        if process.returncode not in (0, 124):
-            errors.append(f"stats subscriber exited {process.returncode}")
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=5)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+    reader.join(timeout=2)
+    if reader.is_alive():
+        errors.append("stats reader failed to finish")
+    if process.returncode not in (0, 124):
+        errors.append(f"stats subscriber exited {process.returncode}")
     summary = summarize(stats, resources, errors)
     observed_span = summary["delta_host_monotonic_s"]
     if observed_span is None or observed_span < window_s * 0.8:
@@ -245,6 +284,8 @@ def collect(container: str, gpu: str, warmup_s: float, window_s: float, interval
         summary["measurement_complete"] = False
     return {"schema_version": 1, "topic": TOPIC, "container_id": container, "gpu": gpu,
             "warmup_s": warmup_s, "requested_window_s": window_s, "interval_s": interval_s,
+            "startup_wait_s": startup_wait_s, "probe_started_monotonic_s": probe_started,
+            "simulation_ready_monotonic_s": ready_at,
             "window_start_monotonic_s": started, "window_end_monotonic_s": deadline,
             "stats_probe_pid": process.pid, **summary, "stats_samples": stats, "resource_samples": resources,
             "stats_window_coverage_fraction": observed_span / window_s if observed_span is not None else None,
@@ -258,19 +299,22 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--container")
     group.add_argument("--container-prefix")
     parser.add_argument("--wait-s", type=float, default=300)
+    parser.add_argument("--startup-wait-s", type=float, default=DEFAULT_STARTUP_WAIT_S,
+                        help="seconds after attaching to wait for advancing, unpaused Gazebo stats")
     parser.add_argument("--gpu", choices=("0", "1", "2", "3"), default="1")
     parser.add_argument("--warmup-s", type=float, default=30)
     parser.add_argument("--window-s", type=float, default=120)
     parser.add_argument("--interval-s", type=float, default=2)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
-    if any(not math.isfinite(value) for value in (args.wait_s, args.warmup_s, args.window_s, args.interval_s)):
+    if any(not math.isfinite(value) for value in (args.wait_s, args.startup_wait_s, args.warmup_s,
+                                                  args.window_s, args.interval_s)):
         parser.error("timing values must be finite")
-    if min(args.wait_s, args.warmup_s) < 0 or min(args.window_s, args.interval_s) <= 0:
-        parser.error("wait/warmup must be non-negative; window/interval must be positive")
+    if min(args.wait_s, args.warmup_s) < 0 or min(args.startup_wait_s, args.window_s, args.interval_s) <= 0:
+        parser.error("wait/warmup must be non-negative; startup-wait/window/interval must be positive")
     try:
         container, actual_name = find_container(args.container, args.container_prefix, args.wait_s)
-        result = collect(container, args.gpu, args.warmup_s, args.window_s, args.interval_s)
+        result = collect(container, args.gpu, args.warmup_s, args.window_s, args.interval_s, args.startup_wait_s)
         result["container_name"] = actual_name
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         result = {"schema_version": 1, "measurement_complete": False, "errors": [str(exc)]}

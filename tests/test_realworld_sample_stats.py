@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
@@ -122,9 +124,12 @@ def test_run_read_only_passes_explicit_argv_and_reports_command_failure(monkeypa
     assert "shell" not in calls[0][1]
 
 
-def test_collect_uses_only_read_only_probe_commands_and_same_window(monkeypatch) -> None:
+@pytest.fixture
+def replay_probe(monkeypatch):
     clock = [0.0]
     calls = []
+    messages = []
+    stdin = StringIO()
     monkeypatch.setattr(sample_stats.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(sample_stats.time, "time", lambda: 100 + clock[0])
     monkeypatch.setattr(sample_stats.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
@@ -132,9 +137,9 @@ def test_collect_uses_only_read_only_probe_commands_and_same_window(monkeypatch)
 
     class Stdout:
         def __iter__(self):
-            for sim, real in ((1, 10), (2, 20)):
-                clock[0] += 0.1
-                yield json.dumps({"simTime": {"sec": sim}, "realTime": {"sec": real}})
+            for row in messages:
+                clock[0] = row["host_monotonic_s"]
+                yield json.dumps(row["raw"])
 
     class Process:
         stdout = Stdout()
@@ -142,9 +147,7 @@ def test_collect_uses_only_read_only_probe_commands_and_same_window(monkeypatch)
         returncode = 124
 
         def wait(self, timeout):
-            return self.returncode
-
-        def poll(self):
+            assert self.stdin.closed
             return self.returncode
 
         def terminate(self):
@@ -152,14 +155,20 @@ def test_collect_uses_only_read_only_probe_commands_and_same_window(monkeypatch)
 
     def popen(command, **kwargs):
         calls.append(command)
-        return Process()
+        assert kwargs["stdin"] == subprocess.PIPE
+        process = Process()
+        process.stdin = stdin
+        return process
 
     class Thread:
         def __init__(self, target, daemon):
             self.target = target
 
         def start(self):
+            # Replay receipt timestamps on the reader, then restore the main thread's clock.
+            before = clock[0]
             self.target()
+            clock[0] = before
 
         def join(self, timeout):
             pass
@@ -176,15 +185,86 @@ def test_collect_uses_only_read_only_probe_commands_and_same_window(monkeypatch)
     monkeypatch.setattr(sample_stats.subprocess, "Popen", popen)
     monkeypatch.setattr(sample_stats.threading, "Thread", Thread)
     monkeypatch.setattr(sample_stats, "run_read", read)
-    report = sample_stats.collect("immutable-id", "0", 3, 2, 0.5)
-    assert report["window_start_monotonic_s"] == 3
-    assert report["window_end_monotonic_s"] == 5
-    assert report["rtf_delta_sim_over_delta_real"] == pytest.approx(0.1)
+    return SimpleNamespace(messages=messages, calls=calls, clock=clock)
+
+
+def test_collect_uses_only_read_only_probe_commands_and_same_window(replay_probe) -> None:
+    replay_probe.messages.extend([
+        stats(0, 5, 5),
+        stats(1, 90, 90, True),
+        stats(3, 120, 120, None),  # Gazebo may omit paused=false.
+        stats(8, 125, 125, True),  # Warmup does not reset the clock or enter the measurement.
+        stats(47, 164, 164),
+        stats(48, 165, 165),
+        stats(108, 225, 225),
+        stats(168, 285, 285),
+        stats(0, 286, 286, True),  # After the right edge: neither a reset nor a pause in the window.
+    ])
+    report = sample_stats.collect("immutable-id", "0", 45, 120, 2)
+    assert report["simulation_ready_monotonic_s"] == 120
+    assert report["window_start_monotonic_s"] == 165
+    assert report["window_end_monotonic_s"] == 285
+    assert [row["host_monotonic_s"] for row in report["stats_samples"]] == [165, 225, 285]
+    assert [row["host_monotonic_s"] for row in report["resource_samples"]] == list(range(165, 285, 2))
+    assert report["stats_window_coverage_fraction"] == 1
+    assert report["rtf_window_median"] == 1
     assert report["container_process_memory_peak_mib"] == 500
-    assert report["measurement_complete"] is False  # synthetic stats end before resource window
-    assert "stats and resource sampling windows do not overlap" in report["errors"]
-    assert calls[0][:4] == ["docker", "exec", "immutable-id", "bash"]
-    assert "gz topic -e --json-output -t /world/default/stats" in calls[0][-1]
+    assert report["measurement_complete"] is True
+    calls = replay_probe.calls
+    assert calls[0][:5] == ["docker", "exec", "-i", "immutable-id", "bash"]
+    assert "gz topic -e --json-output -t /world/default/stats" in calls[0][6]
     assert [command for command in calls if command[0] == "nvidia-smi"] == [
         ["nvidia-smi", "-i", "0", "-q", "-x"]] * report["resource_sample_count"]
+    assert sum(command[:2] == ["docker", "exec"] for command in calls) == 1
     assert all(command[:2] in (["docker", "exec"], ["docker", "top"], ["nvidia-smi", "-i"]) for command in calls)
+
+
+def test_collect_still_rejects_insufficient_coverage_after_readiness(replay_probe) -> None:
+    replay_probe.messages.extend([stats(1, 120, 120), stats(46, 165, 165), stats(85, 204, 204)])
+    report = sample_stats.collect("immutable-id", "0", 45, 120, 2)
+    assert replay_probe.clock[0] == report["window_end_monotonic_s"] == 285
+    assert report["stats_window_coverage_fraction"] == pytest.approx(39 / 120)
+    assert report["rtf_window_median"] == 1
+    assert report["measurement_complete"] is False
+    assert report["errors"] == ["Gazebo stats cover less than 80% of the requested window"]
+
+
+def test_collect_does_not_reanchor_when_paused_in_window(replay_probe) -> None:
+    replay_probe.messages.extend([stats(1, 120, 120), stats(46, 165, 165), stats(47, 166, 166, True),
+                                 stats(166, 285, 285)])
+    report = sample_stats.collect("immutable-id", "0", 45, 120, 2)
+    assert report["stats_window_coverage_fraction"] == 1
+    assert report["measurement_complete"] is False
+    assert report["errors"] == ["world paused during measurement window"]
+
+
+def test_collect_rejects_readiness_after_startup_deadline(replay_probe) -> None:
+    replay_probe.messages.extend([stats(0, 5, 5), stats(5, 25, 25, True), stats(6, 121, 121)])
+    report = sample_stats.collect("immutable-id", "0", 45, 120, 2, startup_wait_s=120)
+    assert report["simulation_ready_monotonic_s"] is None
+    assert report["window_start_monotonic_s"] is None
+    assert report["window_end_monotonic_s"] is None
+    assert report["measurement_complete"] is False
+    assert "no advancing, unpaused Gazebo stats before startup deadline" in report["errors"]
+    assert len(replay_probe.calls) == 1  # No resource queries before readiness.
+
+
+def test_collect_times_out_silent_subscriber_and_closes_control_pipe(monkeypatch, tmp_path) -> None:
+    # Exercise the real shell lifecycle with a silent topic stub, never Docker or Gazebo.
+    gz = tmp_path / "gz"
+    gz.write_text("#!/bin/bash\nexec sleep 10\n")
+    gz.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path), prepend=":")
+    real_popen = subprocess.Popen
+
+    def launch_local(command, **kwargs):
+        assert command[:4] == ["docker", "exec", "-i", "immutable-id"]
+        return real_popen(command[4:], **kwargs)
+
+    monkeypatch.setattr(sample_stats.subprocess, "Popen", launch_local)
+    monkeypatch.setattr(sample_stats, "run_read", lambda _: pytest.fail("no resource queries without readiness"))
+    report = sample_stats.collect("immutable-id", "0", 45, 120, 2, startup_wait_s=0.1)
+    assert report["measurement_complete"] is False
+    assert report["simulation_ready_monotonic_s"] is None
+    assert report["errors"][0] == "no advancing, unpaused Gazebo stats before startup deadline"
+    assert not any(error.startswith(("stats subscriber", "stats reader")) for error in report["errors"])
