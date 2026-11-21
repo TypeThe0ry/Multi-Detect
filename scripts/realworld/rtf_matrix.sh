@@ -71,7 +71,9 @@ export MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=${MULTIDETECT_SIM_FIRST_FRAME_WAIT_S:-
 json_rows() {
   "$TOOLS_PYTHON" - "$MANIFEST" "$SINGLE_ROUND" <<'PY'
 import json, math, sys
+from pathlib import Path
 from scripts.realworld.collection_runtime import runtime_options
+from scripts.realworld import x1_scenario_class as policy
 rows=json.load(open(sys.argv[1], encoding='utf-8'))
 if not isinstance(rows, list) or not rows:
     raise SystemExit('manifest 必须是非空 JSON 数组')
@@ -82,6 +84,21 @@ for i,row in enumerate(rows):
     airframe=row.get('airframe', 'rc_cessna_mono_cam')
     if airframe not in ('rc_cessna_mono_cam', 'delta_tailsitter_gimbal_cam'):
         raise SystemExit(f'第 {i} 项 airframe 必须是 rc_cessna_mono_cam 或 delta_tailsitter_gimbal_cam')
+    extent=float(row['extent_m'])
+    scenario_class=row.get('scenario_class', policy.WIDE_AREA)
+    world=Path(row['scenario']).name.removesuffix('.scenario.json')
+    try:
+        threshold=policy.distance_gate(world, scenario_class)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    short=scenario_class == policy.MOUNTAIN_SHORT
+    if short and (extent != 6000 or airframe != 'delta_tailsitter_gimbal_cam'):
+        raise SystemExit(f'第 {i} 项 mountain_short 只适用于 6 km X1 场景')
+    minimum=float(row.get('minimum_max_distance_m', threshold if extent >= 6000 else 1000))
+    if (not math.isfinite(minimum) or (short and minimum != threshold)
+            or (not short and extent >= 6000 and minimum < threshold)):
+        raise SystemExit(f'第 {i} 项 minimum_max_distance_m 不符合 {scenario_class} 门槛')
+    row.update(scenario_class=scenario_class, minimum_max_distance_m=minimum)
     if sys.argv[2] == '1':
         try:
             runtime_options(row, airframe, f'manifest[{i}]')
@@ -218,7 +235,8 @@ from scripts.realworld.collection_runtime import read_episode_metadata, runtime_
 out=Path(sys.argv[1]); stats_path=out/'stats.json'; flight_path=out/'flight/long-range-result.json'
 flight=json.loads(flight_path.read_text(encoding='utf-8')) if flight_path.exists() else {}
 stats=json.loads(stats_path.read_text(encoding='utf-8')) if stats_path.exists() else {}
-manifest=json.loads(sys.argv[9]); slot=int(sys.argv[8]); minimum=float(manifest.get("minimum_max_distance_m", 4000 if float(sys.argv[3]) >= 6000 else 1000)); minimum_rtf=float(manifest.get("minimum_rtf", 0.9))
+manifest=json.loads(sys.argv[9]); slot=int(sys.argv[8]); minimum=manifest['minimum_max_distance_m']; minimum_rtf=float(manifest.get("minimum_rtf", 0.9))
+scenario_class=manifest['scenario_class']
 container_name=stats.get("container_name")
 route=flight.get("route_completed") is True
 distance=flight.get("max_distance_from_spawn_m")
@@ -228,18 +246,22 @@ gpu=sys.argv[12]
 stats_gpu_ok=str(stats.get("gpu"))==gpu
 rtf=stats.get("rtf_window_median")
 rtf_ok=type(rtf) in (int,float) and math.isfinite(rtf) and rtf >= minimum_rtf
-distance_ok=isinstance(distance,(int,float)) and distance >= minimum
-valid=(int(sys.argv[5])==0 and int(sys.argv[6])==0 and route and distance_ok and stats_ok and stats_gpu_ok and rtf_ok and slot_name_ok)
+distance_ok=type(distance) in (int,float) and math.isfinite(distance) and distance >= minimum
+policy_ok=(flight.get('scenario_class','wide_area')==scenario_class
+           and (scenario_class!='mountain_short' or flight.get('minimum_max_distance_m')==minimum))
+valid=(int(sys.argv[5])==0 and int(sys.argv[6])==0 and route and distance_ok and policy_ok and stats_ok and stats_gpu_ok and rtf_ok and slot_name_ok)
 issues=[]
 if not route: issues.append("route_completed is not true")
 if not distance_ok: issues.append(f"max_distance_from_spawn_m is below {minimum:g} m or missing")
+if not policy_ok: issues.append('flight distance policy does not match matrix entry')
 if not stats_ok: issues.append("stats.json is incomplete or has errors")
 if stats and not stats_gpu_ok: issues.append("stats GPU does not match matrix GPU")
 if not rtf_ok: issues.append(f"rtf_window_median is below {minimum_rtf:g} or missing")
 if not slot_name_ok: issues.append(f"container name does not contain -slot-{slot}-")
 # Matrix identity must not disappear with missing stats or be overwritten by them.
 row={**stats, 'name':sys.argv[2], 'variant':manifest.get("variant",sys.argv[2].split("_")[0]),
-     'attempt':int(sys.argv[7]), 'extent_m':float(sys.argv[3]), 'minimum_max_distance_m':minimum, 'minimum_rtf':minimum_rtf,
+     'attempt':int(sys.argv[7]), 'extent_m':float(sys.argv[3]), 'scenario_class':scenario_class,
+     'minimum_max_distance_m':minimum, 'minimum_rtf':minimum_rtf,
      'airframe':sys.argv[4], 'stats_returncode':int(sys.argv[5]), 'flight_returncode':int(sys.argv[6]),
      'route_completed':route, 'max_distance_from_spawn_m':distance, 'flight_status':flight.get("status"),
      'container_name_slot_verified':slot_name_ok, 'valid_round':valid, 'round_errors':issues,
@@ -317,10 +339,13 @@ for row in rows:
         valid_by_name.setdefault(row["name"],row)
 valid=set(valid_by_name)
 selected=[valid_by_name[row["name"]] for row in manifest if row["name"] in valid_by_name]
-variants=list(dict.fromkeys(row.get("variant","unknown") for row in manifest))
+def classify(row):
+    return row.get('scenario_class','wide_area')
+variants=list(dict.fromkeys((classify(row), row.get("variant","unknown")) for row in manifest))
 variant_summary=[]
-for variant in variants:
-    items=[row for row in manifest if row.get("variant","unknown")==variant]
+for scenario_class, variant in variants:
+    class_rows=[row for row in manifest if classify(row)==scenario_class]
+    items=[row for row in class_rows if row.get("variant","unknown")==variant]
     names={row["name"] for row in items}
     measured=[valid_by_name[name] for name in (row["name"] for row in items) if name in valid_by_name]
     rtfs=[float(row["rtf_window_median"]) for row in measured if row.get("rtf_window_median") is not None]
@@ -331,11 +356,11 @@ for variant in variants:
     if variant == "V0":
         relative=1.0 if rtfs else None
     else:
-        for index,item in enumerate(manifest):
+        for index,item in enumerate(class_rows):
             if item.get("variant") != variant or item["name"] not in valid_by_name:
                 continue
-            before=next((manifest[j] for j in range(index-1,-1,-1) if manifest[j].get("variant")=="V0"),None)
-            after=next((manifest[j] for j in range(index+1,len(manifest)) if manifest[j].get("variant")=="V0"),None)
+            before=next((row for row in reversed(class_rows[:index]) if row.get("variant")=="V0"),None)
+            after=next((row for row in class_rows[index+1:] if row.get("variant")=="V0"),None)
             adjacent=[valid_by_name[x["name"]].get("rtf_window_median") for x in (before,after)
                       if x is not None and x["name"] in valid_by_name]
             adjacent=[float(value) for value in adjacent if value is not None]
@@ -343,13 +368,18 @@ for variant in variants:
             if adjacent and candidate is not None:
                 ratios.append(float(candidate)/median(adjacent))
         relative=median(ratios) if ratios else None
-    variant_summary.append({"variant":variant,"expected_rounds":len(items),"valid_rounds":len(measured),
+    variant_summary.append({"variant":variant,"scenario_class":scenario_class,
+                            "expected_rounds":len(items),"valid_rounds":len(measured),
                             "complete":names <= valid,"rtf_median":median(rtfs) if rtfs else None,
                             "relative_v0_median":relative,"relative_v0_round_count":len(ratios),
                             "host_load1_median":median(loads) if loads else None,
                             "max_distance_from_spawn_m_median":median(distances) if distances else None})
 summary={'schema_version':1,'rows':rows,'valid_rows':selected,
          'variant_summary':variant_summary,
+         'scenario_class_counts':{
+             scenario_class:{'expected_rounds':sum(classify(r)==scenario_class for r in manifest),
+                             'valid_rounds':sum(classify(r)==scenario_class for r in selected)}
+             for scenario_class in ('wide_area','mountain_short')},
          'stable_window_rtf_median_min':min((r.get('rtf_window_median') for r in selected if r.get('rtf_window_median') is not None),default=None),
          'all_routes_completed':requested <= {r["name"] for r in selected if r.get("route_completed") is True},
          'all_measurements_complete':requested <= {r["name"] for r in selected if r.get("measurement_complete") is True},

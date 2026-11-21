@@ -5,6 +5,9 @@
   "tools_python": "/data/datasets/multidetect-sim-assets/tools/venv/bin/python",
   "model_seed": "rw_city_zurich_w6km/v1/models",
   "max_pad_retries": 3,
+  "scenario_classes": {
+    "rw_alpine_grindelwald": "mountain_short"
+  },
   "sites": {
     "rw_alpine_grindelwald": "sites",
     "rw_canal_amsterdam": "sites",

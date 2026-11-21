@@ -99,6 +99,8 @@ SITL 长航程脚本使用 `/data/projects/Multi-Detect-env/Multi-Detect/.venv-v
 
 合格条件是稳定窗口 `rtf_window_median >= minimum_rtf`（默认 0.9）、路线完成、最大距离至少 4000 m（本入口只接受 6 km `rw_*` 场景）。`rtf_matrix.sh` 会把低于阈值或缺失的 stats 轮次标为无效。同时应保存 `stats.json`、`result.json`、`summary.json`、完整 flight 输出、主机压力采样和显存采样。没有 Gazebo stats 窗口、显存峰值或完整路线时，结果只能标为未完成。
 
+X1 的唯一站点例外是 `configs/simulation/x1-worlds.json` 中显式登记的格林德瓦晴天正午谷底路线：`scenario_class=mountain_short`，最大离场距离门槛 2250 m。必须使用含 4 km 不可达证据的 X1 路线包；RTF、路线完成和地平线验收不变。批次 `manifest.json` 与矩阵 `summary.json` 按类别分别统计，`mountain_short` 不计入 `wide_area` 的 4 km 成绩。
+
 ## V0–V9 实测结论
 
 完整飞行和 stats 记录显示，V6 初测两轮为 RTF 0.706、0.799；随后在交错 V0 基线的夹击复测中，V6 达到 0.947、1.000，相邻 V0 为 0.359、0.545，第三个 V0 锚点为 0.615。两次夹击 V6 航线均完成，最远距离分别为 4086.7 m 和 4088.9 m。近场地形代理比较的 V6−V0 中位偏差为 −0.16 m。V0 的结果随运行负载波动，因此这里报告夹击值，不把它解释为所有机器上的固定倍数。

@@ -56,9 +56,19 @@ def stage_route(asset):
         channels[key] = {"path": path.name, "sha256": hashlib.sha256(b"{}").hexdigest()}
     names = {"scenario": "scenario.json", "sidecar": "long_range.json", "map": "geojson", "dem": "dem.json"}
     receipt = {"passed": True, "world_sha256": pipeline.digest(asset.world)}
+    policy = pipeline.scenario_policy
+    scenario_class = policy.configured_class(asset.world.stem, pipeline.CONFIG)
+    route_policy = {"scenario_class": scenario_class, "threshold_m": policy.distance_gate(asset.world.stem, scenario_class)}
+    if scenario_class == policy.MOUNTAIN_SHORT:
+        route_policy["wide_area_unreachable"] = {
+            "threshold_m": 4000, "maximum_possible_distance_m": {"30": 3598, "40": 3584}}
+    receipt.update(route_policy)
     for kind, suffix in names.items():
         path = root / f"{asset.world.stem}.{suffix}"
-        pipeline.atomic_json(path, {"channels": channels} if kind == "scenario" else {})
+        body = {"channels": channels} if kind == "scenario" else {}
+        if kind == "sidecar":
+            body.update(route_policy, minimum_max_distance_m=route_policy["threshold_m"])
+        pipeline.atomic_json(path, body)
         receipt[f"{kind}_sha256"] = pipeline.digest(path)
         if kind == "scenario":
             receipt[kind] = path.name

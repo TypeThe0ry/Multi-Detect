@@ -14,6 +14,7 @@ if __name__ == "__main__":
 from scripts.realworld import wide_collect_batch as batch  # noqa: E402
 from scripts.realworld import x1_gpu  # noqa: E402
 from scripts.realworld import x1_resume as resume  # noqa: E402
+from scripts.realworld import x1_scenario_class as policy  # noqa: E402
 
 MANIFEST = ROOT / "configs/simulation/x1-worlds.json"
 OUTPUT = resume.NAS / "x1-next"
@@ -43,10 +44,18 @@ def verified_asset(asset, world_name):
     return paths, receipt
 
 
-def site_plan(asset_root, site, index, image_id):
+def site_plan(asset_root, site, index, image_id, spec=None):
     asset = asset_root / f"{site}_w6km" / "v1"
     name = f"{site}_w6km__clear_noon"
     paths, receipt = verified_asset(asset, name)
+    scenario_class = policy.configured_class(name, spec)
+    threshold = policy.verify_route_policy(receipt, name, scenario_class)
+    if scenario_class == policy.MOUNTAIN_SHORT:
+        sidecar = batch.read_object(paths["sidecar"])
+        policy.verify_route_policy(sidecar, name, scenario_class)
+        if (sidecar.get("minimum_max_distance_m") != threshold
+                or sidecar["wide_area_unreachable"] != receipt["wide_area_unreachable"]):
+            raise ValueError(f"{name}: mountain_short sidecar does not match route receipt")
     # Keep records for older versions. A rebuilt route or new image cannot qualify this run.
     suffix = batch.digest({"route": receipt, "image_id": image_id, "bridge": BRIDGE_STABILIZE})[:20]
     staging = ROOT / ".tmp" / "x1-worlds" / f"{site}-{suffix}"
@@ -63,6 +72,7 @@ def site_plan(asset_root, site, index, image_id):
         "variant_map_root": str(staging / "maps"),
         "variant_terrain_root": str(staging / "terrain"),
         "jobs": [{"site": site, "scenario": str(paths["scenario"]), "seed": 401 + index,
+                  "scenario_class": scenario_class, "minimum_max_distance_m": threshold,
                   "altitude_m": 85, "time_of_day": "noon", "weather": "clear",
                   "image": image_id, "gimbal_bridge_stabilize": BRIDGE_STABILIZE}],
     }), [(paths[field], staging / folder, receipt[f"{field}_sha256"])
@@ -82,6 +92,7 @@ def verdict(record, job):
     return (resume.receipt_matches(record, job)
             and gpu_audited and record.get("slot") == job["slot"]
             and record.get("route_completed") is True
+            and batch.meets_distance(record, job)
             and batch.number(rtf) and rtf >= batch.MIN_RTF
             and (record.get("horizon_acceptance") or {}).get("passed") is True)
 
@@ -96,7 +107,7 @@ def plans(spec, image_id):
     pending, done, unavailable = [], [], {}
     for index, site in enumerate(spec["sites"]):
         try:
-            item = site_plan(Path(spec["asset_root"]), site, index, image_id)
+            item = site_plan(Path(spec["asset_root"]), site, index, image_id, spec)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             unavailable[site] = str(exc)
             continue

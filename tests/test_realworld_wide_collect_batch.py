@@ -149,10 +149,29 @@ def test_expand_is_deterministic_deduplicates_and_assigns_slots(spec):
     legacy_job = plan["jobs"][0]
     assert "airframe" not in legacy_job["inputs"]
     assert legacy_job["job_id"] == batch.digest({
-        **legacy_job["inputs"],
+        **{key: value for key, value in legacy_job["inputs"].items() if key != "scenario_class"},
         "roots": {key: legacy_job["matrix"][key] for key in batch.ROOT_FIELDS if key in legacy_job["matrix"]},
         "schema_version": 1,
     })
+
+
+def test_scenario_classes_use_separate_distance_gates_and_manifest_counts(spec):
+    wide = {**spec["jobs"][0], "airframe": DELTA}
+    short = {**wide, "site": "rw_alpine_grindelwald", "scenario_class": "mountain_short"}
+    plan = batch.expand({**spec, "jobs": [wide, short]})
+    jobs = plan["jobs"]
+    assert [batch.distance_fields(job)["minimum_max_distance_m"] for job in jobs] == [4000, 2250]
+    assert plan["scenario_class_counts"] == {
+        "wide_area": {"jobs": 1, "accepted_jobs": 0}, "mountain_short": {"jobs": 1, "accepted_jobs": 0}}
+    record = {**batch.distance_fields(jobs[1]), "max_distance_from_spawn_m": 2250}
+    assert batch.meets_distance(record, jobs[1])
+    assert not batch.meets_distance({**record, "max_distance_from_spawn_m": 2249.99}, jobs[1])
+    assert not batch.meets_distance({"max_distance_from_spawn_m": 3000}, jobs[0])
+    assert not batch.meets_distance({"max_distance_from_spawn_m": 2300}, jobs[1])
+    for override, message in (({"scenario_class": "mountain_short"}, "not authorized"),
+                              ({"minimum_max_distance_m": 2250}, "must be 4000")):
+        with pytest.raises(ValueError, match=message):
+            batch.expand({**spec, "jobs": [{**wide, **override}]})
 
 
 def test_expand_airframe_defaults_overrides_and_identity(spec):
@@ -235,6 +254,9 @@ def test_accepts_once_and_preserves_accepted_attempt(spec, matrix):
     assert batch.run_batch(plan, matrix) == 0
     record, = rows(root / "accepted.jsonl")
     assert record["valid_round"] is True and record["route_completed"] is True
+    assert record["scenario_class"] == "wide_area" and record["minimum_max_distance_m"] == 4000
+    assert batch.read_object(root / "manifest.json")["scenario_class_counts"] == {
+        "wide_area": {"jobs": 1, "accepted_jobs": 1}, "mountain_short": {"jobs": 0, "accepted_jobs": 0}}
     assert record["rtf_window_median"] == 0.94 and record["rtf_delta_sim_over_delta_real"] == 0.88
     assert record["gpu"] == 3 and record["slot"] == 6 and record["frame_count"] == 1
     assert record["bridge_stabilize"] is False
@@ -472,7 +494,8 @@ def test_voided_attempt_requeues_at_tail_and_records_load_and_retry_count(spec, 
         return {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{path.name}",
                 "attempt_dir": str(path), "accepted": not void, "errors": ["voided:load_spike"] if void else [],
                 "voided_reason": "load_spike" if void else None, "start_load": gate["start_load"],
-                "max_load": 135 if void else 47, "valid_round": not void, "frame_count": 1}
+                "max_load": 135 if void else 47, "valid_round": not void, "frame_count": 1,
+                "max_distance_from_spawn_m": 4100}
 
     monkeypatch.setattr(batch, "run_attempt", attempt)
     monkeypatch.setattr("scripts.realworld.collection_guard.wait_for_start",
@@ -501,7 +524,8 @@ def test_void_retry_limit_and_accepted_job_are_persistent(spec, matrix, monkeypa
         return {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{path.name}",
                 "attempt_dir": str(path), "inputs": job["inputs"], "accepted": not void, "errors": [],
                 "voided_reason": "rtf_drop" if void else None, "start_load": gate["start_load"],
-                "max_load": 47, "valid_round": not void, "frame_count": 1}
+                "max_load": 47, "valid_round": not void, "frame_count": 1,
+                "max_distance_from_spawn_m": 4100}
 
     monkeypatch.setattr(batch, "run_attempt", attempt)
     monkeypatch.setattr("scripts.realworld.collection_guard.wait_for_start",
@@ -699,10 +723,15 @@ esac
 
 
 @pytest.mark.parametrize("single_round", ["0", "1"])
-def test_real_shell_rejects_invalid_airframe_before_running(tmp_path, monkeypatch, single_round):
+@pytest.mark.parametrize("override,error", [
+    ({"airframe": "unknown"}, "airframe"),
+    ({"minimum_max_distance_m": 2250}, "minimum_max_distance_m"),
+    ({"airframe": DELTA, "scenario_class": "mountain_short"}, "not authorized"),
+])
+def test_real_shell_rejects_invalid_manifest_before_running(tmp_path, monkeypatch, single_round, override, error):
     manifest = tmp_path / "manifest.json"
     row = dict(name="fixture", scenario="unused", resolved_root=str(tmp_path), extent_m=6000)
-    manifest.write_text(json.dumps([{**row, "airframe": "unknown"}]))
+    manifest.write_text(json.dumps([{**row, **override}]))
     out = tmp_path / "out"
     for key, value in {
         "SITL_PYTHON": sys.executable, "TOOLS_PYTHON": sys.executable,
@@ -712,7 +741,7 @@ def test_real_shell_rejects_invalid_airframe_before_running(tmp_path, monkeypatc
         monkeypatch.setenv(key, value)
     proc = subprocess.run([str(batch.ROOT / "scripts/realworld/rtf_matrix.sh"), "--manifest", str(manifest),
                            "--out", str(out)], capture_output=True, text=True)
-    assert proc.returncode == 2 and "airframe" in proc.stderr
+    assert proc.returncode == 2 and error in proc.stderr
     assert not list(out.iterdir())
 
 
@@ -727,6 +756,7 @@ def test_resumes_past_usable_rejection_and_disk_stop(spec, matrix, monkeypatch):
         calls.append(seed)
         return {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{path.name}",
                 "attempt_dir": str(path), "accepted": seed != 42 and calls != [42, 43],
+                "max_distance_from_spawn_m": 4100,
                 "errors": ["horizon_feasible_p95_exceeded"] if seed == 42 else [],
                 "voided_reason": "host_disk_below_floor" if calls == [42, 43] else None}
 

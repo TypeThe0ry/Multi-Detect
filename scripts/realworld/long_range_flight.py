@@ -33,6 +33,7 @@ from multidetect.sim_teacher.target_tracking import WorldTarget, track_cli_argv 
 from multidetect.simulation.turn_envelope import coordinated_turn_envelope  # noqa: E402
 from multidetect.terrain_dem import load_local_dem_grid  # noqa: E402
 from scripts.realworld.leased_flight import SITL_PYTHON  # noqa: E402
+from scripts.realworld import x1_scenario_class as scenario_policy  # noqa: E402
 from scripts.sitl_lock import SitlLock, sitl_lock_context  # noqa: E402
 
 AIRFRAME = "rc_cessna_mono_cam"
@@ -48,7 +49,7 @@ DEFAULT_SCENARIO = SCENARIO_ROOT / DELTA / f"{DEFAULT_PROFILE}.scenario.json"
 DEFAULT_OUTPUT_ROOT = ROOT / ".tmp/rtf-speedup-run/collect"
 MIN_WIDE_EXTENT_M = 2000.0
 MIN_2KM_DISTANCE_M = 1500.0
-MIN_6KM_DISTANCE_M = 4000.0
+MIN_6KM_DISTANCE_M = float(scenario_policy.WIDE_DISTANCE_M)
 DEFAULT_MIN_RTF = 0.9
 DELTA_CRUISE_AGL_M = 85.0
 MAX_CRUISE_AGL_M = 120.0
@@ -355,6 +356,23 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
     if math.hypot(*offset_ned(geometry.home, geometry.landing)[:2]) > 1.0:
         raise ValueError("VTOL landing must be at home")
     boundary = data["boundary"]
+    metrics = route_preflight.get("metrics", {}) if route_preflight else {}
+    revised = metrics.get("flight_margin_revision") == scenario_policy.FLIGHT_MARGIN_REVISION
+    limits = (40.0, MAX_CRUISE_AGL_M)
+    transition_min = None
+    if revised and data["scenario_id"] == scenario_policy.ALPINE_WORLD:
+        limits = scenario_policy.ALPINE_PLANNED_AGL_M
+        transition_min = scenario_policy.ALPINE_TRANSITION_MIN_AGL_M
+        if start[2] != targets[0][2]:
+            raise ValueError("Grindelwald forward transition requires level first targets")
+    if revised and data["scenario_id"] == scenario_policy.AMSTERDAM_WORLD:
+        mission_radius = data["mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"]
+        square_half = min(-boundary["north_min_m"], boundary["north_max_m"],
+                          -boundary["east_min_m"], boundary["east_max_m"])
+        runout = scenario_policy.amsterdam_runout([start[:2], *(point[:2] for point in targets)],
+                                                   mission_radius, square_half)
+        if not scenario_policy.has_runout_margin(runout):
+            raise ValueError("Amsterdam FW runout exceeds the audited mission-radius or square margin")
     buffer_m = route_preflight["buffer_m"] if route_preflight else geometry.loiter_radius_m
     edge_margin_m = buffer_m + 20.0 if route_preflight else 100.0
     for point in targets:
@@ -364,19 +382,23 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
     # Check the straight route and lateral buffer. Allow the full range
     # between neighboring commanded altitudes, since guided PX4 need not interpolate.
     agl = []
-    for left, right in zip((start, *targets), (*targets, (0.0, 0.0, targets[-1][2]))):
+    for leg_index, (left, right) in enumerate(zip((start, *targets), (*targets, (0.0, 0.0, targets[-1][2])))):
         dn, de = right[0] - left[0], right[1] - left[1]
         length = math.hypot(dn, de)
         if length < 1.0:
             raise ValueError("VTOL route contains coincident waypoints")
         count = math.ceil(length / 25)
+        first_sample = len(agl)
         for i in range(count + 1):
             for lateral in (-buffer_m, 0.0, buffer_m):
                 north = left[0] + dn * i / count - de / length * lateral
                 east = left[1] + de * i / count + dn / length * lateral
                 agl.extend(_terrain_agl(dem, (north, east, down)) for down in (left[2], right[2]))
-    if min(agl) < 40.0 or max(agl) > MAX_CRUISE_AGL_M:
-        raise ValueError(f"VTOL DEM route envelope {min(agl):.1f}–{max(agl):.1f} m AGL is outside [40, 120]")
+        if leg_index == 0 and transition_min is not None and min(agl[first_sample:]) < transition_min:
+            raise ValueError("Grindelwald first leg lacks forward transition AGL reserve")
+    if min(agl) < limits[0] or max(agl) > limits[1]:
+        raise ValueError(f"VTOL DEM route envelope {min(agl):.1f}–{max(agl):.1f} m AGL "
+                         f"is outside [{limits[0]:g}, {limits[1]:g}]")
     return [min(agl), max(agl)]
 
 
@@ -409,18 +431,26 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
     if route_preflight is not None and "schema_version" in route_preflight:
         _verify_audited_route(data, geometry, targets, route_preflight)
     maximum = max(math.hypot(p[0], p[1]) for p in targets)
-    minimum = float(
-        data.get(
-            "minimum_max_distance_m",
-            minimum_distance_for_extent(float(data["extent_m"])),
-        )
-    )
-    required_distance = minimum_distance_for_extent(float(data["extent_m"]))
-    if not math.isfinite(minimum) or minimum < required_distance or maximum < minimum:
+    extent = float(data["extent_m"])
+    scenario_class = data.get("scenario_class", scenario_policy.WIDE_AREA)
+    class_threshold = scenario_policy.verify_route_policy(data, manifest["scenario_id"], scenario_class)
+    short = scenario_class == scenario_policy.MOUNTAIN_SHORT
+    if short and (airframe != DELTA or extent != 6000 or not route_preflight
+                  or route_preflight.get("schema_version") != 1
+                  or (route_preflight.get("metrics", {}).get("candidate"),
+                      route_preflight.get("metrics", {}).get("flight_margin_revision")) not in {
+                      (scenario_policy.ALPINE_LEGACY_CANDIDATE, None),
+                      (scenario_policy.ALPINE_CANDIDATE, scenario_policy.FLIGHT_MARGIN_REVISION)}
+                  or math.dist((geometry.home.latitude_deg, geometry.home.longitude_deg),
+                               scenario_policy.ALPINE_ORIGIN) > 1e-8):
+        raise ValueError("mountain_short requires the audited Grindelwald X1 valley route")
+    required_distance = class_threshold if short else minimum_distance_for_extent(extent)
+    minimum = float(data.get("minimum_max_distance_m", required_distance))
+    if (not math.isfinite(minimum) or minimum < required_distance or maximum < minimum
+            or (short and data.get("minimum_max_distance_m") != required_distance)):
         raise ValueError(
             f"long-range mission must reach at least {required_distance:g} m from spawn"
         )
-    extent = float(data["extent_m"])
     if not math.isfinite(extent) or extent < MIN_WIDE_EXTENT_M:
         raise ValueError(f"long-range extent_m must be at least {MIN_WIDE_EXTENT_M:g}")
     terrain = agl_envelope = None
@@ -453,6 +483,7 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
             "gimbal_pitch_deg": gimbal_pitch_deg, "fw_turn_envelope": fw_turn_envelope,
             "terrain": terrain, "planned_agl_envelope_m": agl_envelope,
             "targets": targets, "route_preflight": route_preflight, "minimum_max_distance_m": minimum,
+            "scenario_class": scenario_class,
             "planned_max_distance_m": maximum, "minimum_rtf": required_rtf,
             "profile": str(manifest["scenario_id"]), "seed": runtime_input.get("seed", 91000)}
 
@@ -658,6 +689,19 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
     center_n, center_e, _ = offset_ned(home, center)
     angle = 0.0
     previous_yaw = None
+    previous_pose = None
+
+    def reject(reason, **measurements):
+        # Batch cleanup drops failed episodes, while flight.stdout.log survives.
+        collector._progress(
+            "long_range_guard", reason=reason, sim_stamp_ns=stamp,
+            position_home_ned_m=relative, previous_position_home_ned_m=previous_pose,
+            target_home_ned_m=tuple(target - home for target, home in zip(command.target_ned, home_ned)),
+            distance_from_home_m=math.hypot(*relative[:2]),
+            fly_through_radius_m=command.fly_through_radius_m, **measurements,
+        )
+        raise RuntimeError(reason)
+
     while wall() - started < wall_budget:
         reader.raise_if_failed()
         if command.fly_through_radius_m is not None:
@@ -672,15 +716,16 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
         if (stamp - first_stamp) / 1e9 >= sim_budget:
             break
         pose = collector._state_position(reader.state)
-        relative = (pose[0] - home_ned[0], pose[1] - home_ned[1])
+        relative = tuple(value - home for value, home in zip(pose, home_ned))
         boundary = mission["source"].get("boundary", {})
         if boundary and not (boundary["north_min_m"] <= relative[0] <= boundary["north_max_m"]
                              and boundary["east_min_m"] <= relative[1] <= boundary["east_max_m"]):
-            raise RuntimeError("long-range telemetry crossed the square world boundary")
+            reject("long-range telemetry crossed the square world boundary")
         if math.hypot(relative[0] - center_n, relative[1] - center_e) > float(policy["geofence_radius_m"]):
-            raise RuntimeError("long-range telemetry crossed the configured geofence")
-        if math.hypot(*relative) > float(policy["maximum_mission_radius_m"]):
-            raise RuntimeError("long-range telemetry exceeded the configured mission radius")
+            reject("long-range telemetry crossed the configured geofence", radius_limit_m=policy["geofence_radius_m"])
+        if math.hypot(*relative[:2]) > float(policy["maximum_mission_radius_m"]):
+            reject("long-range telemetry exceeded the configured mission radius",
+                   radius_limit_m=policy["maximum_mission_radius_m"])
         dn, de = command.target_ned[0] - pose[0], command.target_ned[1] - pose[1]
         distance = math.hypot(dn, de)
         yaw = collector._state_yaw(reader.state)
@@ -690,9 +735,10 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
         if mission.get("terrain") is not None:
             if collector._flight_state_snapshot(reader.state)["vtol_state"] != 4:
                 raise RuntimeError("VTOL left fixed-wing mode during long-range cruise")
-            agl = _terrain_agl(mission["terrain"], (*relative, pose[2] - home_ned[2]))
+            agl = _terrain_agl(mission["terrain"], relative)
             if not 30.0 <= agl <= MAX_CRUISE_AGL_M:
-                raise RuntimeError(f"fixed-wing cruise left the 30–120 m DEM AGL envelope ({agl:.1f} m)")
+                reject(f"fixed-wing cruise left the 30–120 m DEM AGL envelope ({agl:.1f} m)",
+                       agl_m=agl, dem_relative_home_m=-relative[2] - agl)
         if collector._fixed_wing_reposition_complete(
             dn=dn, de=de, leg_n=leg_n, leg_e=leg_e, distance_m=distance,
             loiter_radius_m=float(command.radius_m or 80.0), yaw_deg=yaw,
@@ -703,6 +749,7 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
                     "sim_budget_s": sim_budget, "wall_budget_s": wall_budget,
                     **({"guidance": "offboard_path", "fly_through_radius_m": command.fly_through_radius_m}
                        if command.fly_through_radius_m is not None else {})}
+        previous_pose = relative
         sleep(0.1)
     raise TimeoutError(f"long-range waypoint not reached within {sim_budget:.1f} sim seconds / {wall_budget:.1f} wall seconds")
 
@@ -894,6 +941,7 @@ def main(argv: list[str] | None = None) -> int:
             collector_plan = plan.to_mapping(include_docker_command=preview)
         print(json.dumps({"schema_version": 1, "mode": "cpu_plan_only", "flight_started": False,
                           "profile": mission["profile"], "airframe": mission["airframe"],
+                          "scenario_class": mission["scenario_class"],
                           "minimum_rtf": mission["minimum_rtf"],
                           "minimum_max_distance_m": mission["minimum_max_distance_m"],
                           "output": str(out),
@@ -955,6 +1003,7 @@ def main(argv: list[str] | None = None) -> int:
               and maximum >= mission["minimum_max_distance_m"])
     result = {"status": "pass" if passed else "fail", "episode": str(episode),
               "airframe": mission["airframe"],
+              "scenario_class": mission["scenario_class"],
               "max_distance_from_spawn_m": maximum, "route_completed": route_ok,
               "minimum_max_distance_m": mission["minimum_max_distance_m"],
               "minimum_rtf": mission["minimum_rtf"],

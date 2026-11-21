@@ -28,6 +28,7 @@ from scripts.realworld.x1_lock import (  # noqa: E402
     LOCK, TEMPFAIL, LockBusy, Yielded, flight_requested, try_lock, world_owner, world_phase,
 )
 from scripts.realworld.x1_pad import PAD_REJECTED, PadRejected  # noqa: E402
+from scripts.realworld import x1_scenario_class as scenario_policy  # noqa: E402
 
 
 def read_json(path):
@@ -278,10 +279,18 @@ class Asset:
                  "map": f"{stem}.geojson", "dem": f"{stem}.dem.json"}
         if row.get("passed") is not True or row.get("world_sha256") != world_hash or row.get("scenario") != paths["scenario"]:
             raise ValueError(f"{folder}: no passing route receipt for this world")
+        scenario_class = scenario_policy.configured_class(stem, CONFIG)
+        scenario_policy.verify_route_policy(row, stem, scenario_class)
         for kind, name in paths.items():
             if row.get(f"{kind}_sha256") != digest(self.path_in_asset(Path("x1") / name)):
                 raise ValueError(f"{folder}: route {kind} changed")
         scenario = read_json(folder / paths["scenario"])
+        if scenario_class == scenario_policy.MOUNTAIN_SHORT:
+            sidecar = read_json(folder / paths["sidecar"])
+            threshold = scenario_policy.verify_route_policy(sidecar, stem, scenario_class)
+            if (sidecar.get("minimum_max_distance_m") != threshold
+                    or sidecar["wide_area_unreachable"] != row["wide_area_unreachable"]):
+                raise ValueError(f"{folder}: mountain_short sidecar does not match route receipt")
         if set(scenario["channels"]) != {"runtime_input", "truth", "expectations"}:
             raise ValueError(f"{folder}: missing scenario channels")
         for channel in scenario["channels"].values():
@@ -303,6 +312,7 @@ def input_fingerprint():
     import hashlib
     digest = hashlib.sha256()
     names = sorted(HERE.glob("x1_world_*.py")) + [HERE / "fetch_site.py", HERE / "build_scene.py", HERE / "x1_find_pad.py", HERE / "x1_pad.py",
+             HERE / "x1_scenario_class.py",
              ROOT / "configs/sim-assets/realworld-sites.json", ROOT / "configs/simulation/x1-worlds.json"]
     for path in names:
         if path.exists():

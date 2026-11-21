@@ -68,7 +68,7 @@ def test_pad_uses_physical_ground_but_still_rejects_collisions_and_water(flat_la
 def test_route_cli_classifies_only_pad_errors(monkeypatch, tmp_path):
     argv = ["--asset", str(tmp_path), "--world", str(tmp_path / "world.sdf")]
     for error, code in [(route.PadRejected("wet pad"), route.PAD_REJECTED), (ValueError("no route"), 1)]:
-        def fail(*_):
+        def fail(*_, **_kwargs):
             raise error
 
         monkeypatch.setattr(route, "preflight", fail)
@@ -146,6 +146,8 @@ def test_diagnostic_lengths_are_local_not_full_route(flat_layers):
 
 def test_alpine_certificate_fails_closed_without_publishing(asset_world, flat_layers, monkeypatch):
     asset, world = asset_world
+    alpine_world = world.with_name(f"{route.policy.ALPINE_WORLD}.sdf")
+    world.rename(alpine_world)
     load = route.load_layers
 
     def alpine(*args):
@@ -155,7 +157,7 @@ def test_alpine_certificate_fails_closed_without_publishing(asset_world, flat_la
     monkeypatch.setattr(route, "load_layers", alpine)
     flat_layers["ground_high"][:] = 200
     with pytest.raises(ValueError, match=r"bound departure to 0.0 m"):
-        route.preflight(asset, world)
+        route.preflight(asset, alpine_world)
     assert not (asset / "x1").exists()
 
 
@@ -196,13 +198,18 @@ def test_publication_binds_real_cpu_plan_and_batch(asset_world, tmp_path, monkey
     sidecar = flight.sidecar_path(scenario)
     files = {"scenario": scenario, "sidecar": sidecar, "world": world,
              "map": scenario.parent / f"{WORLD_ID}.geojson", "dem": scenario.parent / f"{WORLD_ID}.dem.json"}
-    assert receipt == {"scenario": scenario.name, "passed": True,
+    assert receipt == {"scenario": scenario.name, "passed": True, "scenario_class": "wide_area", "threshold_m": 4000,
                        **{f"{key}_sha256": route.file_sha256(path) for key, path in files.items()}}
     plan, = plans
     assert plan["fw_guidance"] == "offboard_path" and plan["flight_started"] is False
     assert plan["collector_plan"]["docker_command"] is None
     assert len(plan["fw_waypoints_home_ned_m"]) == 16
     assert all(math.isclose(point[2], -85) for point in plan["fw_waypoints_home_ned_m"])
+
+    legacy_receipt = {key: value for key, value in receipt.items() if key not in {"scenario_class", "threshold_m"}}
+    route.write_json(receipt_path, legacy_receipt)
+    assert route.preflight(asset, world) == receipt_path
+    assert route.read_json(receipt_path) == legacy_receipt
 
     spec = {"batch_id": "fixture", "output_root": str(tmp_path / "batch"), "airframe": route.AIRFRAME,
             "gpu": 3, "slots": [5], "resolved_root": str(asset / "models"),
@@ -237,6 +244,53 @@ def test_publication_binds_real_cpu_plan_and_batch(asset_world, tmp_path, monkey
     with pytest.raises(ValueError, match="staged asset identity mismatch"):
         batch.prepare(job, tmp_path / "rejected")
     assert not (tmp_path / "rejected").exists()
+
+
+def test_grindelwald_publishes_only_the_audited_short_valley(asset_world, flat_layers, tmp_path, monkeypatch):
+    asset, original = asset_world
+    policy = route.policy
+    world = asset / f"{policy.ALPINE_WORLD}.sdf"
+    world.write_text(original.read_text().replace("42.015", str(policy.ALPINE_ORIGIN[0]))
+                     .replace("-93.71", str(policy.ALPINE_ORIGIN[1])))
+    load = route.load_layers
+
+    def alpine(*args):
+        scene, *rest = load(*args)
+        return {**scene, "site": policy.ALPINE_SITE,
+                "lat": policy.ALPINE_ORIGIN[0], "lon": policy.ALPINE_ORIGIN[1]}, *rest
+
+    monkeypatch.setattr(route, "load_layers", alpine)
+    monkeypatch.setattr(route, "RUNNER_PYTHON", Path(sys.executable))
+    axis = (np.arange(route.COUNT) + 0.5) * route.CELL - route.HALF
+    flat_layers["ground_high"][np.hypot(axis[:, None], axis) > 3600] = 320
+    receipt_path = route.preflight(asset, world)
+    receipt = route.read_json(receipt_path)
+    scenario = receipt_path.parent / receipt["scenario"]
+    mission = route.read_json(flight.sidecar_path(scenario))
+    assert receipt["scenario_class"] == mission["scenario_class"] == "mountain_short"
+    assert receipt["threshold_m"] == mission["minimum_max_distance_m"] == 2250
+    assert receipt["wide_area_unreachable"] == mission["wide_area_unreachable"]
+    metrics = mission["route_preflight"]["metrics"]
+    assert metrics["candidate"] == policy.ALPINE_CANDIDATE
+    assert 2255 <= metrics["max_departure_witness_m"] < 4000
+    assert metrics["passed"] is True
+    assert metrics["flight_margin_revision"] == policy.FLIGHT_MARGIN_REVISION
+    assert metrics["planned_agl_limits_m"] == list(policy.ALPINE_PLANNED_AGL_M)
+    assert metrics["transition_minimum_agl_m"] >= policy.ALPINE_TRANSITION_MIN_AGL_M
+    assert metrics["waypoints_enu_m"][0][2] == metrics["waypoints_enu_m"][1][2]
+    assert metrics["maximum_commanded_climb_mps"] <= 2.0 + 1e-9
+    assert metrics["maximum_commanded_descent_mps"] <= 1.5 + 1e-9
+
+    spec = {"airframe": route.AIRFRAME, "resolved_root": str(asset / "models"),
+            "variant_world_root": str(world.parent), "variant_map_root": str(scenario.parent),
+            "variant_terrain_root": str(scenario.parent),
+            "jobs": [{"site": policy.ALPINE_SITE.removesuffix("_w6km"), "scenario": str(scenario),
+                      "seed": 42, "time_of_day": "noon", "weather": "clear", "altitude_m": 85,
+                      "scenario_class": "mountain_short"}]}
+    job, = batch.expand(spec)["jobs"]
+    staged, _ = batch.prepare(job, tmp_path / "snapshot")
+    assert flight.sidecar_path(staged).read_bytes() == flight.sidecar_path(scenario).read_bytes()
+    assert job["matrix"]["minimum_max_distance_m"] == 2250
 
 
 def test_unsafe_world_structure_is_rejected(tmp_path):
@@ -333,3 +387,66 @@ def test_long_range_offboard_lifecycle_stops_and_restores_on_mode_exit(monkeypat
     assert events[-1] == "stop"
     assert collector.FixedWingVtolExecutor is original_executor
     assert collector._wait_motion_command is original_wait
+
+
+def test_amsterdam_turn_leaves_runout_under_both_guards(flat_layers):
+    signs = route.QUADRANTS["NW"]
+    mission_radius = 4192.640687119286
+    old = route.corner_route(signs, 1)
+    new = route.amsterdam_route(signs, 1)
+    old_runout = route.policy.amsterdam_runout(old[:-1, ::-1], mission_radius, route.HALF)
+    new_runout = route.policy.amsterdam_runout(new[:-1, ::-1], mission_radius, route.HALF)
+    assert not route.policy.has_runout_margin(old_runout)
+    assert route.policy.has_runout_margin(new_runout)
+    metrics = route.evaluate(new, flat_layers)
+    assert metrics["passed"] and metrics["max_departure_witness_m"] >= 4005
+    headings = np.diff(new, axis=0)
+    units = headings / np.linalg.norm(headings, axis=1)[:, None]
+    assert np.min(np.sum(units[:-1] * units[1:], axis=1)) >= np.cos(np.radians(15)) - 1e-9
+
+
+def test_runtime_dem_includes_internal_bilinear_knot(monkeypatch):
+    # The knot at 50 m lies inside 8 m audit cell [48,56] on both axes.
+    monkeypatch.setattr(route, "COUNT", 25)
+    grid = np.full((5, 5), 500.)
+    grid[1, 1] = 550
+    fine = np.zeros((25, 25))
+    dem = {"east_spacing_m": 50, "elevation_m": grid, "origin": {"elevation_m": 500}}
+    bounds = route.include_runtime_dem({"ground_low": fine, "ground_high": fine}, dem)
+    assert bounds["ground_high"][6, 6] == 50
+    assert bounds["ground_high"][0, 0] == pytest.approx(1.28)
+    assert bounds["ground_low"][6, 6] == fine[6, 6] == 0
+
+
+@pytest.mark.parametrize("radius_bad", (False, True))
+def test_guard_logs_trigger_pose_before_episode_cleanup(monkeypatch, radius_bad):
+    from scripts import collect_sim_teacher_episodes as collector
+
+    mission = flight.load_mission(flight.DEFAULT_SCENARIO)
+    monkeypatch.setattr(collector, "_home_reference", lambda _: (None, (10, 20, 3)))
+    positions = iter([(10, 20, -72), (10, 20, -70), (146, 20, -45)])
+    monkeypatch.setattr(collector, "_state_position", lambda _: next(positions))
+    monkeypatch.setattr(collector, "_pose_sim_stamp_ns", lambda _: 42)
+    monkeypatch.setattr(collector, "_state_yaw", lambda _: 0)
+    monkeypatch.setattr(collector, "_flight_state_snapshot", lambda _: {"vtol_state": 4})
+    monkeypatch.setattr(flight, "_terrain_agl", lambda _, ned: 72 if ned[0] < 1 else 29.8)
+    if radius_bad:
+        mission["source"]["mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"] = 130
+    events = []
+    monkeypatch.setattr(collector, "_progress", lambda phase, **fields: events.append((phase, fields)))
+    with pytest.raises(RuntimeError, match="mission radius" if radius_bad else "DEM AGL"):
+        flight.wait_for_leg(flight.MotionCommand("reposition", target_ned=(400, 0, -75)),
+                            SimpleNamespace(state=None, raise_if_failed=lambda: None),
+                            collector=collector, mission=mission, cruise_mps=15,
+                            wall=lambda: 0, sleep=lambda _: None)
+    (name, event), = events
+    assert name == "long_range_guard"
+    assert event["distance_from_home_m"] == 136
+    assert event["target_home_ned_m"] == (400, 0, -75)
+    assert event["previous_position_home_ned_m"] == (0, 0, -73)
+    assert event["position_home_ned_m"] == (136, 0, -48)
+    if radius_bad:
+        assert event["radius_limit_m"] == 130
+    else:
+        assert event["agl_m"] == 29.8
+        assert event["dem_relative_home_m"] == pytest.approx(18.2)

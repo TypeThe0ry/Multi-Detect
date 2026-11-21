@@ -58,6 +58,7 @@ def test_collection_requires_horizon_rtf_bridge_identity_and_route(world):
     job = plan["jobs"][0]
     record = {"job_id": job["job_id"], "valid_round": True, "accepted": True,
               "image_id": IMAGE, "slot": 5, "gpu": 3, "rtf_window_median": 0.9,
+              "max_distance_from_spawn_m": 4000,
               "route_completed": True, "horizon_acceptance": {"passed": True},
               "bridge_stabilize": True, "bridge_stabilize_check": {"passed": True, "env_enabled": True}}
     assert collect.verdict(record, job)
@@ -65,5 +66,6 @@ def test_collection_requires_horizon_rtf_bridge_identity_and_route(world):
                             "gpu_uuid": "GPU-00000002-0000-0000-0000-000000000000",
                             "gpu_reason": "fallback_gpu_idle"}, job)
     for failure in ({"gpu": 2}, {"slot": 4}, {"rtf_window_median": 0.899}, {"route_completed": False},
-                    {"horizon_acceptance": {"passed": False}}, {"bridge_stabilize": False}):
+                    {"horizon_acceptance": {"passed": False}}, {"bridge_stabilize": False},
+                    {"max_distance_from_spawn_m": 3999.99}):
         assert not collect.verdict({**record, **failure}, job)

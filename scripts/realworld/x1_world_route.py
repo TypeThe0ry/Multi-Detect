@@ -25,8 +25,10 @@ import numpy as np
 
 if __package__:
     from .x1_pad import PAD_REJECTED, PadRejected
+    from . import x1_scenario_class as policy
 else:
     from x1_pad import PAD_REJECTED, PadRejected
+    import x1_scenario_class as policy
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,14 +42,14 @@ EDGE = 20
 RADII = (80, 100, 120)
 STEP = 4
 ARRIVAL = 15
-DEPARTURE = 4000
+DEPARTURE = policy.WIDE_DISTANCE_M
 MAX_ALTITUDE = 150
 CRUISE_SPEED = 15.0
 MIN_AGL = 40  # The CPU runner is stricter than the nominal 30 m requirement.
 MAX_AGL = 120
 CLEARANCE = 10
-ALPINE_SITE = "rw_alpine_grindelwald_w6km"
-ALPINE_ORIGIN = (46.615953933, 8.036630765)
+ALPINE_SITE = policy.ALPINE_SITE
+ALPINE_ORIGIN = policy.ALPINE_ORIGIN
 QUADRANTS = {"NW": (-1, 1), "NE": (1, 1), "SW": (-1, -1), "SE": (1, -1)}
 
 
@@ -486,7 +488,8 @@ def terrain_altitudes(lower, upper, lengths, rates):
     return profile
 
 
-def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=False):
+def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=False,
+             threshold_m=DEPARTURE, agl_band=(MIN_AGL, MAX_AGL), transition_min_agl=None):
     if points.ndim != 2 or points.shape[1] != 2 or len(points) < 4 or not np.isfinite(points).all():
         raise ValueError("expected finite ENU route coordinates")
     if not np.array_equal(points[0], points[-1]) or np.linalg.norm(points[0]) > 1e-8:
@@ -506,23 +509,31 @@ def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=Fa
                for radius, chunks in routes.items() for path, _ in chunks)
     continuous_max = {str(radius): max(float(np.linalg.norm(path, axis=1).max()) for path, _ in chunks)
                       for radius, chunks in routes.items()}
+    min_agl, max_agl_limit = agl_band
     lower = np.full(len(points), 5.0 if terrain_rates is not None else 0.0)
     upper = np.full(len(points), MAX_ALTITUDE, dtype=float)
     stats = []
     for radius, chunks in routes.items():
         for path, indices in chunks:
             low, surfaces, over_water = bounds(path, layers, BUFFER + (radius_slack if radius else 0))
-            floor = max(surfaces["ground_high"] + (MIN_AGL if terrain_rates is not None else 30),
+            floor = max(surfaces["ground_high"] + (min_agl if terrain_rates is not None else 30),
                         max(surfaces.values()) + CLEARANCE)
+            # The forward transition and first target need a larger reserve for sink.
+            if transition_min_agl is not None and indices[0] == 0:
+                for i in indices:
+                    lower[i] = max(lower[i], surfaces["ground_high"] + transition_min_agl)
             for i in indices:
                 lower[i] = max(lower[i], floor)
-                upper[i] = min(upper[i], low + MAX_AGL)
+                upper[i] = min(upper[i], low + max_agl_limit)
             stats.append((indices, low, surfaces, over_water,
                           bool(layers["water"][corridor_cells(path, 0)].any())))
     # Hover-return uses the final FW altitude, and transition begins 40–90 m above home.
     lower[-2:] = max(lower[-2:])
     upper[-2:] = min(upper[-2:])
     lower[0], upper[0] = max(lower[0], 40), min(upper[0], 90)
+    if transition_min_agl is not None:
+        lower[:2] = max(74.0, *lower[:2])
+        upper[:2] = min(upper[:2])
     if heights is None and terrain_rates is not None:
         heights = terrain_altitudes(lower, upper, lengths, terrain_rates)
     elif heights is None:
@@ -546,10 +557,10 @@ def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=Fa
     time = (path_length - np.linalg.norm(points[-2])) / CRUISE_SPEED + np.linalg.norm(points[-2]) / 8
     failures = []
     for reason, bad in (
-        ("departure", distance_witness < DEPARTURE + 5), ("boundary", edge < EDGE),
+        ("departure", distance_witness < threshold_m + 5), ("boundary", edge < EDGE),
         ("fly-through capture", max_capture_offset > ARRIVAL),
         ("ceiling/transition", heights[0] < 40 or heights[0] > 90 or heights.max() > MAX_ALTITUDE),
-        ("AGL", min_crest["ground_high"] < MIN_AGL or max_agl > MAX_AGL),
+        ("AGL", min_crest["ground_high"] < min_agl - 1e-9 or max_agl > max_agl_limit + 1e-9),
         ("clearance", min(min_crest.values()) < CLEARANCE),
         ("water at home", layers["water"][corridor_cells(points[:1], 40)].any()),
     ):
@@ -571,6 +582,12 @@ def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=Fa
             failures.append("back-transition distance")
         extra.update(maximum_commanded_climb_mps=climb, maximum_commanded_descent_mps=descent,
                      vertical_rate_limits_mps=list(terrain_rates))
+    if transition_min_agl is not None:
+        first_agl = min(min(heights[list(ix)]) - surfaces["ground_high"]
+                        for ix, _, surfaces, _, _ in stats if ix[0] == 0)
+        if first_agl < transition_min_agl or heights[0] != heights[1]:
+            failures.append("forward transition altitude reserve")
+        extra.update(transition_minimum_agl_m=float(first_agl), planned_agl_limits_m=list(agl_band))
     if diagnostics:
         extra["violations_by_turn_radius_m"] = violation_lengths(routes, layers, heights, radius_slack)
     return {"passed": not failures, "failures": failures, "buffer_m": BUFFER,
@@ -601,6 +618,24 @@ def corner_route(signs, direction, offset=0):
     back = [diagonal * along + lateral * (120 + offset * weight)
             for along, weight in ((3500, 0), (2900, 0.5), (2100, 1), (1300, 1), (550, 0.5))]
     return np.array([(0, 0), *out, *arc, *back, (0, 0)], dtype=float)
+
+
+def amsterdam_route(signs, direction):
+    """Start turning earlier and spread the U-turn over 15-degree course changes."""
+    diagonal = np.asarray(signs) / math.sqrt(2)
+    lateral = direction * np.array([-diagonal[1], diagonal[0]])
+    radius = 145
+    half_turn = math.pi / 24
+    angles = np.linspace(half_turn, math.pi - half_turn, 12)
+    turn = radius / math.cos(half_turn) * (np.sin(angles)[:, None] * diagonal
+                                          - np.cos(angles)[:, None] * lateral)
+    nose = turn[len(turn) // 2]
+    # Keep a 5 m departure witness beyond the 4 km gate after the 15 m capture.
+    centre = math.sqrt(4020.5**2 - (nose @ lateral)**2) - nose @ diagonal
+    along = (550, 1300, 2100, 2900, centre - 240)
+    out = [distance * diagonal - radius * lateral for distance in along]
+    back = [distance * diagonal + radius * lateral for distance in reversed(along)]
+    return np.array([(0, 0), *out, *(centre * diagonal + turn), *back, (0, 0)])
 
 
 def departure_certificate(layers):
@@ -668,7 +703,7 @@ def valley_candidates():
                      (-2380, 1470), (-2650, 1670), (-2750, 1810)], dtype=float)
     for terminal in range(len(axis), 3, -1):
         fractions = (1.0, 0.5) if terminal > 4 else (1.0,)
-        for fraction, radius, shift, direction in itertools.product(fractions, (130, 140), (0, -70, 70), (1, -1)):
+        for fraction, radius, shift, direction in itertools.product(fractions, (130, 140), (0, -70, 70, -10), (1, -1)):
             centreline = axis[:terminal].copy()
             centreline[-1] = centreline[-2] + fraction * (centreline[-1] - centreline[-2])
             centreline[2:, 1] += shift
@@ -686,12 +721,19 @@ def corner_candidates():
         yield f"{name}/{direction:+d}/{offset:+d}m", corner_route(signs, direction, offset)
 
 
-def survey_valley(layers):
+def survey_valley(layers, *, threshold_m=DEPARTURE, candidate=None, flight_margin=False):
     profile = read_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
     rates = tuple(min(2.5, profile[f"max_{direction}_rate_mps"]) for direction in ("climb", "descent"))
+    options = {}
+    if flight_margin:
+        rates = (min(rates[0], 2.0), min(rates[1], 1.5))
+        options = {"agl_band": policy.ALPINE_PLANNED_AGL_M,
+                   "transition_min_agl": policy.ALPINE_TRANSITION_MIN_AGL_M}
     for name, points in valley_candidates():
+        if candidate is not None and name != candidate:
+            continue
         try:
-            yield {**evaluate(points, layers, terrain_rates=rates), "candidate": name}
+            yield {**evaluate(points, layers, terrain_rates=rates, threshold_m=threshold_m, **options), "candidate": name}
         except ValueError as exc:
             yield {"candidate": name, "passed": False, "failures": [str(exc)]}
 
@@ -730,6 +772,30 @@ def write_json(path, value):
 def canonical_hash(value):
     text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def include_runtime_dem(layers, dem):
+    """Union the runtime bilinear DEM and fine terrain bounds in each audit cell."""
+    spacing = dem["east_spacing_m"]
+    grid = np.asarray(dem["elevation_m"]) - dem["origin"]["elevation_m"]
+    left = np.arange(COUNT) * CELL
+    right = left + CELL
+    # A bilinear patch has extrema at its corners. Include every coarse grid
+    # knot within an audit cell as well as the audit cell's own edges.
+    samples = [left, np.maximum(left, right - right % spacing), right]
+    coords = [(np.minimum(x // spacing, len(grid) - 2), x / spacing) for x in samples]
+    low = layers["ground_low"].copy()
+    high = layers["ground_high"].copy()
+    for y, yp in coords:
+        v = (yp - y)[:, None]
+        y = y[:, None]
+        for x, xp in coords:
+            u = xp - x
+            z = ((1 - v) * ((1 - u) * grid[y, x] + u * grid[y, x + 1])
+                 + v * ((1 - u) * grid[y + 1, x] + u * grid[y + 1, x + 1]))
+            np.minimum(low, z, out=low)
+            np.maximum(high, z, out=high)
+    return {**layers, "ground_low": low, "ground_high": high}
 
 
 def write_scenario(directory, world_id, scene, dem_path):
@@ -775,7 +841,7 @@ def write_scenario(directory, world_id, scene, dem_path):
     return scenario
 
 
-def write_route(scenario, world_id, scene, metrics, inputs, hashes):
+def write_route(scenario, world_id, scene, metrics, inputs, hashes, *, route_policy=None):
     body = read_json(TEMPLATE_DIR / f"{TEMPLATE}.long_range.json")
     xy = np.asarray(metrics["waypoints_enu_m"])
     origin = {"latitude_deg": scene["lat"], "longitude_deg": scene["lon"]}
@@ -788,6 +854,8 @@ def write_route(scenario, world_id, scene, metrics, inputs, hashes):
     waypoints = [point(*row) for row in xy[1:-1]]
     landing = point(0, 0, 0)
     body.update(scenario_id=world_id, profile=world_id, output_stem=f"{world_id}__long-range__rtf90")
+    if route_policy is not None:
+        body.update(route_policy, minimum_max_distance_m=route_policy["threshold_m"])
     runtime = body["mission_compile_runtime"]
     runtime["home_position"] = origin
     runtime["safety_policy"]["geofence_center"] = origin
@@ -853,9 +921,19 @@ def publish(asset, scenario, sidecar, receipt):
         finally:
             os.close(fd)
         if destination.exists() or destination.is_symlink():
+            def unchanged(path):
+                existing = destination / path.name
+                if not existing.is_file() or existing.is_symlink():
+                    return False
+                if file_sha256(existing) == file_sha256(path):
+                    return True
+                # Reproducing a legacy 4 km bundle must not replace its receipt or change its identity.
+                return (path.name == "preflight.json" and receipt["scenario_class"] == policy.WIDE_AREA
+                        and read_json(existing) == {key: value for key, value in receipt.items()
+                                                    if key not in {"scenario_class", "threshold_m"}})
+
             if (destination.is_symlink() or not destination.is_dir()
-                    or any(not (destination / path.name).is_file() or (destination / path.name).is_symlink()
-                           or file_sha256(destination / path.name) != file_sha256(path) for path in staged.iterdir())):
+                    or not all(unchanged(path) for path in staged.iterdir())):
                 raise ValueError(f"existing bundle differs: {destination}. Use a new asset version or move the old bundle aside.")
         else:
             staged.rename(destination)
@@ -867,12 +945,17 @@ def publish(asset, scenario, sidecar, receipt):
     return destination / "preflight.json"
 
 
-def preflight(asset, world):
+def preflight(asset, world, *, bundle_root=None):
     asset = asset.resolve(strict=True)
+    if bundle_root is not None:
+        bundle_root = bundle_root.resolve(strict=True)
     world = world.absolute()
     world_id = world.stem
     if world.suffix != ".sdf" or not re.fullmatch(r"rw_[a-z0-9_]+_w6km__[a-z0-9_]+", world_id):
         raise ValueError("expected an rw_*_w6km__<variant>.sdf filename")
+    scenario_class = policy.configured_class(world_id)
+    threshold = policy.distance_gate(world_id, scenario_class)
+    route_policy = {"scenario_class": scenario_class, "threshold_m": threshold}
     scratch = ROOT / ".tmp/x1-worlds"
     if not scratch.resolve().is_relative_to(ROOT.resolve()):
         raise ValueError("CPU plan staging must be inside the worktree")
@@ -884,25 +967,54 @@ def preflight(asset, world):
         world_hash = file_sha256(staged_world)
         scene, dem_path, layers, counts, inputs = load_layers(asset, staged_world)
         alpine = is_alpine(scene)
+        mountain_short = scenario_class == policy.MOUNTAIN_SHORT
+        if mountain_short and not alpine:
+            raise ValueError("mountain_short requires the surveyed Grindelwald origin")
         if alpine:
-            limit = departure_certificate(layers)["maximum_possible_distance_m"][str(MIN_AGL)]
-            if limit < DEPARTURE:
+            certificate = departure_certificate(layers)
+            limit = certificate["maximum_possible_distance_m"][str(MIN_AGL)]
+            if limit < threshold:
                 raise ValueError(f"no route passed geometry and CPU preflight: {MIN_AGL} m AGL and "
                                  f"{MAX_ALTITUDE} m relative ceiling bound departure to {limit:.1f} m "
-                                 f"(< {DEPARTURE} m); use --diagnostics for the valley survey")
+                                 f"(< {threshold} m); use --diagnostics for the valley survey")
+            if mountain_short:
+                route_policy["wide_area_unreachable"] = {
+                    **certificate, "threshold_m": DEPARTURE, "maximum_relative_home_altitude_m": MAX_ALTITUDE,
+                    "buffer_m": BUFFER, "boundary_margin_m": EDGE,
+                    "origin_wgs84": [scene["lat"], scene["lon"]],
+                }
+                policy.verify_route_policy(route_policy, world_id, scenario_class)
         scenario = write_scenario(stage, world_id, scene, dem_path)
         hashes = {"world_sha256": world_hash, "map_sha256": file_sha256(stage / f"{world_id}.geojson"),
                   "dem_sha256": file_sha256(stage / f"{world_id}.dem.json")}
         failures = []
-        candidates = (survey_valley(layers) if alpine else
-                      ({**evaluate(points, layers), "candidate": name} for name, points in corner_candidates()))
+        if mountain_short:
+            runtime_dem = read_json(stage / f"{world_id}.dem.json")
+            candidates = survey_valley(include_runtime_dem(layers, runtime_dem), threshold_m=threshold,
+                                       candidate=policy.ALPINE_CANDIDATE, flight_margin=True)
+        elif world_id == policy.AMSTERDAM_WORLD:
+            points = amsterdam_route(QUADRANTS["NW"], 1)
+            mission_radius = read_json(TEMPLATE_DIR / f"{TEMPLATE}.long_range.json")[
+                "mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"]
+            metrics = evaluate(points, layers)
+            runout = policy.amsterdam_runout(points[:-1, ::-1], mission_radius, HALF)
+            if not policy.has_runout_margin(runout):
+                metrics["failures"].append("mission radius or world boundary runout")
+                metrics["passed"] = False
+            candidates = [{**metrics, "candidate": "NW/+1/runout", "fw_runout": runout}]
+        else:
+            candidates = (survey_valley(layers, threshold_m=threshold) if alpine else
+                          ({**evaluate(points, layers), "candidate": name} for name, points in corner_candidates()))
         for metrics in candidates:
             candidate = metrics["candidate"]
             if not metrics["passed"]:
                 failures.append(f"{candidate}: {', '.join(metrics['failures'])}")
                 continue
+            if mountain_short or world_id == policy.AMSTERDAM_WORLD:
+                metrics["flight_margin_revision"] = policy.FLIGHT_MARGIN_REVISION
             metrics["geometry_counts"] = counts
-            sidecar = write_route(scenario, world_id, scene, metrics, inputs, hashes)
+            sidecar = write_route(scenario, world_id, scene, metrics, inputs, hashes,
+                                  route_policy=route_policy if mountain_short else None)
             try:
                 cpu_plan(scenario, staged_world, asset / "models")
             except ValueError as exc:
@@ -911,13 +1023,14 @@ def preflight(asset, world):
             if (file_sha256(world) != world_hash
                     or any(file_sha256(local_file(asset, path)) != digest for path, digest in inputs.items())):
                 raise ValueError("world or geometric inputs changed during preflight")
-            receipt = {"scenario": scenario.name, **hashes, "scenario_sha256": file_sha256(scenario),
+            receipt = {"scenario": scenario.name, **route_policy, **hashes, "scenario_sha256": file_sha256(scenario),
                        "sidecar_sha256": file_sha256(sidecar), "passed": True}
             # Lock the asset directory inode so concurrent runs cannot publish different bundles.
-            fd = os.open(asset, os.O_RDONLY | os.O_DIRECTORY)
+            destination_root = bundle_root if bundle_root is not None else asset
+            fd = os.open(destination_root, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX)
-                return publish(asset, scenario, sidecar, receipt)
+                return publish(destination_root, scenario, sidecar, receipt)
             finally:
                 os.close(fd)
         raise ValueError("no route passed geometry and CPU preflight:\n" + "\n".join(failures))
@@ -927,12 +1040,15 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asset", required=True, type=Path, help="versioned asset directory with models, raw and scenes")
     parser.add_argument("--world", required=True, type=Path, help="flattened, local 6 km world SDF")
-    parser.add_argument("--diagnostics", type=Path, metavar="JSON",
+    outputs = parser.add_mutually_exclusive_group()
+    outputs.add_argument("--bundle-root", type=Path,
+                         help="write x1/ to an existing staging directory instead of the asset")
+    outputs.add_argument("--diagnostics", type=Path, metavar="JSON",
                         help="write a geometry-only survey, without staging or publishing a route")
     args = parser.parse_args(argv)
     try:
         if args.diagnostics is None:
-            print(preflight(args.asset, args.world))
+            print(preflight(args.asset, args.world, bundle_root=args.bundle_root))
         else:
             report = route_diagnostics(args.asset.resolve(strict=True), args.world.absolute())
             with args.diagnostics.open("x", encoding="utf-8") as stream:

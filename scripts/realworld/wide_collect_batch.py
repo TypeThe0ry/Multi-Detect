@@ -24,6 +24,7 @@ if __name__ == "__main__":
     sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
 from scripts.realworld.collection_runtime import read_episode_metadata, runtime_evidence, runtime_options  # noqa: E402
+from scripts.realworld import x1_scenario_class as policy  # noqa: E402
 
 SCENARIOS = ROOT / "configs/scenarios/realworld/rc_cessna_mono_cam"
 BATCHES = Path("/data/datasets/multidetect-sim-assets/wide-collect/batches")
@@ -33,7 +34,7 @@ V9_CONFIG = ROOT / "simulation/gazebo/server-wide-area.config"
 MIN_FREE_BYTES = int(float(os.environ.get("WIDE_COLLECT_MIN_FREE_GB", "100")) * 10**9)
 DEFAULT_MAX_BYTES = 8 * 1024**3
 MIN_RTF = 0.9
-MIN_DISTANCE_M = 4000
+MIN_DISTANCE_M = policy.WIDE_DISTANCE_M
 WEATHER = {
     ("noon", "clear"): "clear_noon",
     **{("noon", name): name for name in ("partly_cloudy", "overcast", "rain", "windy")},
@@ -101,6 +102,36 @@ def validate_airframe(value, field):
     return value
 
 
+def distance_fields(job):
+    row = job["matrix"]
+    return {"scenario_class": row.get("scenario_class", policy.WIDE_AREA),
+            "minimum_max_distance_m": row.get("minimum_max_distance_m", MIN_DISTANCE_M)}
+
+
+def distance_identity_matches(record, job):
+    expected = distance_fields(job)
+    for key, default in (("scenario_class", policy.WIDE_AREA), ("minimum_max_distance_m", MIN_DISTANCE_M)):
+        if record.get(key, default) != expected[key]:
+            return False
+    return True
+
+
+def meets_distance(record, job):
+    distance = record.get("max_distance_from_spawn_m")
+    return (distance_identity_matches(record, job) and number(distance)
+            and distance >= distance_fields(job)["minimum_max_distance_m"])
+
+
+def class_counts(jobs, accepted=()):
+    counts = {scenario_class: {"jobs": 0, "accepted_jobs": 0}
+              for scenario_class in (policy.WIDE_AREA, policy.MOUNTAIN_SHORT)}
+    for job in jobs:
+        count = counts[distance_fields(job)["scenario_class"]]
+        count["jobs"] += 1
+        count["accepted_jobs"] += job["job_id"] in accepted
+    return counts
+
+
 def expand(spec):
     unknown = spec.keys() - {"batch_id", "gpu", "slots", "share_gpu", "output_root", "jobs",
                              "airframe", "max_artifact_bytes", *ROOT_FIELDS,
@@ -130,7 +161,8 @@ def expand(spec):
         if not isinstance(job, dict):
             raise ValueError(f"jobs[{index}] must be an object")
         unknown = job.keys() - {"site", "scenario", "altitude_m", "time_of_day", "weather", "seed",
-                                "airframe", "max_artifact_bytes", "image", "gimbal_bridge_stabilize", *ROOT_FIELDS}
+                                "airframe", "max_artifact_bytes", "image", "gimbal_bridge_stabilize",
+                                "scenario_class", "minimum_max_distance_m", *ROOT_FIELDS}
         if unknown:
             raise ValueError(f"jobs[{index}] unknown fields: {', '.join(sorted(unknown))}")
         airframe = validate_airframe(job.get("airframe", default_airframe), f"jobs[{index}].airframe")
@@ -154,6 +186,12 @@ def expand(spec):
         if not re.fullmatch(rf"{re.escape(site)}_w6km[a-z0-9_]*__{preset}\.scenario\.json",
                             scenario.name):
             raise ValueError(f"jobs[{index}].scenario must match site, 6 km extent and {preset}: {scenario}")
+        scenario_class = job.get("scenario_class", policy.WIDE_AREA)
+        threshold = policy.distance_gate(scenario.name.removesuffix(".scenario.json"), scenario_class)
+        if job.get("minimum_max_distance_m", threshold) != threshold:
+            raise ValueError(f"jobs[{index}].minimum_max_distance_m must be {threshold} for {scenario_class}")
+        if scenario_class == policy.MOUNTAIN_SHORT and airframe != DELTA_AIRFRAME:
+            raise ValueError("mountain_short requires the X1 airframe")
         maximum = job.get("max_artifact_bytes", spec.get("max_artifact_bytes", DEFAULT_MAX_BYTES))
         if type(maximum) is not int or maximum <= 0:
             raise ValueError(f"jobs[{index}].max_artifact_bytes must be a positive integer")
@@ -171,14 +209,19 @@ def expand(spec):
             inputs["airframe"] = airframe
         # Presence is significant, even for an explicit false. Legacy inputs omit these keys.
         inputs.update(runtime)
+        # Keep prior wide-area job IDs and accepted records reusable.
+        if scenario_class != policy.WIDE_AREA:
+            inputs.update(scenario_class=scenario_class, minimum_max_distance_m=threshold)
         job_id = digest({**inputs, "roots": roots,
                          "schema_version": 2 if airframe == DELTA_AIRFRAME else 1})
         if job_id not in jobs:
-            jobs[job_id] = {"job_id": job_id, "inputs": inputs, "weather_preset": preset,
+            jobs[job_id] = {"job_id": job_id, "inputs": {**inputs, "scenario_class": scenario_class},
+                            "weather_preset": preset,
                             "slot": slots[len(jobs) % len(slots)],
                             "matrix": {"name": job_id, "scenario": str(scenario), **roots,
                                        "variant": "V9", "extent_m": 6000, "airframe": airframe,
-                                       "minimum_rtf": MIN_RTF, "minimum_max_distance_m": MIN_DISTANCE_M,
+                                       "minimum_rtf": MIN_RTF, "scenario_class": scenario_class,
+                                       "minimum_max_distance_m": threshold,
                                        **runtime}}
     batch_id = spec.get("batch_id", digest({"jobs": list(jobs)})[:16])
     if not isinstance(batch_id, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", batch_id):
@@ -187,7 +230,8 @@ def expand(spec):
     from scripts.realworld.collection_guard import DEFAULTS, settings
     guard = settings({key: spec[key] for key in DEFAULTS if key in spec})
     return {"schema_version": 1, "batch_id": batch_id, "output_root": str(output_root), **guard,
-            "gpu": gpu, "slots": slots, "share_gpu": share_gpu, "jobs": list(jobs.values())}
+            "gpu": gpu, "slots": slots, "share_gpu": share_gpu, "jobs": list(jobs.values()),
+            "scenario_class_counts": class_counts(jobs.values())}
 
 
 def prepare(job, snapshot):
@@ -233,15 +277,21 @@ def prepare(job, snapshot):
     mission = json.loads(mission_bytes)
     if mission["extent_m"] != 6000:
         raise ValueError(f"{source}: long-range extent must be 6000 m")
+    scenario_class = distance_fields(job)["scenario_class"]
+    threshold = policy.verify_route_policy(mission, world_id, scenario_class)
+    if threshold != distance_fields(job)["minimum_max_distance_m"]:
+        raise ValueError(f"{source}: job distance threshold does not match route policy")
     receipt_path = source.parent / "preflight.json"
     if "route_preflight" in mission or receipt_path.exists():
         preflight = mission.get("route_preflight")
         receipt = read_object(receipt_path)
+        policy.verify_route_policy(receipt, world_id, scenario_class)
         hashes = {f"{key}_sha256": evidence[key]["sha256"] for key in ("world", "map", "dem")}
         if (airframe != DELTA_AIRFRAME or not isinstance(preflight, dict)
                 or receipt.get("passed") is not True or receipt.get("scenario") != source.name
                 or receipt.get("scenario_sha256") != file_hash(source)
                 or receipt.get("sidecar_sha256") != hashlib.sha256(mission_bytes).hexdigest()
+                or receipt.get("wide_area_unreachable") != mission.get("wide_area_unreachable")
                 or any(receipt.get(key) != value for key, value in hashes.items())
                 or preflight.get("assets") != hashes or "variant_model_root" in row):
             raise ValueError(f"{source}: X1 route preflight receipt or staged asset identity mismatch")
@@ -348,7 +398,9 @@ def evaluate(attempt, job, batch, rc):
     distance = raw.get("max_distance_from_spawn_m")
     if not number(rtf) or rtf < MIN_RTF or not number(ratio) or ratio <= 0:
         errors.append("invalid_window_rtf")
-    if not number(distance) or distance < MIN_DISTANCE_M:
+    if not distance_identity_matches(raw, job):
+        errors.append("matrix_distance_policy_mismatch")
+    if not number(distance) or distance < distance_fields(job)["minimum_max_distance_m"]:
         errors.append("distance_below_minimum")
     if frames == 0:
         errors.append("no_rgb_frames")
@@ -388,7 +440,7 @@ def evaluate(attempt, job, batch, rc):
                 horizon["error"] = str(exc)
         errors.extend(horizon["errors"])
         gimbal_evidence["horizon_acceptance"] = horizon
-    return {"accepted": not errors, "errors": errors, "matrix_returncode": rc,
+    return {"accepted": not errors, "errors": errors, "matrix_returncode": rc, **distance_fields(job),
             "valid_round": raw.get("valid_round") is True, "route_completed": raw.get("route_completed") is True,
             "round_errors": raw.get("round_errors", []), "container_id": container_id,
             "container_name": container_name, "gpu_uuid": raw.get("gpu_uuid"),
@@ -426,6 +478,7 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
     selection_keys = ("gpu_index", "gpu_uuid", "gpu_reason", "gpu_shared_processes")
     selection = {key: gate[key] for key in selection_keys if key in gate}
     record = {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{attempt.name}",
+              **distance_fields(job),
               "attempt_dir": str(attempt), "gpu": batch["gpu"], "slot": job["slot"],
               "inputs": job["inputs"], "started_at": now(), "start_load": gate["start_load"],
               "max_load": gate["start_load"], "voided_reason": None, "requeue_count": 0,
@@ -514,16 +567,29 @@ def run_locked(batch, command, lock_fd, *, completed=None, gpu_selector=None):
     accepted_path, results_path, paused = (root / name for name in ("accepted.jsonl", "results.jsonl", "PAUSED"))
     if manifest.exists() and read_object(manifest)["batch_id"] != batch["batch_id"]:
         raise ValueError(f"output_root already belongs to another batch: {root}")
-    atomic_text(manifest, dump(batch) + "\n")
+    jobs = {job["job_id"]: job for job in batch["jobs"]}
     accepted = indexed(accepted_path, "job_id")
+    qualified = {job_id for job_id, record in accepted.items()
+                 if job_id in jobs and record.get("accepted") is True and meets_distance(record, jobs[job_id])}
     results = indexed(results_path, "attempt_id", repair_tail=True)
+
+    def write_manifest():
+        atomic_text(manifest, dump({**batch, "scenario_class_counts": class_counts(jobs.values(), qualified)}) + "\n")
+
+    write_manifest()
 
     def publish(attempt, record):
         job_id = record["job_id"]
+        job = jobs[job_id]
+        if record["accepted"] and not meets_distance(record, job):
+            record.update(accepted=False, errors=[*record.get("errors", []), "invalid_distance_receipt"])
+        record.update(distance_fields(job))
         if record["accepted"]:
-            if job_id not in accepted:
+            if job_id not in qualified:
                 accepted[job_id] = record
                 atomic_text(accepted_path, "".join(dump(row) + "\n" for row in accepted.values()))
+                qualified.add(job_id)
+                write_manifest()
         elif (os.environ.get("WIDE_COLLECT_KEEP_HORIZON_REJECTED") == "1"
               and record.get("errors") and all(str(e).startswith("horizon_") for e in record["errors"])):
             pass  # keep episodes rejected only by the horizon gate, for diagnosis (stored on NAS, ~160 MB each)
@@ -569,7 +635,7 @@ def run_locked(batch, command, lock_fd, *, completed=None, gpu_selector=None):
             publish(attempt, record)
         prior = [row for row in results.values() if row.get("job_id") == job_id]
         if completed is None:
-            if job_id in accepted:
+            if job_id in qualified:
                 continue
         elif any(completed(row, job) for row in prior):
             continue
