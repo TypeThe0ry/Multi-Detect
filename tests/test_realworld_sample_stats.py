@@ -92,6 +92,22 @@ def test_main_failure_writes_incomplete_json_without_starting_probe(monkeypatch,
     assert report["errors"] == ["not running"]
 
 
+@pytest.mark.parametrize("gpu", ["0", "1", "2", "3"])
+def test_cli_preserves_gpu_index_and_resolved_container(monkeypatch, tmp_path, gpu) -> None:
+    monkeypatch.setattr(sample_stats, "find_container", lambda *a: ("immutable-id", "md-rw-long-slot-5-job"))
+
+    def collect(container, index, *_):
+        assert container == "immutable-id" and index == gpu
+        return {"container_id": container, "gpu": index, "measurement_complete": True}
+
+    monkeypatch.setattr(sample_stats, "collect", collect)
+    output = tmp_path / "stats.json"
+    assert sample_stats.main(["--container-prefix", "md-rw-long-slot-5-", "--gpu", gpu, "--out", str(output)]) == 0
+    report = json.loads(output.read_text())
+    assert (report["gpu"], report["container_id"], report["container_name"]) == (
+        gpu, "immutable-id", "md-rw-long-slot-5-job")
+
+
 def test_run_read_only_passes_explicit_argv_and_reports_command_failure(monkeypatch) -> None:
     calls = []
 
@@ -160,7 +176,7 @@ def test_collect_uses_only_read_only_probe_commands_and_same_window(monkeypatch)
     monkeypatch.setattr(sample_stats.subprocess, "Popen", popen)
     monkeypatch.setattr(sample_stats.threading, "Thread", Thread)
     monkeypatch.setattr(sample_stats, "run_read", read)
-    report = sample_stats.collect("immutable-id", "1", 3, 2, 0.5)
+    report = sample_stats.collect("immutable-id", "0", 3, 2, 0.5)
     assert report["window_start_monotonic_s"] == 3
     assert report["window_end_monotonic_s"] == 5
     assert report["rtf_delta_sim_over_delta_real"] == pytest.approx(0.1)
@@ -169,4 +185,6 @@ def test_collect_uses_only_read_only_probe_commands_and_same_window(monkeypatch)
     assert "stats and resource sampling windows do not overlap" in report["errors"]
     assert calls[0][:4] == ["docker", "exec", "immutable-id", "bash"]
     assert "gz topic -e --json-output -t /world/default/stats" in calls[0][-1]
+    assert [command for command in calls if command[0] == "nvidia-smi"] == [
+        ["nvidia-smi", "-i", "0", "-q", "-x"]] * report["resource_sample_count"]
     assert all(command[:2] in (["docker", "exec"], ["docker", "top"], ["nvidia-smi", "-i"]) for command in calls)

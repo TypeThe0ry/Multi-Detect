@@ -24,7 +24,7 @@ case $1 in
         [[ $2 == --keepalive-state && -d $3 ]] || exit 9
         if [[ -f $3/world-yield ]]; then exec "$TEST_WORLD_PIPELINE" "$@"; fi
         ;&
-    preflight) [[ ${TEST_IMAGE:-0} == 1 && ${TEST_LOAD:-100} -lt 60 && ${TEST_GPU_READY:-1} == 1 ]] ;;
+    preflight) [[ ${TEST_IMAGE:-0} == 1 && ${TEST_LOAD:-100} -lt 60 && ${TEST_GPU_REASON:-idle} != unavailable ]] ;;
     complete) [[ ${TEST_COMPLETE:-0} == 1 ]] ;;
     launch)
         printf 'request\n' >> started
@@ -40,8 +40,8 @@ MOCK
 cat > "$test_dir/bin/nvidia-smi" <<'MOCK'
 #!/usr/bin/env bash
 case $1 in
-    --query-gpu=*) printf '3, D, %s, 20480, 0\n' "${TEST_GPU_MEM:-2}" ;;
-    --query-compute-apps=*) ;;
+    --query-gpu=*) printf '3, D, %s, 20480, %s\n' "${TEST_GPU_MEM:-2}" "${TEST_GPU_UTIL:-0}" ;;
+    --query-compute-apps=*) if [[ ${TEST_GPU_REASON:-} == shared_graphics_only ]]; then printf 'D, 123, /opt/google/chrome/chrome\n'; fi ;;
     *) exit 9 ;;
 esac
 MOCK
@@ -73,10 +73,10 @@ floor=60
 [[ $name != md-x1-worlds ]] || floor=70
 expect ".status==\"WAIT_RESOURCES\" and .reason==\"disk_below_${floor}GiB\" and .attempts==0"
 if [[ $gpu != - ]]; then
-    TEST_IMAGE=1 TEST_LOAD=59 TEST_GPU_READY=0 run
+    TEST_IMAGE=1 TEST_LOAD=59 TEST_GPU_REASON=unavailable run
     expect '.status=="WAIT_PREREQ" and .attempts==0'
-    # A busy GPU3 does not block the launch when the X1 selector found a fallback.
-    export TEST_GPU_MEM=1024
+    # The coarse snapshot sees C+G as compute. X1 uses the typed selector verdict.
+    export TEST_GPU_MEM=384 TEST_GPU_UTIL=40 TEST_GPU_REASON=shared_graphics_only
 fi
 TEST_IMAGE=1 TEST_LOAD=59 TEST_LAUNCH_RC=75 run
 expect '.status=="WAIT_PREREQ" and .reason=="prerequisite_changed" and .attempts==0'

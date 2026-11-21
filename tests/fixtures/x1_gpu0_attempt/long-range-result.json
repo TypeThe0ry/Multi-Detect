@@ -1,0 +1,64 @@
+{
+  "status": "pass",
+  "episode": "/mnt/nas/AdminHome/volatic/x1-resume/ab/jobs/493fcd1aabe6b5e143151876b80a72d801456d16e9f62158d0816b456d180231/attempt-1/flight/episodes/episode-0000-1a254d68",
+  "airframe": "delta_tailsitter_gimbal_cam",
+  "max_distance_from_spawn_m": 4159.576509533847,
+  "route_completed": true,
+  "minimum_max_distance_m": 4000.0,
+  "minimum_rtf": 0.9,
+  "rtf_status": "pending_stats_probe",
+  "execution": "vertical climb, FW transition and guided waypoints, MC transition, hover return, vertical land",
+  "compiled_mission_uploaded": false,
+  "capture_ok": true,
+  "cruise_video": {
+    "schema_version": 1,
+    "sampling_hz": 0.16666666666666666,
+    "frame_count": 114,
+    "bytes_written": 6563307,
+    "max_bytes": 8589934592,
+    "truncated": false,
+    "estimated_bytes_per_minute_at_sampling_rate": 575729,
+    "frame_manifest": "manifest.jsonl",
+    "gimbal_check": {
+      "passed": true,
+      "frame_count": 114,
+      "missing_frames": 0,
+      "stale_frames": 0,
+      "invalid_rows": 0,
+      "max_age_ms": 2000.0,
+      "failures": [],
+      "capture_errors": []
+    }
+  },
+  "gimbal_check": {
+    "passed": true,
+    "frame_count": 114,
+    "missing_frames": 0,
+    "stale_frames": 0,
+    "invalid_rows": 0,
+    "max_age_ms": 2000.0,
+    "failures": [],
+    "capture_errors": []
+  },
+  "fw_turn_envelope": {
+    "px4_fw_bank_limit_deg": 35.0,
+    "guided_ground_speed_mps": 15.0,
+    "guided_loiter_radius_m": 80.0,
+    "turn_design_speed_mps": 21.0,
+    "required_bank_at_radius_deg": 29.341148998084435,
+    "minimum_turn_radius_m": 64.22308035601073,
+    "assumed_fw_pitch_range_deg": [
+      -10.0,
+      15.0
+    ],
+    "camera_world_pitch_deg": -56.0,
+    "gimbal_witness": {
+      "yaw_reference": "wing_forward_azimuth",
+      "joint_roll_deg": 0.0,
+      "joint_pitch_range_deg": [
+        19.0,
+        44.0
+      ]
+    }
+  }
+}

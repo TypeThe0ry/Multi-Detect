@@ -423,7 +423,8 @@ def now():
 
 
 def run_attempt(attempt, job, batch, command, lock_fd, gate):
-    selection = {key: gate[key] for key in ("gpu_index", "gpu_uuid", "gpu_reason") if key in gate}
+    selection_keys = ("gpu_index", "gpu_uuid", "gpu_reason", "gpu_shared_processes")
+    selection = {key: gate[key] for key in selection_keys if key in gate}
     record = {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{attempt.name}",
               "attempt_dir": str(attempt), "gpu": batch["gpu"], "slot": job["slot"],
               "inputs": job["inputs"], "started_at": now(), "start_load": gate["start_load"],
@@ -468,6 +469,11 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
                 record.update(accepted=False, valid_round=False,
                               errors=[*record["errors"], "matrix_gpu_uuid_mismatch"])
             record.update(selection)
+            # A successful under-lease gate may have observed different graphics processes.
+            confirmed = read_object(attempt / "gate.json")
+            if (confirmed.get("gpu_index") == selection["gpu_index"]
+                    and confirmed.get("gpu_uuid") == selection["gpu_uuid"]):
+                record.update({key: confirmed[key] for key in selection_keys if key in confirmed})
         guard_path = attempt / "guard.json"
         if guard_path.exists():
             guard = read_object(guard_path)

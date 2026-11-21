@@ -211,8 +211,8 @@ PY
     set -e
     trap - RETURN
   fi
-  "$TOOLS_PYTHON" - "$run_dir" "$name" "$extent" "$airframe" "$stats_rc" "$flight_rc" "$attempt" "$SLOT" "$row" "$GPU_UUID" "$SINGLE_ROUND" <<'PY' || result_rc=$?
-import json,sys
+  "$TOOLS_PYTHON" - "$run_dir" "$name" "$extent" "$airframe" "$stats_rc" "$flight_rc" "$attempt" "$SLOT" "$row" "$GPU_UUID" "$SINGLE_ROUND" "$GPU" <<'PY' || result_rc=$?
+import json,math,sys
 from pathlib import Path
 from scripts.realworld.collection_runtime import read_episode_metadata, runtime_evidence
 out=Path(sys.argv[1]); stats_path=out/'stats.json'; flight_path=out/'flight/long-range-result.json'
@@ -224,23 +224,26 @@ route=flight.get("route_completed") is True
 distance=flight.get("max_distance_from_spawn_m")
 slot_name_ok=isinstance(container_name,str) and f"-slot-{slot}-" in container_name
 stats_ok=stats.get("measurement_complete") is True and stats.get("errors")==[]
+gpu=sys.argv[12]
+stats_gpu_ok=str(stats.get("gpu"))==gpu
 rtf=stats.get("rtf_window_median")
-rtf_ok=isinstance(rtf,(int,float)) and rtf >= minimum_rtf
+rtf_ok=type(rtf) in (int,float) and math.isfinite(rtf) and rtf >= minimum_rtf
 distance_ok=isinstance(distance,(int,float)) and distance >= minimum
-valid=(int(sys.argv[5])==0 and int(sys.argv[6])==0 and route and distance_ok and stats_ok and rtf_ok and slot_name_ok)
+valid=(int(sys.argv[5])==0 and int(sys.argv[6])==0 and route and distance_ok and stats_ok and stats_gpu_ok and rtf_ok and slot_name_ok)
 issues=[]
 if not route: issues.append("route_completed is not true")
 if not distance_ok: issues.append(f"max_distance_from_spawn_m is below {minimum:g} m or missing")
 if not stats_ok: issues.append("stats.json is incomplete or has errors")
+if stats and not stats_gpu_ok: issues.append("stats GPU does not match matrix GPU")
 if not rtf_ok: issues.append(f"rtf_window_median is below {minimum_rtf:g} or missing")
 if not slot_name_ok: issues.append(f"container name does not contain -slot-{slot}-")
-row={'name':sys.argv[2], 'variant':manifest.get("variant",sys.argv[2].split("_")[0]),
+# Matrix identity must not disappear with missing stats or be overwritten by them.
+row={**stats, 'name':sys.argv[2], 'variant':manifest.get("variant",sys.argv[2].split("_")[0]),
      'attempt':int(sys.argv[7]), 'extent_m':float(sys.argv[3]), 'minimum_max_distance_m':minimum, 'minimum_rtf':minimum_rtf,
      'airframe':sys.argv[4], 'stats_returncode':int(sys.argv[5]), 'flight_returncode':int(sys.argv[6]),
      'route_completed':route, 'max_distance_from_spawn_m':distance, 'flight_status':flight.get("status"),
      'container_name_slot_verified':slot_name_ok, 'valid_round':valid, 'round_errors':issues,
-     'measurement_complete':False, 'gpu_uuid':sys.argv[10] or None}
-row.update(stats)
+     'measurement_complete':stats_ok and stats_gpu_ok, 'gpu':gpu, 'gpu_uuid':sys.argv[10] or None}
 if sys.argv[11] == '1':
     episode = read_episode_metadata(list((out / 'flight/episodes').glob('*/episode.json')))
     row.update(runtime_evidence(manifest, episode))

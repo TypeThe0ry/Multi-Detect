@@ -1,4 +1,4 @@
-"""Select an exclusive GPU for X1 without touching other tenants' processes."""
+"""Select an idle or graphics-only GPU for X1 without touching other tenants."""
 from datetime import datetime, timezone
 from pathlib import Path
 import re
@@ -12,7 +12,11 @@ KEEPALIVE = Path("/data/projects/Multi-Detect-env/runs/keepalive")
 ORDER = (3, 1, 2, 0)
 UUID = re.compile(r"GPU-[0-9a-fA-F-]{36}\Z")
 HEARTBEAT_MAX_AGE_S = 900  # Three five-minute keepalive intervals.
-DESKTOP = {"Xorg", "Xwayland", "gnome-shell", "kwin_wayland", "sunshine"}
+DISPLAY_PROCESSES = {"xorg", "xwayland", "gnome-shell", "kwin_wayland", "kwin_x11", "sunshine",
+                     "chrome", "chromium", "chromium-browser", "google-chrome", "firefox"}
+SHARED_MEMORY_MIB = 1024
+SHARED_UTIL_PCT = 60
+BUSY_MEMORY_MIB = 2048
 ACTIVE = {"ALIVE", "PAUSED", "START_REQUESTED"}
 UNAVAILABLE = "x1_gpu_unavailable"
 
@@ -117,19 +121,41 @@ def live_gpu(index):
         raise ValueError("invalid GPU UUID")
     memory = int(device.findtext("./fb_memory_usage/used", "").removesuffix(" MiB"))
     util = int(device.findtext("./utilization/gpu_util", "").removesuffix(" %"))
-    reasons = metric(memory, 2001 if index == 3 else 2048, "gpu_memory_mib")
-    reasons += metric(util, 5, "gpu_util_pct")
     processes = device.find("processes")
     if (processes is None or (processes.text or "").strip() not in {"", "None"}
             or any(item.tag != "process_info" for item in processes)):
         raise ValueError("unknown GPU processes")
+    reasons = []
+    shared = []
     for item in processes:
         kind = item.findtext("type", "unknown").strip()
         name = Path(item.findtext("process_name", "")).name
-        if index == 0 and kind == "G" and name in DESKTOP:
+        pid = item.findtext("pid", "").strip()
+        if kind not in {"G", "C+G"} or name.lower() not in DISPLAY_PROCESSES or not pid.isdecimal():
+            reasons.append(f"gpu_process:{pid or 'unknown'}:{kind}:{name}")
             continue
-        reasons.append(f"gpu_process:{item.findtext('pid', 'unknown')}:{kind}:{name}")
-    return uuid, reasons
+        used = int(item.findtext("used_memory", "").removesuffix(" MiB"))
+        reasons += metric(used, SHARED_MEMORY_MIB, f"gpu_process_memory_mib:{pid}")
+        shared.append({"pid": int(pid), "type": kind, "name": name, "used_mib": used})
+    reasons += metric(memory, SHARED_MEMORY_MIB if shared else BUSY_MEMORY_MIB, "gpu_memory_mib")
+    reasons += metric(util, SHARED_UTIL_PCT if shared else 5, "gpu_util_pct")
+    return uuid, memory, util, shared, reasons
+
+
+def heartbeat_blockers(row, uuid, shared):
+    reasons = []
+    if row["uuid"] != uuid:
+        reasons.append("heartbeat_gpu_uuid_mismatch")
+    reasons += metric(row["used_mib"], BUSY_MEMORY_MIB, "heartbeat_memory_mib")
+    reasons += metric(row["util_pct"], SHARED_UTIL_PCT if shared else 5, "heartbeat_util_pct")
+    # The compute-only snapshot can also report C+G. Only exempt the same PID
+    # and executable already verified by the live, typed XML probe.
+    confirmed = {(p["pid"], p["name"]) for p in shared if p["type"] == "C+G"}
+    compute = row["compute"]
+    if not isinstance(compute, list) or any(
+            not isinstance(p, dict) or (p["pid"], Path(p["process"]).name) not in confirmed for p in compute):
+        reasons.append("heartbeat_compute_present_or_unknown")
+    return reasons
 
 
 def select(status, *, indices=ORDER, expected_uuid=None):
@@ -138,28 +164,26 @@ def select(status, *, indices=ORDER, expected_uuid=None):
               ET.ParseError, subprocess.SubprocessError)
     root = KEEPALIVE
     rejected = {}
-    selection = None
+    selection = best_shared = None
     try:
         registry = training_registry(root)
         reserved = training_reservations(root, registry)
     except errors as exc:
         rejected["keepalive"] = [f"training_reservations_unknown:{exc}"]
     else:
-        cards, heartbeat_reserved = None, set()
+        try:
+            cards, heartbeat_reserved = heartbeat(root, registry)
+        except errors as exc:
+            cards, heartbeat_reserved, heartbeat_error = None, set(), str(exc)
         for index in indices:
             reasons = []
             try:
-                uuid, reasons = live_gpu(index)
+                uuid, memory, util, shared, reasons = live_gpu(index)
                 if index != 3:
                     if cards is None:
-                        cards, heartbeat_reserved = heartbeat(root, registry)
-                    row = cards[index]
-                    if row["uuid"] != uuid:
-                        reasons.append("heartbeat_gpu_uuid_mismatch")
-                    reasons += metric(row["used_mib"], 2048, "heartbeat_memory_mib")
-                    reasons += metric(row["util_pct"], 5, "heartbeat_util_pct")
-                    if not isinstance(row["compute"], list) or row["compute"]:
-                        reasons.append("heartbeat_compute_present_or_unknown")
+                        reasons.append(f"heartbeat_unavailable:{heartbeat_error}")
+                    else:
+                        reasons += heartbeat_blockers(cards[index], uuid, shared)
                 if index in reserved | heartbeat_reserved or uuid in reserved:
                     reasons.append("keepalive_training_reservation")
                 if expected_uuid is not None and uuid != expected_uuid:
@@ -168,11 +192,21 @@ def select(status, *, indices=ORDER, expected_uuid=None):
                 reasons.append(f"gpu_probe_failed:{exc}")
             if not reasons:
                 reason = "preferred_gpu3_idle" if index == 3 else "fallback_gpu_idle"
-                selection = {"gpu_index": index, "gpu_uuid": uuid, "gpu_reason": reason}
-                break
-            rejected[index] = reasons
+                candidate = {"gpu_index": index, "gpu_uuid": uuid,
+                             "gpu_reason": "shared_graphics_only" if shared else reason,
+                             "gpu_shared_processes": shared}
+                if not shared:
+                    selection = candidate
+                    break
+                weight = (memory, util, len(shared))
+                if best_shared is None or weight < best_shared[0]:
+                    best_shared = weight, candidate
+            else:
+                rejected[index] = reasons
+        if selection is None and best_shared is not None:
+            selection = best_shared[1]
     record = {"state": "READY" if selection else "WAITING", "timestamp": batch.now(),
-              "gpu_index": None, "gpu_uuid": None, "gpu_reason": UNAVAILABLE,
+              "gpu_index": None, "gpu_uuid": None, "gpu_reason": UNAVAILABLE, "gpu_shared_processes": [],
               "blocked_gpus": {str(index): reasons for index, reasons in rejected.items()},
               **(selection or {})}
     status.parent.mkdir(parents=True, exist_ok=True)

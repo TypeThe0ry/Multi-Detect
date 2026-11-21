@@ -17,6 +17,7 @@ STEM = "rw_farm_iowa_w6km__clear_noon"
 DELTA = "delta_tailsitter_gimbal_cam"
 BRIDGE_IMAGE = "multidetect/px4-sitl-gazebo:gz-rendering-830-r1-gimbal-horizon1"
 IMAGE_ID = "sha256:" + "f" * 64
+GPU0_ATTEMPT = Path(__file__).with_name("fixtures") / "x1_gpu0_attempt"
 
 
 @pytest.fixture
@@ -252,13 +253,14 @@ def test_accepts_once_and_preserves_accepted_attempt(spec, matrix):
     assert rows(root / "results.jsonl") == [record]
 
 
-def test_x1_per_attempt_gpu_metadata_and_deferral(spec, matrix):
+def test_x1_per_attempt_gpu_metadata_and_deferral(spec, matrix, monkeypatch):
     from scripts.realworld.x1_gpu import GPUUnavailable
 
     plan = batch.expand(spec)
     root = Path(plan["output_root"])
     gpu = {"gpu_index": 2, "gpu_uuid": "GPU-00000002-0000-0000-0000-000000000000",
-           "gpu_reason": "fallback_gpu_idle"}
+           "gpu_reason": "shared_graphics_only",
+           "gpu_shared_processes": [{"pid": 42, "type": "C+G", "name": "chrome", "used_mib": 360}]}
 
     def busy(status):
         assert status == root / "GPU-STATUS.json"
@@ -266,10 +268,21 @@ def test_x1_per_attempt_gpu_metadata_and_deferral(spec, matrix):
 
     assert batch.run_batch(plan, matrix, gpu_selector=busy) == 75
     assert not (root / "jobs").exists()
+    confirmed = {**gpu, "gpu_shared_processes": [{**gpu["gpu_shared_processes"][0], "used_mib": 400}]}
+    evaluate = batch.evaluate
+
+    def lease_gate_and_evaluate(attempt, *args):
+        path = attempt / "gate.json"
+        initial = batch.read_object(path)
+        assert {key: initial[key] for key in gpu} == gpu
+        batch.atomic_text(path, batch.dump({**initial, **confirmed}) + "\n")
+        return evaluate(attempt, *args)
+
+    monkeypatch.setattr(batch, "evaluate", lease_gate_and_evaluate)
     assert batch.run_batch(plan, matrix, gpu_selector=lambda _: gpu) == 0
     record, = rows(root / "accepted.jsonl")
     assert record["gpu"] == 2
-    assert {key: record[key] for key in gpu} == gpu
+    assert {key: record[key] for key in confirmed} == confirmed
     assert plan["gpu"] == 3
 
 
@@ -527,11 +540,35 @@ def test_repairs_interrupted_results_append_from_verdict(spec, matrix):
     assert results.read_bytes() == complete
 
 
-@pytest.mark.parametrize("airframe,valid,single_round,gpu", [
-    (None, True, True, 3), (None, False, True, 3), (DELTA, True, True, 3), (DELTA, False, True, 3),
-    (DELTA, True, False, 3), (DELTA, True, True, 0), (DELTA, True, True, 2),
+@pytest.mark.parametrize("airframe,valid,single_round,gpu,replay", [
+    (None, True, True, 3, ""), (None, False, True, 3, ""),
+    (DELTA, True, True, 3, ""), (DELTA, False, True, 3, ""),
+    (DELTA, True, False, 3, ""), (DELTA, True, True, 2, ""),
+    (DELTA, False, True, 0, "original"), (DELTA, True, True, 0, "pass"),
+    (DELTA, False, True, 0, "low_rtf"), (DELTA, False, True, 0, "wrong_gpu"),
+    (DELTA, True, True, 0, "wrong_container"), (DELTA, True, True, 0, "bad_horizon"),
 ])
-def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, single_round, gpu):
+def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, single_round, gpu, replay):
+    identity = {key: "a" * 64 if key == "container_id" else "md-rw-long-slot-5-test-episode"
+                for key in ("container_id", "container_name")}
+    name, tag = "fixture", "test"
+    uuid = f"GPU-{gpu:08d}-0000-0000-0000-000000000000"
+    if replay:
+        guard = batch.read_object(GPU0_ATTEMPT / "guard.json")
+        original = batch.read_object(GPU0_ATTEMPT / "result.json")
+        identity = {key: guard[key] for key in identity}
+        name, uuid = original["name"], original["gpu_uuid"]
+        tag = identity["container_name"].split("-")[5]
+        assert guard["rtf_window_median"] is None and guard["stats_returncode"] == 2
+        assert "invalid choice: '0'" in (GPU0_ATTEMPT / "stats.stdout.log").read_text()
+    stats_identity = {**identity, "gpu": str(gpu)}
+    if replay == "wrong_gpu":
+        stats_identity["gpu"] = "3"
+    if replay == "wrong_container":
+        stats_identity["container_id"] = "b" * 64
+    stats_report = {**stats_identity, "measurement_complete": valid or replay in {"low_rtf", "wrong_gpu"},
+                    "errors": [], "rtf_window_median": 0.89 if replay == "low_rtf" else 0.95,
+                    "rtf_delta_sim_over_delta_real": 0.95}
     python = tmp_path / "fake-python"
     python.write_text('''#!/bin/bash
 set -e
@@ -549,11 +586,16 @@ case "$1" in
     frame_dir="$flight_out/episodes/episode-fixture/rgb"; frame_name=000001.png
     if [[ "$FAKE_EXPECTED_AIRFRAME" == delta_tailsitter_gimbal_cam ]]; then frame_dir="$flight_out/episodes/episode-fixture/video/rgb"; frame_name=000001.jpg; fi
     mkdir -p "$frame_dir"
-    printf '{"route_completed":true,"max_distance_from_spawn_m":4100}' > "$flight_out/long-range-result.json"
+    if [[ "$FAKE_REPLAY" ]]; then cp "$FAKE_FIXTURE/long-range-result.json" "$flight_out/long-range-result.json"
+    else printf '{"route_completed":true,"max_distance_from_spawn_m":4100}' > "$flight_out/long-range-result.json"; fi
     printf 'data' > "$frame_dir/$frame_name"
-    printf '{"status":"complete","simulator_container":{"container_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","container_name":"md-rw-long-slot-5-test-episode"}}' > "$flight_out/episodes/episode-fixture/episode.json"
-    printf '{"container_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","container_name":"md-rw-long-slot-5-test-episode","measurement_complete":%s,"rtf_window_median":0.95,"errors":[]}' "$FAKE_VALID" > "$stats_out"
-    printf '{"start_load":1,"max_load":1,"voided_reason":null,"flight_returncode":0,"stats_returncode":0}' > "$out/guard.json"
+    printf '{"status":"complete","simulator_container":%s,"gimbal_check":{"passed":true,"frame_count":1}}' "$FAKE_IDENTITY" > "$flight_out/episodes/episode-fixture/episode.json"
+    if [[ "$FAKE_REPLAY" == original ]]; then cp "$FAKE_FIXTURE/guard.json" "$out/guard.json"
+    else
+      "$FAKE_REAL_PYTHON" -c 'import json,os,sys; args=json.loads(sys.argv[1]); assert args[2:6]==["--container-prefix", os.environ["MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX"]+"-", "--gpu", os.environ["RTF_MATRIX_GPU"]]' "$stats_json"
+      printf '%s' "$FAKE_STATS" > "$stats_out"
+      printf '{"start_load":1,"max_load":1,"voided_reason":null,"flight_returncode":0,"stats_returncode":0}' > "$out/guard.json"
+    fi
     exit 0
     ;;
   */long_range_flight.py)
@@ -568,7 +610,7 @@ case "$1" in
     ;;
   */sample_stats.py)
     [[ "$2" == --container-prefix && "$3" == md-rw-long-slot-5-test- ]]
-    printf '{"container_name":"md-rw-long-slot-5-test-episode","rtf_window_median":0.95,"errors":[],"measurement_complete":%s}' "$FAKE_VALID" > "${@: -1}"
+    printf '%s' "$FAKE_STATS" > "${@: -1}"
     ;;
   *) exec "$FAKE_REAL_PYTHON" "$@" ;;
 esac
@@ -576,7 +618,7 @@ esac
     nvidia = tmp_path / "nvidia-smi"
     nvidia.write_text('''#!/bin/bash
 case "$3" in
-  --query-gpu=uuid) echo GPU-00000003-0000-0000-0000-000000000000 ;;
+  --query-gpu=uuid) echo "$FAKE_GPU_UUID" ;;
   --query-gpu=memory.used) echo 0 ;;
   *) exit 0 ;;
 esac
@@ -586,16 +628,21 @@ esac
     for key, value in {
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
         "TOOLS_PYTHON": str(python), "SITL_PYTHON": str(python), "FAKE_REAL_PYTHON": sys.executable,
-        "FAKE_EXPECTED_AIRFRAME": airframe or "",
-        "FAKE_VALID": json.dumps(valid), "RTF_MATRIX_SINGLE_ROUND": str(int(single_round)),
+        "FAKE_EXPECTED_AIRFRAME": airframe or "", "FAKE_GPU_UUID": uuid, "FAKE_REPLAY": replay,
+        "FAKE_FIXTURE": str(GPU0_ATTEMPT), "FAKE_IDENTITY": json.dumps(identity), "FAKE_STATS": json.dumps(stats_report),
+        "RTF_MATRIX_SINGLE_ROUND": str(int(single_round)),
         "RTF_MATRIX_ATTEMPT": "2", "RTF_MATRIX_GAP_S": "0", "RTF_MATRIX_MAX_ATTEMPTS": "1",
-        "RTF_MATRIX_RUN_TAG": "test", "RTF_MATRIX_GPU": str(gpu), "RTF_MATRIX_SLOT": "5",
+        "RTF_MATRIX_RUN_TAG": tag, "RTF_MATRIX_GPU": str(gpu), "RTF_MATRIX_SLOT": "5",
         "RTF_MATRIX_MIN_FREE_GB": "0", "RTF_MATRIX_CPU_MAX": "1000000000", "RTF_MATRIX_SHARE_GPU": "0",
         "RTF_MATRIX_WAIT_S": "1", "RTF_MATRIX_GPU_LOCK_ROOT": str(tmp_path / "locks"),
     }.items():
         monkeypatch.setenv(key, value)
+    if replay:
+        monkeypatch.setenv("RTF_MATRIX_X1_GPU_UUID", uuid)
+    else:
+        monkeypatch.delenv("RTF_MATRIX_X1_GPU_UUID", raising=False)
     manifest = tmp_path / "manifest.json"
-    row = dict(name="fixture", scenario="unused", resolved_root=str(tmp_path), extent_m=6000)
+    row = dict(name=name, scenario="unused", resolved_root=str(tmp_path), extent_m=6000)
     if airframe is not None:
         row["airframe"] = airframe
     manifest.write_text(json.dumps([row]))
@@ -607,12 +654,48 @@ esac
     raw = json.loads((attempt / "result.json").read_text())
     assert raw["valid_round"] is valid
     assert raw["attempt"] == (2 if single_round else 1)
-    assert raw["gpu_uuid"] == ("GPU-00000003-0000-0000-0000-000000000000" if single_round else None)
+    assert raw["gpu"] == str(gpu)
+    assert raw["gpu_uuid"] == (uuid if single_round else None)
     assert raw["airframe"] == (airframe or batch.AIRFRAME)
-    assert raw["flight_returncode"] == raw["stats_returncode"] == 0
+    assert raw["flight_returncode"] == 0
+    assert raw["stats_returncode"] == (2 if replay == "original" else 0)
     assert (attempt / "flight/episodes").exists()
     if not single_round:
         assert json.loads((out / "summary.json").read_text())["all_requested_rounds_valid"] is True
+    if replay:
+        assert (tmp_path / "locks" / f"{uuid}.lock").is_file()
+        assert raw["max_distance_from_spawn_m"] == original["max_distance_from_spawn_m"]
+        episode = attempt / "flight/episodes/episode-fixture"
+        # No stats/window or episode is preserved by the failed attempt. Keep its
+        # real flight & guard evidence, and exercise acceptance with synthetic inputs.
+        frame = {"frame_index": 0, "sensor_stamp_ns": 1000,
+                 "gimbal_state": {"roll_rad": 0, "pitch_rad": 0, "yaw_rad": 0,
+                                  "reference_frame": "body_FRD", "source": "gazebo_joint_state",
+                                  "timestamp_ns": 1000, "frame_timestamp_ns": 1000,
+                                  "age_ms": 0, "skew_ms": 0, "fresh": True,
+                                  "stabilization": {"mode": "lock", "measurement_fresh": True,
+                                                    "horizon_feasible": True, "horizon_degraded": False,
+                                                    "yaw_degraded": False,
+                                                    "horizon_error_deg": 9 if replay == "bad_horizon" else 1}},
+                 "camera_pose": {"center_ned": [0, 0, 0], "optical_to_world": [1,0,0,0,1,0,0,0,1],
+                                 "reference_frame": "NED", "extrinsics_source": "fixture.sdf", "age_ms": 0}}
+        (episode / "video/manifest.jsonl").write_text(json.dumps(frame) + "\n")
+        job = {"job_id": name, "slot": 5, "matrix": row, "inputs": {"max_artifact_bytes": 8 << 30}}
+        verdict = batch.evaluate(attempt, job, {"gpu": gpu}, result.returncode)
+        assert "matrix_job_or_gpu_mismatch" not in verdict["errors"]
+        assert verdict["accepted"] is (replay == "pass"), verdict
+        if replay == "original":
+            assert not (attempt / "stats.json").exists()
+            assert set(verdict["errors"]) == {"matrix_command_failed", "not_valid_round", "invalid_window_rtf",
+                                               "episode_stats_container_mismatch"}
+        elif replay == "low_rtf":
+            assert "invalid_window_rtf" in verdict["errors"]
+        elif replay == "wrong_gpu":
+            assert "stats GPU does not match matrix GPU" in raw["round_errors"]
+        elif replay == "wrong_container":
+            assert verdict["errors"] == ["episode_stats_container_mismatch"]
+        elif replay == "bad_horizon":
+            assert "horizon_feasible_p95_exceeded" in verdict["errors"]
 
 
 @pytest.mark.parametrize("single_round", ["0", "1"])
