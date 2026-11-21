@@ -45,6 +45,38 @@ def asset_world(tmp_path, flat_layers, monkeypatch):
     return asset, world
 
 
+def test_pad_uses_physical_ground_but_still_rejects_collisions_and_water(flat_layers):
+    ground = np.zeros((route.COUNT + 1, route.COUNT + 1))
+    collision = flat_layers["buildings_and_boxes"]
+    trees = flat_layers["canopy"]
+    water = flat_layers["water"]
+    home = route.COUNT // 2
+    route.validate_pad(ground, collision, trees, water)
+    ground[home, home] = 0.5
+    with pytest.raises(route.PadRejected, match="terrain"):
+        route.validate_pad(ground, collision, trees, water)
+    ground[home, home] = 0
+    collision[home, home] = 1
+    with pytest.raises(route.PadRejected, match="obstructed"):
+        route.validate_pad(ground, collision, trees, water)
+    collision[home, home] = -np.inf
+    water[home, home + 4] = True
+    with pytest.raises(route.PadRejected, match="water at home"):
+        route.validate_pad(ground, collision, trees, water)
+
+
+def test_route_cli_classifies_only_pad_errors(monkeypatch, tmp_path):
+    argv = ["--asset", str(tmp_path), "--world", str(tmp_path / "world.sdf")]
+    for error, code in [(route.PadRejected("wet pad"), route.PAD_REJECTED), (ValueError("no route"), 1)]:
+        def fail(*_):
+            raise error
+
+        monkeypatch.setattr(route, "preflight", fail)
+        with pytest.raises(SystemExit) as exc:
+            route.main(argv)
+        assert exc.value.code == code
+
+
 def test_corridor_checks_capture_range_edge_water_and_obstacles(flat_layers):
     points = route.corner_route(route.QUADRANTS["NW"], 1)
     passing = route.evaluate(points, flat_layers)

@@ -23,6 +23,11 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+if __package__:
+    from .x1_pad import PAD_REJECTED, PadRejected
+else:
+    from x1_pad import PAD_REJECTED, PadRejected
+
 
 ROOT = Path(__file__).resolve().parents[2]
 AIRFRAME = "delta_tailsitter_gimbal_cam"
@@ -133,7 +138,7 @@ def aggregate_dem(path, elevation, collision_path):
         for j in (i, i + 1):
             np.minimum(minima[i], np.minimum(ground[j, :-1], ground[j, 1:]), out=minima[i])
             np.maximum(maxima[i], np.maximum(ground[j, :-1], ground[j, 1:]), out=maxima[i])
-    return minima, maxima
+    return minima, maxima, ground
 
 
 def water_mask(scene, raw):
@@ -287,7 +292,7 @@ def load_layers(asset, world_file):
     if (ground is None or terrain.findtext("static") not in {"true", "1"}
             or any(np.any(translation(e)) for e in (terrain, ground_link, ground))):
         raise ValueError("ground mesh must be in the world frame")
-    low, high = aggregate_dem(dem_path, scene["elevation"], mesh(ground))
+    low, high, pad_ground = aggregate_dem(dem_path, scene["elevation"], mesh(ground))
     collision = np.full(low.shape, -np.inf)
     water_surface = np.full_like(collision, -np.inf)
     trees = np.full_like(collision, -np.inf)
@@ -344,11 +349,7 @@ def load_layers(asset, world_file):
         raise ValueError(f"missing geometry reported by the scene: {counts}")
     water, counts["water_features"] = water_mask(scene, dem_path.parent)
     water |= np.isfinite(water_surface)
-    # The pad tops at zero. Check the vertical launch and recovery separately.
-    home = corridor_cells(np.zeros((1, 2)), 5)
-    if (max(collision[home].max(), trees[home].max()) >= 0
-            or high[home].max() > 0.40 or low[home].min() < -3):
-        raise ValueError("central vertical launch/recovery volume is obstructed or pad terrain is inconsistent")
+    validate_pad(pad_ground, collision, trees, water)
     return scene, dem_path, dict(ground_low=low, ground_high=high, buildings_and_boxes=collision,
                                 canopy=trees, water_surface=water_surface, water=water), counts, inputs
 
@@ -400,6 +401,20 @@ def corridor_cells(path, radius):
     shape = mask.shape
     return (np.clip(np.broadcast_to(y, shape)[mask], 0, COUNT - 1),
             np.clip(np.broadcast_to(x, shape)[mask], 0, COUNT - 1))
+
+
+def validate_pad(ground, collision, trees, water):
+    origin = np.zeros((1, 2))
+    home = corridor_cells(origin, 5)
+    y, x = home
+    # Only this vertical check uses the flattened physical ground. The route
+    # envelope still includes both the raw elevations and collision geometry.
+    corners = np.concatenate([ground[y + j, x + i] for j in (0, 1) for i in (0, 1)])
+    if (max(collision[home].max(), trees[home].max()) >= 0
+            or corners.max() > 0.40 or corners.min() < -3):
+        raise PadRejected("central vertical launch/recovery volume is obstructed or pad terrain is inconsistent")
+    if water[corridor_cells(origin, 40)].any():
+        raise PadRejected("water at home in the route geometry")
 
 
 def bounds(path, layers, radius):
@@ -708,6 +723,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         print(preflight(args.asset, args.world))
+    except PadRejected as exc:
+        parser.exit(PAD_REJECTED, f"X1 preflight rejected launch pad: {exc}\n")
     except (OSError, ValueError, TypeError, KeyError, ImportError, ET.ParseError, RuntimeError, subprocess.TimeoutExpired) as exc:
         parser.exit(1, f"X1 preflight failed: {exc}\n")
     return 0

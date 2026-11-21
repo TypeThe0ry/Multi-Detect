@@ -723,6 +723,7 @@ def main() -> None:
     ap.add_argument("--scene-root", type=Path, default=Path(os.environ.get("REALWORLD_SCENE_ROOT", SCENE_ROOT / "sites")), help="scene.json 输出目录")
     ap.add_argument("--raw-root", type=Path, default=ASSET_ROOT / "sites", help="原始数据站点目录")
     ap.add_argument("--extent-m", type=float, help="正方形边长（米）；需与 fetch_site 的范围一致")
+    ap.add_argument("--origin", nargs=2, type=float, metavar=("LAT", "LON"), help="为 6 km 构建指定已取数的起降原点")
     ap.add_argument("--output-name", help="独立 scene/model 名；仍读取原站点 raw")
     ap.add_argument("--budget-profile", choices=("budget_6km",), help="显式预算实验，不改变默认 profile")
     a = ap.parse_args()
@@ -732,6 +733,11 @@ def main() -> None:
     if a.budget_profile and name == a.site:
         ap.error("budget profile requires an independent --output-name")
     site = CFG["sites"][a.site]
+    if a.origin is not None:
+        lat, lon = a.origin
+        if a.extent_m != 6000 or not (-90 < lat < 90 and -180 <= lon <= 180):
+            ap.error("--origin requires valid coordinates and --extent-m 6000")
+        site = {**site, "lat": lat, "lon": lon}
     profile = profile_for_site(site, a.extent_m, name=a.budget_profile)
     a.grid = profile.visual_grid_m if a.grid is None else a.grid
     if not math.isfinite(a.grid) or a.grid <= 0:
@@ -740,6 +746,8 @@ def main() -> None:
     kind = site["kind"]
     raw = a.raw_root / a.site / "raw"
     provenance_path = raw / "provenance.json"
+    if a.origin is not None and not provenance_path.is_file():
+        raise ValueError("--origin requires matching raw provenance")
     if provenance_path.exists():
         provenance = json.loads(provenance_path.read_text())
         if any(abs(float(provenance[key]) - float(site[key])) > 1e-5 for key in ("lat", "lon")):

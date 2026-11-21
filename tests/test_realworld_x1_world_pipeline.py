@@ -77,6 +77,136 @@ def test_same_device_bind_mount_counts(monkeypatch, tmp_path):
         pipeline.check_mount(target)
 
 
+def test_pad_retry_replays_after_journal_commit(monkeypatch, tmp_path, asset):
+    monkeypatch.setattr(pipeline, "NAS", tmp_path / "nas")
+    asset.bind()
+    stage_raw(asset)
+    first_site = asset.site.copy()
+    picked = {"lat": first_site["lat"] + 0.002, "lon": first_site["lon"]}
+    phases = []
+
+    def guarded(argv, env, log, report, *, requested):
+        if "--raw-root" in argv:
+            assert argv[-3:] == ["--origin", str(picked["lat"]), str(picked["lon"])]
+            stage_raw(asset)
+            phases.append("fetch")
+        elif "--world" in argv:
+            phases.append("route")
+        else:
+            phase = argv[-1]
+            phases.append(phase)
+            if phase == "check-6km" and asset.site == first_site:
+                raise subprocess.CalledProcessError(pipeline.PAD_REJECTED, argv)
+            if phase == "find-pad":
+                pipeline.atomic_json(asset.state / "next-pad.json", picked)
+
+    monkeypatch.setattr(pipeline, "guarded", guarded)
+    monkeypatch.setattr(asset, "receipt", lambda: {"world_sha256": "hash"})
+    monkeypatch.setattr(asset, "route_receipt", lambda _: None)
+    install = asset.install_pad
+
+    def interrupt(attempts):
+        if attempts:
+            raise pipeline.Yielded("interrupted after decision")
+        install(attempts)
+
+    with (tmp_path / "log").open("w") as log:
+        progress = pipeline.Progress([asset.name], log)
+        monkeypatch.setattr(asset, "install_pad", interrupt)
+        with pytest.raises(pipeline.Yielded):
+            pipeline.generate(asset, progress)
+        assert pipeline.read_json(asset.state / "input.json") == asset.pin(first_site)
+        monkeypatch.setattr(asset, "install_pad", install)
+        pipeline.generate(asset, progress)
+    assert phases == ["check-2km", "check-6km", "find-pad", "fetch", "check-6km", "build", "make", "route"]
+    assert (asset.root.with_name("v1-rejected-pad-01") / ".pipeline/input.json").is_file()
+    assert pipeline.read_json(asset.state / "input.json")["config"]["lat"] == picked["lat"]
+    assert len(asset.load_pad_history()) == 1
+
+
+def test_only_pad_rejections_spend_retry_budget(monkeypatch, tmp_path, asset):
+    monkeypatch.setattr(pipeline, "NAS", tmp_path / "nas")
+    monkeypatch.setitem(pipeline.CONFIG, "max_pad_retries", 2)
+    scans = []
+
+    def scan(active, _progress, phase):
+        assert phase == "find-pad"
+        scans.append(active.site["lat"])
+        pipeline.atomic_json(active.state / "next-pad.json", {"lat": active.site["lat"] + 0.002, "lon": active.site["lon"]})
+
+    def reject(*_, **__):
+        raise pipeline.PadRejected("route rejected launch pad")
+
+    def other_failure(*_, **__):
+        raise subprocess.CalledProcessError(1, ["route"])
+
+    monkeypatch.setattr(pipeline, "run_guarded_phase", scan)
+    with (tmp_path / "log").open("w") as log:
+        progress = pipeline.Progress([asset.name], log)
+        monkeypatch.setattr(pipeline, "generate_at_origin", other_failure)
+        with pytest.raises(subprocess.CalledProcessError):
+            pipeline.generate(asset, progress)
+        assert not scans and not asset.pad_journal.exists()
+        monkeypatch.setattr(pipeline, "generate_at_origin", reject)
+        for _ in range(2):
+            with pytest.raises(ValueError, match="exhausted 2 pad retries"):
+                pipeline.generate(asset, progress)
+        assert len(scans) == len(asset.load_pad_history()) == 2
+
+
+def test_legacy_retarget_only_migrates_known_unaccepted_site(asset):
+    previous = dict(asset.site)
+    previous.pop("origin_moved_for_pad")
+    asset.bind()
+    pipeline.atomic_json(asset.state / "input.json", asset.pin(previous))
+    route = asset.root / "x1/preflight.json"
+    pipeline.atomic_json(route, {"passed": True})
+    with pytest.raises(ValueError, match="inputs changed"):
+        asset.install_pad([])
+    route.unlink()
+    asset.install_pad([])
+    assert pipeline.read_json(asset.state / "input.json") == asset.pin()
+    assert (asset.root.with_name("v1-before-pad-retarget") / ".pipeline/input.json").is_file()
+
+
+def test_check_6km_rejects_missing_dem_but_accepts_measured_zero_cells(tmp_path):
+    from scripts.realworld.x1_world_origin import validate_dem
+
+    np = pytest.importorskip("numpy")
+    path = tmp_path / "dem.npy"
+    dem = np.zeros((5, 5))
+    np.save(path, dem)
+    with pytest.raises(ValueError, match="all zero"):
+        validate_dem(path)
+    dem[0, 0] = np.nan
+    np.save(path, dem)
+    with pytest.raises(ValueError, match="uncovered"):
+        validate_dem(path)
+    dem[0, 0] = 1.2
+    np.save(path, dem)
+    validate_dem(path)
+
+
+def test_find_pad_rejects_entirely_zero_dem_and_respects_clearance(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from scripts.realworld import x1_find_pad
+
+    np = pytest.importorskip("numpy")
+    monkeypatch.setattr(x1_find_pad, "Osm", lambda *_: SimpleNamespace(
+        rel_polys=[], ways=[{"closed": True, "pts": [(-20, -20), (20, -20), (20, 20), (-20, 20), (-20, -20)],
+                             "tags": {"building": "yes"}}]))
+    pipeline.atomic_json(tmp_path / "provenance.json", {
+        "size_m": 300, "proj4": "+proj=tmerc +lat_0=50 +lon_0=4 +datum=WGS84 +units=m",
+    })
+    dem = tmp_path / "dem.npy"
+    np.save(dem, np.zeros((151, 151)))
+    with pytest.raises(ValueError, match="all-zero DEM"):
+        x1_find_pad.candidates(tmp_path, radius=100, step=25)
+    np.save(dem, np.ones((151, 151)))
+    rows = x1_find_pad.candidates(tmp_path, radius=100, step=25, min_building=60)
+    assert rows and all(row["building_m"] >= 60 and row["offset_m"] > 60 for row in rows)
+
+
 def test_launch_failures_consume_only_dispatch_retries(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "LOCK", tmp_path / "lock")
 

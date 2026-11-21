@@ -4,6 +4,7 @@
   "nas_root": "/mnt/nas/AdminHome/volatic/x1-worlds",
   "tools_python": "/data/datasets/multidetect-sim-assets/tools/venv/bin/python",
   "model_seed": "rw_city_zurich_w6km/v1/models",
+  "max_pad_retries": 3,
   "sites": {
     "rw_alpine_grindelwald": "sites",
     "rw_canal_amsterdam": "sites",

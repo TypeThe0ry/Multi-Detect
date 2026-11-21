@@ -10,7 +10,10 @@ from pyproj import Transformer
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
-from build_scene import Osm
+if __package__:
+    from .build_scene import Osm
+else:
+    from build_scene import Osm
 
 CLEARANCE_M = 40
 WATERWAYS = {"river", "canal", "stream", "ditch", "drain"}
@@ -58,6 +61,23 @@ def water_distance(point, water, coasts):
         if sea:
             return 0.0
     return None if water.is_empty else point.distance(water)
+
+
+def validate_dem(path):
+    """Fail before build_scene can replace missing elevations with its display fallback."""
+    import numpy as np
+
+    dem = np.load(path, mmap_mode="r")
+    if dem.ndim != 2 or dem.shape[0] != dem.shape[1] or dem.shape[0] < 3:
+        raise ValueError(f"{path}: expected a square DEM grid")
+    has_nonzero = False
+    for start in range(0, len(dem), 256):
+        rows = dem[start:start + 256]
+        if not np.isfinite(rows).all() or rows.min() < -500 or rows.max() > 1e6:
+            raise ValueError(f"{path}: 6 km DEM has uncovered or invalid elevations")
+        has_nonzero = has_nonzero or bool(np.any(rows))
+    if not has_nonzero:
+        raise ValueError(f"{path}: 6 km DEM is all zero")
 
 
 def audit(raw: Path, base: dict, chosen: dict, extent_m=2000):

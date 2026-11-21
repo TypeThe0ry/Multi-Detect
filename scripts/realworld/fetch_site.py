@@ -17,7 +17,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urljoin, urlsplit, urlunsplit
 
 import numpy as np
 import requests
@@ -43,6 +43,9 @@ TOKYO_TILESET = "https://assets.cms.plateau.reearth.io/assets/75/76c6bc-df54-4bf
 BERLIN_ATOM = "https://gdi.berlin.de/data/a_lod2/atom/0.atom"
 BERLIN_DOP_WMS = "https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms"
 FETCH_LOCK_ENV = "MD_X1_FETCH_LOCK"
+X1_EXTENT_M = 6000
+SENTINEL_PROVIDERS = {"global", "berlin", "plateau"}
+BAG_MAX_PAGES = 20_000
 
 
 def _checkpoint() -> None:
@@ -411,7 +414,8 @@ def public_asset_url(href: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
-def rasterize_stac_items(items, asset_key: str, lat: float, lon: float, bounds, size, *, bands=None, dtype=None):
+def rasterize_stac_items(items, asset_key: str, lat: float, lon: float, bounds, size, *, bands=None, dtype=None,
+                         masked_dem=False):
     _checkpoint()
     import rasterio
     from rasterio.crs import CRS
@@ -423,6 +427,8 @@ def rasterize_stac_items(items, asset_key: str, lat: float, lon: float, bounds, 
     transform = from_bounds(*bounds, size[0], size[1])
     count = len(bands) if bands else 1
     output = np.zeros((count, size[1], size[0]), dtype or (np.uint8 if bands else np.float32)) if bands else np.zeros((size[1], size[0]), dtype or np.float32)
+    if masked_dem:
+        output.fill(np.nan)
     filled = np.zeros((size[1], size[0]), bool)
     for item in items:
         _checkpoint()
@@ -445,10 +451,12 @@ def rasterize_stac_items(items, asset_key: str, lat: float, lon: float, bounds, 
                         part = np.moveaxis(part, 0, -1)
                         valid = np.any(part != 0, axis=2)
                     else:
+                        options = {"dtype": "float32", "nodata": np.nan} if masked_dem else {}
                         with WarpedVRT(src, crs=crs, transform=transform, width=size[0], height=size[1],
-                                       resampling=Resampling.bilinear) as vrt:
-                            part = vrt.read(1)
+                                       resampling=Resampling.bilinear, **options) as vrt:
+                            warped = vrt.read(1, masked=masked_dem)
                         _checkpoint()
+                        part = warped.filled(np.nan) if masked_dem else warped
                         valid = np.isfinite(part) & (part > -10000)
                         if nodata is not None:
                             valid &= part != nodata
@@ -532,13 +540,23 @@ def fetch_3dbag(out: Path, lat: float, lon: float, half: float) -> list[int]:
         next_url = "https://api.3dbag.nl/collections/pand/items"
         params = {"bbox": ",".join(f"{v:.3f}" for v in bbox), "limit": 1000}
         features = []
-        for index in range(1000):
+        seen = set()
+        for index in range(BAG_MAX_PAGES):
             _checkpoint()
+            if next_url in seen:
+                raise RuntimeError(f"3DBAG pagination repeated cursor: {next_url}")
+            seen.add(next_url)
             cached = pages / f"{index:04d}.json"
             if cached.exists():
                 page = json.loads(cached.read_text())
                 if page["url"] != next_url:
                     raise ValueError(f"3DBAG page cursor mismatch: {cached}")
+                if index == 0:
+                    # Legacy checkpoints did not store the initial request params.
+                    legacy_bbox = parse_qs(urlsplit(page["next"] or "").query).get("bbox")
+                    if (("params" in page and page["params"] != params)
+                            or (legacy_bbox and legacy_bbox != [params["bbox"]])):
+                        raise ValueError(f"3DBAG page bbox mismatch: {cached}")
             else:
                 response = get_retry(next_url, params=params, timeout=300).json()
                 rows = []
@@ -551,14 +569,17 @@ def fetch_3dbag(out: Path, lat: float, lon: float, half: float) -> list[int]:
                                 ("b3_h_nok", "b3_h_maaiveld", "identificatie", "b3_pw_datum", "b3_pw_bron")}}
                     rows.append({"CityObjects": objects})
                 link = next((item["href"] for item in response.get("links", []) if item.get("rel") == "next"), None)
-                page = {"url": next_url, "next": link, "features": rows}
+                page = {"url": next_url, "next": urljoin(next_url, link) if link else None,
+                        "features": rows}
+                if params is not None:
+                    page["params"] = params
                 publish_bytes(cached, json.dumps(page, separators=(",", ":")).encode())
             features.extend(page["features"])
             next_url, params = page["next"], None
             if not next_url:
                 break
         else:
-            raise RuntimeError("3DBAG pagination exceeded 1000 pages")
+            raise RuntimeError(f"3DBAG pagination exceeded {BAG_MAX_PAGES} pages")
         publish_bytes(path, json.dumps({"type": "FeatureCollection", "features": features}).encode())
     else:
         features = json.loads(path.read_text())["features"]
@@ -578,6 +599,17 @@ def _stac_source_identity(item) -> dict:
             "assets": [(key, public_asset_url(asset.href)) for key, asset in item.assets.items()]}
 
 
+def x1_dem_coverage(dem: np.ndarray) -> dict:
+    covered = np.isfinite(dem)
+    if not covered.any():
+        raise ValueError("X1 DEM has no valid coverage in the 6 km window")
+    if not np.any(covered & (dem != 0)):
+        raise ValueError("X1 DEM is all zero across valid samples in the 6 km window")
+    return {"dem_coverage_fraction": float(covered.mean()),
+            "dem_origin_covered": bool(covered[dem.shape[0] // 2, dem.shape[1] // 2]),
+            "dem_uncovered_value": "NaN"}
+
+
 def fetch_global(out: Path, lat: float, lon: float, half: float) -> dict:
     _checkpoint()
     import planetary_computer
@@ -592,12 +624,13 @@ def fetch_global(out: Path, lat: float, lon: float, half: float) -> dict:
     nt = int(round(2 * half / TILE_M))
     tiles = [(i, j, out / f"naip_{i}_{j}.png") for j in range(nt) for i in range(nt)]
     dem_path = out / "dem.npy"
+    masked_dem = 2 * half == X1_EXTENT_M
     cache_identity = out / ".x1-global-raster-sources.json"
     identity = None
     reuse = False
     if os.environ.get(FETCH_LOCK_ENV):
         identity = json.dumps({
-            "version": 1, "grid": [lat, lon, half, n, TILE_M, TILE_CRS_PX],
+            "version": 2 if masked_dem else 1, "grid": [lat, lon, half, n, TILE_M, TILE_CRS_PX],
             "dem_key": dem_key, "dem": [_stac_source_identity(item) for item in dem_items],
             "imagery": _stac_source_identity(image),
         }, sort_keys=True).encode()
@@ -615,9 +648,15 @@ def fetch_global(out: Path, lat: float, lon: float, half: float) -> dict:
     needs_dem = not reuse or not dem_path.exists()
     if identity is not None and (needs_dem or tiles):
         (out / "provenance.json").unlink(missing_ok=True)
+    coverage = {}
     if needs_dem:
-        save_npy(dem_path, np.flipud(rasterize_stac_items(dem_items, dem_key, lat, lon,
-            (-half, -half, half, half), (n, n))))
+        dem = rasterize_stac_items(dem_items, dem_key, lat, lon, (-half, -half, half, half), (n, n),
+                                   **({"masked_dem": True} if masked_dem else {}))
+        if masked_dem:
+            coverage = x1_dem_coverage(dem)
+        save_npy(dem_path, np.flipud(dem))
+    elif masked_dem:
+        coverage = x1_dem_coverage(np.load(dem_path, mmap_mode="r"))
     if tiles or not reuse:
         # Keep the existing full-scene warp and publish only the tiles needed.
         _checkpoint()
@@ -654,7 +693,7 @@ def fetch_global(out: Path, lat: float, lon: float, half: float) -> dict:
             "imagery_asset_urls": {k: public_asset_url(v.href) for k, v in image.assets.items() if k in {"visual", "B02", "B03", "B04"}},
             "dem_item_id": dem_item.id, "dem_datetime": dem_item.datetime.isoformat() if dem_item.datetime else None,
             "dem_asset_url": public_asset_url(dem_item.assets[dem_key].href),
-            "raster_grid_res_m": 2 * half / max(n - 1, 1)}
+            "raster_grid_res_m": 2 * half / max(n - 1, 1), **coverage}
 
 
 def _download_city_index(out: Path, url: str, name: str) -> str:
@@ -733,31 +772,117 @@ def fetch_city_imagery(out: Path, provider: str, lat: float, lon: float, half: f
     return years
 
 
+def x1_raw_products() -> set[str]:
+    n = X1_EXTENT_M // TILE_M
+    return {"osm.json", "dem.npy", "core.png"} | {f"naip_{i}_{j}.png" for i in range(n) for j in range(n)}
+
+
+def derive_x1_core(out: Path) -> dict:
+    """Crop the existing north-up Sentinel mosaic; this does not add detail."""
+    n = X1_EXTENT_M // TILE_M
+    core_size = round(CORE_HALF_M / TILE_M * TILE_CRS_PX)
+    core = Image.new("RGBA", (2 * core_size, 2 * core_size))
+    sources = []
+    # fetch_global slices the north-up raster in row order (north to south).
+    for y, j in enumerate((n // 2 - 1, n // 2)):
+        for x, i in enumerate((n // 2 - 1, n // 2)):
+            _checkpoint()
+            name = f"naip_{i}_{j}.png"
+            with Image.open(out / name) as tile:
+                if tile.size != (TILE_CRS_PX, TILE_CRS_PX):
+                    raise ValueError(f"unexpected Sentinel tile dimensions: {out / name}")
+                left = TILE_CRS_PX - core_size if x == 0 else 0
+                top = TILE_CRS_PX - core_size if y == 0 else 0
+                core.paste(tile.crop((left, top, left + core_size, top + core_size)),
+                           (x * core_size, y * core_size))
+            sources.append(name)
+    save_rgba(np.asarray(core), out / "core.png")
+    return {"method": "center crop of Sentinel-2 mosaic", "source_tiles": sources}
+
+
+def raw_product(path: Path, out: Path) -> dict:
+    return {"path": str(path.relative_to(out)), "bytes": path.stat().st_size, "sha256": sha256_file(path)}
+
+
+def reuse_x1_products(out: Path, prior: dict | None, identity: dict) -> bool:
+    """Accept a complete receipt, or repair the legacy core-only omission offline."""
+    if not prior or any(prior.get(key) != value for key, value in identity.items()):
+        return False
+    downloads = {row["path"]: row for row in prior.get("downloads", [])}
+    missing = x1_raw_products() - downloads.keys()
+    if missing - {"core.png"}:
+        return False
+    # Do not reissue a receipt if a previously pinned input changed.
+    for relative, row in downloads.items():
+        path = out / relative
+        if (not path.resolve().is_relative_to(out.resolve()) or not path.is_file()
+                or row["bytes"] <= 0 or path.stat().st_size != row["bytes"]
+                or sha256_file(path) != row["sha256"]):
+            raise ValueError(f"cannot repair X1 core: cached raw product mismatch: {path}")
+    if not missing:
+        return True
+    derived = derive_x1_core(out)
+    prior.setdefault("derived_products", {})["core.png"] = derived
+    prior["downloads"].append(raw_product(out / "core.png", out))
+    publish_bytes(out / "provenance.json", json.dumps(prior, indent=2).encode())
+    return True
+
+
+def bind_fetch_origin(out: Path, prior: dict | None, identity: dict, *, override: bool) -> None:
+    pin = out / ".x1-fetch-origin.json"
+    if pin.exists():
+        if json.loads(pin.read_text()) != identity:
+            raise ValueError(f"{out}: cached fetch has a different site origin; use a new --raw-root")
+    elif override:
+        if prior is None and any(path.name != f"{pin.name}.part" for path in out.iterdir()):
+            raise ValueError(f"{out}: unpinned partial fetch; use a new --raw-root for --origin")
+        publish_bytes(pin, json.dumps(identity, sort_keys=True).encode())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("sites", nargs="*")
     ap.add_argument("--raw-root", type=Path, help="原始数据站点目录，默认 <asset_root>/sites")
     ap.add_argument("--extent-m", type=float, help="正方形边长（米）；显式扩展时必须与 build_scene 使用同值")
+    ap.add_argument("--origin", nargs=2, type=float, metavar=("LAT", "LON"),
+                    help="override the origin of one explicitly selected --extent-m 6000 site")
     args = ap.parse_args()
+    if args.origin is not None:
+        if len(args.sites) != 1 or args.extent_m != X1_EXTENT_M:
+            ap.error("--origin requires one explicitly selected site and --extent-m 6000")
+        lat, lon = args.origin
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            ap.error("--origin requires finite latitude [-90, 90] and longitude [-180, 180]")
     _checkpoint()
     cfg = json.loads(SITES.read_text())
     for name in args.sites or cfg["sites"]:
         _checkpoint()
-        site = cfg["sites"][name]
+        site = cfg["sites"][name].copy()
+        if args.origin is not None:
+            site["lat"], site["lon"] = args.origin
         out = (args.raw_root or Path(cfg["asset_root"]) / "sites") / name / "raw"
         out.mkdir(parents=True, exist_ok=True)
         extent_m = site["size_m"] if args.extent_m is None else args.extent_m
         from range_profile import make_profile
         profile = make_profile(extent_m, name="fetched")
+        provider = site.get("provider", "us")
+        identity = {"site": name, "lat": site["lat"], "lon": site["lon"], "size_m": extent_m, "provider": provider}
         existing = out / "provenance.json"
+        prior = None
         if existing.exists():
             prior = json.loads(existing.read_text())
             if abs(float(prior.get("size_m", extent_m)) - extent_m) > 1e-6:
                 raise ValueError(f"{name}: existing raw extent {prior.get('size_m')} differs; use a new --raw-root")
+            if extent_m == X1_EXTENT_M and any(prior.get(key) != identity[key] for key in ("lat", "lon")):
+                raise ValueError(f"{name}: existing raw origin differs; use a new --raw-root")
+        bind_fetch_origin(out, prior, identity, override=args.origin is not None)
         half = profile.half_extent_m
         wkt = local_wkt(site["lat"], site["lon"])
         print("==", name, flush=True)
-        provider = site.get("provider", "us")
+        needs_x1_core = extent_m == X1_EXTENT_M and provider in SENTINEL_PROVIDERS
+        if needs_x1_core and reuse_x1_products(out, prior, identity):
+            print("reused X1 raw products, including derived core imagery", flush=True)
+            continue
         model_source = {}
         if provider == "us":
             fetch_dem(out, wkt, half)
@@ -813,21 +938,28 @@ def main() -> None:
         else:
             sources = {"dem": {"name": "Copernicus DEM GLO-30", "url": f"{PC_STAC}/collections/cop-dem-glo-30", "license": "Copernicus free and open data"},
                        "imagery": years.get("imagery_source", {}), "city_model": model_source.get("model", {})}
+        derived_products = {}
+        if needs_x1_core:
+            for relative in sorted(x1_raw_products() - {"core.png"}):
+                path = out / relative
+                if not path.is_file() or path.stat().st_size <= 0:
+                    raise ValueError(f"missing or empty X1 raw product: {path}")
+            derived_products["core.png"] = derive_x1_core(out)
         downloads = []
         for p in sorted(out.rglob("*")):
             _checkpoint()
             if p.is_file() and p.name != "provenance.json" and not any(
                     part.startswith(".") or part.endswith(".part") for part in p.relative_to(out).parts):
-                downloads.append({"path": str(p.relative_to(out)), "bytes": p.stat().st_size, "sha256": sha256_file(p)})
+                downloads.append(raw_product(p, out))
         publish_bytes(out / "provenance.json", json.dumps({
-            "site": name, "lat": site["lat"], "lon": site["lon"], "size_m": extent_m,
+            **identity,
             "range_profile": profile.as_dict(),
             "proj4": proj4(site["lat"], site["lon"]),
             "fetched_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "provider": provider, "dem_res_m": dem_res_m, "building_height_years": building_height_years, "imagery_res_m": {
+            "dem_res_m": dem_res_m, "building_height_years": building_height_years, "imagery_res_m": {
                 "us": 0.6, "swiss": 0.1, "nl": 0.08, "global": 10.0, "plateau": 10.0, "berlin": 10.0
             }[provider], "source_years": years,
-            "downloads": downloads, "sources": {**sources,
+            "downloads": downloads, **({"derived_products": derived_products} if derived_products else {}), "sources": {**sources,
                 "vectors": {"name": "OpenStreetMap via Overpass", "license": "ODbL-1.0",
                             "attribution": "(c) OpenStreetMap contributors"},
             },

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import signal
@@ -26,6 +27,7 @@ if __name__ == "__main__":
 from scripts.realworld.x1_lock import (  # noqa: E402
     LOCK, TEMPFAIL, LockBusy, Yielded, flight_requested, try_lock, world_owner, world_phase,
 )
+from scripts.realworld.x1_pad import PAD_REJECTED, PadRejected  # noqa: E402
 
 
 def read_json(path):
@@ -49,6 +51,7 @@ POLL_SECONDS = 2
 YIELD_GRACE_SECONDS = 10
 YIELD_RECEIPT = "world-yield"
 EXTENT = 6000
+RETARGETED_SITES = {f"rw_{name}_w6km" for name in ("alpine_grindelwald", "port_rotterdam", "city_shenzhen")}
 
 
 class Pending(RuntimeError):
@@ -60,6 +63,10 @@ class FlightsBusy(Pending):
 
 
 class HardAbort(RuntimeError):
+    pass
+
+
+class MissingRawProducts(ValueError):
     pass
 
 
@@ -129,7 +136,8 @@ class Asset:
     def __init__(self, name):
         self.name = name
         self.base = name.removesuffix("_w6km")
-        self.site = SITE_CONFIG["sites"][name]
+        self.configured_site = SITE_CONFIG["sites"][name]
+        self.site = self.configured_site
         self.base_site = SITE_CONFIG["sites"][self.base]
         self.source_2km = Path(SITE_CONFIG["asset_root"]) / CONFIG["sites"][self.base] / self.base / "raw"
         self.root = ASSET_ROOT / name / "v1"
@@ -140,9 +148,33 @@ class Asset:
         self.world = self.root / "worlds" / f"{name}__clear_noon.sdf"
         self.state = self.root / ".pipeline"
         self.ready = self.root / "asset-ready.json"
+        self.pad_journal = self.root.with_name(".x1-pad-retries-v1.json")
 
-    def pin(self):
-        return {"schema_version": 1, "site": self.name, "config": self.site,
+    def load_pad_history(self):
+        self.site = self.configured_site
+        if not self.pad_journal.exists():
+            return []
+        row = read_json(self.pad_journal)
+        if row["configured_site"] != self.configured_site:
+            raise ValueError(f"{self.pad_journal}: configured site changed; review existing retries")
+        attempts = row["attempts"]
+        if attempts:
+            self.site = self.candidate_site(attempts[-1]["candidate"])
+        return attempts
+
+    def candidate_site(self, candidate):
+        lat, lon = (candidate[key] for key in ("lat", "lon"))
+        if not (-90 < lat < 90 and -180 <= lon <= 180):
+            raise ValueError(f"{self.name}: invalid pad candidate coordinates")
+        return {**self.configured_site, "lat": lat, "lon": lon, "origin_moved_for_pad": True}
+
+    def origin_args(self):
+        if self.site == self.configured_site:
+            return []
+        return ["--origin", str(self.site["lat"]), str(self.site["lon"])]
+
+    def pin(self, site=None):
+        return {"schema_version": 1, "site": self.name, "config": self.site if site is None else site,
                 "base_config": self.base_site, "source_2km": str(self.source_2km),
                 "model_seed": CONFIG["model_seed"]}
 
@@ -155,6 +187,28 @@ class Asset:
             if self.root.exists() and any(p.name != ".pipeline" for p in self.root.iterdir()):
                 raise ValueError(f"{self.root}: refusing to replace an unmanaged asset")
             atomic_json(path, self.pin())
+
+    def install_pad(self, attempts):
+        """Replay an interrupted origin change without mixing raw generations."""
+        pin_path = self.state / "input.json"
+        if pin_path.is_file() and read_json(pin_path) != self.pin():
+            old_pin = read_json(pin_path)
+            if attempts:
+                prior = self.candidate_site(attempts[-2]["candidate"]) if len(attempts) > 1 else self.configured_site
+                eligible = old_pin == self.pin(prior)
+                archive = self.root.with_name(f"v1-rejected-pad-{len(attempts):02}")
+            else:
+                # One-time migration of the three manually retargeted, unaccepted v1 assets.
+                old_site = old_pin["config"]
+                changed = {k for k in old_site.keys() | self.site.keys() if old_site.get(k) != self.site.get(k)}
+                eligible = (self.name in RETARGETED_SITES and self.site.get("origin_moved_for_pad") is True
+                            and changed <= {"lat", "lon", "origin_moved_for_pad"} and old_pin == self.pin(old_site))
+                archive = self.root.with_name("v1-before-pad-retarget")
+            if (not eligible or self.root.is_symlink() or archive.exists() or archive.is_symlink()
+                    or (self.root / "x1/preflight.json").exists()):
+                raise ValueError(f"{self.name}: inputs changed after v1 was initialized")
+            self.root.rename(archive)
+        self.bind()
 
     def path_in_asset(self, relative):
         path = self.root / relative
@@ -177,7 +231,8 @@ class Asset:
         downloads = {row["path"]: row["bytes"] for row in value["downloads"]}
         required = {"osm.json", "dem.npy", "core.png"} | {f"naip_{i}_{j}.png" for i in range(6) for j in range(6)}
         if not required.issubset(downloads):
-            raise ValueError(f"{path}: provenance omits required raw products")
+            missing = ", ".join(sorted(required - downloads.keys()))
+            raise MissingRawProducts(f"{path}: provenance omits required raw products: {missing}")
         for relative, size in downloads.items():
             product = self.path_in_asset((self.raw / relative).relative_to(self.root))
             if not product.resolve().is_relative_to(self.raw.resolve()) or self.required_file(product).stat().st_size != size:
@@ -247,7 +302,7 @@ def input_fingerprint():
     """Hash of the config and code that decide world success; changes when a fix lands."""
     import hashlib
     digest = hashlib.sha256()
-    names = sorted(HERE.glob("x1_world_*.py")) + [HERE / "fetch_site.py", HERE / "build_scene.py", HERE / "x1_find_pad.py",
+    names = sorted(HERE.glob("x1_world_*.py")) + [HERE / "fetch_site.py", HERE / "build_scene.py", HERE / "x1_find_pad.py", HERE / "x1_pad.py",
              ROOT / "configs/sim-assets/realworld-sites.json", ROOT / "configs/simulation/x1-worlds.json"]
     for path in names:
         if path.exists():
@@ -300,6 +355,11 @@ class Progress:
     def __init__(self, paths, log):
         self.log = log
         self.sites = {name: {"state": "pending"} for name in paths}
+        try:
+            old = read_json(NAS / "status.json")["sites"]
+        except (OSError, ValueError, KeyError):
+            old = {}
+        self.sites.update({name: old[name] for name in self.sites if name in old})
 
     def write(self, state, *, site=None, phase=None, reason=None, free=None):
         payload = {"schema_version": 1, "updated_utc": now(), "state": state,
@@ -384,7 +444,8 @@ def guarded(argv, env, log, report: Callable, *, requested=None):
 
 def phase_command(asset, phase):
     if phase == "fetch":
-        return [TOOLS, "-Bu", str(HERE / "fetch_site.py"), asset.name, "--raw-root", str(asset.root / "raw"), "--extent-m", str(EXTENT)]
+        return [TOOLS, "-Bu", str(HERE / "fetch_site.py"), asset.name, "--raw-root", str(asset.root / "raw"),
+                "--extent-m", str(EXTENT), *asset.origin_args()]
     if phase == "route":
         return [SYSTEM_PYTHON, "-Bu", str(ROUTE), "--asset", str(asset.root), "--world", str(asset.world)]
     return [TOOLS, "-Bu", str(Path(__file__).resolve()), "_phase", asset.name, phase]
@@ -393,7 +454,7 @@ def phase_command(asset, phase):
 def run_phase(asset, phase):
     # Heavy CPU and filesystem operations are children of guarded(), including the audits.
     if phase in {"check-2km", "check-6km"}:
-        from x1_world_origin import audit
+        from scripts.realworld.x1_world_origin import audit, validate_dem
 
         raw = asset.source_2km if phase == "check-2km" else asset.raw
         base = asset.base_site if phase == "check-2km" else asset.site
@@ -401,14 +462,41 @@ def run_phase(asset, phase):
         print(json.dumps(result), flush=True)
         atomic_json(asset.root / f"origin-{phase[-3:]}.json", result)
         if not result["passed"]:
-            raise ValueError(f"{asset.name}: {phase} launch origin failed the {result['clearance_m']} m water rule")
+            message = f"{asset.name}: {phase} launch origin failed the {result['clearance_m']} m water rule"
+            if phase == "check-6km":
+                raise PadRejected(message)
+            raise ValueError(message)
+        if phase == "check-6km":
+            validate_dem(raw / "dem.npy")
+    elif phase == "find-pad":
+        from pyproj import Geod
+        from scripts.realworld.x1_find_pad import candidates
+
+        geod = Geod(ellps="WGS84")
+        attempts = asset.load_pad_history()
+        seen = [asset.configured_site, *(entry["candidate"] for entry in attempts)]
+
+        def distance(a, b):
+            return geod.inv(a["lon"], a["lat"], b["lon"], b["lat"])[2]
+
+        def new(row):
+            return (distance(row, seen[0]) <= 1800
+                    and all(distance(row, other) >= 75 for other in seen))
+
+        selected = None
+        options = [{}, {"max_slope": 8, "max_relief": 6, "min_water": 80, "min_building": 60}]
+        for limits in options:
+            selected = next((row for row in candidates(asset.raw, **limits) if new(row)), None)
+            if selected is not None:
+                break
+        atomic_json(asset.state / "next-pad.json", selected)
     elif phase == "build":
         for directory in (asset.terrain.parent, asset.scene.parent):
             if directory.exists():
                 shutil.rmtree(directory)
         subprocess.run([TOOLS, "-Bu", str(HERE / "build_scene.py"), asset.name,
                         "--raw-root", str(asset.root / "raw"), "--scene-root", str(asset.scene.parent.parent),
-                        "--output-root", str(asset.models), "--extent-m", str(EXTENT)], check=True)
+                        "--output-root", str(asset.models), "--extent-m", str(EXTENT), *asset.origin_args()], check=True)
         atomic_json(asset.state / "build.json", asset.build_pin(asset.fetch_provenance()))
     elif phase == "make":
         from validate_wide_area import audit
@@ -449,25 +537,66 @@ def run_phase(asset, phase):
 
 def generate(asset, progress):
     with world_phase(LOCK):
-        asset.bind()
+        attempts = asset.load_pad_history()
+        asset.install_pad(attempts)
+    while True:
+        try:
+            generate_at_origin(asset, progress, use_base_audit=not attempts)
+            return
+        except PadRejected as exc:
+            if len(attempts) >= CONFIG["max_pad_retries"]:
+                raise ValueError(f"{asset.name}: exhausted {len(attempts)} pad retries ({exc})") from exc
+            progress.write("retrying_pad", site=asset.name, reason=str(exc))
+            run_guarded_phase(asset, progress, "find-pad")
+            with world_phase(LOCK):
+                candidate = read_json(asset.state / "next-pad.json")
+                if candidate is None:
+                    raise ValueError(f"{asset.name}: no other dry, open, flat pad found ({exc})") from exc
+                site = asset.candidate_site(candidate)
+                attempts.append({"candidate": candidate, "rejected_origin": [asset.site["lat"], asset.site["lon"]],
+                                 "reason": str(exc), "utc": now()})
+                # Publish the decision before moving v1. install_pad() replays either side of the rename.
+                atomic_json(asset.pad_journal, {"configured_site": asset.configured_site, "attempts": attempts})
+                asset.site = site
+                asset.install_pad(attempts)
+            progress.write("retrying_pad", site=asset.name, reason=f"retry {len(attempts)}: {candidate}")
+
+
+def run_guarded_phase(asset, progress, phase):
+    with world_phase(LOCK):
         scratch = asset.state / "tmp"
         scratch.mkdir(exist_ok=True)
-    env = {**os.environ, "RW_SCENE_ROOT": str(asset.scene.parent.parent), "RW_RESOLVED_ROOT": str(asset.models),
-           "RW_FACADE_OUT": str(Path(SITE_CONFIG["asset_root"]) / "library/facades"), "TMPDIR": str(scratch),
-           "PYTHONPATH": f"{ROOT}:{ROOT / 'src'}", "PYTHONDONTWRITEBYTECODE": "1", "PROJ_NETWORK": "OFF"}
-
-    def run(phase):
-        phase_env = {**env, "MD_X1_FETCH_LOCK": str(LOCK)} if phase == "fetch" else env
-        with world_phase(LOCK):
-            guarded(phase_command(asset, phase), phase_env, progress.log,
+        env = {**os.environ, "RW_SCENE_ROOT": str(asset.scene.parent.parent), "RW_RESOLVED_ROOT": str(asset.models),
+               "RW_FACADE_OUT": str(Path(SITE_CONFIG["asset_root"]) / "library/facades"), "TMPDIR": str(scratch),
+               "PYTHONPATH": f"{ROOT}:{ROOT / 'src'}", "PYTHONDONTWRITEBYTECODE": "1", "PROJ_NETWORK": "OFF"}
+        if phase == "fetch":
+            env["MD_X1_FETCH_LOCK"] = str(LOCK)
+        try:
+            guarded(phase_command(asset, phase), env, progress.log,
                     lambda state, free: progress.write(state, site=asset.name, phase=phase, free=free),
                     requested=lambda: flight_requested(LOCK))
+        except subprocess.CalledProcessError as exc:
+            if exc.returncode == PAD_REJECTED and phase in {"check-6km", "route"}:
+                reason = "route rejected launch pad" if phase == "route" else "6 km water clearance failed"
+                raise PadRejected(reason) from exc
+            raise
+
+
+def generate_at_origin(asset, progress, *, use_base_audit):
+    def run(phase):
+        run_guarded_phase(asset, progress, phase)
 
     if not asset.ready.exists():
         # The origin audits are small and replayable. All expensive stages are
         # independently restartable from their atomically published receipts.
-        run("check-2km")
-        if not (asset.raw / "provenance.json").exists():
+        # Auto-selected pads can be outside the old 2 km cache. Each one must
+        # still pass the matching, newly fetched 6 km audit before construction.
+        if use_base_audit:
+            run("check-2km")
+        try:
+            with world_phase(LOCK):
+                asset.fetch_provenance()
+        except (FileNotFoundError, MissingRawProducts):
             run("fetch")
         run("check-6km")
         with world_phase(LOCK):
@@ -563,20 +692,23 @@ def main(argv=None):
     dispatching = False
     try:
         if args.action == "_phase" and args.site and args.phase:
-            run_phase(Asset(args.site), args.phase)
+            asset = Asset(args.site)
+            asset.load_pad_history()
+            run_phase(asset, args.phase)
             return 0
         if args.site or args.phase or args.action == "_phase":
             parser.error("unexpected arguments")
         if args.action == "origins":
             if sys.executable != TOOLS:
                 return subprocess.call([TOOLS, "-B", str(Path(__file__).resolve()), "origins"], cwd=ROOT)
-            from x1_world_origin import audit
+            from scripts.realworld.x1_world_origin import audit
 
             rows = {a.name: audit(a.source_2km, a.base_site, a.site) for a in assets}
             print(json.dumps(rows, indent=2))
             return 0 if all(row["passed"] for row in rows.values()) else 1
         if args.action == "complete":
             for asset in assets:
+                asset.load_pad_history()
                 receipt = asset.receipt()
                 asset.route_receipt(receipt["world_sha256"])
             print(f"all {len(assets)} X1 world assets and offline routes verified")
@@ -602,6 +734,9 @@ def main(argv=None):
             cmd.extend(["--keepalive-state", str(args.keepalive_state.resolve())])
         print(command(cmd))
         return 0
+    except PadRejected as exc:
+        print(f"x1-worlds: {exc}", file=sys.stderr)
+        return PAD_REJECTED
     except (OSError, RuntimeError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         detail = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) and exc.stderr else str(exc)
         print(f"x1-worlds: {detail}", file=sys.stderr)
