@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "enabled": false,
+  "enabled": true,
   "sites": [
     "rw_canal_amsterdam",
     "rw_port_rotterdam",
@@ -11,8 +11,14 @@
     "rw_city_zurich"
   ],
   "conditions": [
-    {"time_of_day": "noon", "weather": "overcast"},
-    {"time_of_day": "dusk", "weather": "clear"}
+    {
+      "time_of_day": "noon",
+      "weather": "overcast"
+    },
+    {
+      "time_of_day": "dusk",
+      "weather": "clear"
+    }
   ],
   "asset_dirs": {
     "rw_farm_iowa": "rw_farm_iowa_w6km/x1-variant-source"
