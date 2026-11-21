@@ -151,8 +151,8 @@
     },
     "rw_alpine_grindelwald_w6km": {
       "title": "格林德瓦山村",
-      "lat": 46.6245,
-      "lon": 8.0412,
+      "lat": 46.615953933,
+      "lon": 8.036630765,
       "size_m": 6000,
       "kind": "mountain",
       "provider": "swiss"
@@ -167,8 +167,8 @@
     },
     "rw_port_rotterdam_w6km": {
       "title": "鹿特丹港区",
-      "lat": 51.88522464309306,
-      "lon": 4.4297321931078555,
+      "lat": 51.887021903,
+      "lon": 4.422107006,
       "size_m": 6000,
       "kind": "industrial",
       "provider": "nl"
@@ -192,8 +192,8 @@
     },
     "rw_city_shenzhen_w6km": {
       "title": "深圳南山 深圳湾公园开阔地",
-      "lat": 22.523177,
-      "lon": 113.942624,
+      "lat": 22.521144928,
+      "lon": 113.951372005,
       "size_m": 6000,
       "kind": "coast",
       "provider": "global"

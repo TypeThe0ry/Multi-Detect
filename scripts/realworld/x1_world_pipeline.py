@@ -243,6 +243,28 @@ def free_bytes():
     return shutil.disk_usage(DATA).free
 
 
+def input_fingerprint():
+    """Hash of the config and code that decide world success; changes when a fix lands."""
+    import hashlib
+    digest = hashlib.sha256()
+    names = sorted(HERE.glob("x1_world_*.py")) + [HERE / "fetch_site.py", HERE / "build_scene.py", HERE / "x1_find_pad.py",
+             ROOT / "configs/sim-assets/realworld-sites.json", ROOT / "configs/simulation/x1-worlds.json"]
+    for path in names:
+        if path.exists():
+            digest.update(path.name.encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def check_prior_failure():
+    """Do not relaunch when every attempt failed on identical inputs; wait for a fix."""
+    receipt = NAS / "FAILED.json"
+    if receipt.exists():
+        data = read_json(receipt)
+        if data.get("fingerprint") == input_fingerprint():
+            raise Pending(f"previous run failed on identical inputs ({', '.join(data.get('sites', []))}); change code or config first")
+
+
 def host_preflight(assets, *, check_start_disk=True, check_nas=True):
     if check_nas:
         check_mount(NAS if NAS.exists() else NAS.parent, nas=True)
@@ -256,6 +278,7 @@ def host_preflight(assets, *, check_start_disk=True, check_nas=True):
     if os.getloadavg()[0] >= load_max:
         raise Pending(f"host one-minute load must be below {load_max:g}")
     check_flights()
+    check_prior_failure()
     # Verify write access without publishing live status or touching asset state.
     with tempfile.NamedTemporaryFile(prefix=".preflight-", dir=NAS if NAS.is_dir() else NAS.parent):
         pass
@@ -485,11 +508,13 @@ def worker(assets, keepalive_state=None):
                         failed.append(site)
                         progress.write("failed", site=site, reason=str(exc))
             except (Yielded, FlightsBusy) as exc:
-                if keepalive_state is not None and not failed:
+                # The dispatch was preempted, even if a previous site failed.
+                # Its failure remains in the per-site status and phase log.
+                if keepalive_state is not None:
                     attempt = read_json(keepalive_state / "attempts")
                     atomic_json(keepalive_state / YIELD_RECEIPT, {"state": "yielded", "attempt": attempt})
                 progress.write("yielded", site=site, reason=str(exc))
-                return 1 if failed else 0
+                return 0
             except HardAbort as exc:
                 progress.write("aborted_disk", site=site, reason=str(exc))
                 return 2
@@ -498,8 +523,13 @@ def worker(assets, keepalive_state=None):
                 return 130
             if failed:
                 progress.write("failed", reason=f"failed sites: {', '.join(failed)}")
+                atomic_json(NAS / "FAILED.json", {"fingerprint": input_fingerprint(), "sites": failed,
+                                                  "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
                 return 1
             progress.write("complete")
+            receipt = NAS / "FAILED.json"
+            if receipt.exists():
+                receipt.unlink()
             return 0
 
 
