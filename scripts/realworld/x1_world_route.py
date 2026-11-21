@@ -489,7 +489,8 @@ def terrain_altitudes(lower, upper, lengths, rates):
 
 
 def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=False,
-             threshold_m=DEPARTURE, agl_band=(MIN_AGL, MAX_AGL), transition_min_agl=None):
+             threshold_m=DEPARTURE, agl_band=(MIN_AGL, MAX_AGL), transition_min_agl=None,
+             bounded_pass=False):
     if points.ndim != 2 or points.shape[1] != 2 or len(points) < 4 or not np.isfinite(points).all():
         raise ValueError("expected finite ENU route coordinates")
     if not np.array_equal(points[0], points[-1]) or np.linalg.norm(points[0]) > 1e-8:
@@ -547,7 +548,8 @@ def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=Fa
                  for key in stats[0][2]}
     max_agl = max(max(heights[list(ix)]) - low for ix, low, _, _, _ in stats)
     far = float(np.linalg.norm(points, axis=1).max())
-    distance_witness = min(far - ARRIVAL, min(continuous_max.values()) - radius_slack)
+    arrival_extent = policy.FW_CAPTURE_WITNESS_M if bounded_pass else ARRIVAL
+    distance_witness = min(far - arrival_extent, min(continuous_max.values()) - radius_slack)
     max_capture_offset = max(
         np.linalg.norm(wp - np.concatenate([path for path, _ in chunks]), axis=1).min()
         for radius, chunks in routes.items() if radius for wp in points[1:-1]
@@ -624,14 +626,14 @@ def amsterdam_route(signs, direction):
     """Start turning earlier and spread the U-turn over 15-degree course changes."""
     diagonal = np.asarray(signs) / math.sqrt(2)
     lateral = direction * np.array([-diagonal[1], diagonal[0]])
-    radius = 145
+    radius = 120.1
     half_turn = math.pi / 24
     angles = np.linspace(half_turn, math.pi - half_turn, 12)
     turn = radius / math.cos(half_turn) * (np.sin(angles)[:, None] * diagonal
                                           - np.cos(angles)[:, None] * lateral)
     nose = turn[len(turn) // 2]
-    # Keep a 5 m departure witness beyond the 4 km gate after the 15 m capture.
-    centre = math.sqrt(4020.5**2 - (nose @ lateral)**2) - nose @ diagonal
+    # Reserve the full arrival-plane offset and at least 5 m past the gate.
+    centre = math.sqrt(4032.0**2 - (nose @ lateral)**2) - nose @ diagonal
     along = (550, 1300, 2100, 2900, centre - 240)
     out = [distance * diagonal - radius * lateral for distance in along]
     back = [distance * diagonal + radius * lateral for distance in reversed(along)]
@@ -671,7 +673,7 @@ def departure_certificate(layers):
             "best_possible_minimum_clearance_at_gate_m": MAX_ALTITUDE - best_crest}
 
 
-def valley_route(centreline, turn_radius, direction):
+def valley_route(centreline, turn_radius, direction, *, turn_segments=6):
     """Offset a valley axis to two passes and join them on tangent intersections."""
     tangents = np.diff(centreline, axis=0)
     tangents /= np.linalg.norm(tangents, axis=1)[:, None]
@@ -679,8 +681,9 @@ def valley_route(centreline, turn_radius, direction):
     tangents /= np.linalg.norm(tangents, axis=1)[:, None]
     lateral = direction * np.column_stack((-tangents[:, 1], tangents[:, 0]))
     offsets = turn_radius * lateral
-    angles = np.linspace(math.pi / 12, 11 * math.pi / 12, 6)
-    arc = centreline[-1] + turn_radius / math.cos(math.pi / 12) * (
+    half_turn = math.pi / (2 * turn_segments)
+    angles = np.linspace(half_turn, math.pi - half_turn, turn_segments)
+    arc = centreline[-1] + turn_radius / math.cos(half_turn) * (
         np.sin(angles)[:, None] * tangents[-1] - np.cos(angles)[:, None] * lateral[-1])
     # The first back-pass waypoint is inside the required back-transition ring.
     out = centreline - offsets
@@ -696,7 +699,7 @@ def valley_route(centreline, turn_radius, direction):
     return np.concatenate((densify(out), arc, densify(back[1:][::-1])[1:], back[1::-1]))
 
 
-def valley_candidates():
+def valley_candidates(*, bounded_pass=False):
     """Survey the NW valley from the stated pad, varying width and turnaround."""
     # ENU survey axis through the low valley in this particular 6 km DEM.
     axis = np.array([(0, 0), (-440, 175), (-1000, 490), (-1670, 860), (-2140, 1260),
@@ -707,8 +710,11 @@ def valley_candidates():
             centreline = axis[:terminal].copy()
             centreline[-1] = centreline[-2] + fraction * (centreline[-1] - centreline[-2])
             centreline[2:, 1] += shift
-            yield (f"valley/{terminal}/{fraction:g}/{radius}m/{shift:+d}m/{direction:+d}",
-                   valley_route(centreline, radius, direction))
+            name = f"valley/{terminal}/{fraction:g}/{radius}m/{shift:+d}m/{direction:+d}"
+            if bounded_pass:
+                yield name + "/8-turn", valley_route(centreline, radius, direction, turn_segments=8)
+            else:
+                yield name, valley_route(centreline, radius, direction)
 
 
 def is_alpine(scene):
@@ -728,8 +734,8 @@ def survey_valley(layers, *, threshold_m=DEPARTURE, candidate=None, flight_margi
     if flight_margin:
         rates = (min(rates[0], 2.0), min(rates[1], 1.5))
         options = {"agl_band": policy.ALPINE_PLANNED_AGL_M,
-                   "transition_min_agl": policy.ALPINE_TRANSITION_MIN_AGL_M}
-    for name, points in valley_candidates():
+                   "transition_min_agl": policy.ALPINE_TRANSITION_MIN_AGL_M, "bounded_pass": True}
+    for name, points in valley_candidates(bounded_pass=flight_margin):
         if candidate is not None and name != candidate:
             continue
         try:
@@ -996,12 +1002,13 @@ def preflight(asset, world, *, bundle_root=None):
             points = amsterdam_route(QUADRANTS["NW"], 1)
             mission_radius = read_json(TEMPLATE_DIR / f"{TEMPLATE}.long_range.json")[
                 "mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"]
-            metrics = evaluate(points, layers)
-            runout = policy.amsterdam_runout(points[:-1, ::-1], mission_radius, HALF)
+            metrics = evaluate(points, include_runtime_dem(layers, read_json(stage / f"{world_id}.dem.json")),
+                               bounded_pass=True)
+            runout = policy.amsterdam_runout(points[:-1, ::-1], mission_radius, HALF, bounded_pass=True)
             if not policy.has_runout_margin(runout):
                 metrics["failures"].append("mission radius or world boundary runout")
                 metrics["passed"] = False
-            candidates = [{**metrics, "candidate": "NW/+1/runout", "fw_runout": runout}]
+            candidates = [{**metrics, "candidate": "NW/+1/bounded-pass", "fw_runout": runout}]
         else:
             candidates = (survey_valley(layers, threshold_m=threshold) if alpine else
                           ({**evaluate(points, layers), "candidate": name} for name, points in corner_candidates()))

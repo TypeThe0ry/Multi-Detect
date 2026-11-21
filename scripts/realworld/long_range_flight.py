@@ -345,10 +345,20 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
     start = (0.0, 0.0, -geometry.takeoff_altitude_m)
     capture = route_preflight["fly_through_radius_m"] if route_preflight else None
     capture_radii = capture if isinstance(capture, list) else [capture] * len(targets)
-    departure = max(
-        math.hypot(*point[:2]) - (geometry.loiter_radius_m if radius is None else radius)
-        for point, radius in zip(targets, capture_radii, strict=True)
-    )
+    metrics = route_preflight.get("metrics", {}) if route_preflight else {}
+    revision = metrics.get("flight_margin_revision")
+    bounded_pass = revision == scenario_policy.FLIGHT_MARGIN_REVISION
+    if bounded_pass and data["scenario_id"] not in {scenario_policy.ALPINE_WORLD, scenario_policy.AMSTERDAM_WORLD}:
+        raise ValueError("bounded Offboard passage requires a surveyed FLY-FIX-2 site")
+    if bounded_pass:
+        if any(radius is None for radius in capture_radii):
+            raise ValueError("bounded Offboard passage requires an Offboard command at every waypoint")
+        departure = max(math.hypot(*point[:2]) for point in targets) - scenario_policy.FW_CAPTURE_WITNESS_M
+    else:
+        departure = max(
+            math.hypot(*point[:2]) - (geometry.loiter_radius_m if radius is None else radius)
+            for point, radius in zip(targets, capture_radii, strict=True)
+        )
     if departure < minimum + 5.0:
         raise ValueError("VTOL route requires an arrival margin beyond the distance gate")
     if not 250.0 <= math.hypot(*targets[-1][:2]) <= 650.0:
@@ -356,8 +366,7 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
     if math.hypot(*offset_ned(geometry.home, geometry.landing)[:2]) > 1.0:
         raise ValueError("VTOL landing must be at home")
     boundary = data["boundary"]
-    metrics = route_preflight.get("metrics", {}) if route_preflight else {}
-    revised = metrics.get("flight_margin_revision") == scenario_policy.FLIGHT_MARGIN_REVISION
+    revised = revision in {scenario_policy.FLIGHT_MARGIN_REVISION, scenario_policy.LEGACY_FLIGHT_MARGIN_REVISION}
     limits = (40.0, MAX_CRUISE_AGL_M)
     transition_min = None
     if revised and data["scenario_id"] == scenario_policy.ALPINE_WORLD:
@@ -370,7 +379,7 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
         square_half = min(-boundary["north_min_m"], boundary["north_max_m"],
                           -boundary["east_min_m"], boundary["east_max_m"])
         runout = scenario_policy.amsterdam_runout([start[:2], *(point[:2] for point in targets)],
-                                                   mission_radius, square_half)
+                                                   mission_radius, square_half, bounded_pass=bounded_pass)
         if not scenario_policy.has_runout_margin(runout):
             raise ValueError("Amsterdam FW runout exceeds the audited mission-radius or square margin")
     buffer_m = route_preflight["buffer_m"] if route_preflight else geometry.loiter_radius_m
@@ -440,6 +449,7 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
                   or (route_preflight.get("metrics", {}).get("candidate"),
                       route_preflight.get("metrics", {}).get("flight_margin_revision")) not in {
                       (scenario_policy.ALPINE_LEGACY_CANDIDATE, None),
+                      (scenario_policy.ALPINE_FIX1_CANDIDATE, scenario_policy.LEGACY_FLIGHT_MARGIN_REVISION),
                       (scenario_policy.ALPINE_CANDIDATE, scenario_policy.FLIGHT_MARGIN_REVISION)}
                   or math.dist((geometry.home.latitude_deg, geometry.home.longitude_deg),
                                scenario_policy.ALPINE_ORIGIN) > 1e-8):
@@ -669,7 +679,7 @@ def _check_offboard_mode(collector, reader, streamer, *, wall=time.monotonic):
 
 
 def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
-                 offboard_streamer=None, wall=time.monotonic, sleep=time.sleep) -> dict[str, Any]:
+                 offboard_streamer=None, fw_pass_tangent=None, wall=time.monotonic, sleep=time.sleep) -> dict[str, Any]:
     """按 PX4 仿真时间等待；另设墙钟与时钟停滞上限，实时检查任务围栏。"""
     _, home_ned = collector._home_reference(reader.state)
     command = bind_target(command, home_ned)
@@ -690,6 +700,7 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
     angle = 0.0
     previous_yaw = None
     previous_pose = None
+    along = cross = None
 
     def reject(reason, **measurements):
         # Batch cleanup drops failed episodes, while flight.stdout.log survives.
@@ -698,7 +709,9 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
             position_home_ned_m=relative, previous_position_home_ned_m=previous_pose,
             target_home_ned_m=tuple(target - home for target, home in zip(command.target_ned, home_ned)),
             distance_from_home_m=math.hypot(*relative[:2]),
-            fly_through_radius_m=command.fly_through_radius_m, **measurements,
+            fly_through_radius_m=command.fly_through_radius_m,
+            **({"along_past_target_m": along, "cross_track_m": cross} if fw_pass_tangent is not None else {}),
+            **measurements,
         )
         raise RuntimeError(reason)
 
@@ -717,6 +730,9 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
             break
         pose = collector._state_position(reader.state)
         relative = tuple(value - home for value, home in zip(pose, home_ned))
+        dn, de = command.target_ned[0] - pose[0], command.target_ned[1] - pose[1]
+        if fw_pass_tangent is not None:
+            along, cross = scenario_policy.fw_target_offsets(fw_pass_tangent, (-dn, -de))
         boundary = mission["source"].get("boundary", {})
         if boundary and not (boundary["north_min_m"] <= relative[0] <= boundary["north_max_m"]
                              and boundary["east_min_m"] <= relative[1] <= boundary["east_max_m"]):
@@ -726,7 +742,6 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
         if math.hypot(*relative[:2]) > float(policy["maximum_mission_radius_m"]):
             reject("long-range telemetry exceeded the configured mission radius",
                    radius_limit_m=policy["maximum_mission_radius_m"])
-        dn, de = command.target_ned[0] - pose[0], command.target_ned[1] - pose[1]
         distance = math.hypot(dn, de)
         yaw = collector._state_yaw(reader.state)
         if previous_yaw is not None:
@@ -739,11 +754,23 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
             if not 30.0 <= agl <= MAX_CRUISE_AGL_M:
                 reject(f"fixed-wing cruise left the 30–120 m DEM AGL envelope ({agl:.1f} m)",
                        agl_m=agl, dem_relative_home_m=-relative[2] - agl)
-        if collector._fixed_wing_reposition_complete(
-            dn=dn, de=de, leg_n=leg_n, leg_e=leg_e, distance_m=distance,
-            loiter_radius_m=float(command.radius_m or 80.0), yaw_deg=yaw,
-            centre_n=command.target_ned[0], centre_e=command.target_ned[1], angle_deg=angle,
-            fly_through_radius_m=command.fly_through_radius_m):
+        if fw_pass_tangent is not None:
+            # Use the actual commanded tangent. An early disk arrival can
+            # shorten successive turn legs and aggravate lateral tracking lag.
+            # Stop a missed leg before continuing indefinitely along AUTO_PATH.
+            if along > scenario_policy.FW_PASS_ALONG_M:
+                reject("fixed-wing cruise missed the bounded Offboard waypoint passage")
+            arrived = along >= 0 and abs(cross) <= scenario_policy.FW_PASS_CROSS_M
+        else:
+            arrived = collector._fixed_wing_reposition_complete(
+                dn=dn, de=de, leg_n=leg_n, leg_e=leg_e, distance_m=distance,
+                loiter_radius_m=float(command.radius_m or 80.0), yaw_deg=yaw,
+                centre_n=command.target_ned[0], centre_e=command.target_ned[1], angle_deg=angle,
+                fly_through_radius_m=command.fly_through_radius_m)
+        if arrived:
+            if fw_pass_tangent is not None:
+                collector._progress("long_range_waypoint_pass", sim_stamp_ns=stamp,
+                                    position_home_ned_m=relative, along_past_target_m=along, cross_track_m=cross)
             return {"waited": "arrived", "distance_m": distance, "leg_m": leg,
                     "elapsed_s": wall() - started, "sim_elapsed_s": (stamp - first_stamp) / 1e9,
                     "sim_budget_s": sim_budget, "wall_budget_s": wall_budget,
@@ -763,6 +790,9 @@ def collector_overrides(collector, mission):
     geometry = mission["geometry"]
     offboard_streamer = None
     offboard_active = False
+    fw_pass_tangent = None
+    bounded_pass = (mission.get("route_preflight") or {}).get("metrics", {}).get(
+        "flight_margin_revision") == scenario_policy.FLIGHT_MARGIN_REVISION
 
     class LongRangeExecutor(original_executor):
         def __init__(self, *args, **kwargs):
@@ -807,7 +837,7 @@ def collector_overrides(collector, mission):
             return result
 
         def _execute_fw_path(self, action):
-            nonlocal offboard_active
+            nonlocal offboard_active, fw_pass_tangent
             reader = self.telemetry_reader
             if collector._flight_state_snapshot(reader.state)["vtol_state"] != 4:
                 raise RuntimeError("long-range Offboard path requires confirmed VTOL fixed-wing mode")
@@ -830,6 +860,7 @@ def collector_overrides(collector, mission):
                 collector._wait_for_offboard(self.vehicle, reader, offboard_streamer, after_ns=requested_ns)
                 _check_offboard_mode(collector, reader, offboard_streamer)
                 offboard_active = True
+            fw_pass_tangent = tangent if bounded_pass else None
             self.previous_fw_target = self._commanded = target
             return ExecutionResult("success", self._clock() - started,
                                    ack={"offboard_path": {"target_ned_m": target, "tangent_ne": tangent}})
@@ -837,7 +868,8 @@ def collector_overrides(collector, mission):
     def wait(command, reader, cruise_mps):
         if command.kind == "reposition":
             return wait_for_leg(command, reader, collector=collector, mission=mission, cruise_mps=cruise_mps,
-                                offboard_streamer=offboard_streamer if offboard_active else None)
+                                offboard_streamer=offboard_streamer if offboard_active else None,
+                                fw_pass_tangent=fw_pass_tangent if command.fly_through_radius_m is not None else None)
         if command.kind == "mc_reposition":
             command = bind_target(command, collector._home_reference(reader.state)[1])
         result = original_wait(command, reader, cruise_mps=cruise_mps)

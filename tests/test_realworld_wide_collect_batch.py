@@ -564,15 +564,21 @@ def test_repairs_interrupted_results_append_from_verdict(spec, matrix):
     assert results.read_bytes() == complete
 
 
-@pytest.mark.parametrize("airframe,valid,single_round,gpu,replay", [
-    (None, True, True, 3, ""), (None, False, True, 3, ""),
-    (DELTA, True, True, 3, ""), (DELTA, False, True, 3, ""),
-    (DELTA, True, False, 3, ""), (DELTA, True, True, 2, ""),
-    (DELTA, False, True, 0, "original"), (DELTA, True, True, 0, "pass"),
-    (DELTA, False, True, 0, "low_rtf"), (DELTA, False, True, 0, "wrong_gpu"),
-    (DELTA, True, True, 0, "wrong_container"), (DELTA, True, True, 0, "bad_horizon"),
+@pytest.mark.parametrize("airframe,valid,single_round,gpu,replay,policy_case", [
+    (*case, None) for case in [
+        (None, True, True, 3, ""), (None, False, True, 3, ""),
+        (DELTA, True, True, 3, ""), (DELTA, False, True, 3, ""),
+        (DELTA, True, False, 3, ""), (DELTA, True, True, 2, ""),
+        (DELTA, False, True, 0, "original"), (DELTA, True, True, 0, "pass"),
+        (DELTA, False, True, 0, "low_rtf"), (DELTA, False, True, 0, "wrong_gpu"),
+        (DELTA, True, True, 0, "wrong_container"), (DELTA, True, True, 0, "bad_horizon"),
+    ]
+] + [
+    pytest.param(DELTA, case == "pass", True, 3, "", case, id=f"mountain-short-{case}")
+    for case in ("aborted", "missing", "pass", "below_minimum", "wrong_class", "wrong_threshold")
 ])
-def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, single_round, gpu, replay):
+def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, single_round, gpu, replay,
+                                      policy_case):
     identity = {key: "a" * 64 if key == "container_id" else "md-rw-long-slot-5-test-episode"
                 for key in ("container_id", "container_name")}
     name, tag = "fixture", "test"
@@ -590,9 +596,18 @@ def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, s
         stats_identity["gpu"] = "3"
     if replay == "wrong_container":
         stats_identity["container_id"] = "b" * 64
-    stats_report = {**stats_identity, "measurement_complete": valid or replay in {"low_rtf", "wrong_gpu"},
+    stats_report = {**stats_identity, "measurement_complete": valid or bool(policy_case)
+                    or replay in {"low_rtf", "wrong_gpu"},
                     "errors": [], "rtf_window_median": 0.89 if replay == "low_rtf" else 0.95,
                     "rtf_delta_sim_over_delta_real": 0.95}
+    flight_rc = 1 if policy_case == "aborted" else 0
+    flight_result = {"route_completed": True, "max_distance_from_spawn_m": 4100}
+    if policy_case:
+        flight_result.update(
+            scenario_class="wide_area" if policy_case == "wrong_class" else "mountain_short",
+            minimum_max_distance_m=4000 if policy_case == "wrong_threshold" else 2250,
+            max_distance_from_spawn_m=2249 if policy_case == "below_minimum" else 2250,
+        )
     python = tmp_path / "fake-python"
     python.write_text('''#!/bin/bash
 set -e
@@ -611,14 +626,14 @@ case "$1" in
     if [[ "$FAKE_EXPECTED_AIRFRAME" == delta_tailsitter_gimbal_cam ]]; then frame_dir="$flight_out/episodes/episode-fixture/video/rgb"; frame_name=000001.jpg; fi
     mkdir -p "$frame_dir"
     if [[ "$FAKE_REPLAY" ]]; then cp "$FAKE_FIXTURE/long-range-result.json" "$flight_out/long-range-result.json"
-    else printf '{"route_completed":true,"max_distance_from_spawn_m":4100}' > "$flight_out/long-range-result.json"; fi
+    elif [[ -n "$FAKE_FLIGHT_RESULT" ]]; then printf '%s' "$FAKE_FLIGHT_RESULT" > "$flight_out/long-range-result.json"; fi
     printf 'data' > "$frame_dir/$frame_name"
     printf '{"status":"complete","simulator_container":%s,"gimbal_check":{"passed":true,"frame_count":1}}' "$FAKE_IDENTITY" > "$flight_out/episodes/episode-fixture/episode.json"
     if [[ "$FAKE_REPLAY" == original ]]; then cp "$FAKE_FIXTURE/guard.json" "$out/guard.json"
     else
       "$FAKE_REAL_PYTHON" -c 'import json,os,sys; args=json.loads(sys.argv[1]); assert args[2:6]==["--container-prefix", os.environ["MULTIDETECT_LONG_RANGE_CONTAINER_PREFIX"]+"-", "--gpu", os.environ["RTF_MATRIX_GPU"]]' "$stats_json"
       printf '%s' "$FAKE_STATS" > "$stats_out"
-      printf '{"start_load":1,"max_load":1,"voided_reason":null,"flight_returncode":0,"stats_returncode":0}' > "$out/guard.json"
+      printf '{"start_load":1,"max_load":1,"voided_reason":null,"flight_returncode":%s,"stats_returncode":0}' "$FAKE_FLIGHT_RC" > "$out/guard.json"
     fi
     exit 0
     ;;
@@ -654,6 +669,8 @@ esac
         "TOOLS_PYTHON": str(python), "SITL_PYTHON": str(python), "FAKE_REAL_PYTHON": sys.executable,
         "FAKE_EXPECTED_AIRFRAME": airframe or "", "FAKE_GPU_UUID": uuid, "FAKE_REPLAY": replay,
         "FAKE_FIXTURE": str(GPU0_ATTEMPT), "FAKE_IDENTITY": json.dumps(identity), "FAKE_STATS": json.dumps(stats_report),
+        "FAKE_FLIGHT_RC": str(flight_rc),
+        "FAKE_FLIGHT_RESULT": "" if policy_case in {"aborted", "missing"} else json.dumps(flight_result),
         "RTF_MATRIX_SINGLE_ROUND": str(int(single_round)),
         "RTF_MATRIX_ATTEMPT": "2", "RTF_MATRIX_GAP_S": "0", "RTF_MATRIX_MAX_ATTEMPTS": "1",
         "RTF_MATRIX_RUN_TAG": tag, "RTF_MATRIX_GPU": str(gpu), "RTF_MATRIX_SLOT": "5",
@@ -669,6 +686,9 @@ esac
     row = dict(name=name, scenario="unused", resolved_root=str(tmp_path), extent_m=6000)
     if airframe is not None:
         row["airframe"] = airframe
+    if policy_case:
+        row.update(scenario="rw_alpine_grindelwald_w6km__clear_noon.scenario.json",
+                   scenario_class="mountain_short", minimum_max_distance_m=2250)
     manifest.write_text(json.dumps([row]))
     out = tmp_path / "out"
     result = subprocess.run([str(batch.ROOT / "scripts/realworld/rtf_matrix.sh"), "--manifest", str(manifest),
@@ -681,11 +701,22 @@ esac
     assert raw["gpu"] == str(gpu)
     assert raw["gpu_uuid"] == (uuid if single_round else None)
     assert raw["airframe"] == (airframe or batch.AIRFRAME)
-    assert raw["flight_returncode"] == 0
+    assert raw["flight_returncode"] == flight_rc
     assert raw["stats_returncode"] == (2 if replay == "original" else 0)
     assert (attempt / "flight/episodes").exists()
     if not single_round:
         assert json.loads((out / "summary.json").read_text())["all_requested_rounds_valid"] is True
+    if policy_case:
+        assert raw["scenario_class"] == "mountain_short" and raw["minimum_max_distance_m"] == 2250
+        if policy_case in {"aborted", "missing"}:
+            assert raw["route_completed"] is False and raw["max_distance_from_spawn_m"] is None
+            assert raw["round_errors"] == [f"missing flight/long-range-result.json (flight return code {flight_rc})"]
+        elif policy_case in {"wrong_class", "wrong_threshold"}:
+            assert raw["round_errors"] == ["flight distance policy does not match matrix entry"]
+        elif policy_case == "below_minimum":
+            assert raw["round_errors"] == ["max_distance_from_spawn_m is below 2250 m or missing"]
+        else:
+            assert raw["round_errors"] == []
     if replay:
         assert (tmp_path / "locks" / f"{uuid}.lock").is_file()
         assert raw["max_distance_from_spawn_m"] == original["max_distance_from_spawn_m"]

@@ -233,7 +233,9 @@ import json,math,sys
 from pathlib import Path
 from scripts.realworld.collection_runtime import read_episode_metadata, runtime_evidence
 out=Path(sys.argv[1]); stats_path=out/'stats.json'; flight_path=out/'flight/long-range-result.json'
-flight=json.loads(flight_path.read_text(encoding='utf-8')) if flight_path.exists() else {}
+flight_result_present = flight_path.is_file()
+flight = json.loads(flight_path.read_text(encoding='utf-8')) if flight_result_present else {}
+flight_rc = int(sys.argv[6])
 stats=json.loads(stats_path.read_text(encoding='utf-8')) if stats_path.exists() else {}
 manifest=json.loads(sys.argv[9]); slot=int(sys.argv[8]); minimum=manifest['minimum_max_distance_m']; minimum_rtf=float(manifest.get("minimum_rtf", 0.9))
 scenario_class=manifest['scenario_class']
@@ -247,13 +249,16 @@ stats_gpu_ok=str(stats.get("gpu"))==gpu
 rtf=stats.get("rtf_window_median")
 rtf_ok=type(rtf) in (int,float) and math.isfinite(rtf) and rtf >= minimum_rtf
 distance_ok=type(distance) in (int,float) and math.isfinite(distance) and distance >= minimum
-policy_ok=(flight.get('scenario_class','wide_area')==scenario_class
+policy_ok=(flight_result_present and flight.get('scenario_class','wide_area')==scenario_class
            and (scenario_class!='mountain_short' or flight.get('minimum_max_distance_m')==minimum))
-valid=(int(sys.argv[5])==0 and int(sys.argv[6])==0 and route and distance_ok and policy_ok and stats_ok and stats_gpu_ok and rtf_ok and slot_name_ok)
+valid=(int(sys.argv[5])==0 and flight_rc==0 and route and distance_ok and policy_ok and stats_ok and stats_gpu_ok and rtf_ok and slot_name_ok)
 issues=[]
-if not route: issues.append("route_completed is not true")
-if not distance_ok: issues.append(f"max_distance_from_spawn_m is below {minimum:g} m or missing")
-if not policy_ok: issues.append('flight distance policy does not match matrix entry')
+if not flight_result_present:
+    issues.append(f"missing flight/long-range-result.json (flight return code {flight_rc})")
+else:
+    if not route: issues.append("route_completed is not true")
+    if not distance_ok: issues.append(f"max_distance_from_spawn_m is below {minimum:g} m or missing")
+    if not policy_ok: issues.append('flight distance policy does not match matrix entry')
 if not stats_ok: issues.append("stats.json is incomplete or has errors")
 if stats and not stats_gpu_ok: issues.append("stats GPU does not match matrix GPU")
 if not rtf_ok: issues.append(f"rtf_window_median is below {minimum_rtf:g} or missing")
@@ -262,7 +267,7 @@ if not slot_name_ok: issues.append(f"container name does not contain -slot-{slot
 row={**stats, 'name':sys.argv[2], 'variant':manifest.get("variant",sys.argv[2].split("_")[0]),
      'attempt':int(sys.argv[7]), 'extent_m':float(sys.argv[3]), 'scenario_class':scenario_class,
      'minimum_max_distance_m':minimum, 'minimum_rtf':minimum_rtf,
-     'airframe':sys.argv[4], 'stats_returncode':int(sys.argv[5]), 'flight_returncode':int(sys.argv[6]),
+     'airframe':sys.argv[4], 'stats_returncode':int(sys.argv[5]), 'flight_returncode':flight_rc,
      'route_completed':route, 'max_distance_from_spawn_m':distance, 'flight_status':flight.get("status"),
      'container_name_slot_verified':slot_name_ok, 'valid_round':valid, 'round_errors':issues,
      'measurement_complete':stats_ok and stats_gpu_ok, 'gpu':gpu, 'gpu_uuid':sys.argv[10] or None}

@@ -330,7 +330,8 @@ def test_long_range_wait_uses_horizontal_capture_disk(monkeypatch):
     assert result["distance_m"] == 15 and now == 0.1
 
 
-def test_long_range_offboard_lifecycle_stops_and_restores_on_mode_exit(monkeypatch):
+@pytest.mark.parametrize("bounded_pass", [False, True])
+def test_long_range_offboard_lifecycle_stops_and_restores_on_mode_exit(monkeypatch, bounded_pass):
     from scripts import collect_sim_teacher_episodes as collector
     from multidetect.sim_teacher.streams import MavlinkState
 
@@ -363,6 +364,10 @@ def test_long_range_offboard_lifecycle_stops_and_restores_on_mode_exit(monkeypat
         events.append("enter")
 
     mission = {**flight.load_mission(flight.DEFAULT_SCENARIO), "route_preflight": {"fly_through_radius_m": 15}}
+    if bounded_pass:
+        mission["route_preflight"]["metrics"] = {"flight_margin_revision": route.policy.FLIGHT_MARGIN_REVISION}
+    waits = []
+    monkeypatch.setattr(flight, "wait_for_leg", lambda *args, **kwargs: waits.append(kwargs["fw_pass_tangent"]))
     monkeypatch.setattr(collector, "SetpointStreamer", Streamer)
     monkeypatch.setattr(collector, "_wait_for_offboard", enter)
     monkeypatch.setattr(collector, "_flight_state_snapshot", lambda _: {"vtol_state": 4})
@@ -379,8 +384,11 @@ def test_long_range_offboard_lifecycle_stops_and_restores_on_mode_exit(monkeypat
             first = executor.execute(policy.next_action())
             assert first.status == "success"
             assert first.ack["offboard_path"] == {"target_ned_m": (212, -43, -82), "tangent_ne": (1, 0)}
-            second = executor.execute(policy.next_action())
+            second_command = policy.next_action()
+            second = executor.execute(second_command)
             assert second.ack["offboard_path"]["tangent_ne"] == (0, 1)
+            collector._wait_motion_command(second_command, reader, 15)
+            assert waits == [(0, 1) if bounded_pass else None]
             assert events == ["target", "start", "enter", "target"]
             state.messages["HEARTBEAT"] = {"custom_mode": 4 << 16 | 3 << 24}
             executor.execute(flight.MotionCommand("transition", mode="MC"))
@@ -395,10 +403,10 @@ def test_amsterdam_turn_leaves_runout_under_both_guards(flat_layers):
     old = route.corner_route(signs, 1)
     new = route.amsterdam_route(signs, 1)
     old_runout = route.policy.amsterdam_runout(old[:-1, ::-1], mission_radius, route.HALF)
-    new_runout = route.policy.amsterdam_runout(new[:-1, ::-1], mission_radius, route.HALF)
+    new_runout = route.policy.amsterdam_runout(new[:-1, ::-1], mission_radius, route.HALF, bounded_pass=True)
     assert not route.policy.has_runout_margin(old_runout)
     assert route.policy.has_runout_margin(new_runout)
-    metrics = route.evaluate(new, flat_layers)
+    metrics = route.evaluate(new, flat_layers, bounded_pass=True)
     assert metrics["passed"] and metrics["max_departure_witness_m"] >= 4005
     headings = np.diff(new, axis=0)
     units = headings / np.linalg.norm(headings, axis=1)[:, None]
@@ -450,3 +458,36 @@ def test_guard_logs_trigger_pose_before_episode_cleanup(monkeypatch, radius_bad)
     else:
         assert event["agl_m"] == 29.8
         assert event["dem_relative_home_m"] == pytest.approx(18.2)
+
+
+@pytest.mark.parametrize("cross, missed", [(24.0, False), (26.0, True)])
+def test_surveyed_offboard_wait_accepts_only_a_bounded_pass(monkeypatch, cross, missed):
+    from scripts import collect_sim_teacher_episodes as collector
+
+    mission = flight.load_mission(flight.DEFAULT_SCENARIO)
+    mission["terrain"] = None
+    monkeypatch.setattr(flight, "_check_offboard_mode", lambda *args, **kwargs: None)
+    monkeypatch.setattr(collector, "_home_reference", lambda _: (None, (0, 0, 0)))
+    positions = iter([(390, cross, -85), (396, 0, -85), (401.6, cross, -85), (408.1, cross, -85)])
+    monkeypatch.setattr(collector, "_state_position", lambda _: next(positions))
+    monkeypatch.setattr(collector, "_pose_sim_stamp_ns", lambda _: 42)
+    monkeypatch.setattr(collector, "_state_yaw", lambda _: 0)
+    events = []
+    monkeypatch.setattr(collector, "_progress", lambda phase, **fields: events.append((phase, fields)))
+    command = flight.MotionCommand("reposition", target_ned=(400, 0, -85), fly_through_radius_m=15)
+    reader = SimpleNamespace(state=None, raise_if_failed=lambda: None)
+
+    def run():
+        return flight.wait_for_leg(command, reader, collector=collector, mission=mission, cruise_mps=15,
+                                   fw_pass_tangent=(1, 0), wall=lambda: 0, sleep=lambda _: None)
+
+    if missed:
+        with pytest.raises(RuntimeError, match="missed the bounded Offboard waypoint passage"):
+            run()
+        assert events[0][0] == "long_range_guard"
+        assert events[0][1]["along_past_target_m"] == pytest.approx(8.1)
+    else:
+        assert run()["waited"] == "arrived"
+        assert events[0][0] == "long_range_waypoint_pass"
+        assert events[0][1]["along_past_target_m"] == pytest.approx(1.6)
+    assert events[0][1]["cross_track_m"] == cross

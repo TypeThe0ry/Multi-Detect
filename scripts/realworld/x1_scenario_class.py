@@ -13,9 +13,15 @@ ALPINE_SITE = "rw_alpine_grindelwald_w6km"
 ALPINE_WORLD = f"{ALPINE_SITE}__clear_noon"
 ALPINE_ORIGIN = (46.615953933, 8.036630765)
 ALPINE_LEGACY_CANDIDATE = "valley/5/0.5/140m/+0m/-1"
-ALPINE_CANDIDATE = "valley/5/0.5/130m/-10m/-1"
+ALPINE_FIX1_CANDIDATE = "valley/5/0.5/130m/-10m/-1"
+ALPINE_CANDIDATE = ALPINE_FIX1_CANDIDATE + "/8-turn"
 AMSTERDAM_WORLD = "rw_canal_amsterdam_w6km__clear_noon"
-FLIGHT_MARGIN_REVISION = "fly-fix-1"
+LEGACY_FLIGHT_MARGIN_REVISION = "fly-fix-1"
+FLIGHT_MARGIN_REVISION = "fly-fix-2"
+# The arrival plane replaces the 15 m disk on FLY-FIX-2 routes.
+FW_PASS_CROSS_M = 25.0
+FW_PASS_ALONG_M = 8.0
+FW_CAPTURE_WITNESS_M = math.hypot(FW_PASS_CROSS_M, FW_PASS_ALONG_M)
 ALPINE_PLANNED_AGL_M = (44.0, 113.0)
 ALPINE_TRANSITION_MIN_AGL_M = 60.0
 # Extrapolate the incoming Offboard tangent, with a separate position allowance.
@@ -73,13 +79,20 @@ def projected_fw_runout(points_ne, forward_m):
     return max_radius, max_axis
 
 
-def amsterdam_runout(points_ne, mission_radius_m, square_half_m):
-    radius, _ = projected_fw_runout(points_ne, AMSTERDAM_RADIAL_RUNOUT_M)
-    _, axis = projected_fw_runout(points_ne, AMSTERDAM_SQUARE_RUNOUT_M)
+def amsterdam_runout(points_ne, mission_radius_m, square_half_m, *, bounded_pass=False):
+    # Include one extra polling interval at the observed ~15 m/s and the full
+    # permitted cross-track error before either accepting or stopping the leg.
+    radial_forward = square_forward = FW_PASS_ALONG_M + 2.0
+    allowance = FW_PASS_CROSS_M + AMSTERDAM_RUNOUT_ALLOWANCE_M
+    if not bounded_pass:
+        radial_forward, square_forward = AMSTERDAM_RADIAL_RUNOUT_M, AMSTERDAM_SQUARE_RUNOUT_M
+        allowance = AMSTERDAM_RUNOUT_ALLOWANCE_M
+    radius, _ = projected_fw_runout(points_ne, radial_forward)
+    _, axis = projected_fw_runout(points_ne, square_forward)
     return {
-        "radial_runout_m": AMSTERDAM_RADIAL_RUNOUT_M,
-        "square_runout_m": AMSTERDAM_SQUARE_RUNOUT_M,
-        "position_allowance_m": AMSTERDAM_RUNOUT_ALLOWANCE_M,
+        "radial_runout_m": radial_forward,
+        "square_runout_m": square_forward,
+        "position_allowance_m": allowance,
         "mission_radius_m": mission_radius_m,
         "radial_headroom_m": mission_radius_m - radius,
         "square_headroom_m": square_half_m - axis,
@@ -87,4 +100,10 @@ def amsterdam_runout(points_ne, mission_radius_m, square_half_m):
 
 
 def has_runout_margin(runout):
-    return min(runout["radial_headroom_m"], runout["square_headroom_m"]) >= AMSTERDAM_RUNOUT_ALLOWANCE_M
+    return min(runout["radial_headroom_m"], runout["square_headroom_m"]) >= runout["position_allowance_m"]
+
+
+def fw_target_offsets(tangent_ne, offset_ne):
+    north, east = tangent_ne
+    dn, de = offset_ne
+    return north * dn + east * de, north * de - east * dn
