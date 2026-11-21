@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 if __name__ == "__main__":
@@ -18,7 +20,9 @@ from scripts.realworld import x1_scenario_class as policy  # noqa: E402
 
 MANIFEST = ROOT / "configs/simulation/x1-worlds.json"
 VARIANT_MANIFEST = MANIFEST.with_name("x1-variants.json")
+EVAL_MANIFEST = MANIFEST.with_name("x1-gimbal-eval.json")
 OUTPUT = resume.NAS / "x1-next"
+EVAL_OUTPUT = resume.NAS / "x1-gimbal-eval"
 UNIT = "md-x1-collect-next.service"
 SLOTS = (5, 6, 7)
 IOWA_SITE = "rw_farm_iowa"
@@ -50,7 +54,7 @@ def verified_asset(asset, world_name, *, variant_dir=None):
 
 
 def site_plan(asset_root, site, index, image_id, spec=None, *,
-              conditions=("noon", "clear"), asset_dir=None):
+              conditions=("noon", "clear"), asset_dir=None, gimbal_eval=False):
     preset = batch.WEATHER[conditions]
     asset = asset_root / f"{site}_w6km" / "v1" if asset_dir is None else asset_dir
     variant_dir = None if preset == "clear_noon" else asset / "x1-variants" / preset
@@ -68,12 +72,15 @@ def site_plan(asset_root, site, index, image_id, spec=None, *,
     if variant_dir is not None and sidecar.get("minimum_max_distance_m") != threshold:
         raise ValueError(f"{name}: variant sidecar does not certify {threshold} m")
     # Keep records for older versions. A rebuilt route or new image cannot qualify this run.
-    suffix = batch.digest({"route": receipt, "image_id": image_id, "bridge": BRIDGE_STABILIZE})[:20]
+    eval_options = {"gimbal_eval": True} if gimbal_eval else {}
+    suffix = batch.digest({"route": receipt, "image_id": image_id, "bridge": BRIDGE_STABILIZE,
+                           **eval_options})[:20]
     queue_key = site if variant_dir is None else f"{site}__{preset}"
     staging = ROOT / ".tmp" / "x1-worlds" / f"{queue_key}-{suffix}"
+    batch_prefix, output = ("x1-gimbal-eval", EVAL_OUTPUT) if gimbal_eval else ("x1-next", OUTPUT)
     return batch.expand({
-        "batch_id": f"x1-next-{queue_key}-{suffix}",
-        "output_root": str(OUTPUT / "collection" / queue_key / suffix),
+        "batch_id": f"{batch_prefix}-{queue_key}-{suffix}",
+        "output_root": str(output / "collection" / queue_key / suffix),
         "airframe": batch.DELTA_AIRFRAME,
         "gpu": 3,
         "slots": [SLOTS[index % len(SLOTS)]],
@@ -86,7 +93,7 @@ def site_plan(asset_root, site, index, image_id, spec=None, *,
         "jobs": [{"site": site, "scenario": str(paths["scenario"]), "seed": 401 + index,
                   "scenario_class": scenario_class, "minimum_max_distance_m": threshold,
                   "altitude_m": 85, "time_of_day": conditions[0], "weather": conditions[1],
-                  "image": image_id, "gimbal_bridge_stabilize": BRIDGE_STABILIZE}],
+                  "image": image_id, "gimbal_bridge_stabilize": BRIDGE_STABILIZE, **eval_options}],
     }), [(paths[field], staging / folder, receipt[f"{field}_sha256"])
          for field, folder in (("world", "worlds"), ("map", "maps"), ("dem", "terrain"))]
 
@@ -106,6 +113,7 @@ def verdict(record, job):
             and record.get("route_completed") is True
             and batch.meets_distance(record, job)
             and batch.number(rtf) and rtf >= batch.MIN_RTF
+            and (not job["inputs"].get("gimbal_eval") or bool(record.get("track_diagnostics")))
             and (record.get("horizon_acceptance") or {}).get("passed") is True)
 
 
@@ -183,18 +191,121 @@ def queue_plans(spec, image_id, iowa_spec):
     return pending, done, unavailable
 
 
-def preflight(spec, iowa_spec):
-    resume.mount_check(output=OUTPUT)
+def eval_config(*, require_enabled):
+    spec = batch.read_object(EVAL_MANIFEST)
+    if (type(spec.get("schema_version")) is not int or spec["schema_version"] != 1
+            or type(spec.get("enabled")) is not bool or spec.get("gimbal_eval") is not True):
+        raise ValueError("invalid X1 gimbal evaluation queue schema")
+    if require_enabled and not spec["enabled"]:
+        raise ValueError("X1 gimbal evaluation queue is disabled")
+    return spec
+
+
+def eval_plans(spec, iowa_spec, image_id, config):
+    variants = batch.read_object(VARIANT_MANIFEST)
+    asset_root = Path(spec["asset_root"])
+    sites = variants["sites"]
+    pairs = (("noon", "clear"), *((row["time_of_day"], row["weather"]) for row in variants["conditions"]))
+    if (len(sites) != 7 or len(set(sites)) != 7 or IOWA_SITE not in sites
+            or any(site != IOWA_SITE and (site not in collection_sites(spec)
+                   or policy.configured_class(site, spec) != policy.WIDE_AREA) for site in sites)
+            or len(pairs) != 3 or set(pairs[1:]) != VARIANT_CONDITIONS):
+        raise ValueError("X1 gimbal eval requires the seven-site base/variant matrix")
+    for site_index, site in enumerate(sites):
+        for offset, pair in enumerate(pairs):
+            index = site_index * len(pairs) + offset
+            label = f"{site}__{batch.WEATHER[pair]}"
+            if site == IOWA_SITE and offset == 0:
+                source = Path(iowa_spec["world_source_root"]) / resume.IOWA_WORLD
+                if batch.file_hash(source) != iowa_spec["world_sha256"]:
+                    raise ValueError("Iowa base world does not match its pinned SHA-256")
+                suffix = batch.digest({"iowa": iowa_spec, "image_id": image_id, "gimbal_eval": True})[:20]
+                stage = ROOT / ".tmp" / "x1-worlds" / f"{label}-{suffix}"
+                plan = batch.expand({**iowa_spec["batch"], "variant_world_root": str(stage),
+                                     "batch_id": f"x1-gimbal-eval-{label}-{suffix}",
+                                     "output_root": str(EVAL_OUTPUT / "collection" / label / suffix),
+                                     "jobs": [dict(iowa_spec["job"], seed=401 + index, image=image_id,
+                                                   gimbal_bridge_stabilize=True, gimbal_eval=True)]})
+                assets = [(source, stage, iowa_spec["world_sha256"])]
+            else:
+                override = variants.get("asset_dirs", {}).get(site) if offset else None
+                relative = Path(override) if override is not None else None
+                if relative is not None and (relative.is_absolute() or ".." in relative.parts):
+                    raise ValueError(f"{site}: invalid asset override")
+                plan, assets = site_plan(asset_root, site, index, image_id, spec, conditions=pair,
+                                         asset_dir=asset_root / relative if relative is not None else None,
+                                         gimbal_eval=config["gimbal_eval"])
+            yield label, plan, assets
+
+
+def eval_cpu_preflight(spec, iowa_spec, image_id, config):
+    from copy import deepcopy
+    from scripts.realworld.long_range_flight import (
+        GIMBAL_EVAL_HOLD_SIM_S, collection_plan, gimbal_eval_plan, load_mission,
+    )
+    from dataclasses import replace
+
+    if not resume.IMAGE_ID.fullmatch(image_id):
+        raise ValueError("CPU preflight requires an explicit immutable image ID (not inspected)")
+    output = ROOT / ".tmp" / "x1-gimbal-eval"
+    output.mkdir(parents=True, exist_ok=True)
+    rows, deploy = [], []
+    with tempfile.TemporaryDirectory(dir=output) as workspace:
+        scratch = Path(workspace)
+        for label, plan, assets in eval_plans(spec, iowa_spec, image_id, config):
+            job = deepcopy(plan["jobs"][0])
+            matrix = job["matrix"]
+            # Audit the production inputs at their existing source without deploying them.
+            for (source, stage, digest), key in zip(
+                assets, ("variant_world_root", "variant_map_root", "variant_terrain_root")
+            ):
+                matrix[key] = str(source.parent)
+                deploy.append({"source": str(source), "destination": str(stage / source.name),
+                               "sha256": digest})
+            staged, evidence = batch.prepare(job, scratch / label)
+            mission = load_mission(staged, dem_path=Path(evidence["dem"]["path"]))
+            collector = gimbal_eval_plan(replace(collection_plan(staged, scratch / "no-flight",
+                                                                  job["slot"], mission),
+                                                gimbal_mode="lock", gimbal_bridge_stabilize=True), mission)
+            rows.append({"condition": label, "job_id": job["job_id"], "route_assets": evidence,
+                         "planned_max_distance_m": mission["planned_max_distance_m"],
+                         "minimum_max_distance_m": mission["minimum_max_distance_m"],
+                         "video_hz": collector.video_hz, "steps_per_episode": collector.steps_per_episode,
+                         "track_step": collector.gimbal_eval_track_step,
+                         "hover_sim_s": GIMBAL_EVAL_HOLD_SIM_S,
+                         "target": asdict(collector.track_targets[0])})
+    receipt = {"schema_version": 1, "queue_enabled": config["enabled"], "flight_started": False,
+               "image_id_uninspected": image_id, "passed": len(rows) == 21, "conditions": rows}
+    batch.atomic_text(output / "CPU-PREFLIGHT.json", batch.dump(receipt) + "\n")
+    batch.atomic_text(output / "DEPLOY-ASSETS.json", batch.dump(deploy) + "\n")
+    return receipt
+
+
+def selected_queue(spec, image_id, iowa_spec, config):
+    if config is None:
+        return queue_plans(spec, image_id, iowa_spec)
+    pending, done = [], []
+    for label, plan, assets in eval_plans(spec, iowa_spec, image_id, config):
+        if accepted(plan):
+            done.append(label)
+        else:
+            pending.append((plan, assets))
+    return pending, done, {}
+
+
+def preflight(spec, iowa_spec, *, config=None):
+    output = OUTPUT if config is None else EVAL_OUTPUT
+    resume.mount_check(output=output)
     image_id = resume.image_check(iowa_spec["image"])
-    pending, done, unavailable = queue_plans(spec, image_id, iowa_spec)
+    pending, done, unavailable = selected_queue(spec, image_id, iowa_spec, config)
     if not pending:
         raise ValueError(f"no pending offline-qualified worlds ({len(done)} accepted): {unavailable}")
     resume.flight_gate(SLOTS)
-    return image_id, pending, x1_gpu.select(OUTPUT / "GPU-PREFLIGHT.json")
+    return image_id, pending, x1_gpu.select(output / "GPU-PREFLIGHT.json")
 
 
-def run(pending):
-    resume.mount_check(write=True, output=OUTPUT)
+def run(pending, *, output=None):
+    resume.mount_check(write=True, output=OUTPUT if output is None else output)
     resume.matrix_environment()
     for plan, assets in pending:
         resume.flight_gate(SLOTS)
@@ -213,27 +324,35 @@ def run(pending):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--gimbal-eval", action="store_true", help="select the separate opt-in eval queue")
     actions = parser.add_subparsers(dest="action", required=True)
     for name in ("preflight", "complete", "launch"):
         actions.add_parser(name)
     actions.add_parser("run").add_argument("--image-id", required=True)
+    actions.add_parser("gimbal-eval-cpu-preflight").add_argument("--image-id", required=True)
     args = parser.parse_args(argv)
     launching = False
     try:
         spec = batch.read_object(MANIFEST)
         iowa_spec = batch.read_object(resume.MANIFEST)
+        if args.action == "gimbal-eval-cpu-preflight":
+            receipt = eval_cpu_preflight(spec, iowa_spec, args.image_id, eval_config(require_enabled=False))
+            print(f"CPU preflight: {len(receipt['conditions'])}/21 audited conditions; no runtime started")
+            return 0 if receipt["passed"] else 1
+        config = eval_config(require_enabled=True) if args.gimbal_eval else None
+        output = EVAL_OUTPUT if args.gimbal_eval else OUTPUT
         if args.action == "complete":
-            resume.mount_check(output=OUTPUT)
+            resume.mount_check(output=output)
             image_id = resume.image_check(iowa_spec["image"])
-            pending, _, unavailable = queue_plans(spec, image_id, iowa_spec)
+            pending, _, unavailable = selected_queue(spec, image_id, iowa_spec, config)
             return 0 if not pending and not unavailable else 1
         if args.action == "run":
             with resume.flight_lock(resume.LOCK):
-                image_id, pending, _ = preflight(spec, iowa_spec)
+                image_id, pending, _ = preflight(spec, iowa_spec, **({"config": config} if config else {}))
                 if args.image_id != image_id:
                     raise ValueError("candidate tag changed between dispatch and worker startup")
-                return run(pending)
-        image_id, pending, gpu = preflight(spec, iowa_spec)
+                return run(pending, output=output) if config else run(pending)
+        image_id, pending, gpu = preflight(spec, iowa_spec, **({"config": config} if config else {}))
         if args.action == "preflight":
             print(f"ready: {len(pending)} world(s), GPU{gpu['gpu_index']} {gpu['gpu_uuid']}, "
                   f"slots 5–7, {iowa_spec['image']} {image_id}")
@@ -244,7 +363,8 @@ def main(argv=None):
             print(resume.read_cmd(["systemd-run", "--unit", UNIT, "--collect", "--working-directory", str(ROOT),
                                    "--property", f"RequiresMountsFor={resume.NAS}",
                                    "--property", "KillMode=control-group", "--setenv", "PYTHONDONTWRITEBYTECODE=1",
-                                   sys.executable, str(Path(__file__).resolve()), "run", "--image-id", image_id]))
+                                   sys.executable, str(Path(__file__).resolve()),
+                                   *(["--gimbal-eval"] if config else []), "run", "--image-id", image_id]))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         print(f"x1-collect-next: {exc}", file=sys.stderr)

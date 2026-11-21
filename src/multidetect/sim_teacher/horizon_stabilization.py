@@ -730,11 +730,14 @@ class BridgeHorizonTarget(HorizonStabilizer):
 
     @property
     def transport_flags(self):
+        return self._transport_flags(self.mode)
+
+    def _transport_flags(self, mode):
         # PX4's pinned manager uses legacy YAW_LOCK internally, then adds
         # explicit device frame bits. Both references agree on the wire.
-        if self.mode == "follow":
+        if mode == "follow":
             return 32
-        return 4 | 8 | (16 | 64 if self.mode == "track" or self.yaw_mode == "lock" else 32)
+        return 4 | 8 | (16 | 64 if mode == "track" or self.yaw_mode == "lock" else 32)
 
     def update(self, body_deg, *, now_s, attitude_time_s, position=None,
                track_direction_ned=None, target_ref=None):
@@ -744,8 +747,11 @@ class BridgeHorizonTarget(HorizonStabilizer):
         if abs(math.cos(math.radians(body_deg["pitch"]))) >= 1e-3:
             self._heading = body_deg["yaw"]
         heading = self._heading if self._heading is not None else 0.0
-        desired = self.desired_rotation(body_deg, heading=heading)
-        if self.mode == "track":
+        # One mode snapshot keeps target, flags and queued frame evidence consistent
+        # when the collector switches modes on the action thread.
+        mode = self.mode
+        desired = self.desired_rotation(body_deg, heading=heading, mode=mode)
+        if mode == "track":
             try:
                 if track_direction_ned is not None:
                     direction = unit(track_direction_ned)
@@ -764,14 +770,14 @@ class BridgeHorizonTarget(HorizonStabilizer):
             # reference heading instead of decomposing a singular matrix.
             angles = {"roll": 0., "pitch": math.degrees(math.atan2(-z, math.hypot(x, y))),
                       "yaw": math.degrees(math.atan2(y, x)) if math.hypot(x, y) > 1e-10 else 0.}
-        elif self.mode == "follow":
+        elif mode == "follow":
             # Encode the C11 relative pose itself, not a ZYX joint carrier.
             angles = earth_angles_deg(c11_rotation_deg(self.target_deg))
         else:
             angles = self.target_deg
         result = {
-            "source": self.source, "mode": self.mode, "yaw_mode": self.yaw_mode,
-            "quaternion": _attitude_quaternion(angles), "transport_flags": self.transport_flags,
+            "source": self.source, "mode": mode, "yaw_mode": self.yaw_mode,
+            "quaternion": _attitude_quaternion(angles), "transport_flags": self._transport_flags(mode),
             "desired_earth_deg": earth_angles_deg(desired), "target_ref": target_ref, "time_s": now_s,
         }
         self.last_result = result

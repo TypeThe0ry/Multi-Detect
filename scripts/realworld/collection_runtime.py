@@ -23,6 +23,13 @@ def runtime_options(spec, airframe, field):
         if enabled and airframe != "delta_tailsitter_gimbal_cam":
             raise ValueError(f"{field}.gimbal_bridge_stabilize requires delta_tailsitter_gimbal_cam")
         options["gimbal_bridge_stabilize"] = enabled
+    if "gimbal_eval" in spec:
+        enabled = spec["gimbal_eval"]
+        if type(enabled) is not bool:
+            raise ValueError(f"{field}.gimbal_eval must be a JSON boolean")
+        if enabled and not options.get("gimbal_bridge_stabilize"):
+            raise ValueError(f"{field}.gimbal_eval requires X1 bridge stabilization")
+        options["gimbal_eval"] = enabled
     return options
 
 

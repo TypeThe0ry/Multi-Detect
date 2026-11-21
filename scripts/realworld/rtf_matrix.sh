@@ -180,6 +180,8 @@ if 'image' in row:
     print('--image', row['image'], sep='\n')
 if row.get('gimbal_bridge_stabilize') is True:
     print('--gimbal-bridge-stabilize')
+if row.get('gimbal_eval') is True:
+    print('--gimbal-eval')
 PY
     ) || return 2
     if [[ -n "$runtime_argv" ]]; then

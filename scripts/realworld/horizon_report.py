@@ -63,7 +63,7 @@ def finite_number(value):
 
 
 def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverage=False,
-              expected_mode=None):
+              expected_mode=None, track_action_index=None):
     if not 0 <= threshold_deg <= HORIZON_P95_DEG:
         raise ValueError(f"P95 threshold must be in [0, {HORIZON_P95_DEG}] degrees")
     if expected_mode not in (None, "lock", "track"):
@@ -73,6 +73,7 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
     groups = {mode: [] for mode in ("lock", "follow", "track")}
     mode_counts = dict.fromkeys(groups, 0)
     track_missing = track_stale = track_reachable = track_unreachable = track_unknown = 0
+    track_action_frames = 0
     track_horizon_feasible = track_horizon_infeasible = track_horizon_unknown = 0
     track_errors, track_unreachable_errors = [], []
     track_coverage = dict.fromkeys(IOWA_MIN_FRAMES, 0)
@@ -116,6 +117,8 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
             if (stabilization.get("control") or {}).get("degraded") is True:
                 degraded += 1
             if mode == "track":
+                if track_action_index is not None and row.get("action_index") == track_action_index:
+                    track_action_frames += 1
                 pointing = stabilization.get("pointing_error_deg")
                 reachable = stabilization.get("target_reachable")
                 horizon_possible = stabilization.get("horizon_feasible_given_target")
@@ -331,6 +334,7 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
         "criteria": {"reachable_p95_max_deg": TRACK_P95_DEG, "reachable_max_deg": TRACK_MAX_DEG,
                      "horizon_is_diagnostic_only": True, "require_iowa_coverage": require_iowa_coverage},
         "frame_count": mode_counts["track"],
+        **({"eval_action_frames": track_action_frames} if track_action_index is not None else {}),
         "reachable_frames": track_reachable,
         "unreachable_frames": track_unreachable,
         "unknown_frames": track_unknown,

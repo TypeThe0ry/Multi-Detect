@@ -161,7 +161,7 @@ def expand(spec):
         if not isinstance(job, dict):
             raise ValueError(f"jobs[{index}] must be an object")
         unknown = job.keys() - {"site", "scenario", "altitude_m", "time_of_day", "weather", "seed",
-                                "airframe", "max_artifact_bytes", "image", "gimbal_bridge_stabilize",
+                                "airframe", "max_artifact_bytes", "image", "gimbal_bridge_stabilize", "gimbal_eval",
                                 "scenario_class", "minimum_max_distance_m", *ROOT_FIELDS}
         if unknown:
             raise ValueError(f"jobs[{index}] unknown fields: {', '.join(sorted(unknown))}")
@@ -192,6 +192,8 @@ def expand(spec):
             raise ValueError(f"jobs[{index}].minimum_max_distance_m must be {threshold} for {scenario_class}")
         if scenario_class == policy.MOUNTAIN_SHORT and airframe != DELTA_AIRFRAME:
             raise ValueError("mountain_short requires the X1 airframe")
+        if runtime.get("gimbal_eval") and scenario_class != policy.WIDE_AREA:
+            raise ValueError("gimbal_eval requires a wide_area route")
         maximum = job.get("max_artifact_bytes", spec.get("max_artifact_bytes", DEFAULT_MAX_BYTES))
         if type(maximum) is not int or maximum <= 0:
             raise ValueError(f"jobs[{index}].max_artifact_bytes must be a positive integer")
@@ -433,9 +435,20 @@ def evaluate(attempt, job, batch, rc):
         horizon = {"passed": False, "errors": ["horizon_data_missing"]}
         if manifest is not None:
             try:
-                # Batch jobs request the default lock mode. Do not silently
-                # admit a tracking capture under the lock collection identity.
-                horizon = summarize_horizon(manifest, expected_mode="lock")["horizon_acceptance"]
+                mixed = job["inputs"].get("gimbal_eval") is True
+                stabilization = episode.get("horizon_stabilization") or {}
+                track_step = stabilization.get("eval_track_step") if mixed else None
+                summary = summarize_horizon(manifest, expected_mode=None if mixed else "lock",
+                                            track_action_index=track_step)
+                horizon = summary["horizon_acceptance"]
+                if mixed:
+                    from scripts.realworld.long_range_flight import GIMBAL_EVAL_MIN_TRACK_FRAMES
+
+                    track = summary["track_acceptance"]
+                    gimbal_evidence["track_diagnostics"] = track
+                    if (type(track_step) is not int or track_step < 0
+                            or track["eval_action_frames"] < GIMBAL_EVAL_MIN_TRACK_FRAMES):
+                        errors.append("gimbal_eval_track_segment_missing")
             except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:
                 horizon["error"] = str(exc)
         errors.extend(horizon["errors"])

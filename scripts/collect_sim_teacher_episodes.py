@@ -761,12 +761,21 @@ class CollectionPlan:
     gimbal_mode: str | None = None
     gimbal_bridge_stabilize: bool = False
     track_targets: tuple[WorldTarget, ...] = ()
+    gimbal_eval_track_step: int | None = None
 
     def __post_init__(self) -> None:
         if self.gimbal_mode not in {None, "lock", "follow", "track"}:
             raise ValueError("gimbal_mode must be lock, follow or track")
         if any(not isinstance(target, WorldTarget) for target in self.track_targets):
             raise ValueError("track_targets must contain WorldTarget values")
+        if self.gimbal_eval_track_step is not None and (
+            type(self.gimbal_eval_track_step) is not int
+            or not 0 <= self.gimbal_eval_track_step < self.steps_per_episode - 1
+            or self.gimbal_mode != "lock" or len(self.track_targets) != 1
+            or not self.gimbal_bridge_stabilize
+            or self.airframe != "delta_tailsitter_gimbal_cam" or not self.video_use_sim_time
+        ):
+            raise ValueError("gimbal evaluation requires a bounded X1 bridge tracking step")
         if self.gimbal_mode == "track" and not self.track_targets:
             logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
             object.__setattr__(self, "gimbal_mode", "lock")
@@ -2798,7 +2807,8 @@ def _wait_motion_command(
         leg = math.hypot(command.target_ned[0] - start[0], command.target_ned[1] - start[1])
         timeout = min(MOTION_REPOSITION_TIMEOUT_S, leg / max(MC_SPEED_FLOOR_MPS, 1.0) * 1.5 + 20.0)
         if kind == "mc_hold":
-            timeout = max(timeout, min(float(command.duration_s or 0.0), MOTION_LOITER_MAX_WAIT_S))
+            # The hold deadline must leave room for polling and settling.
+            timeout += min(float(command.duration_s or 0.0), MOTION_LOITER_MAX_WAIT_S)
         distance = yaw_error = speed = float("inf")
         settled_since: float | None = None
         # Timed on PX4's lockstep clock: on a loaded host the simulation runs well
@@ -6854,7 +6864,7 @@ def run_episode(
                     (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, attitude_interval_us),
                     (mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE, 100_000),
                 ]
-                if stabilization_mode == "track":
+                if track_targets:
                     intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, attitude_interval_us))
                 if plan.gimbal_bridge_stabilize:
                     intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_NAMED_VALUE_FLOAT, attitude_interval_us))
@@ -6932,6 +6942,8 @@ def run_episode(
                     "yaw_mode": horizon_stabilizer.yaw_mode,
                     "target_deg": target,
                     "track_targets": [asdict(point) for point in track_targets],
+                    **({"eval_track_step": plan.gimbal_eval_track_step}
+                       if plan.gimbal_eval_track_step is not None else {}),
                     "host_hz": 50.0,
                     "requested_attitude_interval_us": attitude_interval_us,
                     "max_age_s": 0.2,
@@ -7958,6 +7970,17 @@ def run_episode(
                     action = policy.next_action()
                     labels = {}
                     timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
+                if plan.gimbal_eval_track_step is not None and index in (
+                    plan.gimbal_eval_track_step, plan.gimbal_eval_track_step + 1
+                ):
+                    tracking = index == plan.gimbal_eval_track_step
+                    expected_kind = "mc_hold" if tracking else "stop"
+                    if (horizon_stabilizer is None or action.kind != expected_kind
+                            or (tracking and _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3)):
+                        raise RuntimeError("X1 gimbal evaluation did not reach its expected MC hover/stop")
+                    horizon_stabilizer.set_mode("track" if tracking else "lock")
+                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_mode",
+                                             "step_index": index, "mode": horizon_stabilizer.mode})
                 managed_gimbal_action = _managed_teacher_gimbal_action(
                     action, camera_mount,
                     _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,

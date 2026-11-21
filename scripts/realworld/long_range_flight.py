@@ -626,11 +626,36 @@ def collection_plan(scenario: Path, out: Path, slot: int, mission: dict[str, Any
         rtf_overlay_root=overlay_root or None)
 
 
+GIMBAL_EVAL_HOLD_SIM_S = 30.0
+GIMBAL_EVAL_MIN_TRACK_FRAMES = 3
+
+
+def gimbal_eval_target(mission):
+    """A fixed virtual SIM point, 100 m north of home and 5 m above its DEM."""
+    if mission["airframe"] != DELTA or mission["scenario_class"] != scenario_policy.WIDE_AREA:
+        raise ValueError("gimbal evaluation requires an X1 wide_area route")
+    dem = mission["terrain"]
+    hover_alt = dem.origin_elevation_m - mission["targets"][-1][2]
+    target_alt = dem.sample_local(100.0, 0.0).elevation_m + 5.0
+    if not 10 <= hover_alt - target_alt <= 150:
+        raise ValueError("gimbal evaluation point is outside the terminal hover elevation envelope")
+    home = mission["geometry"].home
+    return WorldTarget(home.latitude_deg + math.degrees(100.0 / 6378137.0),
+                       home.longitude_deg, target_alt)
+
+
+def gimbal_eval_plan(plan, mission):
+    return replace(plan, steps_per_episode=plan.steps_per_episode + 1,
+                   track_targets=(gimbal_eval_target(mission),),
+                   gimbal_eval_track_step=len(mission["targets"]) + 2)
+
+
 class LongRangePolicy:
     def __init__(self, targets: list[tuple[float, float, float]], radius: float, *, vtol: bool = False,
                  gimbal_pitch_deg: float = -45.0, gimbal_mode: str = "lock",
                  gimbal_yaw_mode: str = "follow", fw_speed_mps: float | None = None,
                  track_targets: tuple[WorldTarget, ...] = (),
+                 gimbal_eval: bool = False,
                  fly_through_radius_m: float | list[float | None] | None = None) -> None:
         radii = (fly_through_radius_m if isinstance(fly_through_radius_m, list)
                  else [fly_through_radius_m] * len(targets))
@@ -650,6 +675,9 @@ class LongRangePolicy:
             MotionCommand("transition", mode="MC", reason="back_transition"),
             MotionCommand("mc_reposition", mode="MC", target_ned=(0.0, 0.0, targets[-1][2]),
                           speed_mps=8.0, reason="hover_return_to_home"),
+            *((MotionCommand("mc_hold", mode="MC", target_ned=(0.0, 0.0, targets[-1][2]),
+                             duration_s=GIMBAL_EVAL_HOLD_SIM_S, reason="gimbal_eval_tracking_hover"),)
+              if gimbal_eval else ()),
         ) if vtol else ())
 
     def next_action(self):
@@ -886,7 +914,7 @@ def collector_overrides(collector, mission):
 
         def execute(self, action):
             nonlocal offboard_active
-            if not isinstance(action, MotionCommand) or action.kind not in {"reposition", "mc_reposition"}:
+            if not isinstance(action, MotionCommand) or action.kind not in {"reposition", "mc_reposition", "mc_hold"}:
                 if offboard_active and isinstance(action, MotionCommand) and action.kind == "transition":
                     _check_offboard_mode(collector, self.telemetry_reader, offboard_streamer)
                 return super().execute(action)
@@ -942,7 +970,7 @@ def collector_overrides(collector, mission):
             return wait_for_leg(command, reader, collector=collector, mission=mission, cruise_mps=cruise_mps,
                                 offboard_streamer=offboard_streamer if offboard_active else None,
                                 fw_pass_tangent=fw_pass_tangent if command.fly_through_radius_m is not None else None)
-        if command.kind == "mc_reposition":
+        if command.kind in {"mc_reposition", "mc_hold"}:
             command = bind_target(command, collector._home_reference(reader.state)[1])
         result = original_wait(command, reader, cruise_mps=cruise_mps)
         if offboard_active and command.kind == "transition" and command.mode == "MC" and result["waited"] == "transitioned":
@@ -950,7 +978,7 @@ def collector_overrides(collector, mission):
             # Once MC is confirmed, stop supplying the wing's forward tangent
             # while the collector records the transition and schedules hover return.
             offboard_streamer.set_target(*collector._state_position(reader.state), collector._state_yaw(reader.state))
-        if command.kind == "mc_reposition" and result["waited"] != "settled":
+        if command.kind in {"mc_reposition", "mc_hold"} and result["waited"] != "settled":
             raise RuntimeError(f"VTOL hover return did not settle over home: {result['waited']}")
         return result
 
@@ -979,6 +1007,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gimbal-mode", choices=("lock", "follow", "track"), default="lock")
     parser.add_argument("--gimbal-bridge-stabilize", action="store_true",
                         help="send C11 pose targets to the horizon-enabled PX4 image")
+    parser.add_argument("--gimbal-eval", action="store_true",
+                        help="add a diagnostic target-tracking hover after the X1 MC return")
     parser.add_argument("--image", help="local PX4/Gazebo runtime image")
     parser.add_argument("--track-target", type=WorldTarget.parse, action="append", default=[],
                         metavar="LAT,LON,ALT_M", help="world target, altitude AMSL metres (repeatable)")
@@ -989,6 +1019,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--extent-m", type=float, default=6000.0)
     parser.add_argument("--min-rtf", type=float, default=None)
     args = parser.parse_args(track_cli_argv(sys.argv[1:] if argv is None else argv))
+    if args.gimbal_eval and (not args.gimbal_bridge_stabilize or args.gimbal_mode != "lock"
+                            or args.track_target or args.horizon_video_hz is not None):
+        parser.error("--gimbal-eval requires bridge lock mode and the standard X1 target and capture rate")
     if args.gimbal_mode == "track" and not args.track_target:
         logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
         args.gimbal_mode = "lock"
@@ -1032,6 +1065,11 @@ def main(argv: list[str] | None = None) -> int:
     if is_vtol:
         plan = replace(plan, gimbal_mode=args.gimbal_mode, track_targets=tuple(args.track_target),
                        gimbal_bridge_stabilize=args.gimbal_bridge_stabilize)
+    if args.gimbal_eval:
+        try:
+            plan = gimbal_eval_plan(plan, mission)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.horizon_video_hz is not None:
         if not is_vtol or not math.isfinite(args.horizon_video_hz) or args.horizon_video_hz <= 0:
             parser.error("--horizon-video-hz requires X1 and a finite positive rate")
@@ -1058,11 +1096,14 @@ def main(argv: list[str] | None = None) -> int:
                           "gimbal_stabilization": ({"mode": args.gimbal_mode,
                                                      "source": "bridge" if args.gimbal_bridge_stabilize else "host",
                                                      "yaw_mode": args.gimbal_yaw_mode,
-                                                     "track_targets": [asdict(point) for point in args.track_target],
+                                                     "track_targets": [asdict(point) for point in plan.track_targets],
                                                      "target_pitch_deg": mission["gimbal_pitch_deg"]}
                                                     if is_vtol else None),
                           "compiled_mission_uploaded": False,
                           "compiled_mission": mission["compiled"].to_mapping(),
+                          **({"gimbal_eval": {"track_step": plan.gimbal_eval_track_step,
+                                              "hover_sim_s": GIMBAL_EVAL_HOLD_SIM_S}}
+                             if args.gimbal_eval else {}),
                           "collector_plan": collector_plan},
                          ensure_ascii=False, indent=2))
         return 0
@@ -1078,7 +1119,7 @@ def main(argv: list[str] | None = None) -> int:
                     fw_speed_mps=mission["fw_turn_envelope"]["guided_ground_speed_mps"],
                     gimbal_pitch_deg=mission["gimbal_pitch_deg"],
                     gimbal_mode=args.gimbal_mode, gimbal_yaw_mode=args.gimbal_yaw_mode,
-                    track_targets=tuple(args.track_target),
+                    track_targets=plan.track_targets, gimbal_eval=args.gimbal_eval,
                     fly_through_radius_m=(mission["route_preflight"] or {}).get("fly_through_radius_m"),
                 )
                 episode = collector.run_episode(plan, Path(plan.truth), 0,
