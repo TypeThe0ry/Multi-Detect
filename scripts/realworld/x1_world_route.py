@@ -548,7 +548,7 @@ def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=Fa
                  for key in stats[0][2]}
     max_agl = max(max(heights[list(ix)]) - low for ix, low, _, _, _ in stats)
     far = float(np.linalg.norm(points, axis=1).max())
-    arrival_extent = policy.FW_CAPTURE_WITNESS_M if bounded_pass else ARRIVAL
+    arrival_extent = policy.fw_capture_witness_m(policy.FLIGHT_MARGIN_REVISION) if bounded_pass else ARRIVAL
     distance_witness = min(far - arrival_extent, min(continuous_max.values()) - radius_slack)
     max_capture_offset = max(
         np.linalg.norm(wp - np.concatenate([path for path, _ in chunks]), axis=1).min()
@@ -559,7 +559,8 @@ def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=Fa
     time = (path_length - np.linalg.norm(points[-2])) / CRUISE_SPEED + np.linalg.norm(points[-2]) / 8
     failures = []
     for reason, bad in (
-        ("departure", distance_witness < threshold_m + 5), ("boundary", edge < EDGE),
+        ("departure", distance_witness < threshold_m + 5),
+        ("FW handoff buffer", bounded_pass and BUFFER < policy.FW_PASS_BUFFER_M), ("boundary", edge < EDGE),
         ("fly-through capture", max_capture_offset > ARRIVAL),
         ("ceiling/transition", heights[0] < 40 or heights[0] > 90 or heights.max() > MAX_ALTITUDE),
         ("AGL", min_crest["ground_high"] < min_agl - 1e-9 or max_agl > max_agl_limit + 1e-9),
@@ -1004,7 +1005,8 @@ def preflight(asset, world, *, bundle_root=None):
                 "mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"]
             metrics = evaluate(points, include_runtime_dem(layers, read_json(stage / f"{world_id}.dem.json")),
                                bounded_pass=True)
-            runout = policy.amsterdam_runout(points[:-1, ::-1], mission_radius, HALF, bounded_pass=True)
+            runout = policy.fw_runout(points[:-1, ::-1], mission_radius, HALF,
+                                      revision=policy.FLIGHT_MARGIN_REVISION)
             if not policy.has_runout_margin(runout):
                 metrics["failures"].append("mission radius or world boundary runout")
                 metrics["passed"] = False

@@ -402,9 +402,13 @@ def test_amsterdam_turn_leaves_runout_under_both_guards(flat_layers):
     mission_radius = 4192.640687119286
     old = route.corner_route(signs, 1)
     new = route.amsterdam_route(signs, 1)
-    old_runout = route.policy.amsterdam_runout(old[:-1, ::-1], mission_radius, route.HALF)
-    new_runout = route.policy.amsterdam_runout(new[:-1, ::-1], mission_radius, route.HALF, bounded_pass=True)
+    old_runout = route.policy.fw_runout(old[:-1, ::-1], mission_radius, route.HALF)
+    sampled_runout = route.policy.fw_runout(new[:-1, ::-1], mission_radius, route.HALF,
+                                          revision=route.policy.SAMPLED_FLIGHT_MARGIN_REVISION)
+    new_runout = route.policy.fw_runout(new[:-1, ::-1], mission_radius, route.HALF,
+                                      revision=route.policy.FLIGHT_MARGIN_REVISION)
     assert not route.policy.has_runout_margin(old_runout)
+    assert route.policy.has_runout_margin(sampled_runout)
     assert route.policy.has_runout_margin(new_runout)
     metrics = route.evaluate(new, flat_layers, bounded_pass=True)
     assert metrics["passed"] and metrics["max_departure_witness_m"] >= 4005
@@ -460,34 +464,149 @@ def test_guard_logs_trigger_pose_before_episode_cleanup(monkeypatch, radius_bad)
         assert event["dem_relative_home_m"] == pytest.approx(18.2)
 
 
-@pytest.mark.parametrize("cross, missed", [(24.0, False), (26.0, True)])
-def test_surveyed_offboard_wait_accepts_only_a_bounded_pass(monkeypatch, cross, missed):
+@pytest.fixture
+def offboard_wait(monkeypatch):
     from scripts import collect_sim_teacher_episodes as collector
+    from multidetect.sim_teacher.streams import MavlinkState
 
-    mission = flight.load_mission(flight.DEFAULT_SCENARIO)
-    mission["terrain"] = None
-    monkeypatch.setattr(flight, "_check_offboard_mode", lambda *args, **kwargs: None)
-    monkeypatch.setattr(collector, "_home_reference", lambda _: (None, (0, 0, 0)))
-    positions = iter([(390, cross, -85), (396, 0, -85), (401.6, cross, -85), (408.1, cross, -85)])
-    monkeypatch.setattr(collector, "_state_position", lambda _: next(positions))
-    monkeypatch.setattr(collector, "_pose_sim_stamp_ns", lambda _: 42)
-    monkeypatch.setattr(collector, "_state_yaw", lambda _: 0)
     events = []
     monkeypatch.setattr(collector, "_progress", lambda phase, **fields: events.append((phase, fields)))
-    command = flight.MotionCommand("reposition", target_ned=(400, 0, -85), fly_through_radius_m=15)
-    reader = SimpleNamespace(state=None, raise_if_failed=lambda: None)
 
-    def run():
-        return flight.wait_for_leg(command, reader, collector=collector, mission=mission, cruise_mps=15,
-                                   fw_pass_tangent=(1, 0), wall=lambda: 0, sleep=lambda _: None)
+    def run(samples, *, target_east=30, revision=None, guard=None):
+        # Samples are (PX4 boot ms, along-track m, signed cross-track m).
+        # Local NED home is offset so the radial test must use target minus home.
+        samples = iter(samples)
+        home_n, home_e, home_d = 12, -40, 3
+        state = MavlinkState(messages={
+            "HOME_POSITION": {"latitude": 420150000, "longitude": -937100000, "altitude": 300000,
+                              "x": home_n, "y": home_e, "z": home_d},
+            "HEARTBEAT": {"custom_mode": 6 << 16},
+            "ATTITUDE": {"yaw": 0},
+            "EXTENDED_SYS_STATE": {"vtol_state": 4},
+        })
+        reader = SimpleNamespace(state=state, raise_if_failed=lambda: None)
+        streamer = SimpleNamespace(raise_if_failed=lambda: None)
+        now = 0.0
 
-    if missed:
-        with pytest.raises(RuntimeError, match="missed the bounded Offboard waypoint passage"):
-            run()
-        assert events[0][0] == "long_range_guard"
-        assert events[0][1]["along_past_target_m"] == pytest.approx(8.1)
+        def publish():
+            sample = next(samples, None)
+            if sample is None:
+                pytest.fail("wait_for_leg did not decide on the last supplied pose")
+            stamp_ms, along, cross = sample
+            state.messages["LOCAL_POSITION_NED"] = {
+                "time_boot_ms": stamp_ms, "x": home_n + 400 + along,
+                "y": home_e + target_east + cross, "z": home_d - 85,
+            }
+            state.received_monotonic_ns["HEARTBEAT"] = round(now * 1e9)
+
+        def sleep(seconds):
+            nonlocal now
+            now += seconds
+            publish()
+
+        mission = flight.load_mission(flight.DEFAULT_SCENARIO)
+        mission["terrain"] = None
+        if revision is not None:
+            mission["route_preflight"] = {"metrics": {"flight_margin_revision": revision}}
+        if guard == "mission radius":
+            mission["source"]["mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"] = 405
+        if guard == "DEM AGL":
+            mission["terrain"] = object()
+            monkeypatch.setattr(flight, "_terrain_agl", lambda _, ned: 29.9 if ned[0] > 400 else 85)
+        command = flight.MotionCommand("reposition", target_ned=(400, target_east, -85), mode="FW",
+                                       fly_through_radius_m=15)
+        publish()
+        return flight.wait_for_leg(command, reader, collector=collector, mission=mission, cruise_mps=25,
+                                   offboard_streamer=streamer, fw_pass_tangent=(1, 0),
+                                   wall=lambda: now, sleep=sleep)
+
+    return run, events
+
+
+@pytest.mark.parametrize("target_east, samples, crossing_cross, crossing_ns, gap_s", [
+    # 72 m along and 21 m across is exactly 75 m over 3 sim seconds (25 m/s).
+    pytest.param(30, [(10000, -24, 21), (13000, 48, 42)], 28, 11_000_000_000, 3, id="outward"),
+    pytest.param(30, [(10000, -24, -18), (13000, 48, -39)], -25, 11_000_000_000, 3, id="inward-limit"),
+    pytest.param(-30, [(10000, -25, -45), (11000, 0, -45)], -45, 11_000_000_000, 1,
+                 id="negative-outward-limit-on-plane"),
+    pytest.param(0, [(10000, -10, 35), (11000, 15, 35)], 35, 10_400_000_000, 1, id="radial-tangent"),
+    # A repeated stamp with a different pose must neither trigger nor replace the bracket.
+    pytest.param(30, [(10000, -5, 2), (10000, 5, 44), (11000, 15, 6)], 3, 10_250_000_000, 1,
+                 id="duplicate-stamp"),
+])
+def test_offboard_wait_interpolates_fresh_forward_passage(offboard_wait, target_east, samples,
+                                                         crossing_cross, crossing_ns, gap_s):
+    run, events = offboard_wait
+    assert run(samples, target_east=target_east)["waited"] == "arrived"
+    (phase, event), = events
+    assert phase == "long_range_waypoint_pass"
+    assert event["sim_stamp_ns"] == samples[-1][0] * 1_000_000
+    assert event["along_past_target_m"] == samples[-1][1]
+    assert event["cross_track_m"] == samples[-1][2]
+    assert event["crossing_cross_track_m"] == pytest.approx(crossing_cross)
+    assert event["crossing_sim_stamp_ns"] == crossing_ns
+    assert event["sample_gap_s"] == pytest.approx(gap_s)
+
+
+@pytest.mark.parametrize("samples, crossing_cross, crossing_ns, gap_s", [
+    # The first and last poses would pass; the immediately preceding fresh pose makes the crossing inward.
+    pytest.param([(10000, -40, 0), (11500, -10, -32), (12700, 20, -29)], -31, 11_900_000_000, 1.2,
+                 id="inward-consecutive"),
+    pytest.param([(10000, -20, 20), (12000, 20, 46)], 33, 11_000_000_000, 2, id="raw-post-plane-cross"),
+    pytest.param([(10000, -20, 5), (13002, 40, 5)], 5, 11_000_666_667, 3.002, id="sim-gap-over-3s"),
+    pytest.param([(10000, -37, 2), (13000, 37, 15)], 8.5, 11_500_000_000, 3, id="horizontal-step-over-75m"),
+])
+def test_offboard_wait_rejects_invalid_crossing_bracket(offboard_wait, samples, crossing_cross, crossing_ns, gap_s):
+    run, events = offboard_wait
+    with pytest.raises(RuntimeError, match="missed the bounded Offboard waypoint passage"):
+        run(samples)
+    (phase, event), = events
+    assert phase == "long_range_guard"
+    assert event["sim_stamp_ns"] == samples[-1][0] * 1_000_000
+    assert event["along_past_target_m"] == samples[-1][1]
+    assert event["cross_track_m"] == samples[-1][2]
+    assert event["crossing_cross_track_m"] == pytest.approx(crossing_cross)
+    assert event["crossing_sim_stamp_ns"] == crossing_ns
+    assert event["sample_gap_s"] == pytest.approx(gap_s)
+
+
+@pytest.mark.parametrize("samples", [
+    pytest.param([(10000, 0, 0)], id="starts-on-plane"),
+    pytest.param([(10000, 5, 2), (11000, -20, 2)], id="starts-post-plane-before-reverse"),
+])
+def test_offboard_wait_rejects_first_on_or_after_plane_immediately(offboard_wait, samples):
+    run, events = offboard_wait
+    with pytest.raises(RuntimeError, match="missed the bounded Offboard waypoint passage"):
+        run(samples)
+    (phase, event), = events
+    assert phase == "long_range_guard"
+    assert event["sim_stamp_ns"] == samples[0][0] * 1_000_000
+    assert event["along_past_target_m"] == samples[0][1]
+    assert event["cross_track_m"] == samples[0][2]
+
+
+@pytest.mark.parametrize("guard", ["mission radius", "DEM AGL"])
+def test_offboard_wait_checks_guards_before_valid_crossing(offboard_wait, guard):
+    run, events = offboard_wait
+    with pytest.raises(RuntimeError, match=guard):
+        run([(10000, -15, 5), (11000, 10, 5)], guard=guard)
+    (phase, event), = events
+    assert phase == "long_range_guard"
+    assert event["sim_stamp_ns"] == 11_000_000_000
+    assert event["along_past_target_m"] == 10
+    assert event["cross_track_m"] == 5
+
+
+@pytest.mark.parametrize("along, phase", [(8, "long_range_waypoint_pass"), (9, "long_range_guard")])
+def test_offboard_wait_preserves_explicit_fly_fix_2_sampled_window(offboard_wait, along, phase):
+    run, events = offboard_wait
+    revision = route.policy.SAMPLED_FLIGHT_MARGIN_REVISION
+    if along == 8:
+        assert run([(10000, along, 25)], revision=revision)["waited"] == "arrived"
     else:
-        assert run()["waited"] == "arrived"
-        assert events[0][0] == "long_range_waypoint_pass"
-        assert events[0][1]["along_past_target_m"] == pytest.approx(1.6)
-    assert events[0][1]["cross_track_m"] == cross
+        with pytest.raises(RuntimeError, match="missed the bounded Offboard waypoint passage"):
+            run([(10000, -15, 25), (11000, along, 25)], revision=revision)
+    (actual_phase, event), = events
+    assert actual_phase == phase
+    assert event["along_past_target_m"] == along
+    assert event["cross_track_m"] == 25

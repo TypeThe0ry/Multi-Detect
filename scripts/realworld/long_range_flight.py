@@ -347,13 +347,13 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
     capture_radii = capture if isinstance(capture, list) else [capture] * len(targets)
     metrics = route_preflight.get("metrics", {}) if route_preflight else {}
     revision = metrics.get("flight_margin_revision")
-    bounded_pass = revision == scenario_policy.FLIGHT_MARGIN_REVISION
+    bounded_pass = revision in scenario_policy.FW_PASS_REVISIONS
     if bounded_pass and data["scenario_id"] not in {scenario_policy.ALPINE_WORLD, scenario_policy.AMSTERDAM_WORLD}:
-        raise ValueError("bounded Offboard passage requires a surveyed FLY-FIX-2 site")
+        raise ValueError("bounded Offboard passage requires a surveyed Amsterdam or Grindelwald route")
     if bounded_pass:
         if any(radius is None for radius in capture_radii):
             raise ValueError("bounded Offboard passage requires an Offboard command at every waypoint")
-        departure = max(math.hypot(*point[:2]) for point in targets) - scenario_policy.FW_CAPTURE_WITNESS_M
+        departure = max(math.hypot(*point[:2]) for point in targets) - scenario_policy.fw_capture_witness_m(revision)
     else:
         departure = max(
             math.hypot(*point[:2]) - (geometry.loiter_radius_m if radius is None else radius)
@@ -366,7 +366,7 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
     if math.hypot(*offset_ned(geometry.home, geometry.landing)[:2]) > 1.0:
         raise ValueError("VTOL landing must be at home")
     boundary = data["boundary"]
-    revised = revision in {scenario_policy.FLIGHT_MARGIN_REVISION, scenario_policy.LEGACY_FLIGHT_MARGIN_REVISION}
+    revised = revision in (*scenario_policy.FW_PASS_REVISIONS, scenario_policy.LEGACY_FLIGHT_MARGIN_REVISION)
     limits = (40.0, MAX_CRUISE_AGL_M)
     transition_min = None
     if revised and data["scenario_id"] == scenario_policy.ALPINE_WORLD:
@@ -374,15 +374,18 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
         transition_min = scenario_policy.ALPINE_TRANSITION_MIN_AGL_M
         if start[2] != targets[0][2]:
             raise ValueError("Grindelwald forward transition requires level first targets")
-    if revised and data["scenario_id"] == scenario_policy.AMSTERDAM_WORLD:
+    if revision == scenario_policy.FLIGHT_MARGIN_REVISION or (
+            revised and data["scenario_id"] == scenario_policy.AMSTERDAM_WORLD):
         mission_radius = data["mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"]
         square_half = min(-boundary["north_min_m"], boundary["north_max_m"],
                           -boundary["east_min_m"], boundary["east_max_m"])
-        runout = scenario_policy.amsterdam_runout([start[:2], *(point[:2] for point in targets)],
-                                                   mission_radius, square_half, bounded_pass=bounded_pass)
+        runout = scenario_policy.fw_runout([start[:2], *(point[:2] for point in targets)],
+                                            mission_radius, square_half, revision=revision)
         if not scenario_policy.has_runout_margin(runout):
-            raise ValueError("Amsterdam FW runout exceeds the audited mission-radius or square margin")
+            raise ValueError("FW runout exceeds the audited mission-radius or square margin")
     buffer_m = route_preflight["buffer_m"] if route_preflight else geometry.loiter_radius_m
+    if revision == scenario_policy.FLIGHT_MARGIN_REVISION and buffer_m < scenario_policy.FW_PASS_BUFFER_M:
+        raise ValueError("VTOL route buffer does not enclose the audited FW handoff")
     edge_margin_m = buffer_m + 20.0 if route_preflight else 100.0
     for point in targets:
         if not (boundary["north_min_m"] + edge_margin_m <= point[0] <= boundary["north_max_m"] - edge_margin_m
@@ -450,7 +453,7 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
                       route_preflight.get("metrics", {}).get("flight_margin_revision")) not in {
                       (scenario_policy.ALPINE_LEGACY_CANDIDATE, None),
                       (scenario_policy.ALPINE_FIX1_CANDIDATE, scenario_policy.LEGACY_FLIGHT_MARGIN_REVISION),
-                      (scenario_policy.ALPINE_CANDIDATE, scenario_policy.FLIGHT_MARGIN_REVISION)}
+                      *((scenario_policy.ALPINE_CANDIDATE, revision) for revision in scenario_policy.FW_PASS_REVISIONS)}
                   or math.dist((geometry.home.latitude_deg, geometry.home.longitude_deg),
                                scenario_policy.ALPINE_ORIGIN) > 1e-8):
         raise ValueError("mountain_short requires the audited Grindelwald X1 valley route")
@@ -678,18 +681,63 @@ def _check_offboard_mode(collector, reader, streamer, *, wall=time.monotonic):
         raise RuntimeError("PX4 left Offboard mode during long-range guidance")
 
 
+def _fw_plane_passage(previous, current, tangent, target_ne):
+    """Classify the first fresh on/after-plane sample of a commanded leg."""
+    if previous is None or previous[1] >= 0:
+        return {"passage_failure": "no_pre_plane_sample"}
+    last_stamp, last_along, last_cross = previous
+    stamp, along, cross = current
+    fraction = -last_along / (along - last_along)
+    at_plane = last_cross + fraction * (cross - last_cross)
+    gap = stamp - last_stamp
+    step = math.hypot(along - last_along, cross - last_cross)
+    # The positive cross-track normal is (-east, north). A displacement
+    # with a nonnegative radial component cannot reduce departure distance.
+    tn, te = tangent
+    n, e = target_ne
+    outward = at_plane * (tn * e - te * n) >= 0
+    limit = scenario_policy.FW_PASS_OUTWARD_M if outward else scenario_policy.FW_PASS_CROSS_M
+    evidence = {"pre_plane_sim_stamp_ns": last_stamp,
+                "pre_plane_along_m": last_along, "pre_plane_cross_track_m": last_cross,
+                "crossing_cross_track_m": at_plane,
+                "crossing_sim_stamp_ns": last_stamp + round(fraction * gap),
+                "sample_gap_s": gap / 1e9, "sample_step_m": step,
+                "crossing_cross_track_limit_m": limit}
+    # Tolerate only arithmetic rounding at the metric boundaries.
+    if not 0 < gap <= scenario_policy.FW_PASS_MAX_GAP_NS:
+        evidence["passage_failure"] = "sample_gap"
+    elif step > scenario_policy.FW_PASS_MAX_STEP_M + 1e-6:
+        evidence["passage_failure"] = "sample_step"
+    elif abs(cross) > scenario_policy.FW_PASS_OUTWARD_M + 1e-6:
+        evidence["passage_failure"] = "post_plane_cross_track"
+    elif abs(at_plane) > limit + 1e-6:
+        evidence["passage_failure"] = "plane_cross_track"
+    return evidence
+
+
 def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
                  offboard_streamer=None, fw_pass_tangent=None, wall=time.monotonic, sleep=time.sleep) -> dict[str, Any]:
     """按 PX4 仿真时间等待；另设墙钟与时钟停滞上限，实时检查任务围栏。"""
     _, home_ned = collector._home_reference(reader.state)
     command = bind_target(command, home_ned)
-    start = collector._state_position(reader.state)
+    revision = (mission.get("route_preflight") or {}).get("metrics", {}).get("flight_margin_revision")
+    plane_pass = fw_pass_tangent is not None and revision != scenario_policy.SAMPLED_FLIGHT_MARGIN_REVISION
+    target_relative = tuple(target - home for target, home in zip(command.target_ned, home_ned))
+
+    def pose_state():
+        # The reader is updated by another thread. Read the position message
+        # once so offsets and sim_stamp_ns always describe the same pose.
+        state = reader.state
+        return {"LOCAL_POSITION_NED": state.get("LOCAL_POSITION_NED")} if plane_pass else state
+
+    initial_state = pose_state()
+    start = collector._state_position(initial_state)
     leg_n, leg_e = command.target_ned[0] - start[0], command.target_ned[1] - start[1]
     leg = math.hypot(leg_n, leg_e)
     sim_budget = leg / max(cruise_mps, 1.0) * 2.0 + 120.0
     wall_budget = min(float(mission["source"].get("max_wall_s", 14400.0)), sim_budget * 20.0 + 300.0)
     started = progress_wall = wall()
-    stamp = collector._pose_sim_stamp_ns(reader.state)
+    stamp = collector._pose_sim_stamp_ns(initial_state)
     if stamp is None:
         raise RuntimeError("long-range flight requires a PX4 simulation clock")
     first_stamp = previous_stamp = stamp
@@ -700,6 +748,8 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
     angle = 0.0
     previous_yaw = None
     previous_pose = None
+    previous_pose_stamp = None
+    previous_sample = None
     along = cross = None
 
     def reject(reason, **measurements):
@@ -707,7 +757,7 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
         collector._progress(
             "long_range_guard", reason=reason, sim_stamp_ns=stamp,
             position_home_ned_m=relative, previous_position_home_ned_m=previous_pose,
-            target_home_ned_m=tuple(target - home for target, home in zip(command.target_ned, home_ned)),
+            previous_sim_stamp_ns=previous_pose_stamp, target_home_ned_m=target_relative,
             distance_from_home_m=math.hypot(*relative[:2]),
             fly_through_radius_m=command.fly_through_radius_m,
             **({"along_past_target_m": along, "cross_track_m": cross} if fw_pass_tangent is not None else {}),
@@ -715,11 +765,16 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
         )
         raise RuntimeError(reason)
 
+    # Retain the initial coherent sample even if the reader publishes again
+    # before the first iteration.
+    snapshot = initial_state
     while wall() - started < wall_budget:
         reader.raise_if_failed()
         if command.fly_through_radius_m is not None:
             _check_offboard_mode(collector, reader, offboard_streamer, wall=wall)
-        stamp = collector._pose_sim_stamp_ns(reader.state)
+        current_state = snapshot if plane_pass and snapshot is not None else pose_state()
+        snapshot = None
+        stamp = collector._pose_sim_stamp_ns(current_state)
         if stamp is None or stamp < previous_stamp:
             raise RuntimeError("PX4 simulation clock missing or reset during long-range leg")
         if stamp > previous_stamp:
@@ -728,7 +783,7 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
             raise TimeoutError("PX4 simulation clock stalled for 60 wall seconds")
         if (stamp - first_stamp) / 1e9 >= sim_budget:
             break
-        pose = collector._state_position(reader.state)
+        pose = collector._state_position(current_state)
         relative = tuple(value - home for value, home in zip(pose, home_ned))
         dn, de = command.target_ned[0] - pose[0], command.target_ned[1] - pose[1]
         if fw_pass_tangent is not None:
@@ -754,10 +809,21 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
             if not 30.0 <= agl <= MAX_CRUISE_AGL_M:
                 reject(f"fixed-wing cruise left the 30–120 m DEM AGL envelope ({agl:.1f} m)",
                        agl_m=agl, dem_relative_home_m=-relative[2] - agl)
-        if fw_pass_tangent is not None:
-            # Use the actual commanded tangent. An early disk arrival can
-            # shorten successive turn legs and aggravate lateral tracking lag.
-            # Stop a missed leg before continuing indefinitely along AUTO_PATH.
+        passage = {}
+        if plane_pass:
+            # No early handoff and no extrapolation from a sample that starts
+            # past the plane. A long gap can skip an entire short turn leg;
+            # never credit that leg based on the preceding command's path.
+            arrived = False
+            if previous_sample is None or stamp > previous_sample[0]:
+                sample = (stamp, along, cross)
+                if along >= 0:
+                    passage = _fw_plane_passage(previous_sample, sample, fw_pass_tangent, target_relative[:2])
+                    if "passage_failure" in passage:
+                        reject("fixed-wing cruise missed the bounded Offboard waypoint passage", **passage)
+                    arrived = True
+                previous_sample = sample
+        elif fw_pass_tangent is not None:
             if along > scenario_policy.FW_PASS_ALONG_M:
                 reject("fixed-wing cruise missed the bounded Offboard waypoint passage")
             arrived = along >= 0 and abs(cross) <= scenario_policy.FW_PASS_CROSS_M
@@ -770,13 +836,14 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
         if arrived:
             if fw_pass_tangent is not None:
                 collector._progress("long_range_waypoint_pass", sim_stamp_ns=stamp,
-                                    position_home_ned_m=relative, along_past_target_m=along, cross_track_m=cross)
+                                    position_home_ned_m=relative, along_past_target_m=along, cross_track_m=cross,
+                                    **passage)
             return {"waited": "arrived", "distance_m": distance, "leg_m": leg,
                     "elapsed_s": wall() - started, "sim_elapsed_s": (stamp - first_stamp) / 1e9,
                     "sim_budget_s": sim_budget, "wall_budget_s": wall_budget,
                     **({"guidance": "offboard_path", "fly_through_radius_m": command.fly_through_radius_m}
                        if command.fly_through_radius_m is not None else {})}
-        previous_pose = relative
+        previous_pose, previous_pose_stamp = relative, stamp
         sleep(0.1)
     raise TimeoutError(f"long-range waypoint not reached within {sim_budget:.1f} sim seconds / {wall_budget:.1f} wall seconds")
 
@@ -792,7 +859,7 @@ def collector_overrides(collector, mission):
     offboard_active = False
     fw_pass_tangent = None
     bounded_pass = (mission.get("route_preflight") or {}).get("metrics", {}).get(
-        "flight_margin_revision") == scenario_policy.FLIGHT_MARGIN_REVISION
+        "flight_margin_revision") in scenario_policy.FW_PASS_REVISIONS
 
     class LongRangeExecutor(original_executor):
         def __init__(self, *args, **kwargs):

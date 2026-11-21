@@ -17,11 +17,17 @@ ALPINE_FIX1_CANDIDATE = "valley/5/0.5/130m/-10m/-1"
 ALPINE_CANDIDATE = ALPINE_FIX1_CANDIDATE + "/8-turn"
 AMSTERDAM_WORLD = "rw_canal_amsterdam_w6km__clear_noon"
 LEGACY_FLIGHT_MARGIN_REVISION = "fly-fix-1"
-FLIGHT_MARGIN_REVISION = "fly-fix-2"
-# The arrival plane replaces the 15 m disk on FLY-FIX-2 routes.
+SAMPLED_FLIGHT_MARGIN_REVISION = "fly-fix-2"
+FLIGHT_MARGIN_REVISION = "fly-fix-3"
+FW_PASS_REVISIONS = (SAMPLED_FLIGHT_MARGIN_REVISION, FLIGHT_MARGIN_REVISION)
 FW_PASS_CROSS_M = 25.0
-FW_PASS_ALONG_M = 8.0
-FW_CAPTURE_WITNESS_M = math.hypot(FW_PASS_CROSS_M, FW_PASS_ALONG_M)
+FW_PASS_ALONG_M = 8.0  # FLY-FIX-2 sampled window only.
+# FLY-FIX-3 permits wider outward turn lag, without giving back any
+# departure distance. Bracket limits are independent of wall-clock RTF.
+FW_PASS_OUTWARD_M = 45.0
+FW_PASS_MAX_GAP_NS = 3_000_000_000
+FW_PASS_MAX_STEP_M = 75.0  # 3 sim seconds at 25 m/s ground speed.
+FW_PASS_BUFFER_M = math.hypot(FW_PASS_MAX_STEP_M, FW_PASS_OUTWARD_M)
 ALPINE_PLANNED_AGL_M = (44.0, 113.0)
 ALPINE_TRANSITION_MIN_AGL_M = 60.0
 # Extrapolate the incoming Offboard tangent, with a separate position allowance.
@@ -65,30 +71,44 @@ def verify_route_policy(document, world_id, scenario_class):
     return threshold
 
 
-def projected_fw_runout(points_ne, forward_m):
-    """Worst radius and axis excursion along straight continuations of FW legs."""
+def fw_capture_witness_m(revision):
+    if revision == FLIGHT_MARGIN_REVISION:
+        # Inward error is bounded at the interpolated plane, and at least
+        # one bracket endpoint must be as far from home as the crossing.
+        return FW_PASS_CROSS_M
+    return math.hypot(FW_PASS_CROSS_M, FW_PASS_ALONG_M)
+
+
+def projected_fw_runout(points_ne, forward_m, cross_m=0.0):
+    """Worst radius and axis excursion over the bounded leg continuations."""
     max_radius = max_axis = 0.0
     for (pn, pe), (n, e) in zip(points_ne, points_ne[1:]):
         length = math.hypot(n - pn, e - pe)
         if length <= 0:
             raise ValueError("FW runout requires distinct waypoints")
-        end_n = n + forward_m * (n - pn) / length
-        end_e = e + forward_m * (e - pe) / length
-        max_radius = max(max_radius, math.hypot(n, e), math.hypot(end_n, end_e))
-        max_axis = max(max_axis, abs(n), abs(e), abs(end_n), abs(end_e))
+        tn, te = (n - pn) / length, (e - pe) / length
+        for along in (0.0, forward_m):
+            for cross in (-cross_m, cross_m):
+                end_n, end_e = n + along * tn - cross * te, e + along * te + cross * tn
+                max_radius = max(max_radius, math.hypot(end_n, end_e))
+                max_axis = max(max_axis, abs(end_n), abs(end_e))
     return max_radius, max_axis
 
 
-def amsterdam_runout(points_ne, mission_radius_m, square_half_m, *, bounded_pass=False):
-    # Include one extra polling interval at the observed ~15 m/s and the full
-    # permitted cross-track error before either accepting or stopping the leg.
-    radial_forward = square_forward = FW_PASS_ALONG_M + 2.0
-    allowance = FW_PASS_CROSS_M + AMSTERDAM_RUNOUT_ALLOWANCE_M
-    if not bounded_pass:
+def fw_runout(points_ne, mission_radius_m, square_half_m, *, revision=None):
+    cross = 0.0
+    allowance = AMSTERDAM_RUNOUT_ALLOWANCE_M
+    if revision == FLIGHT_MARGIN_REVISION:
+        radial_forward = square_forward = FW_PASS_MAX_STEP_M
+        cross = FW_PASS_OUTWARD_M
+    elif revision == SAMPLED_FLIGHT_MARGIN_REVISION:
+        # The FLY-FIX-2 audit used the observed ~2 m polling displacement.
+        radial_forward = square_forward = FW_PASS_ALONG_M + 2.0
+        allowance += FW_PASS_CROSS_M
+    else:
         radial_forward, square_forward = AMSTERDAM_RADIAL_RUNOUT_M, AMSTERDAM_SQUARE_RUNOUT_M
-        allowance = AMSTERDAM_RUNOUT_ALLOWANCE_M
-    radius, _ = projected_fw_runout(points_ne, radial_forward)
-    _, axis = projected_fw_runout(points_ne, square_forward)
+    radius, _ = projected_fw_runout(points_ne, radial_forward, cross)
+    _, axis = projected_fw_runout(points_ne, square_forward, cross)
     return {
         "radial_runout_m": radial_forward,
         "square_runout_m": square_forward,
