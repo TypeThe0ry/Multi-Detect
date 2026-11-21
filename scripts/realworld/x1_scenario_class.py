@@ -71,6 +71,13 @@ def verify_route_policy(document, world_id, scenario_class):
     return threshold
 
 
+def require_current_flight_margin(sidecar, world_id):
+    revision = sidecar.get("route_preflight", {}).get("metrics", {}).get("flight_margin_revision")
+    if revision != FLIGHT_MARGIN_REVISION:
+        raise ValueError(f"{world_id}: stale X1 route ({revision or 'legacy capture disk'}). "
+                         "Build and install a new preflight bundle before dispatch.")
+
+
 def fw_capture_witness_m(revision):
     if revision == FLIGHT_MARGIN_REVISION:
         # Inward error is bounded at the interpolated plane, and at least
@@ -121,6 +128,13 @@ def fw_runout(points_ne, mission_radius_m, square_half_m, *, revision=None):
 
 def has_runout_margin(runout):
     return min(runout["radial_headroom_m"], runout["square_headroom_m"]) >= runout["position_allowance_m"]
+
+
+def has_wide_course_margin(points_ne):
+    # Compare commanded FW legs only. The final hover return is outside this chain.
+    headings = [math.atan2(e - pe, n - pn) for (pn, pe), (n, e) in zip(points_ne, points_ne[1:])]
+    limit = math.radians(22.5 + 1e-5)  # Waypoints are serialized and round-tripped through WGS84.
+    return all(abs(math.remainder(b - a, 2 * math.pi)) <= limit for a, b in zip(headings, headings[1:]))
 
 
 def fw_target_offsets(tangent_ne, offset_ne):

@@ -23,6 +23,8 @@ def world(tmp_path, monkeypatch):
              "dem": asset / "x1" / f"{NAME}.dem.json"}
     for path in paths.values():
         path.write_text(path.name)
+    paths["sidecar"].write_text(collect.batch.dump({
+        "route_preflight": {"metrics": {"flight_margin_revision": collect.policy.FLIGHT_MARGIN_REVISION}}}))
     receipt = {"passed": True, "scenario": paths["scenario"].name,
                **{f"{key}_sha256": collect.batch.file_hash(p) for key, p in paths.items()}}
     (asset / "x1/preflight.json").write_text(collect.batch.dump(receipt))
@@ -43,6 +45,17 @@ def test_site_plan_uses_exclusive_gpu_slots_identity_and_in_repo_overrides(world
     a, _ = collect.site_plan(root, SITE, 0, IMAGE)
     b, _ = collect.site_plan(root, SITE, 0, "sha256:" + "f" * 64)
     assert a["output_root"] != b["output_root"]
+
+
+def test_hash_verified_legacy_route_is_never_dispatched(world):
+    root, paths = world
+    paths["sidecar"].write_text('{}')
+    receipt_path = paths["sidecar"].with_name("preflight.json")
+    receipt = collect.batch.read_object(receipt_path)
+    receipt["sidecar_sha256"] = collect.batch.file_hash(paths["sidecar"])
+    receipt_path.write_text(collect.batch.dump(receipt))
+    with pytest.raises(ValueError, match="stale X1 route"):
+        collect.site_plan(root, SITE, 0, IMAGE)
 
 
 def test_altered_asset_is_never_dispatched(world):

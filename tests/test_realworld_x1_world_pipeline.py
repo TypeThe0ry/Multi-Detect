@@ -67,7 +67,8 @@ def stage_route(asset):
         path = root / f"{asset.world.stem}.{suffix}"
         body = {"channels": channels} if kind == "scenario" else {}
         if kind == "sidecar":
-            body.update(route_policy, minimum_max_distance_m=route_policy["threshold_m"])
+            body.update(route_policy, minimum_max_distance_m=route_policy["threshold_m"],
+                        route_preflight={"metrics": {"flight_margin_revision": policy.FLIGHT_MARGIN_REVISION}})
         pipeline.atomic_json(path, body)
         receipt[f"{kind}_sha256"] = pipeline.digest(path)
         if kind == "scenario":

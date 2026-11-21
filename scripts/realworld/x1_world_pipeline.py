@@ -285,8 +285,9 @@ class Asset:
             if row.get(f"{kind}_sha256") != digest(self.path_in_asset(Path("x1") / name)):
                 raise ValueError(f"{folder}: route {kind} changed")
         scenario = read_json(folder / paths["scenario"])
+        sidecar = read_json(folder / paths["sidecar"])
+        scenario_policy.require_current_flight_margin(sidecar, stem)
         if scenario_class == scenario_policy.MOUNTAIN_SHORT:
-            sidecar = read_json(folder / paths["sidecar"])
             threshold = scenario_policy.verify_route_policy(sidecar, stem, scenario_class)
             if (sidecar.get("minimum_max_distance_m") != threshold
                     or sidecar["wide_area_unreachable"] != row["wide_area_unreachable"]):

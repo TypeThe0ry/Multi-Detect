@@ -173,7 +173,7 @@ def test_failed_preflight_leaves_no_receipt(asset_world, monkeypatch, failure):
 
     monkeypatch.setattr(route, "cpu_plan", cpu)
     if failure == "geometry":
-        monkeypatch.setattr(route, "evaluate", lambda *_: {"passed": False, "failures": ["terrain rejection"]})
+        monkeypatch.setattr(route, "evaluate", lambda *_, **__: {"passed": False, "failures": ["terrain rejection"]})
     with pytest.raises(ValueError, match="no route passed"):
         route.preflight(asset, world)
     assert bool(invoked) == (failure == "cpu")
@@ -203,7 +203,11 @@ def test_publication_binds_real_cpu_plan_and_batch(asset_world, tmp_path, monkey
     plan, = plans
     assert plan["fw_guidance"] == "offboard_path" and plan["flight_started"] is False
     assert plan["collector_plan"]["docker_command"] is None
-    assert len(plan["fw_waypoints_home_ned_m"]) == 16
+    assert len(plan["fw_waypoints_home_ned_m"]) == 22
+    metrics = route.read_json(sidecar)["route_preflight"]["metrics"]
+    assert metrics["flight_margin_revision"] == route.policy.FLIGHT_MARGIN_REVISION
+    assert metrics["max_departure_witness_m"] == pytest.approx(4007)
+    assert route.policy.has_runout_margin(metrics["fw_runout"])
     assert all(math.isclose(point[2], -85) for point in plan["fw_waypoints_home_ned_m"])
 
     legacy_receipt = {key: value for key, value in receipt.items() if key not in {"scenario_class", "threshold_m"}}
@@ -401,7 +405,7 @@ def test_amsterdam_turn_leaves_runout_under_both_guards(flat_layers):
     signs = route.QUADRANTS["NW"]
     mission_radius = 4192.640687119286
     old = route.corner_route(signs, 1)
-    new = route.amsterdam_route(signs, 1)
+    new = route.margin_corner_route(signs, 1)
     old_runout = route.policy.fw_runout(old[:-1, ::-1], mission_radius, route.HALF)
     sampled_runout = route.policy.fw_runout(new[:-1, ::-1], mission_radius, route.HALF,
                                           revision=route.policy.SAMPLED_FLIGHT_MARGIN_REVISION)

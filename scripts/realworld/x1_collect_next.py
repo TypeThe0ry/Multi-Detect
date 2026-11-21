@@ -50,8 +50,9 @@ def site_plan(asset_root, site, index, image_id, spec=None):
     paths, receipt = verified_asset(asset, name)
     scenario_class = policy.configured_class(name, spec)
     threshold = policy.verify_route_policy(receipt, name, scenario_class)
+    sidecar = batch.read_object(paths["sidecar"])
+    policy.require_current_flight_margin(sidecar, name)
     if scenario_class == policy.MOUNTAIN_SHORT:
-        sidecar = batch.read_object(paths["sidecar"])
         policy.verify_route_policy(sidecar, name, scenario_class)
         if (sidecar.get("minimum_max_distance_m") != threshold
                 or sidecar["wide_area_unreachable"] != receipt["wide_area_unreachable"]):

@@ -348,8 +348,9 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
     metrics = route_preflight.get("metrics", {}) if route_preflight else {}
     revision = metrics.get("flight_margin_revision")
     bounded_pass = revision in scenario_policy.FW_PASS_REVISIONS
-    if bounded_pass and data["scenario_id"] not in {scenario_policy.ALPINE_WORLD, scenario_policy.AMSTERDAM_WORLD}:
-        raise ValueError("bounded Offboard passage requires a surveyed Amsterdam or Grindelwald route")
+    if revision == scenario_policy.SAMPLED_FLIGHT_MARGIN_REVISION and data["scenario_id"] not in {
+            scenario_policy.ALPINE_WORLD, scenario_policy.AMSTERDAM_WORLD}:
+        raise ValueError("sampled Offboard passage requires a surveyed Amsterdam or Grindelwald route")
     if bounded_pass:
         if any(radius is None for radius in capture_radii):
             raise ValueError("bounded Offboard passage requires an Offboard command at every waypoint")
@@ -379,8 +380,12 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
         mission_radius = data["mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"]
         square_half = min(-boundary["north_min_m"], boundary["north_max_m"],
                           -boundary["east_min_m"], boundary["east_max_m"])
-        runout = scenario_policy.fw_runout([start[:2], *(point[:2] for point in targets)],
-                                            mission_radius, square_half, revision=revision)
+        points_ne = [start[:2], *(point[:2] for point in targets)]
+        if (revision == scenario_policy.FLIGHT_MARGIN_REVISION
+                and data.get("scenario_class", scenario_policy.WIDE_AREA) == scenario_policy.WIDE_AREA
+                and not scenario_policy.has_wide_course_margin(points_ne)):
+            raise ValueError("FW course change exceeds 22.5 degrees")
+        runout = scenario_policy.fw_runout(points_ne, mission_radius, square_half, revision=revision)
         if not scenario_policy.has_runout_margin(runout):
             raise ValueError("FW runout exceeds the audited mission-radius or square margin")
     buffer_m = route_preflight["buffer_m"] if route_preflight else geometry.loiter_radius_m

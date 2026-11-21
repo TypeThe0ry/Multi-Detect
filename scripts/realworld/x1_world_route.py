@@ -623,21 +623,21 @@ def corner_route(signs, direction, offset=0):
     return np.array([(0, 0), *out, *arc, *back, (0, 0)], dtype=float)
 
 
-def amsterdam_route(signs, direction):
-    """Start turning earlier and spread the U-turn over 15-degree course changes."""
+def margin_corner_route(signs, direction, *, segments=12, offset=0):
+    """Use a 4,032 m nose and split the 180-degree turn into 15° or 22.5° changes."""
     diagonal = np.asarray(signs) / math.sqrt(2)
     lateral = direction * np.array([-diagonal[1], diagonal[0]])
     radius = 120.1
-    half_turn = math.pi / 24
-    angles = np.linspace(half_turn, math.pi - half_turn, 12)
+    half_turn = math.pi / (2 * segments)
+    angles = np.linspace(half_turn, math.pi - half_turn, segments)
     turn = radius / math.cos(half_turn) * (np.sin(angles)[:, None] * diagonal
                                           - np.cos(angles)[:, None] * lateral)
     nose = turn[len(turn) // 2]
     # Reserve the full arrival-plane offset and at least 5 m past the gate.
     centre = math.sqrt(4032.0**2 - (nose @ lateral)**2) - nose @ diagonal
-    along = (550, 1300, 2100, 2900, centre - 240)
-    out = [distance * diagonal - radius * lateral for distance in along]
-    back = [distance * diagonal + radius * lateral for distance in reversed(along)]
+    along = tuple(zip((550, 1300, 2100, 2900, centre - 240), (0.5, 1, 1, 0.5, 0)))
+    out = [distance * diagonal + (-radius + weight * offset) * lateral for distance, weight in along]
+    back = [distance * diagonal + (radius + weight * offset) * lateral for distance, weight in reversed(along)]
     return np.array([(0, 0), *out, *(centre * diagonal + turn), *back, (0, 0)])
 
 
@@ -726,6 +726,28 @@ def is_alpine(scene):
 def corner_candidates():
     for offset, (name, signs), direction in itertools.product((0, 220, -220), QUADRANTS.items(), (1, -1)):
         yield f"{name}/{direction:+d}/{offset:+d}m", corner_route(signs, direction, offset)
+
+
+def survey_margin_corners(layers, world_id, threshold_m, mission_radius):
+    for offset, segments, (name, signs), direction in itertools.product(
+            (0, 160, -160, 220, -220), (12, 8), QUADRANTS.items(), (1, -1)):
+        points = margin_corner_route(signs, direction, segments=segments, offset=offset)
+        candidate = f"{name}/{direction:+d}/{offset:+d}m/{segments}-turn"
+        if world_id == policy.AMSTERDAM_WORLD and candidate == "NW/+1/+0m/12-turn":
+            # Keep the already accepted route's bundle identity when rebuilt.
+            candidate = "NW/+1/bounded-pass"
+        points_ne = points[:-1, ::-1]
+        runout = policy.fw_runout(points_ne, mission_radius, HALF, revision=policy.FLIGHT_MARGIN_REVISION)
+        failures = []
+        if not policy.has_runout_margin(runout):
+            failures.append("mission radius or world boundary runout")
+        if not policy.has_wide_course_margin(points_ne):
+            failures.append("FW course change exceeds 22.5 degrees")
+        if failures:
+            yield {"candidate": candidate, "passed": False, "failures": failures}
+            continue
+        yield {**evaluate(points, layers, threshold_m=threshold_m, bounded_pass=True),
+               "candidate": candidate, "fw_runout": runout}
 
 
 def survey_valley(layers, *, threshold_m=DEPARTURE, candidate=None, flight_margin=False):
@@ -995,32 +1017,20 @@ def preflight(asset, world, *, bundle_root=None):
         hashes = {"world_sha256": world_hash, "map_sha256": file_sha256(stage / f"{world_id}.geojson"),
                   "dem_sha256": file_sha256(stage / f"{world_id}.dem.json")}
         failures = []
+        audited_layers = include_runtime_dem(layers, read_json(stage / f"{world_id}.dem.json"))
         if mountain_short:
-            runtime_dem = read_json(stage / f"{world_id}.dem.json")
-            candidates = survey_valley(include_runtime_dem(layers, runtime_dem), threshold_m=threshold,
+            candidates = survey_valley(audited_layers, threshold_m=threshold,
                                        candidate=policy.ALPINE_CANDIDATE, flight_margin=True)
-        elif world_id == policy.AMSTERDAM_WORLD:
-            points = amsterdam_route(QUADRANTS["NW"], 1)
+        else:
             mission_radius = read_json(TEMPLATE_DIR / f"{TEMPLATE}.long_range.json")[
                 "mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"]
-            metrics = evaluate(points, include_runtime_dem(layers, read_json(stage / f"{world_id}.dem.json")),
-                               bounded_pass=True)
-            runout = policy.fw_runout(points[:-1, ::-1], mission_radius, HALF,
-                                      revision=policy.FLIGHT_MARGIN_REVISION)
-            if not policy.has_runout_margin(runout):
-                metrics["failures"].append("mission radius or world boundary runout")
-                metrics["passed"] = False
-            candidates = [{**metrics, "candidate": "NW/+1/bounded-pass", "fw_runout": runout}]
-        else:
-            candidates = (survey_valley(layers, threshold_m=threshold) if alpine else
-                          ({**evaluate(points, layers), "candidate": name} for name, points in corner_candidates()))
+            candidates = survey_margin_corners(audited_layers, world_id, threshold, mission_radius)
         for metrics in candidates:
             candidate = metrics["candidate"]
             if not metrics["passed"]:
                 failures.append(f"{candidate}: {', '.join(metrics['failures'])}")
                 continue
-            if mountain_short or world_id == policy.AMSTERDAM_WORLD:
-                metrics["flight_margin_revision"] = policy.FLIGHT_MARGIN_REVISION
+            metrics["flight_margin_revision"] = policy.FLIGHT_MARGIN_REVISION
             metrics["geometry_counts"] = counts
             sidecar = write_route(scenario, world_id, scene, metrics, inputs, hashes,
                                   route_policy=route_policy if mountain_short else None)
