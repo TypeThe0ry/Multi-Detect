@@ -16,6 +16,10 @@ from pathlib import Path
 
 TOPIC = "/world/default/stats"
 DEFAULT_STARTUP_WAIT_S = 240
+# Amsterdam emitted a roughly 3.7 s burst of advancing stats before stalling again.
+READINESS_MIN_HOST_SPAN_S = 5.0
+READINESS_MIN_SIM_ADVANCE_S = 1.0
+READINESS_MAX_SAMPLE_GAP_S = 2.0
 
 
 def run_read(command: list[str], timeout: float = 10) -> str:
@@ -182,6 +186,8 @@ def collect(container: str, gpu: str, warmup_s: float, window_s: float, interval
     errors: list[str] = []
     ready_or_eof = threading.Event()
     window: tuple[float, float, float] | None = None
+    first_positive_stats = readiness_run_first = readiness_stats = None
+    probe_eof = None
     # Closing the host's control pipe fires the owned GNU timeout timer early.
     # The hard limit also bounds the subscriber if the pipe cannot stop it.
     command = ["docker", "exec", "-i", container, "bash", "-c", f"""
@@ -203,7 +209,8 @@ exit "$status"
                                stderr=subprocess.DEVNULL, text=True)
 
     def read_stats() -> None:
-        nonlocal window
+        nonlocal window, first_positive_stats, readiness_run_first, readiness_stats, probe_eof
+        previous = None
         try:
             assert process.stdout is not None
             for line in process.stdout:
@@ -213,19 +220,38 @@ exit "$status"
                 try:
                     row = normalize_stats(json.loads(line), now, time.time())
                 except (ValueError, TypeError, KeyError) as exc:
-                    if window is not None and now >= window[1]:
+                    if window is None:
+                        readiness_run_first = previous = None
+                    elif now >= window[1]:
                         errors.append(f"invalid stats message: {exc}")
                     continue
-                # Gazebo JSON may omit paused when it is false.
-                if window is None and row["sim_time_s"] > 0 and row["paused"] is not True:
-                    start = now + warmup_s
-                    window = (now, start, start + window_s)
-                    ready_or_eof.set()
+                if window is None:
+                    # Gazebo JSON may omit paused when it is false.
+                    if row["paused"] is True or row["sim_time_s"] <= 0:
+                        readiness_run_first = previous = None
+                        continue
+                    if first_positive_stats is None:
+                        first_positive_stats = row
+                    if (previous is None
+                            or now - previous["host_monotonic_s"] > READINESS_MAX_SAMPLE_GAP_S
+                            or row["sim_time_s"] <= previous["sim_time_s"]
+                            or row["real_time_s"] <= previous["real_time_s"]):
+                        readiness_run_first = row
+                    previous = row
+                    # Require elapsed receipt time as well as progress so a quick burst of
+                    # buffered messages cannot qualify. The sim advance is across the run.
+                    if (now - readiness_run_first["host_monotonic_s"] >= READINESS_MIN_HOST_SPAN_S
+                            and row["sim_time_s"] - readiness_run_first["sim_time_s"] >= READINESS_MIN_SIM_ADVANCE_S):
+                        readiness_stats = row
+                        start = now + warmup_s
+                        window = (now, start, start + window_s)
+                        ready_or_eof.set()
                 if window is not None and now >= window[1]:
                     stats.append(row)
         except OSError as exc:
             errors.append(f"stats reader failed: {exc}")
         finally:
+            probe_eof = time.monotonic()
             ready_or_eof.set()
 
     reader = threading.Thread(target=read_stats, daemon=True)
@@ -234,7 +260,7 @@ exit "$status"
         notified = ready_or_eof.wait(timeout=max(0, startup_deadline - time.monotonic()))
         ready_at, started, deadline = window if notified and window is not None else (None, None, None)
         if started is None:
-            errors.append("no advancing, unpaused Gazebo stats before startup deadline")
+            errors.append("no sustained advancing, unpaused Gazebo stats before startup deadline")
         else:
             time.sleep(max(0, started - time.monotonic()))
         next_sample = started
@@ -272,6 +298,8 @@ exit "$status"
     reader.join(timeout=2)
     if reader.is_alive():
         errors.append("stats reader failed to finish")
+    if deadline is not None and probe_eof is not None and probe_eof < deadline:
+        errors.append("stats stream ended before measurement window deadline")
     if process.returncode not in (0, 124):
         errors.append(f"stats subscriber exited {process.returncode}")
     summary = summarize(stats, resources, errors)
@@ -285,8 +313,12 @@ exit "$status"
     return {"schema_version": 1, "topic": TOPIC, "container_id": container, "gpu": gpu,
             "warmup_s": warmup_s, "requested_window_s": window_s, "interval_s": interval_s,
             "startup_wait_s": startup_wait_s, "probe_started_monotonic_s": probe_started,
+            "startup_first_positive_stats": first_positive_stats,
             "simulation_ready_monotonic_s": ready_at,
+            "readiness_run_first_stats": readiness_run_first if ready_at is not None else None,
+            "readiness_stats": readiness_stats if ready_at is not None else None,
             "window_start_monotonic_s": started, "window_end_monotonic_s": deadline,
+            "stats_probe_eof_monotonic_s": probe_eof,
             "stats_probe_pid": process.pid, **summary, "stats_samples": stats, "resource_samples": resources,
             "stats_window_coverage_fraction": observed_span / window_s if observed_span is not None else None,
             "memory_scope": "device peak includes other jobs; container peak sums graphics/compute processes from docker top",
@@ -300,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--container-prefix")
     parser.add_argument("--wait-s", type=float, default=300)
     parser.add_argument("--startup-wait-s", type=float, default=DEFAULT_STARTUP_WAIT_S,
-                        help="seconds after attaching to wait for advancing, unpaused Gazebo stats")
+                        help="seconds after attaching to wait for sustained advancing, unpaused Gazebo stats")
     parser.add_argument("--gpu", choices=("0", "1", "2", "3"), default="1")
     parser.add_argument("--warmup-s", type=float, default=30)
     parser.add_argument("--window-s", type=float, default=120)
