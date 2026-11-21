@@ -28,7 +28,7 @@ usage() {
 
 FILE 是 JSON 数组；每项至少包含 name、scenario、resolved_root、extent_m，
 可选 airframe（rc_cessna_mono_cam 默认，或 delta_tailsitter_gimbal_cam）。每项会在 RTF_MATRIX_SLOT 指定的 slot 顺序执行，
-仅允许 slot 5、6、7（默认 7），可使用 GPU 1（默认）或 GPU 3；
+仅允许 slot 5、6、7（默认 7），可使用 GPU 0–3（默认 1）；
 长航程由 .venv-vlm 运行，stats 采样由同一项目环境运行。
 RTF_MATRIX_SINGLE_ROUND=1 时要求恰好一项，直接写入 --out，不重试或清理 episode。
 单轮可选 image（容器镜像引用）、gimbal_bridge_stabilize（JSON 布尔值，true 仅支持 Delta）。
@@ -51,7 +51,7 @@ done
 [[ -f "$MANIFEST" ]] || { echo "manifest 不存在：$MANIFEST" >&2; exit 2; }
 [[ -x "$SITL_PYTHON" ]] || { echo "缺少 SITL Python：$SITL_PYTHON" >&2; exit 2; }
 [[ "$SLOT" =~ ^[567]$ ]] || { echo "只允许 slot 5、6、7" >&2; exit 2; }
-[[ "$GPU" =~ ^[13]$ ]] || { echo "矩阵只允许 GPU1 或 GPU3（RTF_MATRIX_GPU）" >&2; exit 2; }
+[[ "$GPU" =~ ^[0-3]$ ]] || { echo "矩阵只允许 GPU0–3（RTF_MATRIX_GPU）" >&2; exit 2; }
 [[ -z "$RUN_TAG" || "$RUN_TAG" =~ ^[a-z0-9]{1,32}$ ]] || { echo "无效的 RTF_MATRIX_RUN_TAG" >&2; exit 2; }
 mkdir -p "$OUT"
 
@@ -61,8 +61,8 @@ export TMPDIR=${TMPDIR:-$ROOT/.tmp}
 export MULTIDETECT_SITL_SLOTS=${MULTIDETECT_SITL_SLOTS:-8}
 export MULTIDETECT_SIM_GPU=1
 export MULTIDETECT_SIM_GPU_DEVICES=$GPU
-export MULTIDETECT_SIM_ALLOW_GPUS=1,3
-export MULTIDETECT_SIM_GPU_AVOID=0
+export MULTIDETECT_SIM_ALLOW_GPUS=$GPU
+export MULTIDETECT_SIM_GPU_AVOID=
 export MULTIDETECT_SIM_CGROUP_PARENT=${MULTIDETECT_SIM_CGROUP_PARENT:-}
 export MULTIDETECT_SIM_NETWORK=${MULTIDETECT_SIM_NETWORK:-bridge}
 export MULTIDETECT_SIM_FIRST_FRAME_WAIT_S=${MULTIDETECT_SIM_FIRST_FRAME_WAIT_S:-240}
@@ -257,12 +257,20 @@ if [[ "$SINGLE_ROUND" == 1 ]]; then
   [[ -n "$rows" && "$rows" != *$'\n'* ]] || { echo "单轮模式要求一项 manifest" >&2; exit 2; }
   attempt=${RTF_MATRIX_ATTEMPT:-1}
   [[ "$attempt" =~ ^[1-9][0-9]*$ ]] || { echo "无效的 RTF_MATRIX_ATTEMPT" >&2; exit 2; }
-  GPU_UUID=$(nvidia-smi -i "$GPU" --query-gpu=uuid --format=csv,noheader)
-  [[ "$GPU_UUID" =~ ^GPU-[a-fA-F0-9-]+$ ]] || { echo "无法确认 GPU$GPU UUID" >&2; exit 1; }
+  GPU_UUID=${RTF_MATRIX_X1_GPU_UUID:-$(nvidia-smi -i "$GPU" --query-gpu=uuid --format=csv,noheader)}
+  [[ "$GPU_UUID" =~ ^GPU-[a-fA-F0-9-]{36}$ ]] || { echo "无法确认 GPU$GPU UUID" >&2; exit 1; }
   lock_root=${RTF_MATRIX_GPU_LOCK_ROOT:-/data/scratch/multidetect-rtf-gpu-locks}
   mkdir -p "$lock_root"
   exec {gpu_lock}>"$lock_root/$GPU_UUID.lock"
-  flock -w "$WAIT_S" "$gpu_lock" || { echo "等待 GPU$GPU 租约超时" >&2; exit 1; }
+  if [[ -n ${RTF_MATRIX_X1_GPU_UUID:-} ]]; then
+    if ! flock -n "$gpu_lock"; then
+      echo "GPU$GPU 已有租约，下轮重新选卡" >&2
+      printf '{"voided_reason":"x1_gpu_unavailable","detail":"gpu_lease_busy"}\n' > "$OUT/guard.json"
+      exit 75
+    fi
+  else
+    flock -w "$WAIT_S" "$gpu_lock" || { echo "等待 GPU$GPU 租约超时" >&2; exit 1; }
+  fi
   export RTF_MATRIX_START_LOAD_MAX=${RTF_MATRIX_START_LOAD_MAX:-60}
   export RTF_MATRIX_START_WAIT_S=${RTF_MATRIX_START_WAIT_S:-$WAIT_S}
   "$TOOLS_PYTHON" scripts/realworld/collection_guard.py gate --out "$OUT" --gpu "$GPU" || exit $?

@@ -106,6 +106,8 @@ if row["airframe"] == "delta_tailsitter_gimbal_cam":
 result = {**identity, "name": row["name"], "gpu": gpu, "valid_round": True,
           "route_completed": True, "rtf_window_median": 0.94,
           "rtf_delta_sim_over_delta_real": 0.88, "max_distance_from_spawn_m": 4100}
+if os.environ.get("RTF_MATRIX_X1_GPU_UUID"):
+    result["gpu_uuid"] = os.environ["RTF_MATRIX_X1_GPU_UUID"]
 if row["airframe"] != "rc_cessna_mono_cam":
     result["airframe"] = row["airframe"]
 if mode == "wrong_airframe":
@@ -248,6 +250,27 @@ def test_accepts_once_and_preserves_accepted_attempt(spec, matrix):
     assert list(attempt.parent.iterdir()) == [attempt]
     assert (root / "accepted.jsonl").stat().st_ino == before
     assert rows(root / "results.jsonl") == [record]
+
+
+def test_x1_per_attempt_gpu_metadata_and_deferral(spec, matrix):
+    from scripts.realworld.x1_gpu import GPUUnavailable
+
+    plan = batch.expand(spec)
+    root = Path(plan["output_root"])
+    gpu = {"gpu_index": 2, "gpu_uuid": "GPU-00000002-0000-0000-0000-000000000000",
+           "gpu_reason": "fallback_gpu_idle"}
+
+    def busy(status):
+        assert status == root / "GPU-STATUS.json"
+        raise GPUUnavailable("all busy")
+
+    assert batch.run_batch(plan, matrix, gpu_selector=busy) == 75
+    assert not (root / "jobs").exists()
+    assert batch.run_batch(plan, matrix, gpu_selector=lambda _: gpu) == 0
+    record, = rows(root / "accepted.jsonl")
+    assert record["gpu"] == 2
+    assert {key: record[key] for key in gpu} == gpu
+    assert plan["gpu"] == 3
 
 
 def test_delta_stages_vtol_geometry_and_checks_matrix_airframe(spec, matrix, tmp_path, monkeypatch):
@@ -504,14 +527,17 @@ def test_repairs_interrupted_results_append_from_verdict(spec, matrix):
     assert results.read_bytes() == complete
 
 
-@pytest.mark.parametrize("airframe,valid,single_round", [
-    (None, True, True), (None, False, True), (DELTA, True, True), (DELTA, False, True),
-    (DELTA, True, False),
+@pytest.mark.parametrize("airframe,valid,single_round,gpu", [
+    (None, True, True, 3), (None, False, True, 3), (DELTA, True, True, 3), (DELTA, False, True, 3),
+    (DELTA, True, False, 3), (DELTA, True, True, 0), (DELTA, True, True, 2),
 ])
-def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, single_round):
+def test_real_shell_with_stubbed_tools(tmp_path, monkeypatch, airframe, valid, single_round, gpu):
     python = tmp_path / "fake-python"
     python.write_text('''#!/bin/bash
 set -e
+[[ "$MULTIDETECT_SIM_GPU_DEVICES" == "$RTF_MATRIX_GPU" ]]
+[[ "$MULTIDETECT_SIM_ALLOW_GPUS" == "$RTF_MATRIX_GPU" ]]
+[[ ${MULTIDETECT_SIM_GPU_AVOID-unset} == '' ]]
 case "$1" in
   */collection_guard.py)
     action="$2"; shift 2
@@ -550,7 +576,7 @@ esac
     nvidia = tmp_path / "nvidia-smi"
     nvidia.write_text('''#!/bin/bash
 case "$3" in
-  --query-gpu=uuid) echo GPU-123-abc ;;
+  --query-gpu=uuid) echo GPU-00000003-0000-0000-0000-000000000000 ;;
   --query-gpu=memory.used) echo 0 ;;
   *) exit 0 ;;
 esac
@@ -563,7 +589,7 @@ esac
         "FAKE_EXPECTED_AIRFRAME": airframe or "",
         "FAKE_VALID": json.dumps(valid), "RTF_MATRIX_SINGLE_ROUND": str(int(single_round)),
         "RTF_MATRIX_ATTEMPT": "2", "RTF_MATRIX_GAP_S": "0", "RTF_MATRIX_MAX_ATTEMPTS": "1",
-        "RTF_MATRIX_RUN_TAG": "test", "RTF_MATRIX_GPU": "3", "RTF_MATRIX_SLOT": "5",
+        "RTF_MATRIX_RUN_TAG": "test", "RTF_MATRIX_GPU": str(gpu), "RTF_MATRIX_SLOT": "5",
         "RTF_MATRIX_MIN_FREE_GB": "0", "RTF_MATRIX_CPU_MAX": "1000000000", "RTF_MATRIX_SHARE_GPU": "0",
         "RTF_MATRIX_WAIT_S": "1", "RTF_MATRIX_GPU_LOCK_ROOT": str(tmp_path / "locks"),
     }.items():
@@ -581,7 +607,7 @@ esac
     raw = json.loads((attempt / "result.json").read_text())
     assert raw["valid_round"] is valid
     assert raw["attempt"] == (2 if single_round else 1)
-    assert raw["gpu_uuid"] == ("GPU-123-abc" if single_round else None)
+    assert raw["gpu_uuid"] == ("GPU-00000003-0000-0000-0000-000000000000" if single_round else None)
     assert raw["airframe"] == (airframe or batch.AIRFRAME)
     assert raw["flight_returncode"] == raw["stats_returncode"] == 0
     assert (attempt / "flight/episodes").exists()

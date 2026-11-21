@@ -61,7 +61,7 @@ def test_phase_order_selection_resume_and_completion(spec, monkeypatch):
                 "TOOLS_PYTHON", "RTF_MATRIX_CPU_MAX", "MULTIDETECT_SIM_CGROUP_PARENT"):
         monkeypatch.delenv(key, raising=False)
 
-    def run_batch(plan, command, *, completed=None):
+    def run_batch(plan, command, *, completed=None, gpu_selector=None):
         plans.append(plan["batch_id"])
         root = Path(plan["output_root"])
         root.mkdir(exist_ok=True)

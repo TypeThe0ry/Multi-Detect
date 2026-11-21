@@ -113,8 +113,8 @@ def expand(spec):
     gpu = spec.get("gpu", 1)
     slots = spec.get("slots", [5, 6, 7])
     share_gpu = spec.get("share_gpu")
-    if type(gpu) is not int or gpu not in (1, 3):
-        raise ValueError("gpu must be 1 or 3")
+    if type(gpu) is not int or gpu not in (0, 1, 2, 3):
+        raise ValueError("gpu must be 0, 1, 2 or 3")
     if (not isinstance(slots, list) or not slots or
             any(type(slot) is not int or slot not in (5, 6, 7) for slot in slots) or
             len(set(slots)) != len(slots)):
@@ -423,12 +423,13 @@ def now():
 
 
 def run_attempt(attempt, job, batch, command, lock_fd, gate):
+    selection = {key: gate[key] for key in ("gpu_index", "gpu_uuid", "gpu_reason") if key in gate}
     record = {"job_id": job["job_id"], "attempt_id": f"{job['job_id']}/{attempt.name}",
               "attempt_dir": str(attempt), "gpu": batch["gpu"], "slot": job["slot"],
               "inputs": job["inputs"], "started_at": now(), "start_load": gate["start_load"],
               "max_load": gate["start_load"], "voided_reason": None, "requeue_count": 0,
               "retry_exhausted": False, "next_retry_at": None,
-              **runtime_evidence(job["inputs"], {})}
+              **runtime_evidence(job["inputs"], {}), **selection}
     try:
         staged, assets = prepare(job, attempt / "scenario")
         record["assets"] = assets
@@ -451,6 +452,9 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
                    MULTIDETECT_SITL_SLOTS="8")
         if batch["share_gpu"] is not None:
             env["RTF_MATRIX_SHARE_GPU"] = str(int(batch["share_gpu"]))
+        env.pop("RTF_MATRIX_X1_GPU_UUID", None)
+        if selection:
+            env["RTF_MATRIX_X1_GPU_UUID"] = selection["gpu_uuid"]
         manifest = attempt / "manifest.json"
         atomic_text(attempt / "gate.json", dump(gate) + "\n")
         atomic_text(manifest, dump([{**job["matrix"], "scenario": str(staged)}]) + "\n")
@@ -459,6 +463,11 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
                                   cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
                                   pass_fds=(lock_fd,), check=False)
         record.update(evaluate(attempt, job, batch, proc.returncode))
+        if selection:
+            if record["gpu_uuid"] != selection["gpu_uuid"] and record["valid_round"]:
+                record.update(accepted=False, valid_round=False,
+                              errors=[*record["errors"], "matrix_gpu_uuid_mismatch"])
+            record.update(selection)
         guard_path = attempt / "guard.json"
         if guard_path.exists():
             guard = read_object(guard_path)
@@ -481,7 +490,7 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
     return record
 
 
-def run_batch(batch, command, *, completed=None):
+def run_batch(batch, command, *, completed=None, gpu_selector=None):
     """Run the batch, optionally recognizing usable verdicts for comparison trials."""
     root = Path(batch["output_root"])
     root.mkdir(parents=True, exist_ok=True)
@@ -490,10 +499,10 @@ def run_batch(batch, command, *, completed=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise ValueError(f"batch is already running: {root}") from exc
-        return run_locked(batch, command, lock.fileno(), completed=completed)
+        return run_locked(batch, command, lock.fileno(), completed=completed, gpu_selector=gpu_selector)
 
 
-def run_locked(batch, command, lock_fd, *, completed=None):
+def run_locked(batch, command, lock_fd, *, completed=None, gpu_selector=None):
     root = Path(batch["output_root"])
     manifest = root / "manifest.json"
     accepted_path, results_path, paused = (root / name for name in ("accepted.jsonl", "results.jsonl", "PAUSED"))
@@ -522,7 +531,8 @@ def run_locked(batch, command, lock_fd, *, completed=None):
             sync_dir(root)
             results[record["attempt_id"]] = record
 
-    from scripts.realworld.collection_guard import HOST_DISK_REASONS, GateTimeout, settings, wait_for_start
+    from scripts.realworld.collection_guard import DEFER_REASONS, GateTimeout, settings, wait_for_start
+    from scripts.realworld.x1_gpu import GPUUnavailable
     config = settings({key: batch[key] for key in batch if key in settings()})
     queue = deque(batch["jobs"])
     pending = False
@@ -565,7 +575,7 @@ def run_locked(batch, command, lock_fd, *, completed=None):
             print(f"PAUSED: {free} bytes free; next job {job_id}", file=sys.stderr)
             return 75
         paused.unlink(missing_ok=True)
-        voided = [row for row in prior if row.get("voided_reason") and row["voided_reason"] not in HOST_DISK_REASONS]
+        voided = [row for row in prior if row.get("voided_reason") and row["voided_reason"] not in DEFER_REASONS]
         requeues = max((row.get("requeue_count", 0) for row in prior), default=0)
         if len(voided) > batch["max_retries"]:
             pending = True
@@ -584,19 +594,30 @@ def run_locked(batch, command, lock_fd, *, completed=None):
                 continue
             if remaining > 0:
                 time.sleep(remaining)
+        selection = None
+        if gpu_selector is not None:
+            try:
+                selection = gpu_selector(root / "GPU-STATUS.json")
+            except GPUUnavailable as exc:
+                print(str(exc), file=sys.stderr)
+                return 75
         attempt = job_dir / f"attempt-{next_attempt}"
         attempt.mkdir(parents=True)
         gate = None
         try:
-            gate = wait_for_start(root / "WAITING", batch["gpu"], config)
-            write_status = __import__("scripts.realworld.collection_guard", fromlist=["write_status"]).write_status
-            write_status(attempt / "gate.json", gate)
-            record = run_attempt(attempt, job, batch, command, lock_fd, gate)
+            if selection is None:
+                gate = wait_for_start(root / "WAITING", batch["gpu"], config)
+                execution = batch
+            else:
+                # The matrix rechecks the selected card under its UUID lease before starting SITL.
+                gate = {"start_load": os.getloadavg()[0], **selection}
+                execution = {**batch, "gpu": selection["gpu_index"]}
+            record = run_attempt(attempt, job, execution, command, lock_fd, gate)
         except GateTimeout as exc:
             record = {"job_id": job_id, "attempt_id": f"{job_id}/{attempt.name}",
                       "attempt_dir": str(attempt), "accepted": False, "errors": [str(exc)],
                       "start_load": None, "max_load": None,
-                      "voided_reason": str(exc) if str(exc) in HOST_DISK_REASONS else None,
+                      "voided_reason": str(exc) if str(exc) in DEFER_REASONS else None,
                       "requeue_count": requeues, "finished_at": now()}
         record.setdefault("requeue_count", requeues)
         record.setdefault("start_load", gate.get("start_load") if gate else None)
@@ -605,7 +626,7 @@ def run_locked(batch, command, lock_fd, *, completed=None):
         record.setdefault("retry_exhausted", False)
         record.setdefault("next_retry_at", None)
         publish(attempt, record)
-        if record.get("voided_reason") in HOST_DISK_REASONS:
+        if record.get("voided_reason") in DEFER_REASONS:
             return 75
         if record.get("voided_reason"):
             new_requeues = requeues + 1 if requeues < batch["max_retries"] else requeues

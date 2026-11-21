@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -17,9 +16,10 @@ ROOT = Path(__file__).resolve().parents[2]
 if __name__ == "__main__":
     sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
-from scripts.realworld import collection_guard as guard  # noqa: E402
 from scripts.realworld import wide_collect_ab as chain  # noqa: E402
 from scripts.realworld import wide_collect_batch as batch  # noqa: E402
+from scripts.realworld import x1_gpu  # noqa: E402
+from scripts.realworld.x1_lock import LOCK, flight_lock  # noqa: E402
 
 MANIFEST = ROOT / "configs/simulation/x1-resume.json"
 NAS_SHARE = Path("/mnt/nas/AdminHome")
@@ -27,7 +27,6 @@ NAS = NAS_SHARE / "volatic"
 OUTPUT = NAS / "x1-resume"
 UNIT = "md-x1-resume.service"
 MATRIX = ROOT / "scripts/realworld/rtf_matrix.sh"
-LOCK = Path("/run/lock/md-x1-resume.lock")
 SITL_PYTHON = "/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python"
 TOOLS_PYTHON = "/data/datasets/multidetect-sim-assets/tools/venv/bin/python"
 START_GIB, STOP_GIB = 60, 53
@@ -134,9 +133,6 @@ def flight_gate(slots):
         raise ValueError(f"/data requires {START_GIB} GiB free to start")
     if os.getloadavg()[0] >= 60:
         raise ValueError("host one-minute load must be below 60")
-    blockers = guard.gpu_blockers(3)
-    if blockers:
-        raise ValueError("GPU 3 unavailable: " + ", ".join(blockers))
     filters = [item for slot in slots for item in ("--filter", f"name=md-rw-long-slot-{slot}-")]
     occupied = read_cmd(["docker", "ps", *filters, "--format", "{{.Names}}"])
     if occupied:
@@ -152,7 +148,7 @@ def preflight(spec):
     image_id = image_check(spec["image"])
     flight_gate(spec["batch"]["slots"])
     make_plan(spec, "ab", image_id)
-    return image_id
+    return image_id, x1_gpu.select(OUTPUT / "GPU-PREFLIGHT.json")
 
 
 def receipt_matches(record, job, *, allow_horizon_reject=False):
@@ -232,6 +228,10 @@ def matrix_environment():
     batch.MIN_FREE_BYTES = 0  # The batch root is on NAS. The guard checks /data in exact GiB.
 
 
+def run_flight_batch(plan, *, completed=None):
+    return batch.run_batch(plan, MATRIX, completed=completed, gpu_selector=x1_gpu.select)
+
+
 def run(spec, image_id, *, smoke=False):
     mount_check(write=True)
     matrix_environment()
@@ -240,12 +240,12 @@ def run(spec, image_id, *, smoke=False):
     pin_candidate(pin_path, pin)
     if smoke:
         plan = make_plan(spec, "smoke", image_id)
-        rc = batch.run_batch(plan, MATRIX, completed=qualify_ab)
+        rc = run_flight_batch(plan, completed=qualify_ab)
         if rc in (0, 1) and verdicts(plan, ab=True):
             return 0
         return rc or 1
     ab = make_plan(spec, "ab", image_id)
-    rc = batch.run_batch(ab, MATRIX, completed=qualify_ab)
+    rc = run_flight_batch(ab, completed=qualify_ab)
     if rc not in (0, 1):
         return rc
     records = verdicts(ab, ab=True)
@@ -263,7 +263,7 @@ def run(spec, image_id, *, smoke=False):
     batch.atomic_text(selection, batch.dump(choice) + "\n")
     mount_check()
     final = make_plan(spec, "final", image_id, mode)
-    rc = batch.run_batch(final, MATRIX)
+    rc = run_flight_batch(final)
     if rc not in (0, 1):
         return rc
     records = verdicts(final)
@@ -303,16 +303,17 @@ def main(argv=None):
         if args.action == "launch" and complete(spec):
             return 0
         if args.action == "run":
-            with LOCK.open("a") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                image_id = preflight(spec)
+            with flight_lock(LOCK):
+                image_id, _ = preflight(spec)
                 if image_id != args.image_id:
                     raise ValueError("candidate tag changed between dispatch and worker startup")
                 return run(spec, image_id, smoke=args.smoke)
-        image_id = preflight(spec)
+        image_id, gpu = preflight(spec)
         if args.action == "preflight":
-            print(f"ready: {spec['image']} {image_id}")
+            print(f"ready: {spec['image']} {image_id}, GPU{gpu['gpu_index']} {gpu['gpu_uuid']}")
         else:
+            with flight_lock(LOCK):
+                pass
             dispatching = True
             dispatch(image_id, smoke=args.action == "smoke")
         return 0

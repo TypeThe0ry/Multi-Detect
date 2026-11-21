@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "asset_root": "/data/datasets/multidetect-sim-assets/wide-collect/assets",
+  "nas_root": "/mnt/nas/AdminHome/volatic/x1-worlds",
+  "tools_python": "/data/datasets/multidetect-sim-assets/tools/venv/bin/python",
+  "model_seed": "rw_city_zurich_w6km/v1/models",
+  "sites": {
+    "rw_alpine_grindelwald": "sites",
+    "rw_canal_amsterdam": "sites",
+    "rw_port_rotterdam": "validation-1107/sites",
+    "rw_city_berlin": "sites",
+    "rw_city_singapore": "validation-1107/sites",
+    "rw_city_shenzhen": "sites"
+  }
+}

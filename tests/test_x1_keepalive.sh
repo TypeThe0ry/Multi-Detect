@@ -5,7 +5,7 @@ keeper=${1:-/data/projects/Multi-Detect-env/runs/keepalive}
 registry=${2:-$keeper/registry.tsv}
 name=${3:-md-x1-resume}
 case $name in
-    md-x1-resume|md-x1-collect-next) gpu=3 ;;
+    md-x1-resume|md-x1-collect-next) gpu=3,1,2,0 ;;
     md-x1-worlds) gpu=- ;;
     *) exit 2 ;;
 esac
@@ -20,7 +20,11 @@ awk -F '\t' -v name="$name" -v gpu="$gpu" '$1 == name && $8 == gpu { print }' "$
 cat > "$test_dir/bin/mock-x1" <<'MOCK'
 #!/usr/bin/env bash
 case $1 in
-    preflight) [[ ${TEST_IMAGE:-0} == 1 && ${TEST_LOAD:-100} -lt 60 ]] ;;
+    keepalive-preflight)
+        [[ $2 == --keepalive-state && -d $3 ]] || exit 9
+        if [[ -f $3/world-yield ]]; then exec "$TEST_WORLD_PIPELINE" "$@"; fi
+        ;&
+    preflight) [[ ${TEST_IMAGE:-0} == 1 && ${TEST_LOAD:-100} -lt 60 && ${TEST_GPU_READY:-1} == 1 ]] ;;
     complete) [[ ${TEST_COMPLETE:-0} == 1 ]] ;;
     launch)
         printf 'request\n' >> started
@@ -51,6 +55,7 @@ esac
 MOCK
 chmod 0700 "$test_dir/bin/"*
 export PATH="$test_dir/bin:$PATH"
+export TEST_WORLD_PIPELINE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/scripts/realworld/x1_world_pipeline.sh"
 run() { bash "$test_dir/keepalive.sh"; }
 expect() { jq -e ".entries[0] | $1" "$test_dir/heartbeat.json" >/dev/null; }
 touch "$test_dir/state/armed"
@@ -64,10 +69,14 @@ expect '.status=="IDLE" and .attempts==0'
 TEST_UNIT=active run
 expect '.status=="ALIVE" and .attempts==0'
 TEST_IMAGE=1 TEST_LOAD=59 TEST_GIB=59 run
-expect '.status=="WAIT_RESOURCES" and .reason=="disk_below_60GiB" and .attempts==0'
-if [[ $gpu == 3 ]]; then
-    TEST_IMAGE=1 TEST_LOAD=59 TEST_GPU_MEM=1024 run
-    expect '.status=="WAIT_RESOURCES" and .reason=="gpu3_busy_or_unknown" and .attempts==0'
+floor=60
+[[ $name != md-x1-worlds ]] || floor=70
+expect ".status==\"WAIT_RESOURCES\" and .reason==\"disk_below_${floor}GiB\" and .attempts==0"
+if [[ $gpu != - ]]; then
+    TEST_IMAGE=1 TEST_LOAD=59 TEST_GPU_READY=0 run
+    expect '.status=="WAIT_PREREQ" and .attempts==0'
+    # A busy GPU3 does not block the launch when the X1 selector found a fallback.
+    export TEST_GPU_MEM=1024
 fi
 TEST_IMAGE=1 TEST_LOAD=59 TEST_LAUNCH_RC=75 run
 expect '.status=="WAIT_PREREQ" and .reason=="prerequisite_changed" and .attempts==0'
@@ -79,3 +88,23 @@ TEST_COMPLETE=1 run
 expect '.status=="IDLE" and .attempts==0'
 [[ $(wc -l < "$test_dir/started") == 3 ]]
 printf 'PASS: %s prerequisite waits, completion, live status, resource gates, race deferral and attempt counts.\n' "$name"
+
+if [[ $name == md-x1-worlds ]]; then
+    state=$test_dir/state/md-x1-worlds
+    TEST_IMAGE=1 TEST_LOAD=59 run
+    printf '3\n' > "$state/attempts"
+    printf '{"state":"yielded","attempt":3}\n' > "$state/world-yield"
+    TEST_UNIT=active run
+    expect '.status=="ALIVE" and .attempts==3'
+    [[ -f $state/world-yield ]]
+    TEST_IMAGE=1 TEST_LOAD=59 run
+    expect '.status=="WAIT_PREREQ" and .action=="none"'
+    [[ ! -e $state/world-yield && $(<"$state/attempts") == 2 ]]
+    run
+    expect '.status=="WAIT_PREREQ" and .attempts==2'
+    TEST_IMAGE=1 TEST_LOAD=59 run
+    expect '.status=="START_REQUESTED" and .attempts==3'
+    TEST_COMPLETE=1 run
+    expect '.status=="IDLE" and .attempts==0'
+    printf 'PASS: a yielded world dispatch refunds exactly one attempt and can restart.\n'
+fi

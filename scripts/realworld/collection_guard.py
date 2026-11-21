@@ -27,6 +27,7 @@ DEFAULTS = dict(start_load_max=60, start_wait_s=3600, poll_interval_s=2,
                 rtf_window_s=30, max_retries=3, retry_backoff_s=30,
                 retry_backoff_max_s=600)
 HOST_DISK_REASONS = {"host_disk_below_floor", "host_disk_probe_failed"}
+DEFER_REASONS = HOST_DISK_REASONS | {"x1_gpu_unavailable", "x1_start_load_exceeded"}
 
 
 def settings(overrides=None):
@@ -119,6 +120,23 @@ def wait_for_start(status_path, gpu, config):
         if timed_out:
             raise GateTimeout("start gate timed out: " + ", ".join(reasons))
         time.sleep(min(config["poll_interval_s"], config["start_wait_s"] - elapsed))
+
+
+def x1_start(out, gpu, config, uuid):
+    from scripts.realworld import x1_gpu
+
+    reason = host_disk_reason()
+    if reason:
+        raise GateTimeout(reason)
+    load = os.getloadavg()[0]
+    if not math.isfinite(load) or load > config["start_load_max"]:
+        raise GateTimeout("x1_start_load_exceeded")
+    try:
+        selection = x1_gpu.select(out / "GPU-STATUS.json", indices=(int(gpu),), expected_uuid=uuid)
+    except x1_gpu.GPUUnavailable as exc:
+        print(exc, file=__import__("sys").stderr)
+        raise GateTimeout(x1_gpu.UNAVAILABLE) from exc
+    return {"start_load": load, "waited_s": 0, **selection}
 
 
 class MonitorState:
@@ -287,13 +305,15 @@ def main(argv=None):
     try:
         config = environment_settings()
         if args.action == "gate":
-            gate = wait_for_start(args.out / "WAITING", args.gpu, config)
+            uuid = os.environ.get("RTF_MATRIX_X1_GPU_UUID")
+            gate = (x1_start(args.out, args.gpu, config, uuid) if uuid else
+                    wait_for_start(args.out / "WAITING", args.gpu, config))
             write_status(args.out / "gate.json", gate)
             return 0
         return supervise(args.out, args.prefix, args.gpu, config,
                          json.loads(args.flight_command), json.loads(args.stats_command))
     except GateTimeout as exc:
-        if args.action == "gate" and str(exc) in HOST_DISK_REASONS:
+        if args.action == "gate" and str(exc) in DEFER_REASONS:
             write_status(args.out / "guard.json", {"voided_reason": str(exc)})
         print(str(exc), file=__import__("sys").stderr)
         return 75
