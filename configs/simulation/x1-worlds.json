@@ -15,5 +15,6 @@
     "rw_city_berlin": "sites",
     "rw_city_singapore": "validation-1107/sites",
     "rw_city_shenzhen": "sites"
-  }
+  },
+  "collection_only_sites": ["rw_city_zurich"]
 }

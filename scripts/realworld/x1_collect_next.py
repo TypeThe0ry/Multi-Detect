@@ -17,20 +17,25 @@ from scripts.realworld import x1_resume as resume  # noqa: E402
 from scripts.realworld import x1_scenario_class as policy  # noqa: E402
 
 MANIFEST = ROOT / "configs/simulation/x1-worlds.json"
+VARIANT_MANIFEST = MANIFEST.with_name("x1-variants.json")
 OUTPUT = resume.NAS / "x1-next"
 UNIT = "md-x1-collect-next.service"
 SLOTS = (5, 6, 7)
+IOWA_SITE = "rw_farm_iowa"
+# Presets audited for this queue. The generator's wind presets need a different audit.
+VARIANT_CONDITIONS = {("noon", "overcast"), ("dusk", "clear")}
 # Correctly grouped prior Iowa A/B favored bridge-on. The horizon2 candidate still
 # requires a live verdict for every new site.
 BRIDGE_STABILIZE = True
 
 
-def verified_asset(asset, world_name):
-    folder = asset / "x1"
+def verified_asset(asset, world_name, *, variant_dir=None):
+    root = asset if variant_dir is None else variant_dir
+    folder = root / "x1"
     receipt = batch.read_object(folder / "preflight.json")
     scenario = folder / f"{world_name}.scenario.json"
     sidecar = folder / f"{world_name}.long_range.json"
-    world = asset / "worlds" / f"{world_name}.sdf"
+    world = root / "worlds" / f"{world_name}.sdf"
     paths = {"world": world, "scenario": scenario, "sidecar": sidecar,
              "map": folder / f"{world_name}.geojson",
              "dem": folder / f"{world_name}.dem.json"}
@@ -44,10 +49,13 @@ def verified_asset(asset, world_name):
     return paths, receipt
 
 
-def site_plan(asset_root, site, index, image_id, spec=None):
-    asset = asset_root / f"{site}_w6km" / "v1"
-    name = f"{site}_w6km__clear_noon"
-    paths, receipt = verified_asset(asset, name)
+def site_plan(asset_root, site, index, image_id, spec=None, *,
+              conditions=("noon", "clear"), asset_dir=None):
+    preset = batch.WEATHER[conditions]
+    asset = asset_root / f"{site}_w6km" / "v1" if asset_dir is None else asset_dir
+    variant_dir = None if preset == "clear_noon" else asset / "x1-variants" / preset
+    name = f"{site}_w6km__{preset}"
+    paths, receipt = verified_asset(asset, name, variant_dir=variant_dir)
     scenario_class = policy.configured_class(name, spec)
     threshold = policy.verify_route_policy(receipt, name, scenario_class)
     sidecar = batch.read_object(paths["sidecar"])
@@ -57,12 +65,15 @@ def site_plan(asset_root, site, index, image_id, spec=None):
         if (sidecar.get("minimum_max_distance_m") != threshold
                 or sidecar["wide_area_unreachable"] != receipt["wide_area_unreachable"]):
             raise ValueError(f"{name}: mountain_short sidecar does not match route receipt")
+    if variant_dir is not None and sidecar.get("minimum_max_distance_m") != threshold:
+        raise ValueError(f"{name}: variant sidecar does not certify {threshold} m")
     # Keep records for older versions. A rebuilt route or new image cannot qualify this run.
     suffix = batch.digest({"route": receipt, "image_id": image_id, "bridge": BRIDGE_STABILIZE})[:20]
-    staging = ROOT / ".tmp" / "x1-worlds" / f"{site}-{suffix}"
+    queue_key = site if variant_dir is None else f"{site}__{preset}"
+    staging = ROOT / ".tmp" / "x1-worlds" / f"{queue_key}-{suffix}"
     return batch.expand({
-        "batch_id": f"x1-next-{site}-{suffix}",
-        "output_root": str(OUTPUT / "collection" / site / suffix),
+        "batch_id": f"x1-next-{queue_key}-{suffix}",
+        "output_root": str(OUTPUT / "collection" / queue_key / suffix),
         "airframe": batch.DELTA_AIRFRAME,
         "gpu": 3,
         "slots": [SLOTS[index % len(SLOTS)]],
@@ -74,7 +85,7 @@ def site_plan(asset_root, site, index, image_id, spec=None):
         "variant_terrain_root": str(staging / "terrain"),
         "jobs": [{"site": site, "scenario": str(paths["scenario"]), "seed": 401 + index,
                   "scenario_class": scenario_class, "minimum_max_distance_m": threshold,
-                  "altitude_m": 85, "time_of_day": "noon", "weather": "clear",
+                  "altitude_m": 85, "time_of_day": conditions[0], "weather": conditions[1],
                   "image": image_id, "gimbal_bridge_stabilize": BRIDGE_STABILIZE}],
     }), [(paths[field], staging / folder, receipt[f"{field}_sha256"])
          for field, folder in (("world", "worlds"), ("map", "maps"), ("dem", "terrain"))]
@@ -104,9 +115,14 @@ def accepted(plan):
     return verdict(records.get(job["job_id"], {}), job)
 
 
+def collection_sites(spec):
+    # Preserve the original indices (job seeds and slots) of the managed worlds.
+    return (*spec["sites"], *spec.get("collection_only_sites", ()))
+
+
 def plans(spec, image_id):
     pending, done, unavailable = [], [], {}
-    for index, site in enumerate(spec["sites"]):
+    for index, site in enumerate(collection_sites(spec)):
         try:
             item = site_plan(Path(spec["asset_root"]), site, index, image_id, spec)
         except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -119,10 +135,58 @@ def plans(spec, image_id):
     return pending, done, unavailable
 
 
-def preflight(spec, image):
-    resume.mount_check(output=OUTPUT)
-    image_id = resume.image_check(image)
+def queue_plans(spec, image_id, iowa_spec):
     pending, done, unavailable = plans(spec, image_id)
+    if pending or unavailable:
+        return pending, done, unavailable
+
+    variants = batch.read_object(VARIANT_MANIFEST)
+    if variants.get("schema_version") != 1 or type(variants.get("enabled")) is not bool:
+        raise ValueError("invalid X1 variant queue schema or enabled flag")
+    if not variants["enabled"]:
+        return pending, done, unavailable
+
+    sites = variants["sites"]
+    conditions = [(row["time_of_day"], row["weather"]) for row in variants["conditions"]]
+    if (not isinstance(sites, list) or not sites or len(set(sites)) != len(sites)
+            or any(site != IOWA_SITE and (site not in done or
+                       policy.configured_class(site, spec) != policy.WIDE_AREA) for site in sites)
+            or len(conditions) != 2 or set(conditions) != VARIANT_CONDITIONS):
+        raise ValueError("X1 variants require unique wide-area base sites, overcast and dusk")
+    if IOWA_SITE in sites and not resume.complete(iowa_spec, required_image_id=image_id):
+        unavailable[IOWA_SITE] = "Iowa base collection is not complete for the candidate image"
+        return pending, done, unavailable
+
+    asset_root = Path(spec["asset_root"])
+    overrides = variants.get("asset_dirs", {})
+    if overrides.keys() - set(sites):
+        raise ValueError("variant asset_dirs must refer to queued sites")
+    for site_index, site in enumerate(sites):
+        asset_dir = None
+        if site in overrides:
+            relative = Path(overrides[site])
+            asset_dir = asset_root / relative
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError(f"{site}: variant asset_dir must be relative to the asset root")
+        for offset, pair in enumerate(conditions):
+            label = f"{site}__{batch.WEATHER[pair]}"
+            index = len(collection_sites(spec)) + site_index * len(conditions) + offset
+            try:
+                item = site_plan(asset_root, site, index, image_id, spec,
+                                 conditions=pair, asset_dir=asset_dir)
+                if accepted(item[0]):
+                    done.append(label)
+                else:
+                    pending.append(item)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                unavailable[label] = str(exc)
+    return pending, done, unavailable
+
+
+def preflight(spec, iowa_spec):
+    resume.mount_check(output=OUTPUT)
+    image_id = resume.image_check(iowa_spec["image"])
+    pending, done, unavailable = queue_plans(spec, image_id, iowa_spec)
     if not pending:
         raise ValueError(f"no pending offline-qualified worlds ({len(done)} accepted): {unavailable}")
     resume.flight_gate(SLOTS)
@@ -157,22 +221,22 @@ def main(argv=None):
     launching = False
     try:
         spec = batch.read_object(MANIFEST)
-        image = batch.read_object(resume.MANIFEST)["image"]
+        iowa_spec = batch.read_object(resume.MANIFEST)
         if args.action == "complete":
             resume.mount_check(output=OUTPUT)
-            image_id = resume.image_check(image)
-            _, done, _ = plans(spec, image_id)
-            return 0 if len(done) == len(spec["sites"]) else 1
+            image_id = resume.image_check(iowa_spec["image"])
+            pending, _, unavailable = queue_plans(spec, image_id, iowa_spec)
+            return 0 if not pending and not unavailable else 1
         if args.action == "run":
             with resume.flight_lock(resume.LOCK):
-                image_id, pending, _ = preflight(spec, image)
+                image_id, pending, _ = preflight(spec, iowa_spec)
                 if args.image_id != image_id:
                     raise ValueError("candidate tag changed between dispatch and worker startup")
                 return run(pending)
-        image_id, pending, gpu = preflight(spec, image)
+        image_id, pending, gpu = preflight(spec, iowa_spec)
         if args.action == "preflight":
             print(f"ready: {len(pending)} world(s), GPU{gpu['gpu_index']} {gpu['gpu_uuid']}, "
-                  f"slots 5–7, {image} {image_id}")
+                  f"slots 5–7, {iowa_spec['image']} {image_id}")
         else:
             with resume.flight_lock(resume.LOCK):
                 pass

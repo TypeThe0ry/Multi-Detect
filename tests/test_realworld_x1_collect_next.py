@@ -82,3 +82,98 @@ def test_collection_requires_horizon_rtf_bridge_identity_and_route(world):
                     {"horizon_acceptance": {"passed": False}}, {"bridge_stabilize": False},
                     {"max_distance_from_spawn_m": 3999.99}):
         assert not collect.verdict({**record, **failure}, job)
+
+
+def test_zurich_collection_only_site_is_required_for_completion(world, monkeypatch):
+    root, _ = world
+    zurich = "rw_city_zurich"
+    spec = {"asset_root": str(root), "sites": {SITE: "raw"}, "collection_only_sites": [zurich]}
+    base_plan, _ = collect.site_plan(root, SITE, 0, IMAGE, spec)
+    monkeypatch.setattr(collect, "accepted", lambda plan: plan == base_plan)
+    normal_read = collect.batch.read_object
+    monkeypatch.setattr(collect.batch, "read_object",
+                        lambda path: spec if path == collect.MANIFEST else normal_read(path))
+    monkeypatch.setattr(collect.resume, "mount_check", lambda **kwargs: None)
+    monkeypatch.setattr(collect.resume, "image_check", lambda image: IMAGE)
+    pending, done, unavailable = collect.plans(spec, IMAGE)
+    assert not pending and done == [SITE] and set(unavailable) == {zurich}
+    assert collect.main(["complete"]) == 1
+
+
+@pytest.fixture
+def variants(world, monkeypatch):
+    root, base_paths = world
+    asset = base_paths["world"].parents[1]
+    config = root / "x1-variants.json"
+    monkeypatch.setattr(collect, "VARIANT_MANIFEST", config)
+    queue = {"schema_version": 1, "enabled": True, "sites": [SITE, collect.IOWA_SITE],
+             "conditions": [{"time_of_day": "noon", "weather": "overcast"},
+                            {"time_of_day": "dusk", "weather": "clear"}]}
+    config.write_text(collect.batch.dump(queue))
+    for preset in ("overcast", "dusk"):
+        variant_dir = asset / "x1-variants" / preset
+        paths = {}
+        for key, base_path in base_paths.items():
+            path = variant_dir / base_path.parent.name / base_path.name.replace("clear_noon", preset)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(base_path.read_bytes())
+            paths[key] = path
+        body = collect.batch.read_object(paths["sidecar"])
+        paths["sidecar"].write_text(collect.batch.dump({**body, "minimum_max_distance_m": 4000}))
+        receipt = {"passed": True, "scenario": paths["scenario"].name,
+                   **{f"{key}_sha256": collect.batch.file_hash(p) for key, p in paths.items()}}
+        (paths["sidecar"].parent / "preflight.json").write_text(collect.batch.dump(receipt))
+    return {"asset_root": str(root), "sites": {SITE: "raw"}}, config, queue
+
+
+def test_variants_follow_completed_base_queue_and_use_same_gates(variants, monkeypatch):
+    spec, config, queue = variants
+    checked_images = []
+
+    def iowa_complete(_spec, *, required_image_id):
+        checked_images.append(required_image_id)
+        return len(checked_images) > 1
+
+    monkeypatch.setattr(collect.resume, "complete", iowa_complete)
+    base, _, _ = collect.queue_plans(spec, IMAGE, {})
+    assert [plan["jobs"][0]["weather_preset"] for plan, _ in base] == ["clear_noon"]
+    assert not checked_images
+    monkeypatch.setattr(collect, "accepted", lambda plan: plan == base[0][0])
+    config.write_text(collect.batch.dump({**queue, "enabled": False}))
+    assert collect.queue_plans(spec, IMAGE, {}) == ([], [SITE], {})
+    assert not checked_images
+    config.write_text(collect.batch.dump(queue))
+    pending, done, unavailable = collect.queue_plans(spec, IMAGE, {})
+    assert not pending and done == [SITE] and set(unavailable) == {collect.IOWA_SITE}
+    pending, done, unavailable = collect.queue_plans(spec, IMAGE, {})
+    assert checked_images == [IMAGE, IMAGE]
+    assert set(unavailable) == {"rw_farm_iowa__overcast", "rw_farm_iowa__dusk"}
+    assert len(pending) == 2 and done == [SITE]
+    job_ids = {base[0][0]["jobs"][0]["job_id"]}
+    for (plan, assets), preset, slot in zip(pending, ("overcast", "dusk"), (6, 7), strict=True):
+        job, = plan["jobs"]
+        assert job["weather_preset"] == preset and job["slot"] == slot
+        assert job["matrix"]["minimum_rtf"] == 0.9
+        assert collect.batch.distance_fields(job) == {"scenario_class": "wide_area", "minimum_max_distance_m": 4000}
+        assert job["inputs"]["gimbal_bridge_stabilize"] is True
+        assert f"{SITE}__{preset}" in plan["output_root"]
+        assert all(preset in str(source) for source, _, _ in assets)
+        job_ids.add(job["job_id"])
+    assert len(job_ids) == 3
+
+
+def test_variant_probe_requires_all_receipts_and_rejects_asset_substitution(variants, monkeypatch):
+    spec, config, queue = variants
+    config.write_text(collect.batch.dump({**queue, "sites": [SITE]}))
+    normal_read = collect.batch.read_object
+    monkeypatch.setattr(collect.batch, "read_object",
+                        lambda path: spec if path == collect.MANIFEST else normal_read(path))
+    monkeypatch.setattr(collect.resume, "mount_check", lambda **kwargs: None)
+    monkeypatch.setattr(collect.resume, "image_check", lambda image: IMAGE)
+    monkeypatch.setattr(collect, "accepted", lambda plan: plan["jobs"][0]["weather_preset"] != "dusk")
+    assert collect.main(["complete"]) == 1
+    monkeypatch.setattr(collect, "accepted", lambda plan: True)
+    assert collect.main(["complete"]) == 0
+    assets = Path(spec["asset_root"]) / f"{SITE}_w6km/v1/x1-variants/dusk/worlds"
+    (assets / f"{SITE}_w6km__dusk.sdf").write_text("wrong SDF")
+    assert collect.main(["complete"]) == 1

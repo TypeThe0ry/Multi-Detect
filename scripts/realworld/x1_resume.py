@@ -200,7 +200,7 @@ def pin_candidate(pin_path, pin):
     batch.atomic_text(pin_path, batch.dump(pin) + "\n")
 
 
-def complete(spec):
+def complete(spec, *, required_image_id=None):
     mount_check()
     path = OUTPUT / "final" / "COMPLETE.json"
     if not path.is_file():
@@ -209,7 +209,8 @@ def complete(spec):
     pin = batch.read_object(OUTPUT / "PIN.json")
     image_id = pin.get("image_id", "")
     mode = receipt.get("bridge_stabilize")
-    if not IMAGE_ID.fullmatch(image_id) or type(mode) is not bool or pin != identity(spec, image_id):
+    if (not IMAGE_ID.fullmatch(image_id) or type(mode) is not bool or pin != identity(spec, image_id)
+            or (required_image_id is not None and image_id != required_image_id)):
         return False
     final = make_plan(spec, "final", image_id, mode)
     records = verdicts(final)

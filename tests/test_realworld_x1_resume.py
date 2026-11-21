@@ -87,7 +87,8 @@ def test_phase_order_selection_resume_and_completion(spec, monkeypatch):
     assert not resume.complete(spec)
     assert resume.run(spec, IMAGE) == 0
     assert plans == ["x1-resume-ab", "x1-resume-ab", "x1-resume-final"]
-    assert resume.complete(spec)
+    assert resume.complete(spec, required_image_id=IMAGE)
+    assert not resume.complete(spec, required_image_id="sha256:" + "b" * 64)
     choice = json.loads((resume.OUTPUT / "ab/CHOICE.json").read_text())
     assert choice["scores"] == {"on": [2, 6], "off": [2, 4.5]}
     with pytest.raises(ValueError, match="candidate image or manifest changed"):
