@@ -330,6 +330,40 @@ def test_flight_timeout_drops_request(tmp_path):
                 pytest.fail("two flights got the lock")
 
 
+@pytest.mark.parametrize("yield_to_flight", [False, True])
+def test_worker_preserves_site_failure_but_refunds_preemption(monkeypatch, tmp_path, yield_to_flight):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(pipeline, "LOCK", tmp_path / "x1.lock")
+    monkeypatch.setattr(pipeline, "NAS", tmp_path / "nas")
+    pipeline.NAS.mkdir()
+    monkeypatch.setattr(pipeline, "check_mount", lambda *_, **__: None)
+    monkeypatch.setattr(pipeline, "host_preflight", lambda *_, **__: None)
+    monkeypatch.setattr(pipeline, "free_bytes", lambda: 80 * pipeline.GIB)
+    state = tmp_path / "keepalive"
+    state.mkdir()
+    attempts = state / "attempts"
+    attempts.write_text("3\n")
+
+    def generate(site, _progress):
+        if site.name == "first":
+            raise ValueError("invalid route")
+        if yield_to_flight:
+            raise pipeline.Yielded("flight requested the X1 lock")
+
+    monkeypatch.setattr(pipeline, "generate", generate)
+    assets = [SimpleNamespace(name=name) for name in ("first", "second")]
+    assert pipeline.worker(assets, state) == (0 if yield_to_flight else 1)
+    status = pipeline.read_json(pipeline.NAS / "status.json")
+    assert status["state"] == ("yielded" if yield_to_flight else "failed")
+    assert status["sites"]["first"]["state"] == "failed"
+    assert status["sites"]["first"]["reason"] == "invalid route"
+    assert attempts.read_text() == "3\n"
+    assert pipeline.reconcile_keepalive_yield(state) is yield_to_flight
+    assert not pipeline.reconcile_keepalive_yield(state)
+    assert attempts.read_text() == ("2\n" if yield_to_flight else "3\n")
+
+
 def test_stalled_stage_reaped_before_yield(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "free_bytes", lambda: 80 * pipeline.GIB)
     monkeypatch.setattr(pipeline, "POLL_SECONDS", 0.01)

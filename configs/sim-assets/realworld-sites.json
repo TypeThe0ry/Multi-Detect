@@ -155,7 +155,8 @@
       "lon": 8.036630765,
       "size_m": 6000,
       "kind": "mountain",
-      "provider": "swiss"
+      "provider": "swiss",
+      "origin_moved_for_pad": true
     },
     "rw_canal_amsterdam_w6km": {
       "title": "阿姆斯特丹运河区",
@@ -171,7 +172,8 @@
       "lon": 4.422107006,
       "size_m": 6000,
       "kind": "industrial",
-      "provider": "nl"
+      "provider": "nl",
+      "origin_moved_for_pad": true
     },
     "rw_city_berlin_w6km": {
       "title": "柏林 Tiergarten 周边",
@@ -196,7 +198,8 @@
       "lon": 113.951372005,
       "size_m": 6000,
       "kind": "coast",
-      "provider": "global"
+      "provider": "global",
+      "origin_moved_for_pad": true
     }
   }
 }

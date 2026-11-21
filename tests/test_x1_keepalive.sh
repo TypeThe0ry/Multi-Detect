@@ -91,20 +91,22 @@ printf 'PASS: %s prerequisite waits, completion, live status, resource gates, ra
 
 if [[ $name == md-x1-worlds ]]; then
     state=$test_dir/state/md-x1-worlds
-    TEST_IMAGE=1 TEST_LOAD=59 run
-    printf '3\n' > "$state/attempts"
-    printf '{"state":"yielded","attempt":3}\n' > "$state/world-yield"
-    TEST_UNIT=active run
-    expect '.status=="ALIVE" and .attempts==3'
-    [[ -f $state/world-yield ]]
-    TEST_IMAGE=1 TEST_LOAD=59 run
-    expect '.status=="WAIT_PREREQ" and .action=="none"'
-    [[ ! -e $state/world-yield && $(<"$state/attempts") == 2 ]]
-    run
-    expect '.status=="WAIT_PREREQ" and .attempts==2'
-    TEST_IMAGE=1 TEST_LOAD=59 run
-    expect '.status=="START_REQUESTED" and .attempts==3'
-    TEST_COMPLETE=1 run
-    expect '.status=="IDLE" and .attempts==0'
-    printf 'PASS: a yielded world dispatch refunds exactly one attempt and can restart.\n'
+    for _ in 1 2; do TEST_IMAGE=1 TEST_LOAD=59 TEST_LAUNCH_RC=2 run; done
+    expect '.status=="DOWN" and .attempts==2'
+    for _ in 1 2 3 4; do
+        TEST_IMAGE=1 TEST_LOAD=59 run
+        expect '.status=="START_REQUESTED" and .attempts==3'
+        printf '{"state":"yielded","attempt":3}\n' > "$state/world-yield"
+        TEST_UNIT=active run
+        expect '.status=="ALIVE" and .attempts==3'
+        [[ -f $state/world-yield ]]
+        TEST_IMAGE=1 TEST_LOAD=59 run
+        expect '.status=="WAIT_PREREQ" and .action=="none"'
+        [[ ! -e $state/world-yield && $(<"$state/attempts") == 2 ]]
+        run
+        expect '.status=="WAIT_PREREQ" and .attempts==2'
+    done
+    TEST_IMAGE=1 TEST_LOAD=59 TEST_LAUNCH_RC=2 run
+    expect '.status=="STUCK" and .attempts==3'
+    printf 'PASS: four yielded world dispatches each refunded exactly one attempt; real failures still reach STUCK.\n'
 fi

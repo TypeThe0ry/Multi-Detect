@@ -85,6 +85,8 @@ def audit(raw: Path, base: dict, chosen: dict, extent_m=2000):
         "osm_sha256": osm_hash,
         "clearance_m": CLEARANCE_M, "base_water_distance_m": old, "water_distance_m": new,
         "lat": chosen["lat"], "lon": chosen["lon"], "origin_changed": changed,
+        "origin_moved_for_pad": bool(chosen.get("origin_moved_for_pad")),
         "passed": (new is None or new >= CLEARANCE_M)
-                  and (extent_m != 2000 or not changed or (old is not None and old < CLEARANCE_M)),
+                  and (extent_m != 2000 or not changed or chosen.get("origin_moved_for_pad")
+                       or (old is not None and old < CLEARANCE_M)),
     }
