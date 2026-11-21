@@ -129,7 +129,7 @@ def live_gpu(index):
     shared = []
     for item in processes:
         kind = item.findtext("type", "unknown").strip()
-        name = Path(item.findtext("process_name", "")).name
+        name = Path((item.findtext("process_name", "").split() or [""])[0]).name  # nvidia-smi may report the whole command line
         pid = item.findtext("pid", "").strip()
         if kind not in {"G", "C+G"} or name.lower() not in DISPLAY_PROCESSES or not pid.isdecimal():
             reasons.append(f"gpu_process:{pid or 'unknown'}:{kind}:{name}")
@@ -153,7 +153,7 @@ def heartbeat_blockers(row, uuid, shared):
     confirmed = {(p["pid"], p["name"]) for p in shared if p["type"] == "C+G"}
     compute = row["compute"]
     if not isinstance(compute, list) or any(
-            not isinstance(p, dict) or (p["pid"], Path(p["process"]).name) not in confirmed for p in compute):
+            not isinstance(p, dict) or (p["pid"], Path((str(p["process"]).split() or [""])[0]).name) not in confirmed for p in compute):
         reasons.append("heartbeat_compute_present_or_unknown")
     return reasons
 
