@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 from dataclasses import asdict, replace
+import hashlib
 import json
 import logging
 import math
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -20,11 +22,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from multidetect.autonomy import ContextSnapshot, GeoPoint, ResolvedTaskSpec, TaskGeometry, TaskType, TaskConstraints, PlanAction  # noqa: E402
 from multidetect.autonomy.motion_intent import MotionCommand  # noqa: E402
-from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
+from multidetect.autonomy.serialization import canonical_sha256, require_real  # noqa: E402
 from multidetect.mission_planning import compile_planned_task_mission_from_runtime  # noqa: E402
 from multidetect.px4_mission import (  # noqa: E402
     FixedWingMissionGeometry, Px4FixedWingSafetyPolicy, Px4MissionSafetyPolicy, VtolMissionGeometry,
 )
+from multidetect.sim_teacher.executor import ExecutionResult  # noqa: E402
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
 from multidetect.sim_teacher.target_tracking import WorldTarget, track_cli_argv  # noqa: E402
 from multidetect.simulation.turn_envelope import coordinated_turn_envelope  # noqa: E402
@@ -53,6 +56,9 @@ MAX_CRUISE_AGL_M = 120.0
 DELTA_FW_BANK_LIMIT_DEG = 35.0
 DELTA_FW_PITCH_RANGE_DEG = (-10.0, 15.0)
 DELTA_LONG_RANGE_GIMBAL_PITCH_DEG = -56.0
+FW_OFFBOARD_MODE = (6, 0)
+AUTO_LOITER_MODE = (4, 3)
+HEARTBEAT_MAX_AGE_S = 30.0  # Allow a slow lockstep simulation.
 
 
 def minimum_distance_for_extent(extent_m: float) -> float:
@@ -233,21 +239,129 @@ def _delta_fw_turn_envelope(geometry, profile, bank_limit_deg, gimbal_pitch_deg)
     }
 
 
-def _audit_delta_route(geometry, targets, data, dem, minimum):
+def _route_preflight(data, target_count):
+    """Parse the Delta guided-route assumptions and attached offline evidence."""
+    if "route_preflight" not in data:
+        return None
+    group = data["route_preflight"]
+    if not isinstance(group, dict):
+        raise ValueError("route_preflight must be an object")
+
+    def positive(value, name):
+        number = require_real(value, f"route_preflight.{name}")
+        if number <= 0:
+            raise ValueError(f"route_preflight.{name} must be positive")
+        return number
+
+    capture = group.get("fly_through_radius_m")
+    if isinstance(capture, list):
+        if len(capture) != target_count:
+            raise ValueError("route_preflight.fly_through_radius_m must have one entry per guided waypoint")
+        capture = [positive(radius, "fly_through_radius_m") if radius is not None else None
+                   for radius in capture]
+    else:
+        capture = positive(capture, "fly_through_radius_m")
+    result = {
+        **group,
+        "fly_through_radius_m": capture,
+        "turn_radius_m": positive(group.get("turn_radius_m"), "turn_radius_m"),
+        "buffer_m": positive(group.get("buffer_m"), "buffer_m"),
+    }
+    if "metrics" in group and not isinstance(group["metrics"], dict):
+        raise ValueError("route_preflight.metrics must be an object")
+    # Preserve supplied audit results verbatim. Reject NaN and infinities, which
+    # Python's JSON reader accepts but other consumers cannot parse.
+    json.dumps(result, allow_nan=False)
+    return result
+
+
+def verify_geometry_inputs(preflight, model_root):
+    """Bind the audited collision, canopy and raw inputs to the resolved model set."""
+    model_root = Path(model_root).resolve(strict=True)
+    inputs = preflight.get("geometry_inputs")
+    if model_root.name != "models" or not isinstance(inputs, dict) or not inputs:
+        raise ValueError("X1 route requires the audited asset directory's models root")
+    asset = model_root.parent
+    for relative, expected in inputs.items():
+        path = (asset / relative).resolve(strict=True)
+        if Path(relative).is_absolute() or not path.is_relative_to(asset) or not path.is_file():
+            raise ValueError(f"invalid X1 geometry input path: {relative}")
+        with path.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
+                raise ValueError(f"X1 geometry input SHA-256 mismatch: {path}")
+
+
+def _verify_route_stack(scenario, preflight, *, plan_only):
+    if "schema_version" not in preflight and plan_only:
+        return  # Historical Zürich audit can still be reviewed offline.
+    expected = preflight.get("assets")
+    if (type(preflight.get("schema_version")) is not int or preflight["schema_version"] != 1
+            or not isinstance(expected, dict) or set(expected) != {"world_sha256", "map_sha256", "dem_sha256"}
+            or not all(isinstance(digest, str) and re.fullmatch("[0-9a-f]{64}", digest)
+                       for digest in expected.values())
+            or preflight.get("metrics", {}).get("passed") is not True):
+        raise ValueError("X1 fly-through route requires passed, hash-bound geometry evidence")
+    from multidetect.runtime import RuntimeMode
+    from multidetect.simulation import load_runtime_scenario
+    from multidetect.simulator.stack import resolve_simulator_assets
+    from scripts import collect_sim_teacher_episodes as collector
+
+    runtime_path, _ = collector._scenario_channels(scenario)
+    runtime = load_runtime_scenario(scenario, mode=RuntimeMode.SIM)
+    assets = resolve_simulator_assets(runtime, repository_root=ROOT)
+    if collector.scenario_world_path(runtime_path) != assets.world.path:
+        raise ValueError("X1 collector and SIM stack did not resolve the same world")
+    for field in ("world", "map", "dem"):
+        if getattr(assets, field).sha256 != expected[f"{field}_sha256"]:
+            raise ValueError(f"X1 preflight {field} SHA-256 mismatch")
+    model_root = os.environ.get("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT")
+    if not model_root or os.environ.get("MULTIDETECT_RTF_MODEL_ROOT"):
+        raise ValueError("X1 fly-through requires its audited resolved models root without a variant model override")
+    verify_geometry_inputs(preflight, model_root)
+
+
+def _verify_audited_route(data, geometry, targets, preflight):
+    metrics = preflight.get("metrics", {})
+    points = metrics.get("waypoints_enu_m")
+    radii = metrics.get("radii_m")
+    mission_waypoints = data["mission_compile_runtime"]["mission_geometry"]["waypoints"]
+    if (metrics.get("passed") is not True or not isinstance(points, list) or len(points) != len(targets) + 2
+            or not isinstance(radii, list) or preflight["turn_radius_m"] not in radii
+            or preflight["buffer_m"] != metrics.get("buffer_m")
+            or preflight["fly_through_radius_m"] != metrics.get("capture_radius_m")
+            or geometry.acceptance_radius_m != preflight["fly_through_radius_m"]
+            or data["task"]["geometry"]["centerline"] != mission_waypoints):
+        raise ValueError("X1 mission does not match the audited route settings")
+    actual = [(0, 0, geometry.takeoff_altitude_m), *((e, n, -d) for n, e, d in targets),
+              (0, 0, -targets[-1][2])]
+    for expected, point in zip(points, actual, strict=True):
+        if (not isinstance(expected, list) or len(expected) != 3
+                or math.dist([require_real(value, "audited ENU point") for value in expected], point) > 1e-5):
+            raise ValueError("X1 mission does not match the audited route waypoints")
+
+
+def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight=None):
     start = (0.0, 0.0, -geometry.takeoff_altitude_m)
-    farthest = max(targets, key=lambda point: math.hypot(*point[:2]))
-    if math.hypot(*farthest[:2]) < minimum + geometry.loiter_radius_m + 5.0:
+    capture = route_preflight["fly_through_radius_m"] if route_preflight else None
+    capture_radii = capture if isinstance(capture, list) else [capture] * len(targets)
+    departure = max(
+        math.hypot(*point[:2]) - (geometry.loiter_radius_m if radius is None else radius)
+        for point, radius in zip(targets, capture_radii, strict=True)
+    )
+    if departure < minimum + 5.0:
         raise ValueError("VTOL route requires an arrival margin beyond the distance gate")
     if not 250.0 <= math.hypot(*targets[-1][:2]) <= 650.0:
         raise ValueError("VTOL back-transition point must be 250–650 m from home")
     if math.hypot(*offset_ned(geometry.home, geometry.landing)[:2]) > 1.0:
         raise ValueError("VTOL landing must be at home")
     boundary = data["boundary"]
+    buffer_m = route_preflight["buffer_m"] if route_preflight else geometry.loiter_radius_m
+    edge_margin_m = buffer_m + 20.0 if route_preflight else 100.0
     for point in targets:
-        if not (boundary["north_min_m"] + 100 <= point[0] <= boundary["north_max_m"] - 100
-                and boundary["east_min_m"] + 100 <= point[1] <= boundary["east_max_m"] - 100):
-            raise ValueError("VTOL waypoints must leave 100 m of world-edge margin")
-    # Check the straight route and the lateral loiter-radius buffer. Allow the full range
+        if not (boundary["north_min_m"] + edge_margin_m <= point[0] <= boundary["north_max_m"] - edge_margin_m
+                and boundary["east_min_m"] + edge_margin_m <= point[1] <= boundary["east_max_m"] - edge_margin_m):
+            raise ValueError(f"VTOL waypoints must leave {edge_margin_m:g} m of world-edge margin")
+    # Check the straight route and lateral buffer. Allow the full range
     # between neighboring commanded altitudes, since guided PX4 need not interpolate.
     agl = []
     for left, right in zip((start, *targets), (*targets, (0.0, 0.0, targets[-1][2]))):
@@ -257,7 +371,7 @@ def _audit_delta_route(geometry, targets, data, dem, minimum):
             raise ValueError("VTOL route contains coincident waypoints")
         count = math.ceil(length / 25)
         for i in range(count + 1):
-            for lateral in (-geometry.loiter_radius_m, 0.0, geometry.loiter_radius_m):
+            for lateral in (-buffer_m, 0.0, buffer_m):
                 north = left[0] + dn * i / count - de / length * lateral
                 east = left[1] + de * i / count + dn / length * lateral
                 agl.extend(_terrain_agl(dem, (north, east, down)) for down in (left[2], right[2]))
@@ -289,6 +403,11 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
         airframe_profile_hash=canonical_sha256(profile), mission_id=f"{scenario_id(scenario)}-long-range")
     points = geometry.waypoints if airframe == DELTA else (*geometry.waypoints, geometry.landing_approach)
     targets = [offset_ned(geometry.home, point) for point in points]
+    if airframe != DELTA and "route_preflight" in data:
+        raise ValueError("route_preflight requires the Delta guided VTOL route")
+    route_preflight = _route_preflight(data, len(targets))
+    if route_preflight is not None and "schema_version" in route_preflight:
+        _verify_audited_route(data, geometry, targets, route_preflight)
     maximum = max(math.hypot(p[0], p[1]) for p in targets)
     minimum = float(
         data.get(
@@ -328,17 +447,23 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
         origin = GeoPoint(terrain.origin_latitude_deg, terrain.origin_longitude_deg)
         if math.hypot(*offset_ned(geometry.home, origin)[:2]) > 1.0:
             raise ValueError("VTOL mission home does not match the DEM origin")
-        agl_envelope = _audit_delta_route(geometry, targets, data, terrain, minimum)
+        agl_envelope = _audit_delta_route(geometry, targets, data, terrain, minimum,
+                                          route_preflight=route_preflight)
     return {"source": data, "geometry": geometry, "compiled": compiled, "airframe": airframe,
             "gimbal_pitch_deg": gimbal_pitch_deg, "fw_turn_envelope": fw_turn_envelope,
             "terrain": terrain, "planned_agl_envelope_m": agl_envelope,
-            "targets": targets, "minimum_max_distance_m": minimum,
+            "targets": targets, "route_preflight": route_preflight, "minimum_max_distance_m": minimum,
             "planned_max_distance_m": maximum, "minimum_rtf": required_rtf,
             "profile": str(manifest["scenario_id"]), "seed": runtime_input.get("seed", 91000)}
 
 
 def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
     """以独立场景的地图原点派生航线，保留中央已整平出生点。"""
+    destination = sidecar_path(scenario)
+    if destination.exists():
+        existing = json.loads(destination.read_text(encoding="utf-8"))
+        if isinstance(existing, dict) and "route_preflight" in existing:
+            raise ValueError(f"refusing to overwrite route_preflight sidecar: {destination}")
     from scripts import collect_sim_teacher_episodes as collector
     runtime_path, _ = collector._scenario_channels(scenario)
     scenario_runtime = json.loads(runtime_path.read_text())
@@ -418,7 +543,6 @@ def write_mission_sidecar(scenario: Path, extent_m: float = 6000.0) -> Path:
         body.update(kind="vtol", capture_interval_sim_s=6.0,
                     gimbal_pitch_deg=DELTA_LONG_RANGE_GIMBAL_PITCH_DEG)
         body["sim_params"]["FW_R_LIM"] = DELTA_FW_BANK_LIMIT_DEG
-    destination = sidecar_path(scenario)
     destination.write_text(json.dumps(body, ensure_ascii=False, indent=2) + "\n")
     load_mission(scenario)  # Compiler validates route, turns, approach and energy before delivery.
     return destination
@@ -457,8 +581,11 @@ class LongRangePolicy:
     def __init__(self, targets: list[tuple[float, float, float]], radius: float, *, vtol: bool = False,
                  gimbal_pitch_deg: float = -45.0, gimbal_mode: str = "lock",
                  gimbal_yaw_mode: str = "follow", fw_speed_mps: float | None = None,
-                 track_targets: tuple[WorldTarget, ...] = ()) -> None:
-        self.targets = iter(targets)
+                 track_targets: tuple[WorldTarget, ...] = (),
+                 fly_through_radius_m: float | list[float | None] | None = None) -> None:
+        radii = (fly_through_radius_m if isinstance(fly_through_radius_m, list)
+                 else [fly_through_radius_m] * len(targets))
+        self.targets = iter(zip(targets, radii, strict=True))
         self.radius = radius
         self.vtol = vtol
         self.fw_speed_mps = fw_speed_mps
@@ -477,13 +604,15 @@ class LongRangePolicy:
         ) if vtol else ())
 
     def next_action(self):
-        target = next(self.targets, None)
-        if target is None:
+        waypoint = next(self.targets, None)
+        if waypoint is None:
             return next(self.return_actions, None) or ActionPrimitive.stop()
+        target, capture_radius = waypoint
         return MotionCommand("reposition", target_ned=target, radius_m=self.radius, speed_mps=self.fw_speed_mps,
                              action=ActionPrimitive.hold(1.0),
                              mode="FW" if self.vtol else None,
-                             metadata={"long_range_home_relative": True})
+                             metadata={"long_range_home_relative": True},
+                             fly_through_radius_m=capture_radius)
 
     def close(self) -> None:
         return None
@@ -495,8 +624,21 @@ def bind_target(command: MotionCommand, home_ned: tuple[float, float, float]) ->
     return replace(command, target_ned=tuple(a + b for a, b in zip(command.target_ned, home_ned, strict=True)))
 
 
+def _check_offboard_mode(collector, reader, streamer, *, wall=time.monotonic):
+    if streamer is None:
+        raise RuntimeError("FW fly-through requires an active Offboard path stream")
+    streamer.raise_if_failed()
+    state = reader.state
+    received = getattr(state, "received_monotonic_ns", {}).get("HEARTBEAT", -1)
+    mode = collector._field(state.get("HEARTBEAT"), "custom_mode", None)
+    if mode is None or received < 0 or wall() - received / 1e9 > HEARTBEAT_MAX_AGE_S:
+        raise RuntimeError("long-range Offboard guidance lost its PX4 heartbeat")
+    if collector._px4_mode_pair(int(mode)) != FW_OFFBOARD_MODE:
+        raise RuntimeError("PX4 left Offboard mode during long-range guidance")
+
+
 def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
-                 wall=time.monotonic, sleep=time.sleep) -> dict[str, Any]:
+                 offboard_streamer=None, wall=time.monotonic, sleep=time.sleep) -> dict[str, Any]:
     """按 PX4 仿真时间等待；另设墙钟与时钟停滞上限，实时检查任务围栏。"""
     _, home_ned = collector._home_reference(reader.state)
     command = bind_target(command, home_ned)
@@ -518,6 +660,8 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
     previous_yaw = None
     while wall() - started < wall_budget:
         reader.raise_if_failed()
+        if command.fly_through_radius_m is not None:
+            _check_offboard_mode(collector, reader, offboard_streamer, wall=wall)
         stamp = collector._pose_sim_stamp_ns(reader.state)
         if stamp is None or stamp < previous_stamp:
             raise RuntimeError("PX4 simulation clock missing or reset during long-range leg")
@@ -552,10 +696,13 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
         if collector._fixed_wing_reposition_complete(
             dn=dn, de=de, leg_n=leg_n, leg_e=leg_e, distance_m=distance,
             loiter_radius_m=float(command.radius_m or 80.0), yaw_deg=yaw,
-            centre_n=command.target_ned[0], centre_e=command.target_ned[1], angle_deg=angle):
+            centre_n=command.target_ned[0], centre_e=command.target_ned[1], angle_deg=angle,
+            fly_through_radius_m=command.fly_through_radius_m):
             return {"waited": "arrived", "distance_m": distance, "leg_m": leg,
                     "elapsed_s": wall() - started, "sim_elapsed_s": (stamp - first_stamp) / 1e9,
-                    "sim_budget_s": sim_budget, "wall_budget_s": wall_budget}
+                    "sim_budget_s": sim_budget, "wall_budget_s": wall_budget,
+                    **({"guidance": "offboard_path", "fly_through_radius_m": command.fly_through_radius_m}
+                       if command.fly_through_radius_m is not None else {})}
         sleep(0.1)
     raise TimeoutError(f"long-range waypoint not reached within {sim_budget:.1f} sim seconds / {wall_budget:.1f} wall seconds")
 
@@ -567,8 +714,18 @@ def collector_overrides(collector, mission):
     original_wait = collector._wait_motion_command
     original_executor = collector.FixedWingVtolExecutor
     geometry = mission["geometry"]
+    offboard_streamer = None
+    offboard_active = False
 
     class LongRangeExecutor(original_executor):
+        def __init__(self, *args, **kwargs):
+            nonlocal offboard_streamer
+            super().__init__(*args, **kwargs)
+            if mission.get("route_preflight") is not None:
+                offboard_streamer = collector.SetpointStreamer(self.vehicle)
+            self.offboard_streamer = offboard_streamer
+            self.previous_fw_target = None
+
         def arm_and_takeoff(self, altitude_m=None):
             home_geo, home_ned = self._geo_reference()
             live = GeoPoint(float(home_geo[0]), float(home_geo[1]))
@@ -579,16 +736,69 @@ def collector_overrides(collector, mission):
             return super().arm_and_takeoff(absolute_up)
 
         def execute(self, action):
-            if isinstance(action, MotionCommand) and action.kind in {"reposition", "mc_reposition"}:
-                action = bind_target(action, self._geo_reference()[1])
-            return super().execute(action)
+            nonlocal offboard_active
+            if not isinstance(action, MotionCommand) or action.kind not in {"reposition", "mc_reposition"}:
+                if offboard_active and isinstance(action, MotionCommand) and action.kind == "transition":
+                    _check_offboard_mode(collector, self.telemetry_reader, offboard_streamer)
+                return super().execute(action)
+            action = bind_target(action, self._geo_reference()[1])
+            if action.fly_through_radius_m is not None:
+                if offboard_streamer is None:
+                    raise RuntimeError("FW fly-through requires route_preflight")
+                return self._execute_fw_path(action)
+            requested_ns = time.monotonic_ns()
+            result = super().execute(action)
+            if offboard_active and result.status == "success":
+                mode = collector._wait_px4_mode(self.telemetry_reader, AUTO_LOITER_MODE,
+                                                timeout_s=30.0, after_ns=requested_ns)
+                if not mode["confirmed"]:
+                    raise RuntimeError("PX4 did not confirm AUTO.LOITER after legacy reposition")
+                offboard_streamer.stop()
+                offboard_active = False
+            if action.kind == "reposition" and result.status == "success":
+                self.previous_fw_target = action.target_ned
+            return result
+
+        def _execute_fw_path(self, action):
+            nonlocal offboard_active
+            reader = self.telemetry_reader
+            if collector._flight_state_snapshot(reader.state)["vtol_state"] != 4:
+                raise RuntimeError("long-range Offboard path requires confirmed VTOL fixed-wing mode")
+            started = self._clock()
+            start = self.previous_fw_target or self._position()
+            target = action.target_ned
+            dn, de = target[0] - start[0], target[1] - start[1]
+            length = math.hypot(dn, de)
+            if length < 1.0:
+                raise RuntimeError("long-range Offboard path requires a nonzero horizontal leg")
+            # FW AUTO_PATH normalizes this vector to a tangent and uses PX4's
+            # cruising airspeed. The line continues beyond the capture disk.
+            tangent = (dn / length, de / length)
+            if offboard_active:
+                _check_offboard_mode(collector, reader, offboard_streamer)
+            offboard_streamer.set_path_target(target, tangent)
+            if not offboard_active:
+                requested_ns = time.monotonic_ns()
+                offboard_streamer.start()
+                collector._wait_for_offboard(self.vehicle, reader, offboard_streamer, after_ns=requested_ns)
+                _check_offboard_mode(collector, reader, offboard_streamer)
+                offboard_active = True
+            self.previous_fw_target = self._commanded = target
+            return ExecutionResult("success", self._clock() - started,
+                                   ack={"offboard_path": {"target_ned_m": target, "tangent_ne": tangent}})
 
     def wait(command, reader, cruise_mps):
         if command.kind == "reposition":
-            return wait_for_leg(command, reader, collector=collector, mission=mission, cruise_mps=cruise_mps)
+            return wait_for_leg(command, reader, collector=collector, mission=mission, cruise_mps=cruise_mps,
+                                offboard_streamer=offboard_streamer if offboard_active else None)
         if command.kind == "mc_reposition":
             command = bind_target(command, collector._home_reference(reader.state)[1])
         result = original_wait(command, reader, cruise_mps=cruise_mps)
+        if offboard_active and command.kind == "transition" and command.mode == "MC" and result["waited"] == "transitioned":
+            _check_offboard_mode(collector, reader, offboard_streamer)
+            # Once MC is confirmed, stop supplying the wing's forward tangent
+            # while the collector records the transition and schedules hover return.
+            offboard_streamer.set_target(*collector._state_position(reader.state), collector._state_yaw(reader.state))
         if command.kind == "mc_reposition" and result["waited"] != "settled":
             raise RuntimeError(f"VTOL hover return did not settle over home: {result['waited']}")
         return result
@@ -602,6 +812,8 @@ def collector_overrides(collector, mission):
         collector._SmokeFlightPolicy = original_policy
         collector._wait_motion_command = original_wait
         collector.FixedWingVtolExecutor = original_executor
+        if offboard_streamer is not None:
+            offboard_streamer.stop()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -652,6 +864,8 @@ def main(argv: list[str] | None = None) -> int:
             write_mission_sidecar(scenario, args.extent_m)
             return 0
         mission = load_mission(scenario, minimum_rtf=minimum_rtf)
+        if mission["route_preflight"] is not None:
+            _verify_route_stack(scenario, mission["route_preflight"], plan_only=args.plan_only)
         if args.airframe and args.airframe != mission["airframe"]:
             parser.error("--airframe does not match the scenario runtime model")
     except (OSError, ValueError) as exc:
@@ -687,6 +901,8 @@ def main(argv: list[str] | None = None) -> int:
                           "planned_agl_envelope_m": mission["planned_agl_envelope_m"],
                           "fw_waypoints_home_ned_m": mission["targets"] if is_vtol else None,
                           "fw_turn_envelope": mission["fw_turn_envelope"],
+                          **({"route_preflight": mission["route_preflight"],
+                              "fw_guidance": "offboard_path"} if mission["route_preflight"] else {}),
                           "gimbal_stabilization": ({"mode": args.gimbal_mode,
                                                      "source": "bridge" if args.gimbal_bridge_stabilize else "host",
                                                      "yaw_mode": args.gimbal_yaw_mode,
@@ -711,6 +927,7 @@ def main(argv: list[str] | None = None) -> int:
                     gimbal_pitch_deg=mission["gimbal_pitch_deg"],
                     gimbal_mode=args.gimbal_mode, gimbal_yaw_mode=args.gimbal_yaw_mode,
                     track_targets=tuple(args.track_target),
+                    fly_through_radius_m=(mission["route_preflight"] or {}).get("fly_through_radius_m"),
                 )
                 episode = collector.run_episode(plan, Path(plan.truth), 0,
                                                 policy_override=policy, land_after_route=True)

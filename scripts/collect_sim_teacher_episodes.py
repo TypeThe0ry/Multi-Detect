@@ -2895,6 +2895,7 @@ def _wait_motion_command(
                 centre_n=command.target_ned[0],
                 centre_e=command.target_ned[1],
                 angle_deg=orbit_angle,
+                fly_through_radius_m=command.fly_through_radius_m,
             ):
                 return {
                     "waited": "arrived",
@@ -3015,6 +3016,7 @@ def _fixed_wing_reposition_complete(
     centre_n: float | None = None,
     centre_e: float | None = None,
     angle_deg: float = 0.0,
+    fly_through_radius_m: float | None = None,
 ) -> bool:
     """Return whether a fixed-wing leg has actually reached or passed its target.
 
@@ -3022,8 +3024,11 @@ def _fixed_wing_reposition_complete(
     direct ``distance`` check is too strict.  The old projection-only check was
     too permissive: any crossing of the target's perpendicular plane counted,
     even with a large cross-track error.  Require either a close arrival or a
-    bounded cross-track pass through the target plane.
+    bounded cross-track pass through the target plane. Explicit fly-through
+    commands require telemetry inside the horizontal capture disk instead.
     """
+    if fly_through_radius_m is not None:
+        return distance_m <= fly_through_radius_m
     if distance_m <= MOTION_ARRIVAL_TOLERANCE_M:
         return True
     # A fixed-wing reposition is captured when PX4 enters its loiter ring;
@@ -4151,6 +4156,8 @@ def _wait_for_offboard(
     reader: MavlinkReader,
     streamer: SetpointStreamer,
     timeout_s: float = DEFAULT_OFFBOARD_ENTER_TIMEOUT_S,
+    *,
+    after_ns: int | None = None,
 ) -> None:
     """Request OFFBOARD until PX4 reports the mode on HEARTBEAT."""
     offboard_modes = {"393216", "OFFBOARD", "OFFBOARD_NED"}
@@ -4163,6 +4170,8 @@ def _wait_for_offboard(
             last_mode_request[0] = now
             _set_mode(connection, "OFFBOARD")
         heartbeat = reader.state.get("HEARTBEAT")
+        if after_ns is not None and reader.state.received_monotonic_ns.get("HEARTBEAT", -1) < after_ns:
+            return False
         return heartbeat is not None and str(_field(heartbeat, "custom_mode", "")) in offboard_modes
 
     _wait_for(
@@ -7188,6 +7197,7 @@ def run_episode(
                     # below so a stalled simulator still terminates.
                     clock=primitive_sim_clock,
                 )
+                setpoint_streamer = getattr(executor, "offboard_streamer", None)
                 recorder.meta["airframe_profile"] = profile.to_mapping()
                 recorder.meta["vtol_hover_mission"] = hover_mission
                 recorder.meta["takeoff_method"] = takeoff_method

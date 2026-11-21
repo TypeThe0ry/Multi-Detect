@@ -627,3 +627,21 @@ def test_resumes_past_usable_rejection_and_disk_stop(spec, matrix, monkeypatch):
     assert calls == [42, 43]
     assert batch.run_batch(plan, matrix, completed=completed) == 0
     assert calls == [42, 43, 43, 44]
+
+
+def test_guard_cannot_publish_a_subthreshold_window_as_accepted(spec, matrix, monkeypatch):
+    original = batch.evaluate
+
+    def evaluate(attempt, *args):
+        (attempt / "guard.json").write_text('{"rtf_window_median": 0.89}')
+        result = original(attempt, *args)
+        assert result["accepted"]
+        return result
+
+    monkeypatch.setattr(batch, "evaluate", evaluate)
+    plan = batch.expand(spec)
+    assert batch.run_batch(plan, matrix) == 1
+    root = Path(plan["output_root"])
+    assert not (root / "accepted.jsonl").exists()
+    result, = rows(root / "results.jsonl")
+    assert result["errors"] == ["invalid_window_rtf"]

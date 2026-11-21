@@ -279,6 +279,15 @@ class MotionCommand:
     gimbal_roll_deg: float | None = None
     action: ActionPrimitive | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    fly_through_radius_m: float | None = None
+
+    def __post_init__(self) -> None:
+        radius = self.fly_through_radius_m
+        if radius is not None and (
+            self.kind != "reposition" or self.mode == "MC" or self.target_ned is None
+            or type(radius) not in (int, float) or not math.isfinite(radius) or radius <= 0.0
+        ):
+            raise ValueError("fly_through_radius_m requires a guided FW target and a positive finite radius")
 
     @property
     def rejected(self) -> bool:
@@ -292,6 +301,8 @@ class MotionCommand:
             result["yaw_deg"] = self.yaw_deg
         if self.radius_m is not None:
             result["radius_m"] = self.radius_m
+        if self.fly_through_radius_m is not None:
+            result["fly_through_radius_m"] = self.fly_through_radius_m
         result.update(
             duration_s=self.duration_s, speed_mps=self.speed_mps, metadata=dict(self.metadata)
         )

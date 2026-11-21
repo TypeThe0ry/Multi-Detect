@@ -12,15 +12,14 @@ import argparse
 import hashlib
 import io
 import json
+import shutil
 import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
 import requests
-import tifffile
 from PIL import Image
-from pyproj import Transformer
 
 ROOT = Path(__file__).resolve().parents[2]
 SITES = ROOT / "configs/sim-assets/realworld-sites.json"
@@ -57,6 +56,8 @@ def proj4(lat: float, lon: float) -> str:
 
 
 def export(url: str, wkt: str, bbox, size, **extra) -> np.ndarray:
+    import tifffile
+
     sr = json.dumps({"wkt": wkt})
     params = dict(bbox=",".join(f"{v:.3f}" for v in bbox), bboxSR=sr, imageSR=sr,
                   size=f"{size[0]},{size[1]}", f="image", format="tiff", **extra)
@@ -72,6 +73,19 @@ def export(url: str, wkt: str, bbox, size, **extra) -> np.ndarray:
     raise RuntimeError(f"export failed {url} {bbox}")
 
 
+def publish_bytes(path: Path, data: bytes) -> None:
+    tmp = path.with_suffix(path.suffix + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+
+
+def save_npy(path: Path, data: np.ndarray) -> None:
+    tmp = path.with_suffix(path.suffix + ".part")
+    with tmp.open("wb") as stream:
+        np.save(stream, data)
+    tmp.replace(path)
+
+
 def fetch_dem(out: Path, wkt: str, half: float) -> None:
     path = out / "dem.npy"
     if path.exists():
@@ -83,7 +97,7 @@ def fetch_dem(out: Path, wkt: str, half: float) -> None:
     pad = DEM_RES_M / 2
     dem = export(DEM_URL, wkt, (-half - pad, -half - pad, half + pad, half + pad), (n, n),
                  pixelType="F32", interpolation="RSP_BilinearInterpolation")
-    np.save(path, np.flipud(dem.astype(np.float32)))  # row 0 = south
+    save_npy(path, np.flipud(dem.astype(np.float32)))  # row 0 = south
 
 
 def fetch_naip(out: Path, lat: float, lon: float, half: float) -> None:
@@ -137,7 +151,7 @@ def fetch_naip(out: Path, lat: float, lon: float, half: float) -> None:
                 if hole.any():
                     used.add(item.id)
                     img[:, hole] = part[:, hole]
-            Image.fromarray(np.moveaxis(img, 0, -1), "RGBA").save(path, compress_level=3)
+            save_rgba(np.moveaxis(img, 0, -1), path)
             print("naip", i, j, f"empty={(img[0] == 0).mean():.4f}", flush=True)
     (out / "naip_scenes.json").write_text(json.dumps(sorted(used)))
 
@@ -169,9 +183,12 @@ def fetch_osm(out: Path, lat: float, lon: float, half: float) -> None:
         try:
             r = requests.post(url, data={"data": query}, timeout=700, headers=UA)
             if r.status_code == 200:
-                path.write_bytes(r.content)
-                print("osm", len(r.content), flush=True)
-                return
+                data = r.json()
+                if isinstance(data.get("elements"), list) and not data.get("remark"):
+                    publish_bytes(path, r.content)
+                    print("osm", len(r.content), flush=True)
+                    return
+                print("osm incomplete response", url, flush=True)
             print("osm retry", url, r.status_code, flush=True)
         except requests.RequestException as exc:
             print("osm retry", exc, flush=True)
@@ -290,7 +307,7 @@ def fetch_nl_dem(out: Path, lat: float, lon: float, half: float) -> None:
     if invalid.any() and (~invalid).any():
         nearest = distance_transform_edt(invalid, return_distances=False, return_indices=True)
         dst[invalid] = dst[tuple(nearest[:, invalid])]
-    np.save(path, np.flipud(dst))
+    save_npy(path, np.flipud(dst))
 
 
 def stac_items(url: str, collection: str, lat: float, lon: float, half: float, *, modifier=None):
@@ -375,7 +392,7 @@ def fetch_swiss(out: Path, lat: float, lon: float, half: float) -> dict:
     if not dem_path.exists() or float((np.load(dem_path, mmap_mode="r") > -500).mean()) < 0.95:
         dem = rasterize_stac_items(dems, dem_key, lat, lon, (-half, -half, half, half), (n, n))
         dem[dem < -500] = np.nan
-        np.save(dem_path, np.flipud(dem))
+        save_npy(dem_path, np.flipud(dem))
     tile_n = int(round(2 * half / TILE_M))
     img_key = "0.1_2056"
     for j in range(tile_n):
@@ -411,43 +428,47 @@ def fetch_nl(out: Path, lat: float, lon: float, half: float) -> dict:
 
 def fetch_3dbag(out: Path, lat: float, lon: float, half: float) -> list[int]:
     path = out / "3dbag.json"
-    if path.exists():
-        data = json.loads(path.read_text())
-        return sorted({int(attrs["b3_pw_datum"]) for feature in data.get("features", [])
-                       for obj in feature.get("CityObjects", {}).values()
-                       if (attrs := obj.get("attributes", {})).get("b3_pw_datum") is not None})
-    partial = out / "3dbag.partial.jsonl"
-    cursor = out / "3dbag.next-url"
-    bbox = pdok_rd_bbox(lat, lon, -half, -half, 2 * half)
-    url = "https://api.3dbag.nl/collections/pand/items"
-    next_url = cursor.read_text() if cursor.exists() else url
-    params = None if cursor.exists() else {"bbox": ",".join(f"{v:.3f}" for v in bbox), "limit": 1000}
-    count = sum(1 for _ in partial.open()) if partial.exists() else 0
-    for _ in range(1000):
-        r = get_retry(next_url, params=params, timeout=300)
-        page = r.json()
-        link = next((l.get("href") for l in page.get("links", []) if l.get("rel") == "next"), None)
-        with partial.open("a") as stream:
-            for feature in page.get("features", []):
-                objects = {}
-                for object_id, obj in feature.get("CityObjects", {}).items():
-                    attrs = obj.get("attributes", {})
-                    if attrs.get("b3_h_nok") is not None and attrs.get("b3_h_maaiveld") is not None:
-                        objects[object_id] = {"attributes": {k: attrs.get(k) for k in
-                            ("b3_h_nok", "b3_h_maaiveld", "identificatie", "b3_pw_datum", "b3_pw_bron")}}
-                stream.write(json.dumps({"CityObjects": objects}, separators=(",", ":")) + "\n")
-                count += 1
-        if not link:
-            break
-        next_url, params = link, None
-        cursor.write_text(next_url)
-    features = [json.loads(line) for line in partial.read_text().splitlines() if line]
-    tmp = path.with_suffix(".json.part")
-    tmp.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
-    tmp.replace(path)
-    partial.unlink(missing_ok=True)
-    cursor.unlink(missing_ok=True)
-    print("3dbag", count, flush=True)
+    pages = out / ".3dbag-pages"
+    if not path.exists():
+        pages.mkdir(exist_ok=True)
+        bbox = pdok_rd_bbox(lat, lon, -half, -half, 2 * half)
+        next_url = "https://api.3dbag.nl/collections/pand/items"
+        params = {"bbox": ",".join(f"{v:.3f}" for v in bbox), "limit": 1000}
+        features = []
+        for index in range(1000):
+            cached = pages / f"{index:04d}.json"
+            if cached.exists():
+                page = json.loads(cached.read_text())
+                if page["url"] != next_url:
+                    raise ValueError(f"3DBAG page cursor mismatch: {cached}")
+            else:
+                response = get_retry(next_url, params=params, timeout=300).json()
+                rows = []
+                for feature in response["features"]:
+                    objects = {}
+                    for object_id, obj in feature.get("CityObjects", {}).items():
+                        attrs = obj.get("attributes", {})
+                        if attrs.get("b3_h_nok") is not None and attrs.get("b3_h_maaiveld") is not None:
+                            objects[object_id] = {"attributes": {k: attrs.get(k) for k in
+                                ("b3_h_nok", "b3_h_maaiveld", "identificatie", "b3_pw_datum", "b3_pw_bron")}}
+                    rows.append({"CityObjects": objects})
+                link = next((item["href"] for item in response.get("links", []) if item.get("rel") == "next"), None)
+                page = {"url": next_url, "next": link, "features": rows}
+                publish_bytes(cached, json.dumps(page, separators=(",", ":")).encode())
+            features.extend(page["features"])
+            next_url, params = page["next"], None
+            if not next_url:
+                break
+        else:
+            raise RuntimeError("3DBAG pagination exceeded 1000 pages")
+        publish_bytes(path, json.dumps({"type": "FeatureCollection", "features": features}).encode())
+    else:
+        features = json.loads(path.read_text())["features"]
+    if pages.exists():
+        shutil.rmtree(pages)
+    (out / "3dbag.partial.jsonl").unlink(missing_ok=True)
+    (out / "3dbag.next-url").unlink(missing_ok=True)
+    print("3dbag", len(features), flush=True)
     return sorted({int(obj["attributes"]["b3_pw_datum"]) for feature in features
                    for obj in feature.get("CityObjects", {}).values()
                    if obj.get("attributes", {}).get("b3_pw_datum") is not None})
@@ -461,7 +482,7 @@ def fetch_global(out: Path, lat: float, lon: float, half: float) -> dict:
     image_items.sort(key=lambda i: (i.properties.get("eo:cloud_cover", 100), -(i.datetime.timestamp() if i.datetime else 0)))
     n = int(round(2 * half / 2.0)) + 1
     dem_key = next((k for k in dem_items[0].assets if k in {"data", "dem"}), next(iter(dem_items[0].assets)))
-    np.save(out / "dem.npy", np.flipud(rasterize_stac_items(dem_items, dem_key, lat, lon,
+    save_npy(out / "dem.npy", np.flipud(rasterize_stac_items(dem_items, dem_key, lat, lon,
         (-half, -half, half, half), (n, n))))
     image = image_items[0]
     visual_key = "visual" if "visual" in image.assets else None
@@ -502,7 +523,7 @@ def _download_city_index(out: Path, url: str, name: str) -> str:
     """Keep an auditable copy of a provider index without downloading a whole city."""
     path = out / name
     if not path.exists():
-        path.write_bytes(get_retry(url, timeout=120).content)
+        publish_bytes(path, get_retry(url, timeout=120).content)
     import hashlib
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -510,6 +531,9 @@ def _download_city_index(out: Path, url: str, name: str) -> str:
 def _berlin_tile_for_site(lat: float, lon: float) -> str:
     """Select the 1 km CityGML tile containing the origin from Berlin's Atom feed."""
     from xml.etree import ElementTree as ET
+
+    from pyproj import Transformer
+
     e, n = Transformer.from_crs("EPSG:4326", "EPSG:25833", always_xy=True).transform(lon, lat)
     stem = f"LoD2_{int(e // 1000):03d}_{int(n // 1000):04d}.zip"
     xml = get_retry(BERLIN_ATOM, timeout=60).content
@@ -537,10 +561,12 @@ def fetch_city_model(out: Path, provider: str, lat: float, lon: float, half: flo
                            "texture": False, "note": "仅固定索引；未应用 3D Tiles 坐标变换，构建使用 OSM 回退。"}}
     if provider != "berlin":
         return {}
+    from pyproj import Transformer
+
     url = _berlin_tile_for_site(lat, lon)
     archive = out / Path(url).name
     if not archive.exists():
-        archive.write_bytes(get_retry(url, timeout=300).content)
+        publish_bytes(archive, get_retry(url, timeout=300).content)
     sha = hashlib.sha256(archive.read_bytes()).hexdigest()
     gml = next((n for n in ZipFile(archive).namelist() if n.lower().endswith((".gml", ".xml"))), None)
     if gml and not (out / "city_model.json").exists():
@@ -551,7 +577,9 @@ def fetch_city_model(out: Path, provider: str, lat: float, lon: float, half: flo
             local = f"+proj=tmerc +lat_0={lat} +lon_0={lon} +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m"
             proj = Transformer.from_crs("EPSG:25833", local, always_xy=True)
             buildings = parse_citygml(p, proj)
-        write_normalized(out / "city_model.json", buildings, source=url, textured=False)
+        tmp = out / "city_model.json.part"
+        write_normalized(tmp, buildings, source=url, textured=False)
+        tmp.replace(out / "city_model.json")
     return {"model": {"name": "Berlin LoD2 CityGML", "url": url, "license": "Datenlizenz Deutschland Zero 2.0",
                        "attribution": "Senatsverwaltung für Stadtentwicklung, Bauen und Wohnen Berlin",
                        "sha256": sha, "texture": False,
@@ -640,13 +668,14 @@ def main() -> None:
                        "imagery": years.get("imagery_source", {}), "city_model": model_source.get("model", {})}
         downloads = []
         for p in sorted(out.rglob("*")):
-            if p.is_file() and p.name != "provenance.json":
+            if p.is_file() and p.name != "provenance.json" and not any(
+                    part.startswith(".") or part.endswith(".part") for part in p.relative_to(out).parts):
                 h = hashlib.sha256()
                 with p.open("rb") as stream:
                     for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                         h.update(chunk)
                 downloads.append({"path": str(p.relative_to(out)), "bytes": p.stat().st_size, "sha256": h.hexdigest()})
-        (out / "provenance.json").write_text(json.dumps({
+        publish_bytes(out / "provenance.json", json.dumps({
             "site": name, "lat": site["lat"], "lon": site["lon"], "size_m": extent_m,
             "range_profile": profile.as_dict(),
             "proj4": proj4(site["lat"], site["lon"]),
@@ -658,7 +687,7 @@ def main() -> None:
                 "vectors": {"name": "OpenStreetMap via Overpass", "license": "ODbL-1.0",
                             "attribution": "(c) OpenStreetMap contributors"},
             },
-        }, indent=2))
+        }, indent=2).encode())
 
 
 if __name__ == "__main__":

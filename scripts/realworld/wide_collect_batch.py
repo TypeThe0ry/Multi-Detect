@@ -192,7 +192,7 @@ def expand(spec):
 
 def prepare(job, snapshot):
     from multidetect.terrain_dem import load_local_dem_grid
-    from scripts.realworld.long_range_flight import load_mission, sidecar_path
+    from scripts.realworld.long_range_flight import load_mission, sidecar_path, verify_geometry_inputs
 
     row = job["matrix"]
     airframe = row.get("airframe", AIRFRAME)
@@ -228,28 +228,44 @@ def prepare(job, snapshot):
     assets["v9_config"] = Path(row["server_config"])
     evidence = {key: {"path": str(path), "sha256": file_hash(path)} for key, path in assets.items()}
 
-    mission = read_object(sidecar_path(source))
+    mission_path = sidecar_path(source)
+    mission_bytes = mission_path.read_bytes()
+    mission = json.loads(mission_bytes)
     if mission["extent_m"] != 6000:
         raise ValueError(f"{source}: long-range extent must be 6000 m")
-    dem = load_local_dem_grid(assets["dem"])
-    geometry = mission["mission_compile_runtime"]["mission_geometry"]
-    home = mission["mission_compile_runtime"]["home_position"]
-
-    def height(point):
-        return dem.sample_wgs84(point["latitude_deg"], point["longitude_deg"]).elevation_m
-
-    home_elevation = height(home)
-    cruise = geometry["waypoints"]
-    for point in cruise:
-        point["altitude_m"] = height(point) - home_elevation + job["inputs"]["altitude_m"]
-        point["altitude_reference"] = "relative_home"
-    centerline = mission["task"]["geometry"]["centerline"]
-    if len(centerline) == len(cruise) + 2:
-        mission["task"]["geometry"]["centerline"] = [centerline[0], *cruise, centerline[-1]]
-    elif airframe == DELTA_AIRFRAME and len(centerline) == len(cruise):
-        mission["task"]["geometry"]["centerline"] = cruise
+    receipt_path = source.parent / "preflight.json"
+    if "route_preflight" in mission or receipt_path.exists():
+        preflight = mission.get("route_preflight")
+        receipt = read_object(receipt_path)
+        hashes = {f"{key}_sha256": evidence[key]["sha256"] for key in ("world", "map", "dem")}
+        if (airframe != DELTA_AIRFRAME or not isinstance(preflight, dict)
+                or receipt.get("passed") is not True or receipt.get("scenario") != source.name
+                or receipt.get("scenario_sha256") != file_hash(source)
+                or receipt.get("sidecar_sha256") != hashlib.sha256(mission_bytes).hexdigest()
+                or any(receipt.get(key) != value for key, value in hashes.items())
+                or preflight.get("assets") != hashes or "variant_model_root" in row):
+            raise ValueError(f"{source}: X1 route preflight receipt or staged asset identity mismatch")
+        verify_geometry_inputs(preflight, row["resolved_root"])
     else:
-        raise ValueError(f"{source}: expected a centerline matching the waypoints")
+        dem = load_local_dem_grid(assets["dem"])
+        geometry = mission["mission_compile_runtime"]["mission_geometry"]
+        home = mission["mission_compile_runtime"]["home_position"]
+
+        def height(point):
+            return dem.sample_wgs84(point["latitude_deg"], point["longitude_deg"]).elevation_m
+
+        home_elevation = height(home)
+        cruise = geometry["waypoints"]
+        for point in cruise:
+            point["altitude_m"] = height(point) - home_elevation + job["inputs"]["altitude_m"]
+            point["altitude_reference"] = "relative_home"
+        centerline = mission["task"]["geometry"]["centerline"]
+        if len(centerline) == len(cruise) + 2:
+            mission["task"]["geometry"]["centerline"] = [centerline[0], *cruise, centerline[-1]]
+        elif airframe == DELTA_AIRFRAME and len(centerline) == len(cruise):
+            mission["task"]["geometry"]["centerline"] = cruise
+        else:
+            raise ValueError(f"{source}: expected a centerline matching the waypoints")
 
     snapshot.mkdir()
     staged = snapshot / source.name
@@ -258,7 +274,10 @@ def prepare(job, snapshot):
         atomic_text(snapshot / name, dump(body) + "\n")
         manifest["channels"][key] = {"path": name, "sha256": digest(body)}
     atomic_text(staged, dump(manifest) + "\n")
-    atomic_text(sidecar_path(staged), dump(mission) + "\n")
+    if "route_preflight" in mission:
+        atomic_text(sidecar_path(staged), mission_bytes.decode("utf-8"))
+    else:
+        atomic_text(sidecar_path(staged), dump(mission) + "\n")
     if airframe == AIRFRAME:
         load_mission(staged, minimum_rtf=MIN_RTF)
     else:
@@ -451,6 +470,10 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
                 record["accepted"] = False
                 record["errors"] = [f"voided:{record['voided_reason']}"]
                 record["valid_round"] = False
+            elif (record["accepted"] and (not number(record["rtf_window_median"])
+                                          or record["rtf_window_median"] < MIN_RTF)):
+                record["accepted"] = False
+                record["errors"] = ["invalid_window_rtf"]
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         record.update(accepted=False, errors=[f"attempt_error: {exc}"])
     record["finished_at"] = now()

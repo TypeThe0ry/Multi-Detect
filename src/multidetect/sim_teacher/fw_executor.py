@@ -712,6 +712,8 @@ class FixedWingVtolExecutor:
                 return ExecutionResult(
                     "failed", self._clock() - started, ack={"reason": command.reason}
                 )
+            if command.fly_through_radius_m is not None:
+                raise ValueError("FW fly-through requires a position-and-tangent Offboard executor")
             if command.kind == "gimbal":
                 action = command.action or ActionPrimitive.gimbal(
                     pitch_deg=float(command.gimbal_pitch_deg or 0.0),

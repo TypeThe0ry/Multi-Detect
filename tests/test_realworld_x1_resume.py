@@ -125,3 +125,45 @@ def test_mount_check_accepts_host_cifs_and_refuses_local_or_read_only(tmp_path, 
         with pytest.raises(ValueError, match="writable X1 NAS share"):
             resume.mount_check()
         mount.update(original)
+
+
+def test_prepare_iowa_checks_asset_and_atomically_repairs_local_copy(spec, tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    monkeypatch.setattr(resume, "ROOT", repo)
+    model = tmp_path / "models"
+    model.mkdir()
+    spec["batch"]["resolved_root"] = str(model)
+    source = tmp_path / resume.IOWA_WORLD
+    spec["world_source_root"] = str(tmp_path)
+    with pytest.raises(ValueError, match="asset source missing"):
+        resume.prepare_iowa(spec)
+    source.write_text("<sdf />")
+    spec["world_sha256"] = resume.batch.file_hash(source)
+    staged = resume.prepare_iowa(spec)
+    assert staged == repo / ".tmp/x1-worlds/iowa" / resume.IOWA_WORLD
+    assert staged.read_bytes() == source.read_bytes()
+    assert staged.stat().st_ino != source.stat().st_ino
+    assert resume.prepare_iowa(spec).stat().st_ino == staged.stat().st_ino
+    staged.write_text("interrupted")
+    assert resume.prepare_iowa(spec).read_bytes() == source.read_bytes()
+    staged.unlink()
+    staged.symlink_to(source)
+    with pytest.raises(ValueError, match="regular file"):
+        resume.prepare_iowa(spec)
+    spec["batch"]["variant_world_root"] = str(tmp_path)
+    with pytest.raises(ValueError, match="must stay under"):
+        resume.prepare_iowa(spec)
+
+
+def test_known_path_only_pin_migration_preserves_audit_and_image(spec, tmp_path):
+    pin = resume.identity(spec, IMAGE)
+    assert pin["manifest_sha256"] == resume.STAGING_MANIFEST
+    path = tmp_path / "PIN.json"
+    old = {**pin, "manifest_sha256": resume.LEGACY_MANIFEST}
+    path.write_text(json.dumps(old))
+    resume.pin_candidate(path, pin)
+    assert resume.batch.read_object(path) == pin
+    assert resume.batch.read_object(tmp_path / "PIN.before-world-staging.json") == old
+    resume.pin_candidate(path, pin)
+    with pytest.raises(ValueError, match="candidate image or manifest changed"):
+        resume.pin_candidate(path, {**pin, "image_id": "sha256:" + "b" * 64})

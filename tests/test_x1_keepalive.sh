@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
-# Exercise the X1 registry row with the keeper and fake host tools.
+# Exercise an X1 registry row with the keeper and fake host tools.
 set -euo pipefail
 keeper=${1:-/data/projects/Multi-Detect-env/runs/keepalive}
 registry=${2:-$keeper/registry.tsv}
+name=${3:-md-x1-resume}
+case $name in
+    md-x1-resume|md-x1-collect-next) gpu=3 ;;
+    md-x1-worlds) gpu=- ;;
+    *) exit 2 ;;
+esac
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/x1-keeper.XXXXXX")
 trap 'rm -r -- "$test_dir"' EXIT
 mkdir "$test_dir/state" "$test_dir/bin"
 cp "$keeper/keepalive.sh" "$keeper/checks.sh" "$test_dir/"
-awk -F '\t' '$1 == "md-x1-resume" { print }' "$registry" | \
-    sed -E 's@/usr/bin/python3 -B [^[:space:]]+/x1_resume\.py@mock-x1@g' > "$test_dir/registry.tsv"
+awk -F '\t' -v name="$name" -v gpu="$gpu" '$1 == name && $8 == gpu { print }' "$registry" | \
+    sed -E 's@(/usr/bin/python3 -B )?[^[:space:]]+/x1_(resume\.py|collect_next\.py|world_pipeline\.sh)@mock-x1@g' > "$test_dir/registry.tsv"
 [[ $(wc -l < "$test_dir/registry.tsv") == 1 ]]
 [[ $(awk -F '\t' '{print NF}' "$test_dir/registry.tsv") == 8 ]]
 cat > "$test_dir/bin/mock-x1" <<'MOCK'
@@ -59,8 +65,10 @@ TEST_UNIT=active run
 expect '.status=="ALIVE" and .attempts==0'
 TEST_IMAGE=1 TEST_LOAD=59 TEST_GIB=59 run
 expect '.status=="WAIT_RESOURCES" and .reason=="disk_below_60GiB" and .attempts==0'
-TEST_IMAGE=1 TEST_LOAD=59 TEST_GPU_MEM=1024 run
-expect '.status=="WAIT_RESOURCES" and .reason=="gpu3_busy_or_unknown" and .attempts==0'
+if [[ $gpu == 3 ]]; then
+    TEST_IMAGE=1 TEST_LOAD=59 TEST_GPU_MEM=1024 run
+    expect '.status=="WAIT_RESOURCES" and .reason=="gpu3_busy_or_unknown" and .attempts==0'
+fi
 TEST_IMAGE=1 TEST_LOAD=59 TEST_LAUNCH_RC=75 run
 expect '.status=="WAIT_PREREQ" and .reason=="prerequisite_changed" and .attempts==0'
 TEST_IMAGE=1 TEST_LOAD=59 TEST_LAUNCH_RC=2 run
@@ -70,4 +78,4 @@ expect '.status=="START_REQUESTED" and .attempts==2'
 TEST_COMPLETE=1 run
 expect '.status=="IDLE" and .attempts==0'
 [[ $(wc -l < "$test_dir/started") == 3 ]]
-printf '%s\n' 'PASS: X1 prerequisite waits, completion, live status, resource gates, race deferral and attempt counts.'
+printf 'PASS: %s prerequisite waits, completion, live status, resource gates, race deferral and attempt counts.\n' "$name"
