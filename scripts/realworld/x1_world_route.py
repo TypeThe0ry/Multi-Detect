@@ -43,6 +43,11 @@ ARRIVAL = 15
 DEPARTURE = 4000
 MAX_ALTITUDE = 150
 CRUISE_SPEED = 15.0
+MIN_AGL = 40  # The CPU runner is stricter than the nominal 30 m requirement.
+MAX_AGL = 120
+CLEARANCE = 10
+ALPINE_SITE = "rw_alpine_grindelwald_w6km"
+ALPINE_ORIGIN = (46.615953933, 8.036630765)
 QUADRANTS = {"NW": (-1, 1), "NE": (1, 1), "SW": (-1, -1), "SE": (1, -1)}
 
 
@@ -425,7 +430,63 @@ def bounds(path, layers, radius):
             bool(layers["water"][cells].any()))
 
 
-def evaluate(points, layers, heights=None):
+def violation_lengths(routes, layers, heights, radius_slack):
+    """Measure flagged subsegment lengths, not entire failing waypoint legs."""
+    top = np.maximum.reduce([layers[k] for k in ("ground_high", "buildings_and_boxes", "canopy", "water_surface")])
+    result = {}
+    for radius, chunks in routes.items():
+        reach = BUFFER + (radius_slack if radius else 0) + CELL / math.sqrt(2) + STEP / 2
+        offsets = np.arange(-math.ceil(reach / CELL), math.ceil(reach / CELL) + 1)
+        totals = np.zeros(4)
+        for path, indices in chunks:
+            segments = np.linalg.norm(np.diff(path, axis=0), axis=1)
+            z = heights[list(indices)]
+            midpoints = (path[:-1] + path[1:]) / 2
+            for start in range(0, len(midpoints), 128):
+                xy = midpoints[start:start + 128, None, None, :]
+                ix = np.floor((xy + HALF) / CELL).astype(int)
+                x = ix[..., 0] + offsets[None, :, None]
+                y = ix[..., 1] + offsets[None, None, :]
+                mask = ((x + 0.5) * CELL - HALF - xy[..., 0])**2 + (
+                    (y + 0.5) * CELL - HALF - xy[..., 1])**2 <= reach**2
+                cells = np.clip(y, 0, COUNT - 1), np.clip(x, 0, COUNT - 1)
+                weights = segments[start:start + 128]
+                ground = layers["ground_high"][cells]
+                for i, bad in enumerate((ground > z.min() - MIN_AGL, ground > z.min() - 30,
+                                         layers["ground_low"][cells] < z.max() - MAX_AGL,
+                                         top[cells] > z.min() - CLEARANCE)):
+                    totals[i] += weights[(mask & bad).any(axis=(1, 2))].sum()
+        result[str(radius)] = dict(zip(("agl_below_m", "agl_below_30m_m", "agl_above_m", "clearance_below_m"),
+                                       totals.tolist()))
+    return result
+
+
+def terrain_altitudes(lower, upper, lengths, rates):
+    """Find a rate-limited altitude chain or return an auditable rejected chain.
+
+    Start from a terrain-following preference within the vertical corridor.
+    Two sweeps compute the least majorant under the asymmetric slope limits.
+    If that exceeds a ceiling, retry from the actual floors: any feasible
+    solution must dominate the least majorant of those floors.
+    """
+    travel = np.maximum(0, lengths - 2 * ARRIVAL) / CRUISE_SPEED
+    travel[-1] = 0  # Tie back-transition and hover-return altitudes.
+    climb, descent = rates
+
+    def propagate(profile):
+        for i, dt in enumerate(travel):
+            profile[i + 1] = max(profile[i + 1], profile[i] - descent * dt)
+        for i in range(len(travel) - 1, -1, -1):
+            profile[i] = max(profile[i], profile[i + 1] - climb * travel[i])
+        return profile
+
+    profile = propagate(np.maximum(lower, np.minimum(lower + 8, (lower + upper) / 2)))
+    if np.any(profile > upper):
+        profile = propagate(lower.copy())
+    return profile
+
+
+def evaluate(points, layers, heights=None, *, terrain_rates=None, diagnostics=False):
     if points.ndim != 2 or points.shape[1] != 2 or len(points) < 4 or not np.isfinite(points).all():
         raise ValueError("expected finite ENU route coordinates")
     if not np.array_equal(points[0], points[-1]) or np.linalg.norm(points[0]) > 1e-8:
@@ -435,7 +496,8 @@ def evaluate(points, layers, heights=None):
     for radius in RADII:
         routes[radius] = list(rounded_path(points, radius))
     directions = np.diff(points, axis=0)
-    directions /= np.linalg.norm(directions, axis=1)[:, None]
+    lengths = np.linalg.norm(directions, axis=1)
+    directions /= lengths[:, None]
     max_angle = np.arccos(np.clip(np.sum(directions[:-1] * directions[1:], axis=1), -1, 1)).max()
     # Within a radius interval, the tangent points and every fixed-angle point
     # on an arc move by at most delta_radius * tan(turn_angle / 2).
@@ -444,22 +506,26 @@ def evaluate(points, layers, heights=None):
                for radius, chunks in routes.items() for path, _ in chunks)
     continuous_max = {str(radius): max(float(np.linalg.norm(path, axis=1).max()) for path, _ in chunks)
                       for radius, chunks in routes.items()}
-    lower, upper = np.zeros(len(points)), np.full(len(points), MAX_ALTITUDE, dtype=float)
+    lower = np.full(len(points), 5.0 if terrain_rates is not None else 0.0)
+    upper = np.full(len(points), MAX_ALTITUDE, dtype=float)
     stats = []
     for radius, chunks in routes.items():
         for path, indices in chunks:
             low, surfaces, over_water = bounds(path, layers, BUFFER + (radius_slack if radius else 0))
-            floor = max(surfaces["ground_high"] + 30, max(surfaces.values()) + 10)
+            floor = max(surfaces["ground_high"] + (MIN_AGL if terrain_rates is not None else 30),
+                        max(surfaces.values()) + CLEARANCE)
             for i in indices:
                 lower[i] = max(lower[i], floor)
-                upper[i] = min(upper[i], low + 120)
+                upper[i] = min(upper[i], low + MAX_AGL)
             stats.append((indices, low, surfaces, over_water,
                           bool(layers["water"][corridor_cells(path, 0)].any())))
     # Hover-return uses the final FW altitude, and transition begins 40–90 m above home.
     lower[-2:] = max(lower[-2:])
     upper[-2:] = min(upper[-2:])
     lower[0], upper[0] = max(lower[0], 40), min(upper[0], 90)
-    if heights is None:
+    if heights is None and terrain_rates is not None:
+        heights = terrain_altitudes(lower, upper, lengths, terrain_rates)
+    elif heights is None:
         # Select smooth plateaus where possible, keeping spare margin above and below.
         heights = np.minimum(np.maximum(85.0, np.ceil(lower + 5)), np.floor(upper - 5))
         heights[-1] = heights[-2]
@@ -483,12 +549,30 @@ def evaluate(points, layers, heights=None):
         ("departure", distance_witness < DEPARTURE + 5), ("boundary", edge < EDGE),
         ("fly-through capture", max_capture_offset > ARRIVAL),
         ("ceiling/transition", heights[0] < 40 or heights[0] > 90 or heights.max() > MAX_ALTITUDE),
-        ("AGL", min_crest["ground_high"] < 40 or max_agl > 120),
-        ("clearance", min(min_crest.values()) < 10),
+        ("AGL", min_crest["ground_high"] < MIN_AGL or max_agl > MAX_AGL),
+        ("clearance", min(min_crest.values()) < CLEARANCE),
         ("water at home", layers["water"][corridor_cells(points[:1], 40)].any()),
     ):
         if bad:
             failures.append(reason)
+    extra = {}
+    if terrain_rates is not None:
+        travel = np.maximum(0, lengths[:-1] - 2 * ARRIVAL) / CRUISE_SPEED
+        change = np.diff(heights)[:-1]
+        # Equivalent rate over the conservative interval between capture disks.
+        rates = np.divide(change, travel, out=np.zeros_like(change), where=travel > 0)
+        climb, descent = float(max(0, rates.max())), float(max(0, -rates.min()))
+        if (np.any((travel == 0) & (change != 0)) or climb > terrain_rates[0] + 1e-9
+                or descent > terrain_rates[1] + 1e-9):
+            failures.append("vertical rate")
+        if heights.min() < 5 or heights[-1] != heights[-2]:
+            failures.append("relative altitude/hover return")
+        if not 250 <= np.linalg.norm(points[-2]) <= 650:
+            failures.append("back-transition distance")
+        extra.update(maximum_commanded_climb_mps=climb, maximum_commanded_descent_mps=descent,
+                     vertical_rate_limits_mps=list(terrain_rates))
+    if diagnostics:
+        extra["violations_by_turn_radius_m"] = violation_lengths(routes, layers, heights, radius_slack)
     return {"passed": not failures, "failures": failures, "buffer_m": BUFFER,
             "radii_m": RADII, "capture_radius_m": ARRIVAL, "planned_max_distance_m": far, "max_departure_witness_m": distance_witness,
             "rounded_max_distance_m": continuous_max, "minimum_boundary_margin_m": float(edge),
@@ -500,7 +584,7 @@ def evaluate(points, layers, heights=None):
             "route_length_m": float(path_length), "estimated_cruise_and_hover_return_s": float(time),
             "water_in_buffer": any(s[3] for s in stats), "water_near_centerline": any(s[4] for s in stats),
             "altitude_bounds_by_waypoint_m": np.column_stack((lower, upper)).round(2).tolist(),
-            "waypoints_enu_m": np.column_stack((points, heights)).round(6).tolist()}
+            "waypoints_enu_m": np.column_stack((points, heights)).round(6).tolist(), **extra}
 
 
 def corner_route(signs, direction, offset=0):
@@ -517,6 +601,122 @@ def corner_route(signs, direction, offset=0):
     back = [diagonal * along + lateral * (120 + offset * weight)
             for along, weight in ((3500, 0), (2900, 0.5), (2100, 1), (1300, 1), (550, 0.5))]
     return np.array([(0, 0), *out, *arc, *back, (0, 0)], dtype=float)
+
+
+def departure_certificate(layers):
+    """Necessary conditions only, independent of the route search.
+
+    For any path point inside a cell, the terrain crest in every inner-disk
+    cell is within BUFFER (allow half a cell diagonal for each endpoint).
+    Omit the upper AGL, path connectivity, turn and capture constraints here.
+    Thus excluded cells cannot contain even a single admissible route point.
+    """
+    reach = BUFFER - CELL * math.sqrt(2)
+    crest = layers["ground_high"]
+    pad = math.floor(reach / CELL)
+    ground = np.pad(crest, pad, constant_values=-np.inf)
+    high = crest.copy()
+    for dy in range(-pad, pad + 1):
+        span = math.floor(math.sqrt(reach**2 - (CELL * dy)**2) / CELL)
+        for dx in range(-span, span + 1):
+            np.maximum(high, ground[pad + dy:pad + dy + COUNT, pad + dx:pad + dx + COUNT], out=high)
+    axis = (np.arange(COUNT) + 0.5) * CELL - HALF
+    # Upper bound for the distance of any point in a cell; the inner cell
+    # nearest the edge can straddle the 110 m boundary exclusion line.
+    outer = np.minimum(np.abs(axis) + CELL / 2, HALF - BUFFER - EDGE)
+    eligible = (np.abs(axis) - CELL / 2) <= HALF - BUFFER - EDGE
+    in_world = eligible[:, None] & eligible
+    distance = np.hypot(outer[:, None], outer)
+    max_distance = {str(agl): float(np.max(distance, where=in_world & (high + agl <= MAX_ALTITUDE), initial=0))
+                    for agl in (30, MIN_AGL)}
+    far = in_world & (distance >= DEPARTURE)
+    best_crest = float(np.min(high[far]))
+    return {"maximum_possible_distance_m": max_distance,
+            "best_possible_minimum_agl_at_gate_m": MAX_ALTITUDE - best_crest,
+            "best_possible_minimum_clearance_at_gate_m": MAX_ALTITUDE - best_crest}
+
+
+def valley_route(centreline, turn_radius, direction):
+    """Offset a valley axis to two passes and join them on tangent intersections."""
+    tangents = np.diff(centreline, axis=0)
+    tangents /= np.linalg.norm(tangents, axis=1)[:, None]
+    tangents = np.concatenate((tangents[:1], tangents[:-1] + tangents[1:], tangents[-1:]))
+    tangents /= np.linalg.norm(tangents, axis=1)[:, None]
+    lateral = direction * np.column_stack((-tangents[:, 1], tangents[:, 0]))
+    offsets = turn_radius * lateral
+    angles = np.linspace(math.pi / 12, 11 * math.pi / 12, 6)
+    arc = centreline[-1] + turn_radius / math.cos(math.pi / 12) * (
+        np.sin(angles)[:, None] * tangents[-1] - np.cos(angles)[:, None] * lateral[-1])
+    # The first back-pass waypoint is inside the required back-transition ring.
+    out = centreline - offsets
+    back = centreline + offsets
+    out[0] = 0
+    back[0] = 0
+
+    def densify(pass_points):
+        return np.concatenate([np.linspace(a, b, max(1, math.ceil(math.dist(a, b) / 140)), endpoint=False)
+                               for a, b in zip(pass_points, pass_points[1:])])
+
+    # Do not densify the hover return or create a short leg beyond the tangent point.
+    return np.concatenate((densify(out), arc, densify(back[1:][::-1])[1:], back[1::-1]))
+
+
+def valley_candidates():
+    """Survey the NW valley from the stated pad, varying width and turnaround."""
+    # ENU survey axis through the low valley in this particular 6 km DEM.
+    axis = np.array([(0, 0), (-440, 175), (-1000, 490), (-1670, 860), (-2140, 1260),
+                     (-2380, 1470), (-2650, 1670), (-2750, 1810)], dtype=float)
+    for terminal in range(len(axis), 3, -1):
+        fractions = (1.0, 0.5) if terminal > 4 else (1.0,)
+        for fraction, radius, shift, direction in itertools.product(fractions, (130, 140), (0, -70, 70), (1, -1)):
+            centreline = axis[:terminal].copy()
+            centreline[-1] = centreline[-2] + fraction * (centreline[-1] - centreline[-2])
+            centreline[2:, 1] += shift
+            yield (f"valley/{terminal}/{fraction:g}/{radius}m/{shift:+d}m/{direction:+d}",
+                   valley_route(centreline, radius, direction))
+
+
+def is_alpine(scene):
+    return (scene.get("site") == ALPINE_SITE
+            and math.dist((scene["lat"], scene["lon"]), ALPINE_ORIGIN) <= 1e-8)
+
+
+def corner_candidates():
+    for offset, (name, signs), direction in itertools.product((0, 220, -220), QUADRANTS.items(), (1, -1)):
+        yield f"{name}/{direction:+d}/{offset:+d}m", corner_route(signs, direction, offset)
+
+
+def survey_valley(layers):
+    profile = read_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
+    rates = tuple(min(2.5, profile[f"max_{direction}_rate_mps"]) for direction in ("climb", "descent"))
+    for name, points in valley_candidates():
+        try:
+            yield {**evaluate(points, layers, terrain_rates=rates), "candidate": name}
+        except ValueError as exc:
+            yield {"candidate": name, "passed": False, "failures": [str(exc)]}
+
+
+def route_diagnostics(asset, world):
+    """Survey old and valley paths without staging or publishing a mission."""
+    scene, _, layers, counts, inputs = load_layers(asset, world)
+    old = []
+    for name, points in corner_candidates():
+        m = evaluate(points, layers, diagnostics=True)
+        old.append({"candidate": name, **m, "maximum_agl_deficit_m": max(0, MIN_AGL - m["agl_m"][0]),
+                    "maximum_agl_deficit_below_30m_m": max(0, 30 - m["agl_m"][0]),
+                    "maximum_agl_excess_m": max(0, m["agl_m"][1] - MAX_AGL),
+                    "maximum_clearance_deficit_m": max(0, CLEARANCE - m["minimum_vertical_clearance_m"])})
+    result = {"schema_version": 1, "world_sha256": file_sha256(world), "geometry_inputs": inputs,
+              "origin": [scene["lat"], scene["lon"], scene["elevation"]], "geometry_counts": counts,
+              "legacy_thresholds_m": {"agl_min": MIN_AGL, "agl_max": MAX_AGL, "clearance_min": CLEARANCE},
+              "legacy_candidates": old}
+    if is_alpine(scene):
+        valley = list(survey_valley(layers))
+        best = max((m for m in valley if m["failures"] in ([], ["departure"])),
+                   key=lambda m: (m["max_departure_witness_m"], m["minimum_vertical_clearance_m"]), default=None)
+        result.update(departure_certificate(layers), valley_candidates=valley,
+                      best_valley_without_distance_gate=best)
+    return result
 
 
 TEMPLATE = "rw_farm_iowa_w6km__clear_noon"
@@ -683,18 +883,25 @@ def preflight(asset, world):
         shutil.copyfile(world, staged_world)
         world_hash = file_sha256(staged_world)
         scene, dem_path, layers, counts, inputs = load_layers(asset, staged_world)
+        alpine = is_alpine(scene)
+        if alpine:
+            limit = departure_certificate(layers)["maximum_possible_distance_m"][str(MIN_AGL)]
+            if limit < DEPARTURE:
+                raise ValueError(f"no route passed geometry and CPU preflight: {MIN_AGL} m AGL and "
+                                 f"{MAX_ALTITUDE} m relative ceiling bound departure to {limit:.1f} m "
+                                 f"(< {DEPARTURE} m); use --diagnostics for the valley survey")
         scenario = write_scenario(stage, world_id, scene, dem_path)
         hashes = {"world_sha256": world_hash, "map_sha256": file_sha256(stage / f"{world_id}.geojson"),
                   "dem_sha256": file_sha256(stage / f"{world_id}.dem.json")}
         failures = []
-        # Prefer simple zero-offset candidates. Evaluate each against actual geometry before invoking the runner.
-        for offset, (name, signs), direction in itertools.product((0, 220, -220), QUADRANTS.items(), (1, -1)):
-            metrics = evaluate(corner_route(signs, direction, offset), layers)
-            candidate = f"{name}/{direction:+d}/{offset:+d}m"
+        candidates = (survey_valley(layers) if alpine else
+                      ({**evaluate(points, layers), "candidate": name} for name, points in corner_candidates()))
+        for metrics in candidates:
+            candidate = metrics["candidate"]
             if not metrics["passed"]:
                 failures.append(f"{candidate}: {', '.join(metrics['failures'])}")
                 continue
-            metrics.update(candidate=candidate, geometry_counts=counts)
+            metrics["geometry_counts"] = counts
             sidecar = write_route(scenario, world_id, scene, metrics, inputs, hashes)
             try:
                 cpu_plan(scenario, staged_world, asset / "models")
@@ -720,9 +927,17 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asset", required=True, type=Path, help="versioned asset directory with models, raw and scenes")
     parser.add_argument("--world", required=True, type=Path, help="flattened, local 6 km world SDF")
+    parser.add_argument("--diagnostics", type=Path, metavar="JSON",
+                        help="write a geometry-only survey, without staging or publishing a route")
     args = parser.parse_args(argv)
     try:
-        print(preflight(args.asset, args.world))
+        if args.diagnostics is None:
+            print(preflight(args.asset, args.world))
+        else:
+            report = route_diagnostics(args.asset.resolve(strict=True), args.world.absolute())
+            with args.diagnostics.open("x", encoding="utf-8") as stream:
+                stream.write(json.dumps(report, sort_keys=True, indent=2, allow_nan=False) + "\n")
+            print(args.diagnostics)
     except PadRejected as exc:
         parser.exit(PAD_REJECTED, f"X1 preflight rejected launch pad: {exc}\n")
     except (OSError, ValueError, TypeError, KeyError, ImportError, ET.ParseError, RuntimeError, subprocess.TimeoutExpired) as exc:

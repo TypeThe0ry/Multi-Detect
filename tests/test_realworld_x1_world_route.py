@@ -94,6 +94,71 @@ def test_corridor_checks_capture_range_edge_water_and_obstacles(flat_layers):
     assert {"clearance", "water at home"} <= set(blocked["failures"])
 
 
+def test_departure_certificate_can_rule_out_every_far_endpoint(flat_layers):
+    axis = (np.arange(route.COUNT) + 0.5) * route.CELL - route.HALF
+    far = np.hypot(axis[:, None], axis) > 3600
+    flat_layers["ground_high"][far] = 320
+    certificate = route.departure_certificate(flat_layers)
+    assert 0 < certificate["maximum_possible_distance_m"]["30"] < 3600
+    assert certificate["best_possible_minimum_agl_at_gate_m"] == -170
+    assert certificate["best_possible_minimum_clearance_at_gate_m"] == -170
+
+
+def test_departure_certificate_does_not_require_a_specific_route(flat_layers):
+    assert route.departure_certificate(flat_layers)["maximum_possible_distance_m"]["40"] >= route.DEPARTURE
+
+
+def test_terrain_altitudes_propagate_asymmetric_rates_and_tie_hover_return():
+    lower = np.array([40., 40., 95., 40., 40.])
+    upper = np.array([47., 80., 95., 80., 80.])
+    heights = route.terrain_altitudes(lower, upper, np.full(4, 180.), (2.5, 2.0))
+    assert heights.tolist() == [45, 70, 95, 75, 75]
+
+
+def test_valley_follows_terrain_and_rejects_a_rate_violating_profile(flat_layers):
+    axis = (np.arange(route.COUNT) + 0.5) * route.CELL - route.HALF
+    flat_layers["ground_low"][:] = -axis / 50 - 0.1
+    flat_layers["ground_high"][:] = -axis / 50 + 0.1
+    centreline = np.array([(0, 0), (-440, 175), (-1000, 490), (-1670, 860)], dtype=float)
+    points = route.valley_route(centreline, 140, 1)
+    metrics = route.evaluate(points, flat_layers, terrain_rates=(2.5, 2.0))
+    assert metrics["failures"] == ["departure"]
+    heights = np.array(metrics["waypoints_enu_m"])[:, 2]
+    assert np.ptp(heights) > 25
+    assert heights[-1] == heights[-2]
+    assert 0 < metrics["maximum_commanded_climb_mps"] <= 2.5
+    assert 0 < metrics["maximum_commanded_descent_mps"] <= 2.0
+    heights[4] += 30
+    rejected = route.evaluate(points, flat_layers, heights, terrain_rates=(2.5, 2.0))
+    assert "vertical rate" in rejected["failures"]
+
+
+def test_diagnostic_lengths_are_local_not_full_route(flat_layers):
+    flat_layers["buildings_and_boxes"][route.COUNT // 2, route.COUNT // 2] = 145
+    points = route.corner_route(route.QUADRANTS["NW"], 1)
+    report = route.evaluate(points, flat_layers, np.full(len(points), 85), diagnostics=True)
+    assert report["minimum_vertical_clearance_m"] == -60
+    assert set(report["violations_by_turn_radius_m"]) == {"0", "80", "100", "120"}
+    for model in report["violations_by_turn_radius_m"].values():
+        assert model["agl_below_m"] == model["agl_above_m"] == 0
+        assert 100 < model["clearance_below_m"] < 300
+
+
+def test_alpine_certificate_fails_closed_without_publishing(asset_world, flat_layers, monkeypatch):
+    asset, world = asset_world
+    load = route.load_layers
+
+    def alpine(*args):
+        scene, *rest = load(*args)
+        return {**scene, "site": route.ALPINE_SITE, "lat": route.ALPINE_ORIGIN[0], "lon": route.ALPINE_ORIGIN[1]}, *rest
+
+    monkeypatch.setattr(route, "load_layers", alpine)
+    flat_layers["ground_high"][:] = 200
+    with pytest.raises(ValueError, match=r"bound departure to 0.0 m"):
+        route.preflight(asset, world)
+    assert not (asset / "x1").exists()
+
+
 @pytest.mark.parametrize("failure", ["geometry", "cpu"])
 def test_failed_preflight_leaves_no_receipt(asset_world, monkeypatch, failure):
     asset, world = asset_world
