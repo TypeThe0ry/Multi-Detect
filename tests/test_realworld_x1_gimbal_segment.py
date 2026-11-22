@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -195,3 +196,41 @@ def test_x1_gimbal_batch_requires_segment_but_does_not_select_on_pointing(tmp_pa
     rejected = batch.evaluate(attempt, job, {"gpu": 3}, 0)
     assert "gimbal_eval_track_segment_missing" in rejected["errors"]
     assert "horizon_feasible_p95_exceeded" in rejected["errors"]
+
+
+def test_track_pose_preview_matches_bridge_lock_preview_and_is_off_by_default():
+    from multidetect.sim_teacher.horizon_stabilization import (
+        AXES, preview_body_rotation, rotation_deg, earth_angles_deg, _mat_mul, _attitude_quaternion)
+    target = flight.WorldTarget(42.001, -93, 300)
+    body = {"pitch": 2., "yaw": 30., "roll": 1.}
+    pos = flight.WorldTarget(42., -93, 385)
+    rates = (0.0, 0.0, math.radians(60.0))
+    kwargs = dict(now_s=1., attitude_time_s=1., position=pos)
+    plain = BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}, mode="track", track_targets=(target,))
+    previewed = BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}, mode="track",
+                                    track_targets=(target,), track_preview_s=0.2)
+    base = plain.update(body, **kwargs)
+    # Off by default and a no-op without rates or with zero rates.
+    assert plain.update(body, body_rates_rad_s=rates, **kwargs)["quaternion"] == base["quaternion"]
+    assert previewed.update(body, **kwargs)["quaternion"] == base["quaternion"]
+    assert previewed.update(body, body_rates_rad_s=(0., 0., 0.), **kwargs)["quaternion"] == base["quaternion"]
+    led = previewed.update(body, body_rates_rad_s=rates, **kwargs)
+    assert led["quaternion"] != base["quaternion"]
+    assert led["desired_earth_deg"] == base["desired_earth_deg"]  # recorded target is unchanged
+    # Bridge relative pose with the commanded (led) pose equals the bridge's own preview solve.
+    desired = rotation_deg(base["desired_earth_deg"])
+    body_r = rotation_deg(body)
+    expected = _mat_mul(preview_body_rotation(body_r, rates, 0.2), (1,0,0,0,1,0,0,0,1))
+    solve = preview_body_rotation(body_r, rates, 0.2)
+    t = lambda m: (m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8])
+    want = _mat_mul(t(solve), desired)
+    q = led["quaternion"]
+    # Rebuild the led pose from the quaternion's Euler angles via the same path used by the sender.
+    from multidetect.sim_teacher import horizon_stabilization as hs
+    got_angles = hs.earth_angles_deg(_mat_mul(_mat_mul(body_r, t(preview_body_rotation(hs._IDENTITY, rates, 0.2))), _mat_mul(t(body_r), desired)))
+    assert q == pytest.approx(hs._attitude_quaternion(got_angles))
+    got = _mat_mul(t(body_r), rotation_deg(got_angles))
+    assert got == pytest.approx(want, abs=1e-9)
+    with pytest.raises(ValueError):
+        BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}, mode="track", track_targets=(target,),
+                            track_preview_s=2.0)

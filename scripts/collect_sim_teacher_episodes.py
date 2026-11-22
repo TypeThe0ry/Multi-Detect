@@ -65,7 +65,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     primitive_to_ned,
 )
 from multidetect.sim_teacher.gimbal_recording import (
-    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_PREVIEW_S, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
     collector_camera_mount,
 )
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
@@ -6908,7 +6908,10 @@ def run_episode(
                     yaw_mode=stabilization_yaw_mode,
                     limits_deg=bounds,
                     track_targets=track_targets,
-                    **({"status_sender": session.target} if plan.gimbal_bridge_stabilize else {}),
+                    **({"status_sender": session.target,
+                        "track_preview_s": (X1_TRACK_PREVIEW_S if plan.gimbal_eval_track_step is not None
+                                            else 0.0)}
+                       if plan.gimbal_bridge_stabilize else {}),
                 )
 
                 def sample():
@@ -6934,8 +6937,13 @@ def run_episode(
                         for a in ("roll", "pitch", "yaw")
                     }
                     position = _fresh_track_position(state, now_ns=time.monotonic_ns())
+                    sample_tail = (position,)
+                    if plan.gimbal_bridge_stabilize:
+                        # Body-frame rates (rad/s) for the track-pose preview; unused outside eval.
+                        sample_tail += (tuple(float(_field(attitude, k, math.nan))
+                                              for k in ("rollspeed", "pitchspeed", "yawspeed")),)
                     return (body, time.monotonic() - age,
-                            now_ms / 1000 if now_ms is not None else None, position)
+                            now_ms / 1000 if now_ms is not None else None, *sample_tail)
 
                 def send_quaternion(q, flags=GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME):
                     return gimbal_send_gate.send(

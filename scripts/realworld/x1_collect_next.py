@@ -28,7 +28,7 @@ UNIT = "md-x1-collect-next.service"
 SLOTS = (5, 6, 7)
 EVAL_LANES = {"a": 5, "b": 6}
 # Keep sparse, pre-upgrade eval receipts intact and collect fresh hold evidence.
-EVAL_CAPTURE_REVISION = 2
+EVAL_CAPTURE_REVISION = 3
 IOWA_SITE = "rw_farm_iowa"
 # Presets audited for this queue. The generator's wind presets need a different audit.
 VARIANT_CONDITIONS = {("noon", "overcast"), ("dusk", "clear")}

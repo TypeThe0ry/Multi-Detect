@@ -36,6 +36,7 @@ def rotation_deg(angles):
     return rpy_rotation(**{axis + "_rad": math.radians(angles[axis]) for axis in AXES})
 
 
+_IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 BRIDGE_PREVIEW_S = 0.20
 BRIDGE_MAX_PREVIEW_RAD = math.radians(12.0)
 
@@ -699,9 +700,12 @@ class BridgeHorizonTarget(HorizonStabilizer):
 
     source = "bridge"
 
-    def __init__(self, *args, status_sender=None, **kwargs):
+    def __init__(self, *args, status_sender=None, track_preview_s=0.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.status_sender = status_sender
+        if not (math.isfinite(track_preview_s) and 0.0 <= track_preview_s <= 1.0):
+            raise ValueError("track_preview_s must be within [0, 1] seconds")
+        self.track_preview_s = float(track_preview_s)
         self._bridge_history = deque(maxlen=512)
 
     def record_bridge_status(self, row):
@@ -732,6 +736,26 @@ class BridgeHorizonTarget(HorizonStabilizer):
     def transport_flags(self):
         return self._transport_flags(self.mode)
 
+    def _previewed_track_angles(self, mode, angles, body_deg, desired, rates):
+        """Lead the track pose by the body rotation over ``track_preview_s``.
+
+        The bridge solves joints from the current body attitude; the C11 joints lag a fast
+        multirotor yaw sweep. Commanding the pose that the *previewed* body attitude would
+        need, ``body P^T body^T desired``, yields the same joint target as the bridge's own
+        preview in lock mode (relative = (body P)^T desired).
+        """
+        if (mode != "track" or self.track_preview_s <= 0.0 or rates is None
+                or len(rates) != 3 or not all(math.isfinite(v) for v in rates)):
+            return angles
+        body = rotation_deg(body_deg)
+        step = preview_body_rotation(_IDENTITY, tuple(rates), self.track_preview_s)
+        if step == _IDENTITY:
+            return angles
+        transpose = lambda m: (m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8])
+        led = _mat_mul(_mat_mul(body, transpose(step)), _mat_mul(transpose(body), desired))
+        led_angles = earth_angles_deg(led)
+        return led_angles if abs(led_angles["pitch"]) < 85.0 else angles
+
     def _transport_flags(self, mode):
         # PX4's pinned manager uses legacy YAW_LOCK internally, then adds
         # explicit device frame bits. Both references agree on the wire.
@@ -740,7 +764,7 @@ class BridgeHorizonTarget(HorizonStabilizer):
         return 4 | 8 | (16 | 64 if mode == "track" or self.yaw_mode == "lock" else 32)
 
     def update(self, body_deg, *, now_s, attitude_time_s, position=None,
-               track_direction_ned=None, target_ref=None):
+               track_direction_ned=None, target_ref=None, body_rates_rad_s=None):
         if (body_deg is None or not all(math.isfinite(body_deg.get(a, math.nan)) for a in AXES)
                 or attitude_time_s is None or not 0 <= now_s - attitude_time_s <= self.max_age_s):
             return None
@@ -777,7 +801,9 @@ class BridgeHorizonTarget(HorizonStabilizer):
             angles = self.target_deg
         result = {
             "source": self.source, "mode": mode, "yaw_mode": self.yaw_mode,
-            "quaternion": _attitude_quaternion(angles), "transport_flags": self._transport_flags(mode),
+            "quaternion": _attitude_quaternion(
+                self._previewed_track_angles(mode, angles, body_deg, desired, body_rates_rad_s)),
+            "transport_flags": self._transport_flags(mode),
             "desired_earth_deg": earth_angles_deg(desired), "target_ref": target_ref, "time_s": now_s,
         }
         self.last_result = result
@@ -848,6 +874,8 @@ class HostHorizonLoop:
             self._dispatch_sequence = None
         body, timestamp, *source = self.sample()
         kwargs = {"position": source[1]} if len(source) > 1 else {}
+        if len(source) > 2 and source[2] is not None:
+            kwargs["body_rates_rad_s"] = source[2]
         result = self.stabilizer.update(body, now_s=self.clock(), attitude_time_s=timestamp, **kwargs)
         if result is None:
             return

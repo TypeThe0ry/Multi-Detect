@@ -208,7 +208,10 @@ def test_evidence_cli_keeps_partner_metrics_and_missing_data_distinct(tmp_path):
     assert "diagnostic only" in out_markdown.read_text()
 
 
-def test_tracking_hold_splits_frames_and_negative_ack_observations(tmp_path):
+def test_tracking_hold_splits_frames_and_negative_ack_observations(tmp_path, monkeypatch):
+    # The fixture's marker times encode a 5 s split; the production window is longer.
+    import scripts.realworld.x1_gimbal_eval as evaluator_module
+    monkeypatch.setattr(evaluator_module, "X1_TRACK_TRANSIENT_SIM_S", 5)
     ep, _ = episode(tmp_path, "dense", [lock(2), track(angle=7)])
     write(ep / "episode.json", {"horizon_stabilization": {"eval_track_step": 24,
                                                          "eval_tracking_sample_hz": 10}})

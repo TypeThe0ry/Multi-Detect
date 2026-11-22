@@ -16,7 +16,8 @@ from multidetect.camera_mount import (
 
 DEFAULT_MAX_AGE_MS = 2_000.0
 X1_TRACK_SAMPLE_HZ = 10
-X1_TRACK_TRANSIENT_SIM_S = 5
+X1_TRACK_TRANSIENT_SIM_S = 20  # measured settling: error < 2 deg by ~9-11 s (ROOTCAUSE.md)
+X1_TRACK_PREVIEW_S = 0.20  # body-rate lead for the bridge track pose (bridge lock mode uses the same 200 ms)
 
 
 class X1TrackCapture:
