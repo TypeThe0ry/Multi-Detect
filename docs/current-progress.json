@@ -20614,5 +20614,52 @@
     },
     "next": "继续收集独立 SIM episodes 并保持离线审计；不晋升模型。",
     "image_alignment": "invalid_fifo_backlog_superseded_by_29d893e"
+  },
+  "x1_wide_area_sim_collection_and_gimbal_eval_20261122": {
+    "status": "sim_only_no_hardware_no_flight_no_production_claim",
+    "wide_area_episodes_accepted": 29,
+    "mountain_short_episodes_accepted": 1,
+    "mountain_short_exception": "Grindelwald, >=2250 m",
+    "sites": [
+      "Amsterdam",
+      "Rotterdam",
+      "Berlin",
+      "Singapore",
+      "Shenzhen",
+      "Zurich",
+      "Iowa"
+    ],
+    "variants": [
+      "overcast",
+      "dusk"
+    ],
+    "collection_code": [
+      "route margin model (FLY-FIX-2/3/5)",
+      "tangent-crossing waypoint progression",
+      "sustained-stats RTF sampler",
+      "live GPU admission (0,1 preferred; 2,3 backup)",
+      "two-lane gimbal-eval queue"
+    ],
+    "gimbal_tracking_baseline": {
+      "conditions": 21,
+      "geometric_lock_rate": 1.0,
+      "observed_ack_rejects": 0,
+      "steady_t_ge_20s_pointing_p95_deg_max": 0.67,
+      "transient_window_s": 20,
+      "note": "first 5 s window was too short; settling took 9-11 s"
+    },
+    "track_pose_body_rate_preview": {
+      "opt_in": true,
+      "period_ms": 200,
+      "first_reflight_post_1s_excursion_peak_deg": [
+        16.7,
+        7.9
+      ],
+      "first_reflight_last_gt_2deg_sample_s": [
+        9.2,
+        6.7
+      ],
+      "remaining_reflights": "still running; no aggregate conclusion"
+    }
   }
 }

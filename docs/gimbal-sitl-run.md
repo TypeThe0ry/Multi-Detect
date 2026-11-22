@@ -46,3 +46,7 @@ docker run --rm --pull=never --network none --entrypoint sh \
    test -s /opt/px4-gazebo/share/gz/models/gimbal/model.sdf && \
    test -s /opt/px4-gazebo/etc/init.d-posix/airframes/4019_gz_x500_gimbal'
 ```
+
+## X1 云台跟踪评测说明（2026-11-22，仅 SIM）
+
+X1 评测飞行的稳态指向统计取 t>=20 s：初版 5 s 瞬态窗口过短，实测稳定需 9-11 s。21 条件基线几何锁定率 100%，观察到 0 次 ACK 拒绝，稳态指向 P95 <= 0.67 度。评测飞行可选打开 200 ms 机体角速度预览（桥接跟踪位姿），默认关闭；首次复飞 1 s 后偏移峰值 16.7→7.9 度、最后一个 >2 度样本 9.2→6.7 s，其余复飞尚在运行，不能据此宣称整体改进。以上均为 SIM 结果，不是硬件、飞行或生产验收。

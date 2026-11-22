@@ -1,7 +1,8 @@
-# Portable GPU SITL runtime selection (candidate only)
+# Portable GPU SITL runtime selection (gz-rendering 8.3.0 candidate)
 
 This isolated candidate selects the repaired GPU runtime by the versioned reference
-`multidetect/px4-sitl-gazebo:transport-frame-09266eb0eb38`. It does not assume a
+`multidetect/px4-sitl-gazebo:gz-rendering-830-r1`. The image keeps the patched
+PX4/gz-transport base and upgrades only the gz-rendering 8.3.0 package closure. It does not assume a
 machine-specific Docker image ID is portable. No active tag, running source,
 main branch or aircraft configuration is changed by preparing this branch.
 Promotion still requires the original ten w0000, 21×2 and both delta flight gates;
@@ -26,7 +27,8 @@ acquire candidate qualification.
 
 ## Content identity and execution boundary
 
-`simulation/gz-transport/runtime-image-contract.json` binds the validated image's
+`simulation/gz-transport/runtime-image-contract.json` binds the validated gz-rendering
+8.3.0 image's
 platform, all ordered uncompressed RootFS layer digests, and complete Docker
 runtime Config, together with the PX49c2280 / transport aff44 hashes and exact
 source/patch identities. These layer digests cover the full filesystem; checking

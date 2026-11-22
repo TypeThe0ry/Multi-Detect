@@ -4,12 +4,14 @@ from .executor import ExecutionResult, PymavlinkPrimitiveExecutor, SetpointStrea
 from .fw_executor import FixedWingVtolExecutor
 from .isolation import SimulationIsolationError, assert_localhost, validate_local_endpoint
 from .policies import (
+    CruiseNotFeasible,
     ExpertSearchPolicy,
     FwCruiseObservePolicy,
     ExploreBounds,
     ExplorePolicy,
     HoverPolicy,
     SDFObstacle,
+    cruise_altitude_for_obstacles,
     load_sdf_obstacles,
     segment_clear_of_obstacles,
     target_in_fov,
@@ -32,7 +34,9 @@ __all__ = [
     "ExploreBounds",
     "ExplorePolicy",
     "ExpertSearchPolicy",
+    "CruiseNotFeasible",
     "FwCruiseObservePolicy",
+    "cruise_altitude_for_obstacles",
     "HoverPolicy",
     "SDFObstacle",
     "load_sdf_obstacles",

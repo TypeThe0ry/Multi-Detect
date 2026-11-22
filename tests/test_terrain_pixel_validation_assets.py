@@ -440,6 +440,7 @@ def test_stack_plan_resolves_new_assets_without_expanding_release_matrix() -> No
     assert document["repository"] == {
         "root": str(ROOT.resolve()),
         "owned": True,
+        "external_world_sdf": False,
         "network_assets": False,
         "truth_loaded": False,
     }

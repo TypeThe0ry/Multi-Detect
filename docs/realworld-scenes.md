@@ -351,7 +351,7 @@ Iowa 完整视觉串行复验 `vtol-farm-full-repeat` 最终 FAIL，最高 0.37 
 
 ## 消防栓簇计数世界（簇目标）
 
-`scripts/realworld/hydrant_clusters.py` 在东京、旧金山、苏黎世、戴维斯的起飞点 30 m 外选一块开阔、干燥、平坦的空地（避开建筑、水面、道路、树和已有设施），摆放 3 个消防栓成等边三角形，边长 3/6/10 m，每个间距一个世界，同一站点三个世界的簇中心相同。世界 ID 形如 `rw_city_tokyo__clear_noon_clu6m`，场景包、truth（含 `segmentation_labels`）和索引在 `configs/scenarios/realworld-clusters/`，格式与 `generated-cluster-hydrants` 一致（`expected_count=3`，`task_kind=count`）。世界 `.sdf` 仍被 gitignore，取出代码后需重新生成：
+`scripts/realworld/hydrant_clusters.py` 在东京、旧金山、苏黎世、戴维斯的起飞点 30 m 外选一块开阔、干燥、平坦的空地（避开建筑、水面、道路、树和已有设施），摆放 3 个消防栓成等边三角形，边长 3/6/10 m，每个间距一个世界，同一站点三个世界的簇中心相同。世界 ID 形如 `rw_city_tokyo__clear_noon_clu6m`，场景包、truth（含 `segmentation_labels`）和索引在 `configs/scenarios/realworld-clusters/`，格式与 `generated-cluster-hydrants` 一致（`expected_count=3`，`task_kind=count`）。这些场景包、索引、侧车，以及 `simulation/terrain`、`simulation/maps` 下的 `*_clu*m.*` 和 `configs/onboard/suite-rw-hydrant-clusters-*.json` 都由脚本生成、被 `.gitignore` 忽略，不进仓库；世界 `.sdf` 同样被忽略。取出代码后需重新生成：
 
 ```bash
 export RW_RESOLVED_ROOT=/data/projects/Multi-Detect-env/Multi-Detect/artifacts/cache/gz-fuel/resolved
@@ -359,3 +359,7 @@ export RW_RESOLVED_ROOT=/data/projects/Multi-Detect-env/Multi-Detect/artifacts/c
 ```
 
 同时生成回归套件 `configs/onboard/suite-rw-hydrant-clusters-{x500,delta_tailsitter,delta_tailsitter_gimbal}.json`，用 `scripts/run_mission_suite.py --suite … --only rwclu-city_tokyo-d06` 选择；采集器用同一索引（`--index configs/scenarios/realworld-clusters/index.json`）。这些文件只经 `--dry-run` 与静态几何检查，没有跑过 SITL。
+
+### 悬停三角翼教师（侧车 teacher_intent）
+
+每个簇世界的侧车 `*.teacher_intent.json` 给专家教师定义近距离观察：`camera_altitude_m=20`、`camera_pitch_rad=-0.785`（对齐云台 -45°）、围绕簇的 6–12 个观察站（半径 8–22 m、高度 18/24 m 交替、避开建筑和水面）。`vtol_hover_floor_m` 只对悬停任务降低 VTOL 起飞高度下限；`estimate_motion_frame_offset` 缺省为 false（对照冒烟中开启它会让教师到不了观察站）。`--motion-offset-on <正则>` 可按世界打开，`RWCLU_MOTION_OFFSET=on|off` 可按运行覆盖。固定翼巡航任务用 `collect_sim_teacher_episodes.py --no-vtol-hover-mission --fw-cruise-observe`：转 FW、绕簇巡航和高空盘旋、转回 MC 后悬停观察。检测数据集构建用 `build_sim_detector_dataset.py --preset cruise`（负样本比例 0.3、读取未收尾的 episode）。

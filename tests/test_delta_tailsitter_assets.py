@@ -117,7 +117,9 @@ def test_assembly_mass_cg_and_inertia_match_report_and_are_positive_definite(wra
         m = float(inertial.findtext("mass"))
         position = [0.0] * 3
         if link.get("name") in {"camera_link", "depth_camera_link"}:
-            position = [0.046, 0.0, 0.388]
+            # The gimbal ball (and the depth camera on it) sits 0.0505 m below the mount point; the fixed wrapper's
+            # rigid payload link stays at the mount point.
+            position = [0.046, 0.0, 0.3375 if wrapper_dir == GIMBAL_WRAPPER_DIR else 0.388]
         elif link.find("pose") is not None:
             position = list(_numbers(link.findtext("pose"))[:3])
         center = _numbers(inertial.findtext("pose", "0 0 0 0 0 0"))[:3]
@@ -147,10 +149,13 @@ def test_assembly_mass_cg_and_inertia_match_report_and_are_positive_definite(wra
                 shift = (sum(x * x for x in position) if i == j else 0) - position[i] * position[j]
                 inertia[i][j] += local[i][j] + m * shift
     assert mass == pytest.approx(2.929, abs=1e-10)
-    assert first_moment == pytest.approx([0, 0, 0], abs=1e-10)
+    # gimbal_extrinsics=v1: the real C11 ball centre is 0.0505 m below the mount point, so the gimbal variant's CG moves
+    # ~0.2 mm and its inertia changes by < 1e-3 kg m^2 relative to the report's payload-at-mount budget.
+    gimbal = wrapper_dir == GIMBAL_WRAPPER_DIR
+    assert first_moment == pytest.approx([0, 0, 0], abs=7e-4 if gimbal else 1e-10)
     for i, expected in enumerate((0.431, 0.097, 0.373)):
         for j in range(3):
-            assert inertia[i][j] == pytest.approx(expected if i == j else 0, abs=1e-9)
+            assert inertia[i][j] == pytest.approx(expected if i == j else 0, abs=1e-3 if gimbal else 1e-9)
 
 
 def test_motor_geometry_directions_and_thrust_match_control_allocation():
@@ -363,10 +368,18 @@ def test_articulated_payload_links_have_solver_safe_mass_and_inertia():
 def test_gimbal_camera_sits_on_the_c11_mount():
     model = _model(GIMBAL_WRAPPER_DIR)
     mount = _numbers(model.findtext("link[@name='c11_mount_link']/pose"))
-    for name in ("c11_yaw_link", "c11_roll_link", "camera_link"):
+    yaw = model.find("link[@name='c11_yaw_link']")
+    assert yaw.find("pose").get("relative_to") == "base_link"
+    assert _numbers(yaw.findtext("pose")) == pytest.approx(mount)
+    # Roll and pitch axes meet at the ball centre, 0.0505 m below the mount point on the yaw axis.
+    ball = (mount[0], mount[1], mount[2] - 0.0505, 0, 0, 0)
+    for name in ("c11_roll_link", "camera_link"):
         link = model.find(f"link[@name='{name}']")
         assert link.find("pose").get("relative_to") == "base_link"
-        assert _numbers(link.findtext("pose")) == pytest.approx(mount)
+        assert _numbers(link.findtext("pose")) == pytest.approx(ball)
+    # The lens (RGB and depth) sits on the ball's +X face, 0.033 m ahead of the ball centre.
+    for sensor in ("link[@name='camera_link']/sensor[@name='camera']", "link[@name='depth_camera_link']/sensor[@name='depth_camera']"):
+        assert _numbers(model.findtext(f"{sensor}/pose")) == pytest.approx((0.033, 0, 0, 0, 0, 0))
     # The depth camera follows camera_link, so it stays colocated with the RGB sensor.
     depth_pose = model.find("link[@name='depth_camera_link']/pose")
     assert depth_pose.get("relative_to") == "camera_link"
@@ -471,7 +484,7 @@ def test_cad_mesh_preference_preserves_physics_and_drops_placeholders(tmp_path):
         root = ET.fromstring(text).find("model")
         base = root.find("link[@name='base_link']")
         assert base.findtext("visual[@name='cad_visual']/geometry/mesh/uri").endswith(f".{ext}")
-        assert len(base.findall("visual")) == 2
+        assert len(base.findall("visual")) == 1  # the C11 shell now lives in the wrappers
         assert len(base.findall("collision")) == 5
         assert len(root.findall("plugin")) == len(_model(MODEL_DIR).findall("plugin"))
 
@@ -481,7 +494,11 @@ def test_fixed_and_gimbal_variants_share_base_mass_calibration_and_airframe_para
     gimbal_dir = ROOT / "simulation/gazebo/models/delta_tailsitter_gimbal_cam"
     gimbal = _model(gimbal_dir)
     base = _model(MODEL_DIR)
-    assert base.find("link[@name='base_link']/visual[@name='c11_shell_mesh']") is not None
+    assert base.find("link[@name='base_link']/visual[@name='c11_shell_mesh']") is None
+    assert fixed.find("link[@name='camera_link']/visual[@name='c11_shell_mesh']") is not None
+    for part in ("c11_mount_link/visual[@name='c11_mount_mesh']", "c11_yaw_link/visual[@name='c11_yaw_mesh']",
+                 "camera_link/visual[@name='c11_ball_mesh']"):
+        assert gimbal.find(f"link[@name='{part.split('/')[0]}']/{part.split('/', 1)[1]}") is not None
     assert not [joint for joint in base.findall("joint") if "c11_" in str(joint.get("name"))]
     assert fixed.find("joint[@name='c11_pitch_joint']") is None
     assert gimbal.find("joint[@name='c11_pitch_joint']") is not None
@@ -505,7 +522,7 @@ def test_fixed_and_gimbal_variants_share_base_mass_calibration_and_airframe_para
         rgb = model.find("link[@name='camera_link']/sensor[@name='camera']")
         depth = model.find("link[@name='depth_camera_link']/sensor[@name='depth_camera']")
         assert _numbers(rgb.findtext("pose")) == pytest.approx(_numbers(depth.findtext("pose")))
-        minimum_offset = 0.09 if directory == WRAPPER_DIR else 0.16
+        minimum_offset = 0.09 if directory == WRAPPER_DIR else 0.033  # gimbal: lens on the real ball dome
         assert _numbers(rgb.findtext("pose"))[0] >= minimum_offset
         assert _numbers(rgb.findtext("pose"))[5] == pytest.approx(0.0)
         for sensor in (rgb, depth):

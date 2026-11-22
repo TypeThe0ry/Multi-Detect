@@ -200,7 +200,7 @@ def test_x1_gimbal_batch_requires_segment_but_does_not_select_on_pointing(tmp_pa
 
 def test_track_pose_preview_matches_bridge_lock_preview_and_is_off_by_default():
     from multidetect.sim_teacher.horizon_stabilization import (
-        AXES, preview_body_rotation, rotation_deg, earth_angles_deg, _mat_mul, _attitude_quaternion)
+        preview_body_rotation, rotation_deg, _mat_mul)
     target = flight.WorldTarget(42.001, -93, 300)
     body = {"pitch": 2., "yaw": 30., "roll": 1.}
     pos = flight.WorldTarget(42., -93, 385)
@@ -220,7 +220,6 @@ def test_track_pose_preview_matches_bridge_lock_preview_and_is_off_by_default():
     # Bridge relative pose with the commanded (led) pose equals the bridge's own preview solve.
     desired = rotation_deg(base["desired_earth_deg"])
     body_r = rotation_deg(body)
-    expected = _mat_mul(preview_body_rotation(body_r, rates, 0.2), (1,0,0,0,1,0,0,0,1))
     solve = preview_body_rotation(body_r, rates, 0.2)
     t = lambda m: (m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8])
     want = _mat_mul(t(solve), desired)

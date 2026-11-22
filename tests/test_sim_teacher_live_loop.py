@@ -211,7 +211,8 @@ def test_stale_feedback_cannot_overwrite_fresh_joint_sidecar_angles() -> None:
         "GPS_RAW_INT": {"fix_type": 3, "satellites_visible": 10},
         "GIMBAL_DEVICE_ATTITUDE_STATUS": {
             "q": [1.0, 0.0, 0.0, 0.0],
-            "time_boot_ms": 7,
+            # Freshness is judged on the simulation clock (skew to the frame stamp), so stale means far from it.
+            "time_boot_ms": 5000,
         },
     }
     observation = build_observation(
@@ -767,9 +768,9 @@ def test_collector_current_step_routes_first_and_alternating_actions_without_pri
                    action=None, gimbal_pitch_deg=-20, gimbal_yaw_deg=5, gimbal_roll_deg=0)]
     dispatches, ensures = [], []
     policy = SimpleNamespace(next_action=lambda **kwargs: actions.pop(0))
-    env = {'plan': SimpleNamespace(teacher='hover'), 'policy': policy,
+    env = {'plan': SimpleNamespace(teacher='hover', gimbal_eval_track_step=None), 'policy': policy,
            'pose': (0, 0, -10), 'yaw': 0.0, 'before': {}, 'timing': {},
-           'camera_mount': CameraMount.gimbal(), 'gimbal_session': None, 'landing_started': False,
+           'camera_mount': CameraMount.gimbal(), 'gimbal_session': None, 'landing_started': False, 'horizon_loop': None,
            'gimbal_controller': object(),
            '_managed_teacher_gimbal_action': collector._managed_teacher_gimbal_action,
            '_ensure_gimbal_session': lambda: ensures.append(True),
@@ -797,10 +798,13 @@ def test_collector_gimbal_worker_does_not_call_mutable_watchdog():
     tree = ast.parse(pathlib.Path(collector.__file__).read_text())
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
              and isinstance(node.func, ast.Name) and node.func.id == '_execute_managed_gimbal_action']
-    assert len(calls) == 1
-    check = next(keyword.value for keyword in calls[0].keywords if keyword.arg == 'check')
-    assert isinstance(check, ast.Attribute) and check.attr == 'check'
-    assert isinstance(check.value, ast.Name) and check.value.id == 'gimbal_send_gate'
+    checks = [next(keyword.value for keyword in call.keywords if keyword.arg == 'check') for call in calls]
+    assert all(isinstance(check, ast.Attribute) and check.attr == 'check'
+               and isinstance(check.value, ast.Name) for check in checks)
+    owners = sorted(check.value.id for check in checks)
+    # One call runs on the worker thread and must use the send gate; the other two are synchronous main-thread
+    # acquisitions (horizon manager and long-range hold) that may use the episode watchdog.
+    assert owners == ['episode_watchdog', 'episode_watchdog', 'gimbal_send_gate']
     main_id = threading.get_ident()
     seen = []
     done = threading.Event()

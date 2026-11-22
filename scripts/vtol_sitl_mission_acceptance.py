@@ -2912,7 +2912,7 @@ def run_mission_acceptance(
         for parameter, value in (
             ("COM_ARM_HFLT_CHK", "0"),
             ("COM_MODE_ARM_CHK", "0"),
-            ("CBRK_VTOLARMING", "22027"),
+            *(() if os.environ.get("MULTIDETECT_PX4_PROFILE", "pinned") == "main" else (("CBRK_VTOLARMING", "22027"),)),
             ("NAV_DLL_ACT", "0"),
         ):
             result = _prepare_while_collecting(

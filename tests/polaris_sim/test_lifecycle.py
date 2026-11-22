@@ -69,7 +69,13 @@ def test_world_resolution_uses_configured_dirs_and_singapore_default(tmp_path, m
     )
 
 
+def _require_default_city_world():
+    if not (lifecycle.DEFAULT_CITY_WORLD_DIR / f"{lifecycle.DEFAULT_WORLD}__clear_noon.sdf").is_file():
+        pytest.skip("generated city world is not present on this machine")
+
+
 def test_dry_run_emits_full_docker_command_for_external_city_world(monkeypatch, capsys):
+    _require_default_city_world()
     monkeypatch.setattr(lifecycle, "_select_gpus", lambda _gpu, count, dry_run: ["2"] * count)
     image = "multidetect/px4-sitl-gazebo:gz-rendering-830-r1"
     monkeypatch.setattr(lifecycle, "_local_image", lambda *_args: image)
@@ -109,6 +115,7 @@ def test_dry_run_emits_full_docker_command_for_external_city_world(monkeypatch, 
 
 
 def test_dry_run_honors_explicit_image(monkeypatch, capsys):
+    _require_default_city_world()
     monkeypatch.setattr(lifecycle, "_select_gpus", lambda _gpu, count, dry_run: ["2"] * count)
 
     def fail_local_image(*_args):

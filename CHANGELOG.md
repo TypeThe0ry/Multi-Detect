@@ -1,4 +1,7 @@
 ## [Unreleased]
+### X1 广域 SIM 采集与云台跟踪评测（2026-11-22，仅 SIM）
+- 2026-11-22：X1 广域 SIM 采集接纳 29 个 `wide_area` 与 1 个 `mountain_short`（Grindelwald，>=2250 m 例外）episode，覆盖 Amsterdam、Rotterdam、Berlin、Singapore、Shenzhen、Zurich、Iowa，含 overcast 与 dusk 变体；新增航线余量模型（FLY-FIX-2/3/5）、切线交点航点推进、持续统计 RTF 采样器、实时 GPU 准入（优先 0、1，备用 2、3）和双车道云台评测队列。均为 SIM 结果，不代表硬件、飞行或生产验收（[`docs/realworld-wide-collect.md`](docs/realworld-wide-collect.md)）。
+- 2026-11-22：21 条件云台跟踪基线：几何锁定率 100%，观察到 0 次 ACK 拒绝，稳态（t>=20 s）指向误差 P95 <= 0.67 度；原 5 s 窗口过短（稳定需 9-11 s），瞬态窗口改为 20 s。评测飞行新增可选 200 ms 机体角速度预览（默认关闭）：首次复飞 1 s 后偏移峰值 16.7→7.9 度，最后一个 >2 度样本 9.2→6.7 s，其余复飞仍在运行（[`docs/gimbal-sitl-run.md`](docs/gimbal-sitl-run.md)）。
 ### Linux SITL、身份模型与路线图（2026-11-01—03）
 - 2026-11-02：采集器的 OFFBOARD 确认预算由 10 s 调整为 30 s，适应慢速 lockstep 启动；LAND 等待按遥测与下降进度延长，但仍受硬墙钟上限约束，低高度停稳后才走 disarm 收尾（`c073bb8e`、`3bf070d8`；前序停稳与 episode 硬上限修复 `344e6ed1`）。
 - 2026-11-01—02：nightly 向子采集器传递 `MULTIDETECT_SITL_LOCK_HELD`，随后将嵌套锁处理统一到共享 helper，各 SITL 入口尊重父进程持锁标记，避免父子重复抢锁导致自死锁（`0b4788c6`、`2414a992`）。

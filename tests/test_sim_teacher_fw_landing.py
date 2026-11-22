@@ -192,3 +192,17 @@ def test_fw_landing_command_failure_does_not_become_success():
     executor = SimpleNamespace(land=lambda: SimpleNamespace(status="failed", ack={"denied": True}))
     with pytest.raises(RuntimeError, match="landing command failed.*denied"):
         collector._fixed_wing_or_vtol_land_and_wait(executor, telemetry)
+
+
+@pytest.mark.parametrize("reason", ["server_rss_soft_limit", "max_episode_sim_seconds"])
+def test_fw_landing_resource_limit_after_episode_data_is_nonfatal(reason):
+    telemetry = LandingTelemetry()
+    executor = SimpleNamespace(
+        land=lambda: SimpleNamespace(
+            status="failed",
+            ack={"phase": "land_state", "result": {"error": reason, "phase": "land"}},
+        )
+    )
+    with pytest.raises(collector._EpisodeEarlyStop) as raised:
+        collector._fixed_wing_or_vtol_land_and_wait(executor, telemetry)
+    assert raised.value.reason == reason

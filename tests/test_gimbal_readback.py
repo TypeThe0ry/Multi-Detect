@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from multidetect.camera_mount import _mat_mul, _mat_transpose, rpy_rotation
+from multidetect.camera_mount import _mat_mul, rpy_rotation
 from multidetect.sim_teacher.gimbal_readback import attitude_readback
 from multidetect.sim_teacher.streams import MavlinkReader
 from scripts import collect_sim_teacher_episodes as collector

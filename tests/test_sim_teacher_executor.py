@@ -130,9 +130,9 @@ def test_linux_primitive_clock_stall_bound_is_shorter_without_changing_windows()
     from scripts import collect_sim_teacher_episodes as collector
 
     assert collector.LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S == 45.0
-    assert collector.PRIMITIVE_MAX_WALL_S == 180.0
+    assert collector.PRIMITIVE_MAX_WALL_S == 3600.0
     assert collector._primitive_max_wall_s("posix") == 45.0
-    assert collector._primitive_max_wall_s("nt") == 180.0
+    assert collector._primitive_max_wall_s("nt") == 3600.0
     stalled = SimpleNamespace(ack={"wall_timeout": True})
     with pytest.raises(TimeoutError, match="PX4 simulation clock stalled during primitive"):
         collector._raise_if_px4_clock_stalled(stalled, 12, "posix")

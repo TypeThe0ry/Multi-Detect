@@ -65,8 +65,8 @@ def collector_camera_mount(profile: Any) -> CameraMount | None:
 class DeltaCameraGeometry:
     """SDF zero-link poses and revolute pivots, converted from FLU to FRD.
 
-    The C11 chain has coincident zero-angle link origins. Rotations about the
-    displaced roll/pitch pivots move the optical center as well as its axes.
+    Zero-angle link origins may coincide (v0, pivots from joint poses) or be offset (v1 real geometry, pivots at
+    link origin plus joint pose). Rotations about the displaced pivots move the optical center as well as its axes.
     """
 
     base_frd: tuple[float, ...]
@@ -89,6 +89,12 @@ class DeltaCameraGeometry:
                 raise ValueError("C11 camera geometry requires zero static rotations")
             return (values[0], -values[1], -values[2])
 
+        def sub(a: tuple[float, ...], b: tuple[float, ...]) -> tuple[float, ...]:
+            return tuple(a[i] - b[i] for i in range(3))
+
+        def add(a: tuple[float, ...], b: tuple[float, ...]) -> tuple[float, ...]:
+            return tuple(a[i] + b[i] for i in range(3))
+
         base = translation(model.find("link[@name='c11_mount_link']/pose"))
         pivots = []
         for axis, expected in (("yaw", "0 0 -1"), ("roll", "1 0 0"), ("pitch", "0 -1 0")):
@@ -96,10 +102,13 @@ class DeltaCameraGeometry:
             if joint is None or joint.findtext("axis/xyz") != expected:
                 raise ValueError("unsupported C11 joint axis")
             child = joint.findtext("child")
-            if translation(model.find(f"link[@name='{child}']/pose")) != base:
-                raise ValueError("C11 zero-angle link origins must coincide")
-            pivots.append(translation(joint.find("pose")))
-        sensor = translation(model.find("link[@name='camera_link']/sensor[@name='camera']/pose"))
+            # The pivot sits at joint pose (in the child frame) from the child link origin; both are kept relative to
+            # the mount origin so links may be offset (real-geometry gimbal_extrinsics=v1) or coincident (v0).
+            link_origin = translation(model.find(f"link[@name='{child}']/pose"))
+            pivots.append(add(sub(link_origin, base), translation(joint.find("pose"))))
+        camera_origin = translation(model.find("link[@name='camera_link']/pose"))
+        sensor = add(sub(camera_origin, base),
+                     translation(model.find("link[@name='camera_link']/sensor[@name='camera']/pose")))
         return cls(base, tuple(pivots), sensor, str(path))
 
     def center_body(self, angles_rad: Mapping[str, float]) -> tuple[tuple[float, ...], tuple[float, ...]]:

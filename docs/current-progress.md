@@ -6,6 +6,12 @@ expert teacher ??? obstacle top + 4m ????? segment-vs-obstacle ???forward-facing
 
 # Multi-Detect 当前进度
 
+## 最新：X1 广域 SIM 采集与云台跟踪评测（2026-11-22，仅 SIM）
+
+仅限软件在环（SIM）结果，不是硬件、HIL、真机飞行或生产验收。X1 广域 SIM 采集已接纳 29 个 `wide_area` 加 1 个 `mountain_short`（Grindelwald，按 >=2250 m 例外）episode，覆盖 Amsterdam、Rotterdam、Berlin、Singapore、Shenzhen、Zurich、Iowa，含 overcast 与 dusk 变体。支撑代码：航线余量模型（FLY-FIX-2/3/5）、切线交点的航点推进、持续统计的 RTF 采样器；实时 GPU 准入（优先 0、1，备用 2、3）与双车道云台评测队列（`scripts/realworld/`、`configs/simulation/x1-*.json`）。
+
+21 个条件的云台跟踪基线：几何锁定率 100%，观察到 0 次 ACK 拒绝，稳态（t>=20 s）指向误差 P95 <= 0.67 度；最初 5 s 窗口过短，实际稳定需 9-11 s，因此瞬态窗口现为 20 s。评测飞行新增可选的 200 ms 机体角速度预览（桥接跟踪位姿，`BridgeHorizonTarget`，常量 `X1_TRACK_*`，默认关闭）：首次复飞 1 s 后偏移峰值由 16.7 度降至 7.9 度，最后一个 >2 度样本由 9.2 s 提前到 6.7 s；其余复飞仍在进行，尚无汇总结论。机载侧候选模型状态、QGC 人工目视验收与 E7 阻断项不受本条影响。
+
 
 ## SIM 教师数据图像对齐说明（2026-10-10）
 

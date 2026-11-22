@@ -15,7 +15,6 @@ import numpy as np
 from pyproj import Transformer
 from shapely import STRtree
 from shapely.geometry import Point, Polygon
-from shapely.ops import unary_union
 
 if __package__:
     from .build_scene import Osm

@@ -36,6 +36,7 @@ from .serialization import (
 )
 from .sim_navigation_reference import (
     PARAMETERS,
+    navigation_parameters,
     _binding,
     _camera,
     _crc,
@@ -758,7 +759,7 @@ _LOCAL_MARKER = "MD-LIVE-LOCAL-POSITION-V1"
 _END_MARKER = "MD-LIVE-NAV-END-V1"
 
 
-def navigation_parameter_baseline_argv():
+def navigation_parameter_baseline_argv(profile: str | None = None):
     """Fixed read-only one-exec command; values are actual px4-param output."""
     pieces = [
         "set -eu",
@@ -766,7 +767,7 @@ def navigation_parameter_baseline_argv():
         "/opt/px4-gazebo/bin/px4-listener parameter_update -i 0 -n 1",
         f"printf '%s\\n' '{_PARAM_MARKER}'",
     ]
-    for name in PARAMETERS:
+    for name in navigation_parameters(profile):
         pieces.extend((f"printf '%s=' '{name}'", f"/opt/px4-gazebo/bin/px4-param show -q {name}"))
     pieces.extend(
         (
@@ -874,10 +875,13 @@ def _native_navigation(root, inputs, prefix, plan, owner_token, now, identities)
             "actual teacher owner identity changed",
         )
         inspect_rows.append((record, source, interval))
+    profile = ((plan.get("docker_plan") or {}).get("px4_profile")
+               if isinstance(plan, Mapping) else None)
+    selected_parameters = navigation_parameters(profile)
     baseline_raw, baseline_source, baseline_interval = _native_source(
         root,
         inputs["parameter_baseline"],
-        (executable, "exec", container_id, *navigation_parameter_baseline_argv()),
+            (executable, "exec", container_id, *navigation_parameter_baseline_argv(profile)),
         prefix["clock_id"],
         now,
         identities,
@@ -902,14 +906,14 @@ def _native_navigation(root, inputs, prefix, plan, owner_token, now, identities)
         name, separator, value = line.partition("=")
         _require(
             separator
-            and name in PARAMETERS
+            and name in selected_parameters
             and name not in parameters
             and _ASCII_NUMBER.fullmatch(value),
             "parameter bundle names/ASCII numbers differ",
         )
         parameters[name] = require_real(float(value), "actual baseline parameter")
-    _require(set(parameters) == set(PARAMETERS), "actual 15-parameter baseline incomplete")
-    for name, expected in PARAMETERS.items():
+    _require(set(parameters) == set(selected_parameters), "actual navigation parameter baseline incomplete")
+    for name, expected in selected_parameters.items():
         _require(
             expected is None or parameters[name] == expected,
             "unsupported actual IMU/GPS/EV baseline",
@@ -919,7 +923,8 @@ def _native_navigation(root, inputs, prefix, plan, owner_token, now, identities)
         and parameters["EKF2_HGT_REF"] in (0, 1, 2, 3)
         and all(
             parameters[k].is_integer() and 0 <= parameters[k] <= 2**32 - 1
-            for k in ("SENS_GPS0_ID", "SENS_GPS1_ID")
+            for k in (("SENS_GNSS0_ID", "SENS_GNSS1_ID")
+                      if profile == "main" else ("SENS_GPS0_ID", "SENS_GPS1_ID"))
         ),
         "unsupported actual baseline enum/ID",
     )

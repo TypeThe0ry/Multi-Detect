@@ -1,0 +1,69 @@
+# 真实无人机数据源登记表。license 字段是 2026-11 凭记忆+官网口径整理，下载前必须在
+# 数据集主页复核一次，把结果写进 verified_on。tier：
+#   A = 允许训练并可随模型发布（需署名）；
+#   B = 仅研究/非商用：只用于评测、域差测量、不随产品发布的实验，权重不得进入生产镜像；
+#   C = 仿真/工具，不是真实数据。
+# 默认落盘根：$MD_REAL_VIDEO_ROOT，缺省 /mnt/nas/AdminHome/md-real-video
+sources:
+  - id: youtube_cc_by_fpv
+    kind: video
+    license: "CC BY 3.0 (YouTube 'Creative Commons' 标记，上传者自称，需逐条记录)"
+    tier: A
+    note: 用 fetch_youtube_cc.py 按关键词检索；每条视频保存 url/uploader/license/标题，署名清单自动生成。上传者误标风险：只信 yt-dlp 返回的 license 字段，并保留抽样人工复核。
+    verified_on: null
+  - id: tartanair
+    kind: sim-photoreal-multi-env
+    license: "CC BY 4.0"
+    tier: A
+    url: https://theairlab.org/tartanair-dataset/
+    note: 虽是仿真，但环境多样（含室外/森林/城市），RGB+深度+位姿，可作位姿/光流预训练，不含目标检测标注。
+    verified_on: null
+  - id: visdrone
+    kind: aerial-det
+    license: "学术研究用途（AISKYEYE，Tianjin Univ.）"
+    tier: B
+    url: https://github.com/VisDrone/VisDrone-Dataset
+    classes: [pedestrian, people, bicycle, car, van, truck, tricycle, awning-tricycle, bus, motor]
+    note: 低空斜视角，最贴近我们的任务；只用于评测与域差测量。
+    verified_on: null
+  - id: uavdt
+    kind: aerial-det-track
+    license: "研究用途，无明确商用授权"
+    tier: B
+    url: https://sites.google.com/view/grli-uavdt
+    verified_on: null
+  - id: au_air
+    kind: aerial-det-with-telemetry
+    license: "待复核（主页写明开放下载，条款以 https://bozcani.github.io/auairdataset 为准）"
+    tier: B
+    note: 带高度/姿态/GPS 元数据，适合标定「高度-目标像素尺寸」分布。
+    verified_on: null
+  - id: mid_air
+    kind: sim-flight-multi-sensor
+    license: "待复核（Mid-Air 为 CC BY-NC-SA 一类的非商用条款，按 B 处理）"
+    tier: B
+    verified_on: null
+  - id: uav123
+    kind: aerial-track
+    license: "研究用途"
+    tier: B
+    note: 跟踪序列，可用于 follow-person 类任务的视角/运动分布。
+    verified_on: null
+  - id: dota
+    kind: overhead-det
+    license: "学术用途；图像来自 Google Earth 等，商用受限"
+    tier: B
+    note: 正射俯视，与我们的斜视角差异大，只作着陆点/场地识别的补充。
+    verified_on: null
+  - id: era
+    kind: aerial-event-video
+    license: "研究用途"
+    tier: B
+    note: 事件识别短视频，用于慢系统场景理解的评测，不用于检测训练。
+    verified_on: null
+  - id: aerial_gym
+    kind: simulator
+    license: "BSD-3-Clause"
+    tier: C
+    note: 不是数据；若需要大规模并行姿态/云台控制仿真可作为补充，不在本线范围。
+    verified_on: null

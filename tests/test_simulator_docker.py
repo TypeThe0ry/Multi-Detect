@@ -370,6 +370,8 @@ def test_w6km_world_defaults_to_wide_area_camera_overlay(
 def test_w6km_plan_mounts_default_overlay_and_server_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    if not (ROOT / "configs/scenarios/airframes/rw_farm_iowa_w6km__clear_noon.sdf").is_file():
+        pytest.skip("generated world SDF is not present in this checkout")
     monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
     monkeypatch.delenv("MULTIDETECT_RTF_SERVER_CONFIG", raising=False)
     monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
@@ -411,6 +413,8 @@ def test_w6km_plan_mounts_default_overlay_and_server_config(
 def test_explicit_rtf_server_config_overrides_w6km_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    if not (ROOT / "configs/scenarios/airframes/rw_farm_iowa_w6km__clear_noon.sdf").is_file():
+        pytest.skip("generated world SDF is not present in this checkout")
     config = tmp_path / "override.config"
     config.write_bytes(b"<server_config><plugins/></server_config>\n")
     monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(config))

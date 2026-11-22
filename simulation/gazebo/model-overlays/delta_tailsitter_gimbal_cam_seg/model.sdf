@@ -17,6 +17,19 @@
           <iyz>0</iyz>
         </inertia>
       </inertial>
+      <visual name="c11_mount_mesh">
+        <geometry>
+          <mesh>
+            <uri>model://delta_tailsitter/meshes/c11_fixed.stl</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.12 0.12 0.12 1</ambient>
+          <diffuse>0.12 0.12 0.12 1</diffuse>
+        </material>
+        <pose>0 0 -0.0417 0 1.5707963267948966 0</pose>
+      </visual>
     </link>
     <joint name="c11_mount_joint" type="fixed">
       <parent>base_link</parent>
@@ -36,21 +49,22 @@
           <iyz>0</iyz>
         </inertia>
       </inertial>
-      <visual name="yaw_arm">
-        <pose>0 0 -0.045 0 0 0</pose>
+      <visual name="c11_yaw_mesh">
         <geometry>
-          <box>
-            <size>0.02 0.02 0.09</size>
-          </box>
+          <mesh>
+            <uri>model://delta_tailsitter/meshes/c11_yaw.stl</uri>
+            <scale>1 1 1</scale>
+          </mesh>
         </geometry>
         <material>
           <ambient>0.12 0.12 0.12 1</ambient>
           <diffuse>0.12 0.12 0.12 1</diffuse>
         </material>
+        <pose>0 0 -0.0417 0 1.5707963267948966 0</pose>
       </visual>
     </link>
     <link name="c11_roll_link">
-      <pose relative_to="base_link">0.046 0 0.388 0 0 0</pose>
+      <pose relative_to="base_link">0.046 0 0.3375 0 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
         <mass>0.002</mass>
@@ -63,21 +77,9 @@
           <iyz>0</iyz>
         </inertia>
       </inertial>
-      <visual name="roll_arm">
-        <pose>0 0 -0.08 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.08 0.02 0.02</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0.12 0.12 0.12 1</ambient>
-          <diffuse>0.12 0.12 0.12 1</diffuse>
-        </material>
-      </visual>
     </link>
     <link name="camera_link">
-      <pose relative_to="base_link">0.046 0 0.388 0 0 0</pose>
+      <pose relative_to="base_link">0.046 0 0.3375 0 0 0</pose>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
         <mass>0.01</mass>
@@ -90,21 +92,22 @@
           <iyz>0</iyz>
         </inertia>
       </inertial>
-      <visual name="camera_body">
-        <pose>0.11 0 -0.08 0 0 0</pose>
+      <visual name="c11_ball_mesh">
         <geometry>
-          <box>
-            <size>0.08 0.06 0.05</size>
-          </box>
+          <mesh>
+            <uri>model://delta_tailsitter/meshes/c11_ball.stl</uri>
+            <scale>1 1 1</scale>
+          </mesh>
         </geometry>
         <material>
-          <ambient>0.08 0.08 0.08 1</ambient>
-          <diffuse>0.08 0.08 0.08 1</diffuse>
+          <ambient>0.12 0.12 0.12 1</ambient>
+          <diffuse>0.12 0.12 0.12 1</diffuse>
         </material>
+        <pose>0 0 0.0088 0 1.5707963267948966 0</pose>
       </visual>
       <sensor name="camera" type="camera">
         <gz_frame_id>camera_link</gz_frame_id>
-        <pose>0.16 0 -0.08 0 0 0</pose>
+        <pose>0.033 0 0 0 0 0</pose>
         <always_on>1</always_on>
         <update_rate>30</update_rate>
         <visualize>True</visualize>
@@ -144,7 +147,7 @@
       <pose relative_to="camera_link">0 0 0 0 0 0</pose>
       <sensor name="depth_camera" type="depth_camera">
         <gz_frame_id>depth_camera_link</gz_frame_id>
-        <pose>0.16 0 -0.08 0 0 0</pose>
+        <pose>0.033 0 0 0 0 0</pose>
         <always_on>1</always_on>
         <update_rate>30</update_rate>
         <visualize>True</visualize>
@@ -183,7 +186,7 @@
     <joint name="c11_roll_joint" type="revolute">
       <parent>c11_yaw_link</parent>
       <child>c11_roll_link</child>
-      <pose>0 0 -0.08 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <axis>
         <xyz>1 0 0</xyz>
         <initial_position>0.0</initial_position>
@@ -201,7 +204,7 @@
     <joint name="c11_pitch_joint" type="revolute">
       <parent>c11_roll_link</parent>
       <child>camera_link</child>
-      <pose>-0.04 0 -0.08 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <axis>
         <xyz>0 -1 0</xyz>
         <initial_position>0.0</initial_position>

@@ -129,8 +129,8 @@ def test_actual_delta_profile_resolves_gimbal_without_camera_mount_field():
 
 
 @pytest.mark.parametrize("pitch,expected_center,expected_axis", [
-    (0.0, (10.206, 20.0, -30.308), (1.0, 0.0, 0.0)),
-    (-math.pi / 2, (10.006, 20.0, -30.108), (0.0, 0.0, 1.0)),
+    (0.0, (10.079, 20.0, -30.3375), (1.0, 0.0, 0.0)),
+    (-math.pi / 2, (10.046, 20.0, -30.3045), (0.0, 0.0, 1.0)),
 ])
 def test_delta_joint_chain_optical_center_includes_pivots_and_sensor_offset(pitch, expected_center, expected_axis):
     geometry = DeltaCameraGeometry.from_sdf(
@@ -158,7 +158,7 @@ def test_delta_camera_composition_rotates_body_lever_arm_and_optical_axis():
     obs = {"pose": {"local_ned_m": [10, 20, -30]},
            "attitude": {"roll_deg": 0, "pitch_deg": 0, "yaw_deg": 90}}
     camera = geometry.camera_pose(obs, {"roll": 0, "pitch": 0, "yaw": 0})
-    assert camera["center_ned"] == pytest.approx([10, 20.206, -30.308])
+    assert camera["center_ned"] == pytest.approx([10, 20.079, -30.3375])
     assert camera["optical_to_world"][::3] == pytest.approx([0, 1, 0], abs=1e-10)
 
 
@@ -189,7 +189,7 @@ def test_mavlink_fallback_uses_real_earth_flag_and_sdf_geometry():
                             gimbal_yaw_correction_deg=-90)
     validate_gimbal_frame_observation(obs)
     assert obs["gimbal_state"]["yaw_rad"] == pytest.approx(0, abs=1e-10)
-    assert obs["camera_pose"]["center_ned"] == pytest.approx([10.206, 20, -30.308])
+    assert obs["camera_pose"]["center_ned"] == pytest.approx([10.079, 20, -30.3375])
     assert obs["camera_pose"]["optical_to_world"][::3] == pytest.approx([1, 0, 0], abs=1e-10)
 
 
@@ -355,3 +355,48 @@ def test_world_target_position_uses_amsl_and_global_sample_clock():
     assert obs["pose"]["global_position_skew_ms"] == 50.0
     del state.messages["GLOBAL_POSITION_INT"]["alt"]
     assert build_observation(_frame(), state)["pose"]["alt_amsl_m"] is None
+
+
+def _chain_sdf(path, *, roll_z, camera_z, joint_poses, sensor_pose):
+    def pose(z):
+        return f"<pose>0.046 0 {z} 0 0 0</pose>"
+
+    path.write_text(f"""<sdf version="1.9"><model name="m">
+<link name="c11_mount_link">{pose(0.388)}</link>
+<link name="c11_yaw_link">{pose(0.388)}</link>
+<link name="c11_roll_link">{pose(roll_z)}</link>
+<link name="camera_link">{pose(camera_z)}<sensor name="camera"><pose>{sensor_pose}</pose></sensor></link>
+<joint name="c11_yaw_joint"><child>c11_yaw_link</child><axis><xyz>0 0 -1</xyz></axis><pose>{joint_poses[0]}</pose></joint>
+<joint name="c11_roll_joint"><child>c11_roll_link</child><axis><xyz>1 0 0</xyz></axis><pose>{joint_poses[1]}</pose></joint>
+<joint name="c11_pitch_joint"><child>camera_link</child><axis><xyz>0 -1 0</xyz></axis><pose>{joint_poses[2]}</pose></joint>
+</model></sdf>""")
+
+
+def test_camera_geometry_accepts_offset_link_origins_and_matches_coincident_chain(tmp_path):
+    # v1: roll/camera links sit at the ball centre. v0: all link origins coincide and the pivots live in joint poses.
+    v1 = tmp_path / "v1.sdf"
+    _chain_sdf(v1, roll_z=0.3375, camera_z=0.3375, joint_poses=("0 0 0 0 0 0",) * 3,
+               sensor_pose="0.033 0 0 0 0 0")
+    v0 = tmp_path / "v0.sdf"
+    _chain_sdf(v0, roll_z=0.388, camera_z=0.388,
+               joint_poses=("0 0 0 0 0 0", "0 0 -0.0505 0 0 0", "0 0 -0.0505 0 0 0"),
+               sensor_pose="0.033 0 -0.0505 0 0 0")
+    a, b = DeltaCameraGeometry.from_sdf(v1), DeltaCameraGeometry.from_sdf(v0)
+    assert [pytest.approx(p) for p in a.pivots_frd] == list(b.pivots_frd)
+    assert a.pivots_frd[1] == pytest.approx((0.0, 0.0, 0.0505))
+    assert a.sensor_frd == pytest.approx(b.sensor_frd)
+    for angles in ({"yaw": 0.0, "roll": 0.0, "pitch": 0.0}, {"yaw": 0.3, "roll": -0.2, "pitch": -1.0},
+                   {"yaw": 0.0, "roll": 0.0, "pitch": -math.pi / 2}):
+        center_a, rotation_a = a.center_body(angles)
+        center_b, rotation_b = b.center_body(angles)
+        assert center_a == pytest.approx(center_b, abs=1e-12)
+        assert rotation_a == pytest.approx(rotation_b, abs=1e-12)
+    assert a.center_body({"yaw": 0.0, "roll": 0.0, "pitch": 0.0})[0] == pytest.approx((0.079, 0.0, -0.3375))
+
+
+def test_camera_geometry_still_rejects_non_zero_static_rotation(tmp_path):
+    path = tmp_path / "rot.sdf"
+    _chain_sdf(path, roll_z=0.388, camera_z=0.388, joint_poses=("0 0 0 0 0 0",) * 3,
+               sensor_pose="0.033 0 0 0.1 0 0")
+    with pytest.raises(ValueError, match="zero static rotations"):
+        DeltaCameraGeometry.from_sdf(path)

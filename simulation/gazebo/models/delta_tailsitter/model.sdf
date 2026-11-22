@@ -231,14 +231,6 @@
           </mesh>
         </geometry>
       </visual>
-      <visual name="c11_shell_mesh">
-        <pose>0.046 0 0.388 0 0 0</pose>
-        <geometry>
-          <mesh>
-            <uri>model://delta_tailsitter/meshes/c11.stl</uri>
-          </mesh>
-        </geometry>
-      </visual>
     </link>
     <link name="rotor_0">
       <pose relative_to="base_link">0.141 -0.6 0.041 0 0 0</pose>
