@@ -206,3 +206,68 @@ def test_evidence_cli_keeps_partner_metrics_and_missing_data_distinct(tmp_path):
     assert row["mavlink"]["rejected_ack_rows_observed"] is None
     assert absent["tracking"] is absent["frame_count"] is None
     assert "diagnostic only" in out_markdown.read_text()
+
+
+def test_tracking_hold_splits_frames_and_negative_ack_observations(tmp_path):
+    ep, _ = episode(tmp_path, "dense", [lock(2), track(angle=7)])
+    write(ep / "episode.json", {"horizon_stabilization": {"eval_track_step": 24,
+                                                         "eval_tracking_sample_hz": 10}})
+    ns = 10**9
+
+    def marker(message, sim_s, wall_s):
+        return {"message_type": f"collector_gimbal_eval_{message}", "step_index": 24,
+                "sim_stamp_ns": int(sim_s * ns), "marker_monotonic_ns": int(wall_s * ns)}
+
+    def sample(sim_s, rotation, *, age=0, step=24):
+        return {"message_type": "collector_gimbal_eval_sample", "step_index": step,
+                "sim_stamp_ns": int(sim_s * ns), "attitude_skew_ms": age, "sim_skew_ms": 0,
+                "gimbal_state": {"fresh": True, "source": "gazebo_joint_state"},
+                "camera_pose": {"age_ms": 0, "optical_to_world": rotation}, "camera_info": CAMERA}
+
+    def ack(wall_s, *, result=2, command=1000):
+        return {"message_type": "COMMAND_ACK", "command": command, "result": result,
+                "receive_monotonic_ns": int(wall_s * ns)}
+
+    import math
+    from multidetect.camera_mount import rpy_rotation
+
+    rolled = list(rpy_rotation(roll_rad=math.radians(15), pitch_rad=0., yaw_rad=0.))
+    away = list(rpy_rotation(roll_rad=0., pitch_rad=0., yaw_rad=math.pi / 2))
+    engage = {**marker("mode", 10, 20), "mode": "track",
+              "target_ref": {"kind": "direction_ned", "vector": [1, 0, 0]}}
+    rows = [engage, sample(9, away), sample(10, away), sample(12, rolled), sample(12, away),
+            sample(14, IDENTITY, age=201), sample(14, away, step=25), sample(15, IDENTITY),
+            sample(20, IDENTITY), sample(70, away), marker("steady", 15.05, 26), marker("end", 70, 91),
+            ack(19), ack(20), ack(26), ack(28, result=0), ack(29, command=178), ack(91),
+            {"message_type": "host_horizon_dispatch"}]
+    path = write(ep / "mavlink.jsonl.gz", *rows)
+    report = evaluate([ep])
+    row = report["episodes"][0]
+    hold = row["track_diagnostics"]["hold"]
+    assert row["horizon_acceptance"]["frame_count"] == row["tracking"]["active_frames"] == 1
+    assert hold["sample_count"] == 5 and hold["duration_sim_s"] == 60
+    transient, steady = hold["transient"], hold["steady"]
+    assert transient["duration_sim_s"] == 5 and steady["duration_sim_s"] == 55
+    assert transient["pointing_error_deg"] == {"count": 2, "p50": 45, "p95": 85.5, "max": 90}
+    assert steady["pointing_error_deg"]["max"] == 0
+    assert hold["overall"]["track_horizon_error_deg"] == {
+        "count": 4, "p50": 0, "p95": pytest.approx(12.75), "max": pytest.approx(15),
+    }
+    assert transient["lock_rate"] == 0.5
+    assert transient["lock_rate_bounds"] == {"lower": 1 / 3, "upper": 2 / 3}
+    assert steady["lock_rate"] == 1.0
+    assert [p["rejected_ack_rows_observed"] for p in (transient, steady)] == [1, 1]
+    assert [p["rejection_evidence"][0]["receive_monotonic_ns"] for p in (transient, steady)] == [20 * ns, 26 * ns]
+    assert transient["reject_ack_evidence_complete"] is True
+    assert "## Tracking hold phases" in markdown(report)
+
+    write(path, *(r for r in rows if r.get("marker_monotonic_ns") != 26 * ns))
+    hold_without_ack_split = evaluate([ep])["episodes"][0]["track_diagnostics"]["hold"]
+    assert hold_without_ack_split["steady"]["pointing_error_deg"] == steady["pointing_error_deg"]
+    assert hold_without_ack_split["steady"]["rejected_ack_rows_observed"] is None
+
+    write(path, *rows, {"message_type": "COMMAND_ACK", "command": 1001, "result": 3})
+    hold_partial_ack = evaluate([ep])["episodes"][0]["track_diagnostics"]["hold"]
+    assert not hold_partial_ack["steady"]["reject_ack_evidence_complete"]
+    assert hold_partial_ack["steady"]["rejected_ack_rows_observed"] == 1
+    assert hold_partial_ack["rejected_ack_rows_without_receive_stamp"] == 1

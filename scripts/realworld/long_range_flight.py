@@ -626,7 +626,7 @@ def collection_plan(scenario: Path, out: Path, slot: int, mission: dict[str, Any
         rtf_overlay_root=overlay_root or None)
 
 
-GIMBAL_EVAL_HOLD_SIM_S = 30.0
+GIMBAL_EVAL_HOLD_SIM_S = 60.0
 GIMBAL_EVAL_MIN_TRACK_FRAMES = 3
 
 

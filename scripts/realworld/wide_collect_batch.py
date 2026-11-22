@@ -443,12 +443,19 @@ def evaluate(attempt, job, batch, rc):
                 horizon = summary["horizon_acceptance"]
                 if mixed:
                     from scripts.realworld.long_range_flight import GIMBAL_EVAL_MIN_TRACK_FRAMES
+                    from scripts.realworld.x1_gimbal_eval import read_track_hold
 
                     track = summary["track_acceptance"]
                     gimbal_evidence["track_diagnostics"] = track
                     if (type(track_step) is not int or track_step < 0
                             or track["eval_action_frames"] < GIMBAL_EVAL_MIN_TRACK_FRAMES):
                         errors.append("gimbal_eval_track_segment_missing")
+                    diagnostics_issues = []
+                    _, hold = read_track_hold(episode_dirs[0].parent, episode, diagnostics_issues)
+                    if hold is not None:
+                        track["hold"] = hold
+                    if diagnostics_issues:
+                        track["hold_issues"] = diagnostics_issues
             except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:
                 horizon["error"] = str(exc)
         errors.extend(horizon["errors"])
@@ -551,6 +558,8 @@ def run_attempt(attempt, job, batch, command, lock_fd, gate):
                 record["accepted"] = False
                 record["errors"] = [f"voided:{record['voided_reason']}"]
                 record["valid_round"] = False
+                if isinstance(guard.get("detail"), str):
+                    record["voided_detail"] = guard["detail"]
             elif (record["accepted"] and (not number(record["rtf_window_median"])
                                           or record["rtf_window_median"] < MIN_RTF)):
                 record["accepted"] = False
@@ -620,6 +629,7 @@ def run_locked(batch, command, lock_fd, *, completed=None, gpu_selector=None):
     from scripts.realworld.x1_gpu import GPUUnavailable
     config = settings({key: batch[key] for key in batch if key in settings()})
     queue = deque(batch["jobs"])
+    lease_reselected = set()
     pending = False
     while queue:
         job = queue.popleft()
@@ -711,6 +721,13 @@ def run_locked(batch, command, lock_fd, *, completed=None, gpu_selector=None):
         record.setdefault("retry_exhausted", False)
         record.setdefault("next_retry_at", None)
         publish(attempt, record)
+        if (gpu_selector is not None and record.get("voided_reason") == "x1_gpu_unavailable"
+                and record.get("voided_detail") == "gpu_lease_busy" and job_id not in lease_reselected):
+            # Concurrent workers can select before either has taken the UUID lease.
+            # Give the loser one fresh selection, without consuming its flight retries.
+            lease_reselected.add(job_id)
+            queue.appendleft(job)
+            continue
         if record.get("voided_reason") in DEFER_REASONS:
             return 75
         if record.get("voided_reason"):

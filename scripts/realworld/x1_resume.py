@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -79,7 +80,8 @@ def make_plan(spec, phase, image_id, enabled=None):
         trials = [(seed, enabled) for seed in spec["final_seeds"]]
     else:  # a single bridge-on Iowa flight in an independent output directory
         trials = [next(trial for trial in spec["ab"] if trial[1] is True)]
-    return batch.expand({**spec["batch"], "variant_world_root": str(iowa_world_root(spec)),
+    # Placement is selected per attempt. Keep the pinned manifest bytes for existing receipts.
+    return batch.expand({**spec["batch"], "gpu": 0, "variant_world_root": str(iowa_world_root(spec)),
                          "batch_id": f"x1-resume-{phase}",
                          "output_root": str(OUTPUT / phase),
                          "jobs": [dict(spec["job"], seed=seed, image=image_id, gimbal_bridge_stabilize=mode)
@@ -229,8 +231,9 @@ def matrix_environment():
     batch.MIN_FREE_BYTES = 0  # The batch root is on NAS. The guard checks /data in exact GiB.
 
 
-def run_flight_batch(plan, *, completed=None):
-    return batch.run_batch(plan, MATRIX, completed=completed, gpu_selector=x1_gpu.select)
+def run_flight_batch(plan, *, completed=None, skip_leased=False):
+    selector = partial(x1_gpu.select, skip_leased=True) if skip_leased else x1_gpu.select
+    return batch.run_batch(plan, MATRIX, completed=completed, gpu_selector=selector)
 
 
 def run(spec, image_id, *, smoke=False):

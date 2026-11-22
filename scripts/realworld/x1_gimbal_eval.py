@@ -19,9 +19,11 @@ if __name__ == "__main__":
 from multidetect.sim_teacher.target_tracking import (  # noqa: E402
     WorldTarget,
     pointing_error_deg,
+    track_horizon_error_deg,
     unit,
     world_target_direction,
 )
+from multidetect.sim_teacher.gimbal_recording import X1_TRACK_TRANSIENT_SIM_S  # noqa: E402
 
 from scripts.realworld.horizon_report import finite_number, percentile, summarize  # noqa: E402
 from scripts.realworld.x1_scenario_class import WIDE_AREA, WIDE_DISTANCE_M  # noqa: E402
@@ -230,8 +232,7 @@ def vector(values, length):
     return values
 
 
-def measured_ray(row, stabilization, max_age_ms):
-    camera = mapping(row.get("camera_pose"))
+def measured_rotation(camera, max_age_ms):
     age = camera.get("age_ms")
     if not finite_number(age) or not 0 <= age <= max_age_ms:
         raise ValueError("camera pose unavailable or stale")
@@ -241,6 +242,12 @@ def measured_ray(row, stabilization, max_age_ms):
                             int(i == j), abs_tol=1e-4)
            for i, left in enumerate(columns) for j, right in enumerate(columns)):
         raise ValueError("invalid optical rotation")
+    return rotation, columns
+
+
+def measured_ray(row, stabilization, max_age_ms):
+    camera = mapping(row.get("camera_pose"))
+    rotation, columns = measured_rotation(camera, max_age_ms)
     ref = mapping(stabilization.get("target_ref"))
     if ref.get("kind") == "direction_ned":
         direction = unit(vector(ref.get("vector"), 3))
@@ -327,7 +334,15 @@ def frame_samples(path, meta):
     return counts, pointing, roll, lock_errors
 
 
-def ack_evidence(path, issues):
+TRACK_SAMPLE = "collector_gimbal_eval_sample"
+TRACK_MODE = "collector_gimbal_eval_mode"
+TRACK_STEADY = "collector_gimbal_eval_steady"
+TRACK_END = "collector_gimbal_eval_end"
+TRACK_EVENTS = {TRACK_SAMPLE, TRACK_MODE, TRACK_STEADY, TRACK_END}
+NS_PER_S = 10**9
+
+
+def ack_evidence(path, issues, *, track_events=None):
     raw_rows = dispatches = ack_rows = unidentified = other_results = 0
     rejected = []
     types = set()
@@ -336,6 +351,8 @@ def ack_evidence(path, issues):
         try:
             for line, row in jsonl(path):
                 msg = row.get("message_type") or row.get("mavpackettype")
+                if track_events is not None and isinstance(msg, str) and msg in TRACK_EVENTS:
+                    track_events.append({**row, "message_type": msg})
                 if msg == "host_horizon_dispatch":
                     dispatches += 1
                     types.add("GIMBAL_MANAGER_SET_ATTITUDE")
@@ -372,6 +389,113 @@ def ack_evidence(path, issues):
             "rejected_ack_rows_observed": len(rejected) if raw_rows else None,
             "rejection_evidence": rejected, "observed_ackless_messages": sorted(types),
             "host_stream_dispatch_rows": dispatches if path else None}
+
+
+def stamp(row, key):
+    value = row.get(key)
+    return value if type(value) is int and value >= 0 else None
+
+
+def hold_phase(rows, target_ref, max_age_ms):
+    counts = dict.fromkeys(TRACK_COUNTS, 0)
+    pointing, roll = [], []
+    for row in rows:
+        counts["active_frames"] += 1
+        visible = None
+        state = mapping(row.get("gimbal_state"))
+        if (state.get("source") == "gazebo_joint_state" and state.get("fresh") is True
+                and all(finite_number(row.get(k)) and abs(row[k]) <= max_age_ms
+                        for k in ("attitude_skew_ms", "sim_skew_ms"))):
+            try:
+                rotation, _ = measured_rotation(mapping(row.get("camera_pose")), max_age_ms)
+            except ValueError:
+                pass
+            else:
+                counts["fresh_frames"] += 1
+                error = track_horizon_error_deg(rotation)
+                if error is not None:
+                    roll.append(error)
+                try:
+                    ray, angle = measured_ray(row, {"target_ref": target_ref}, max_age_ms)
+                except (KeyError, ValueError, TypeError, OverflowError):
+                    pass
+                else:
+                    pointing.append(angle)
+                    visible = in_view(ray, mapping(row.get("camera_info")))
+        counts[{True: "in_view_frames", False: "out_of_view_frames", None: "unresolved_frames"}[
+            visible]] += 1
+    summary = tracking_summary(counts, pointing, roll)
+    return {**summary, "lock_rate": summary["geometric_in_view_fraction_of_resolved"],
+            "lock_rate_bounds": summary["geometric_in_view_fraction_bounds"]}
+
+
+def track_hold(meta, mavlink, events):
+    """Phase metrics for the commanded hold, using explicit clocks and a fixed target."""
+    config = mapping(meta.get("horizon_stabilization"))
+    step = config.get("eval_track_step")
+    if type(step) is not int or step < 0:
+        return None
+    rows = [r for r in events if type(r.get("step_index")) is int and r["step_index"] == step]
+
+    def marker(kind):
+        matching = [r for r in rows if r["message_type"] == kind
+                    and (kind != TRACK_MODE or r.get("mode") == "track")]
+        return matching[0] if len(matching) == 1 else {}
+
+    begin, boundary, end = (marker(kind) for kind in (TRACK_MODE, TRACK_STEADY, TRACK_END))
+    start_ns, end_ns = (stamp(row, "sim_stamp_ns") for row in (begin, end))
+    report = {"action_index": step, "transient_sim_s": X1_TRACK_TRANSIENT_SIM_S,
+              "requested_sample_hz": config.get("eval_tracking_sample_hz"),
+              "start_sim_stamp_ns": start_ns, "end_sim_stamp_ns": end_ns,
+              "transient": None, "steady": None}
+    if start_ns is None or end_ns is None or end_ns <= start_ns:
+        return {**report, "status": "phase_sim_clock_markers_unavailable"}
+
+    split_ns = start_ns + X1_TRACK_TRANSIENT_SIM_S * NS_PER_S
+    max_age_s = config.get("max_age_s", 0.2)
+    max_age_ms = 1000 * max_age_s if finite_number(max_age_s) and max_age_s > 0 else 200.0
+    # One entry per frame epoch within the half-open hold window.
+    samples = {}
+    for row in rows:
+        sample_ns = stamp(row, "sim_stamp_ns")
+        if row["message_type"] == TRACK_SAMPLE and sample_ns is not None and start_ns <= sample_ns < end_ns:
+            samples.setdefault(sample_ns, row)
+    lo, mid, hi = (stamp(row, "marker_monotonic_ns") for row in (begin, boundary, end))
+    split_observed_ns = stamp(boundary, "sim_stamp_ns")
+    ack_timed = (None not in (lo, mid, hi, split_observed_ns)
+                 and lo < mid < hi and split_ns <= split_observed_ns < end_ns)
+    rejected = mavlink["rejection_evidence"]
+    unlocated = sum(stamp(r, "receive_monotonic_ns") is None for r in rejected)
+    report.update(status="phase_windows_available", sample_count=len(samples),
+                  duration_sim_s=(end_ns - start_ns) / NS_PER_S,
+                  split_sim_stamp_ns=split_ns, ack_split_observed_sim_stamp_ns=split_observed_ns,
+                  rejected_ack_rows_without_receive_stamp=unlocated)
+    target_ref = mapping(begin.get("target_ref"))
+    report["overall"] = hold_phase(samples.values(), target_ref, max_age_ms)
+    for name, sim_lo, sim_hi, wall_lo, wall_hi in (
+        ("transient", start_ns, min(split_ns, end_ns), lo, mid),
+        ("steady", split_ns, end_ns, mid, hi),
+    ):
+        if sim_lo >= sim_hi:
+            continue
+        phase = hold_phase((row for ts, row in samples.items() if sim_lo <= ts < sim_hi),
+                           target_ref, max_age_ms)
+        evidence = [r for r in rejected if (ts := stamp(r, "receive_monotonic_ns")) is not None
+                    and wall_lo <= ts < wall_hi] if ack_timed else []
+        ack_complete = bool(ack_timed and mavlink["read_complete"] and mavlink["raw_rows"]
+                            and not (unlocated or mavlink["unidentifiable_ack_rows"]
+                                     or mavlink["unknown_gimbal_result_rows"]))
+        report[name] = {**phase, "duration_sim_s": (sim_hi - sim_lo) / NS_PER_S,
+                        "reject_ack_evidence_complete": ack_complete,
+                        "rejected_ack_rows_observed": len(evidence) if ack_complete or evidence else None,
+                        "rejection_evidence": evidence}
+    return report
+
+
+def read_track_hold(directory, meta, issues):
+    events = []
+    mavlink = ack_evidence(artifact(directory, "mavlink.jsonl"), issues, track_events=events)
+    return mavlink, track_hold(meta, mavlink, events)
 
 
 def flight_metrics(episode, meta, receipt, issues):
@@ -448,6 +572,7 @@ def evaluate_episode(episode, entry, receipts):
             issues.append(f"{path}: {exc}")
     else:
         issues.append("video manifest missing")
+    mavlink, hold = read_track_hold(episode, meta, issues)
     row = {"episode_dir": str(episode), "episode_id": meta.get("episode_id", episode.name),
            "episode_status": meta.get("status"), "evidence_label": entry.get("evidence_label"),
            "condition": condition, "scenario_class": scenario_class,
@@ -464,7 +589,8 @@ def evaluate_episode(episode, entry, receipts):
            "horizon_acceptance": horizon["horizon_acceptance"] if horizon else None,
            "track_acceptance": horizon["track_acceptance"] if horizon else None,
            "tracking": track, "flight": flight_metrics(episode, meta, primary, issues),
-           "mavlink": ack_evidence(artifact(episode, "mavlink.jsonl"), issues), "issues": issues}
+           "mavlink": mavlink, "issues": issues,
+           **({"track_diagnostics": {"hold": hold}} if hold is not None else {})}
     return row, counts, pointing, roll, lock_errors
 
 
@@ -634,6 +760,34 @@ def markdown(report):
                                flight["route_completed"], flight["max_distance_from_spawn_m"],
                                f"{fmt(flight['rtf_window_median'])} / "
                                f"{fmt(flight['rtf_delta_sim_over_delta_real'])}"))
+    holds = [(e["episode_id"], e["track_diagnostics"]["hold"])
+             for e in report["episodes"] if "track_diagnostics" in e]
+    if holds:
+        headers = ("Episode", "Phase", "Sim s", *track_headers, "Lock rate (resolved)",
+                   "Raw rejects observed")
+        lines += ["", "## Tracking hold phases", "",
+                  f"Transient starts at the collector's track switch and spans the first "
+                  f"{X1_TRACK_TRANSIENT_SIM_S} simulation seconds. Steady state runs from that "
+                  "boundary to hold end. ACKs use host receive time and the collector's observed "
+                  "phase markers. Sample counts refer to separate pose telemetry. Lock rate is "
+                  "in-view / (in-view + out-of-view) for the projected target.", "",
+                  cells(*headers), cells(*(["---"] * len(headers)))]
+        for episode, hold in holds:
+            if hold["status"] != "phase_windows_available":
+                lines.append(cells(episode, "unavailable", *([None] * (len(headers) - 2))))
+                continue
+            overall = hold["overall"]
+            lines.append(cells(episode, "hold", hold["duration_sim_s"], *track_cells(overall),
+                               fraction(overall["lock_rate"]), None))
+            for name in ("transient", "steady"):
+                phase = hold[name]
+                if phase is None:
+                    continue
+                rejects = phase["rejected_ack_rows_observed"]
+                if rejects is not None and not phase["reject_ack_evidence_complete"]:
+                    rejects = f"≥{rejects}"
+                lines.append(cells(episode, name, phase["duration_sim_s"], *track_cells(phase),
+                                   fraction(phase["lock_rate"]), rejects))
     issues = [*report["issues"], *(f"{e['episode_dir']}: {issue}"
                                   for e in report["episodes"] for issue in e["issues"])]
     if issues:

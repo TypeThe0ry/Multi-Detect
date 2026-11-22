@@ -308,6 +308,33 @@ def test_x1_per_attempt_gpu_metadata_and_deferral(spec, matrix, monkeypatch):
     assert plan["gpu"] == 3
 
 
+@pytest.mark.parametrize("both_busy", [False, True])
+def test_x1_reselects_once_when_another_worker_wins_the_gpu_lease(spec, matrix, both_busy):
+    line, original = matrix.read_text().split("\n", 1)
+    matrix.write_text(line + f"""
+import json, os, sys
+from pathlib import Path
+if os.environ['RTF_MATRIX_GPU'] == '0' or {both_busy!r}:
+    out = Path(sys.argv[sys.argv.index('--out') + 1])
+    (out / 'guard.json').write_text(json.dumps({{'voided_reason': 'x1_gpu_unavailable',
+                                                'detail': 'gpu_lease_busy'}}))
+    sys.exit(75)
+""" + original)
+    plan = batch.expand(spec)
+    cards = iter((0, 2))
+
+    def select(_):
+        index = next(cards)
+        return {"gpu_index": index, "gpu_uuid": f"GPU-{index:08d}-0000-0000-0000-000000000000",
+                "gpu_reason": "idle", "gpu_shared_processes": []}
+
+    assert batch.run_batch(plan, matrix, gpu_selector=select) == (75 if both_busy else 0)
+    first, second = rows(Path(plan["output_root"]) / "results.jsonl")
+    assert first["voided_detail"] == "gpu_lease_busy" and first["gpu_index"] == 0
+    assert second["gpu_index"] == 2 and second["accepted"] is (not both_busy)
+    assert first["requeue_count"] == second["requeue_count"] == 0
+
+
 def test_delta_stages_vtol_geometry_and_checks_matrix_airframe(spec, matrix, tmp_path, monkeypatch):
     from multidetect.px4_mission import VtolMissionGeometry
     from multidetect.terrain_dem import load_local_dem_grid

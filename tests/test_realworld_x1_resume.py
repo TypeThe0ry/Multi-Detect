@@ -36,7 +36,7 @@ def test_plans_preserve_baseline_and_use_one_immutable_candidate(spec):
     assert [r["inputs"]["seed"] for r in final["jobs"]] == [301, 302, 303]
     assert len(smoke["jobs"]) == 1 and smoke["jobs"][0]["inputs"]["seed"] == 201
     for plan in (ab, final, smoke):
-        assert plan["gpu"] == 3 and plan["slots"] == [5] and plan["share_gpu"] is False
+        assert plan["gpu"] == 0 and plan["slots"] == [5] and plan["share_gpu"] is False
         assert all(r["inputs"]["image"] == IMAGE for r in plan["jobs"])
 
 

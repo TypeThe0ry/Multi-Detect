@@ -525,7 +525,7 @@ def test_stalled_stage_reaped_before_yield(monkeypatch, tmp_path):
     assert phases_started[0].returncode == -signal.SIGKILL
 
 
-@pytest.mark.parametrize("entry", ["resume", "collect"])
+@pytest.mark.parametrize("entry", ["resume", "collect", "eval-lane"])
 def test_flight_entry_requests_world_handoff(monkeypatch, tmp_path, entry):
     from concurrent.futures import ThreadPoolExecutor
 
@@ -536,7 +536,8 @@ def test_flight_entry_requests_world_handoff(monkeypatch, tmp_path, entry):
     monkeypatch.setattr(resume, "LOCK", lock)
     monkeypatch.setattr(resume, "complete", lambda _: False)
     monkeypatch.setattr(resume, "preflight", lambda _: ("fake-image", {}))
-    monkeypatch.setattr(collect, "preflight", lambda *_: ("fake-image", ["pending"], {}))
+    monkeypatch.setattr(collect, "preflight", lambda *_, **__: ("fake-image", ["pending"], {}))
+    monkeypatch.setattr(collect, "eval_config", lambda **_: {"gimbal_eval": True})
 
     def ran(*_, **__):
         with pytest.raises(x1_lock.Yielded):
@@ -548,8 +549,9 @@ def test_flight_entry_requests_world_handoff(monkeypatch, tmp_path, entry):
     monkeypatch.setattr(collect, "run", ran)
     with ThreadPoolExecutor(max_workers=1) as pool, x1_lock.world_owner(lock):
         with x1_lock.world_phase(lock):
+            flags = ["--gimbal-eval", "--lane", "a"] if entry == "eval-lane" else []
             future = pool.submit((resume if entry == "resume" else collect).main,
-                                 ["run", "--image-id", "fake-image"])
+                                 [*flags, "run", "--image-id", "fake-image"])
             deadline = time.monotonic() + 5
             while not x1_lock.flight_requested(lock) and time.monotonic() < deadline:
                 time.sleep(0.01)

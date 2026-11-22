@@ -15,6 +15,29 @@ from multidetect.camera_mount import (
 )
 
 DEFAULT_MAX_AGE_MS = 2_000.0
+X1_TRACK_SAMPLE_HZ = 10
+X1_TRACK_TRANSIENT_SIM_S = 5
+
+
+class X1TrackCapture:
+    """Collect distinct, simulation-timed samples using the existing sensor pipe."""
+
+    def __init__(self, start_sim_ns: int | None):
+        self.period_ns = 1_000_000_000 // X1_TRACK_SAMPLE_HZ
+        self.due_ns = start_sim_ns
+        self.next_request_wall_s = 0.0
+
+    def tick(self, reader, *, sim_ns, wall_s):
+        if self.due_ns is None or sim_ns is None or sim_ns < self.due_ns:
+            return None
+        sample = reader.latest
+        if sample is not None and self.due_ns <= sample.sensor_stamp_ns <= sim_ns:
+            self.due_ns = sample.sensor_stamp_ns + self.period_ns
+            return sample
+        if wall_s >= self.next_request_wall_s:
+            self.next_request_wall_s = wall_s + self.period_ns / 1e9
+            reader.request(self.due_ns)
+        return None
 
 
 def collector_camera_mount(profile: Any) -> CameraMount | None:

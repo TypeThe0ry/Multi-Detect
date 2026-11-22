@@ -66,13 +66,14 @@ def world_phase(lock):
 
 
 @contextmanager
-def flight_lock(lock, *, wait=FLIGHT_WAIT):
+def flight_lock(lock, *, wait=FLIGHT_WAIT, shared=False):
     """Wait for a cooperative world worker, with a bounded nonblocking poll."""
+    mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
     with lock.open("a") as stream:
-        if not try_lock(stream):
+        if not try_lock(stream, mode):
             if not held(sidecar(lock, "world-owner")):
                 # Close the race where the world worker died during contention.
-                if not try_lock(stream):
+                if not try_lock(stream, mode):
                     raise LockBusy(f"X1 lock held: {lock}")
             else:
                 deadline = time.monotonic() + wait
@@ -80,10 +81,20 @@ def flight_lock(lock, *, wait=FLIGHT_WAIT):
                     # Concurrent observers can probe with shared locks. Only a
                     # waiting flight holds an exclusive request.
                     while True:
-                        if try_lock(request) and try_lock(stream):
+                        if try_lock(request) and try_lock(stream, mode):
                             break
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             raise LockBusy(f"timed out after {wait:g}s waiting for X1 lock: {lock}")
                         time.sleep(min(remaining, POLL_SECONDS))
         yield
+
+
+@contextmanager
+def flight_lane(lock, lane):
+    """Share the flight lock across lanes, with one worker per lane."""
+    with sidecar(lock, f"flight-{lane}").open("a") as owner:
+        if not try_lock(owner):
+            raise LockBusy(f"X1 flight lane {lane} already running: {lock}")
+        with flight_lock(lock, shared=True):
+            yield

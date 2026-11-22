@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.realworld import x1_collect_next as collect
+from scripts.realworld import x1_collect_next as collect, x1_lock
 
 
 IMAGE = "sha256:" + "d" * 64
@@ -36,7 +36,7 @@ def test_site_plan_uses_exclusive_gpu_slots_identity_and_in_repo_overrides(world
     for index, slot in enumerate((5, 6, 7, 5, 6, 7)):
         plan, assets = collect.site_plan(root, SITE, index, IMAGE)
         job = plan["jobs"][0]
-        assert plan["gpu"] == 3 and plan["slots"] == [slot] and plan["share_gpu"] is False
+        assert plan["gpu"] == 0 and plan["slots"] == [slot] and plan["share_gpu"] is False
         assert plan["start_load_max"] == 60 and job["matrix"]["minimum_rtf"] == 0.9
         assert job["inputs"]["gimbal_bridge_stabilize"] and job["inputs"]["image"] == IMAGE
         assert {folder for _, folder, _ in assets} == {
@@ -98,6 +98,98 @@ def test_zurich_collection_only_site_is_required_for_completion(world, monkeypat
     pending, done, unavailable = collect.plans(spec, IMAGE)
     assert not pending and done == [SITE] and set(unavailable) == {zurich}
     assert collect.main(["complete"]) == 1
+
+
+def test_eval_lanes_keep_stable_disjoint_jobs_as_receipts_arrive(tmp_path, monkeypatch):
+    iowa = tmp_path / collect.resume.IOWA_WORLD
+    iowa.write_text("Iowa world")
+    iowa_spec = {**collect.batch.read_object(collect.resume.MANIFEST),
+                 "world_source_root": str(tmp_path), "world_sha256": collect.batch.file_hash(iowa)}
+    variants_config = collect.batch.read_object(collect.VARIANT_MANIFEST)
+    spec = {"asset_root": str(tmp_path), "sites": variants_config["sites"]}
+    config = {"gimbal_eval": True}
+    monkeypatch.setattr(collect, "EVAL_OUTPUT", tmp_path)
+
+    def site_plan(root, site, index, image_id, spec, *, conditions, asset_dir, gimbal_eval, slot):
+        assert gimbal_eval and slot in (5, 6)
+        return {"batch_id": str(index), "slots": [slot], "jobs": [{"slot": slot}]}, []
+
+    monkeypatch.setattr(collect, "site_plan", site_plan)
+    full = list(collect.eval_plans(spec, iowa_spec, IMAGE, config))
+    assert len(full) == 21
+    monkeypatch.setattr(collect, "accepted", lambda plan: plan == full[0][1])
+    for lane, parity, slot, count in (("a", 0, 5, 11), ("b", 1, 6, 10)):
+        assigned = list(collect.eval_plans(spec, iowa_spec, IMAGE, config, lane=lane))
+        assert len(assigned) == count and assigned == full[parity::2]
+        assert all(plan["slots"] == [slot] and plan["jobs"][0]["slot"] == slot
+                   for _, plan, _ in assigned)
+        pending, done, unavailable = collect.selected_queue(spec, IMAGE, iowa_spec, config, lane=lane)
+        assert pending == [(plan, assets) for _, plan, assets in assigned[1 - parity:]]
+        assert done == ([full[0][0]] if parity == 0 else []) and not unavailable
+
+
+def test_eval_lanes_exclude_duplicates_world_and_serial_flights(tmp_path):
+    lock = tmp_path / "flight.lock"
+    with x1_lock.flight_lane(lock, "a"), x1_lock.flight_lane(lock, "b"):
+        with pytest.raises(x1_lock.LockBusy, match="lane a"):
+            with x1_lock.flight_lane(lock, "a"):
+                pytest.fail("duplicate lane acquired the lock")
+        with pytest.raises(x1_lock.LockBusy):
+            with x1_lock.flight_lock(lock):
+                pytest.fail("serial flight acquired the lock")
+        with pytest.raises(x1_lock.Yielded):
+            with x1_lock.world_phase(lock):
+                pytest.fail("world phase acquired the lock")
+    with x1_lock.world_phase(lock):
+        with pytest.raises(x1_lock.LockBusy):
+            with x1_lock.flight_lane(lock, "a"):
+                pytest.fail("flight lane acquired the world phase lock")
+    with x1_lock.flight_lane(lock, "a"):
+        pass
+
+
+def test_eval_lane_launch_and_worker_use_separate_status_slot_and_lease(tmp_path, monkeypatch):
+    lane = "b"
+    monkeypatch.setattr(collect.resume, "LOCK", tmp_path / "flight.lock")
+    monkeypatch.setattr(collect, "EVAL_OUTPUT", tmp_path)
+    monkeypatch.setattr(collect, "eval_config", lambda **_: {"gimbal_eval": True})
+    monkeypatch.setattr(collect.resume, "mount_check", lambda **_: None)
+    monkeypatch.setattr(collect.resume, "matrix_environment", lambda: None)
+    monkeypatch.setattr(collect.resume, "image_check", lambda _: IMAGE)
+    gates = []
+    monkeypatch.setattr(collect.resume, "flight_gate", gates.append)
+    plan = {"jobs": [{"slot": 6}]}
+
+    def selected(*_, lane):
+        assert lane == "b"
+        return [(plan, [])], [], {}
+
+    def select(path, *, skip_leased):
+        assert skip_leased and path == tmp_path / "GPU-PREFLIGHT-b.json"
+        return {"gpu_index": 2, "gpu_uuid": "GPU-mock"}
+
+    def launch(command):
+        assert command[0] == "systemd-run"
+        assert command[command.index("--unit") + 1] == "md-x1-gimbal-eval-b.service"
+        assert command[-6:] == ["--gimbal-eval", "--lane", lane, "run", "--image-id", IMAGE]
+        return "started"
+
+    def run_flight_batch(actual_plan, *, skip_leased):
+        assert actual_plan is plan and skip_leased
+        with pytest.raises(x1_lock.LockBusy):
+            with x1_lock.flight_lane(collect.resume.LOCK, lane):
+                pytest.fail("worker did not hold its lane lock")
+        return 0
+
+    monkeypatch.setattr(collect, "selected_queue", selected)
+    monkeypatch.setattr(collect, "accepted", lambda _: True)
+    monkeypatch.setattr(collect.x1_gpu, "select", select)
+    monkeypatch.setattr(collect.resume, "read_cmd", launch)
+    monkeypatch.setattr(collect.resume, "run_flight_batch", run_flight_batch)
+    args = ["--gimbal-eval", "--lane", lane]
+    assert collect.main([*args, "launch"]) == 0
+    assert collect.main([*args, "run", "--image-id", IMAGE]) == 0
+    assert gates == [(6,), (6,), (6,)]
 
 
 @pytest.fixture

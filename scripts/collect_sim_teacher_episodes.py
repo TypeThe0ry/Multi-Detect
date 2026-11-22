@@ -65,7 +65,8 @@ from multidetect.sim_teacher import (  # noqa: E402
     primitive_to_ned,
 )
 from multidetect.sim_teacher.gimbal_recording import (
-    DeltaCameraGeometry, collector_camera_mount,
+    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    collector_camera_mount,
 )
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
 from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
@@ -3479,6 +3480,27 @@ def _pose_sim_stamp_ns(state: Any) -> int | None:
     if not math.isfinite(value) or value < 0:
         return None
     return int(value * 1_000_000)
+
+
+def _x1_track_sample(reader, sample, *, camera_mount, camera_geometry):
+    aligned = reader.aligned_state(sample.sensor_stamp_ns, timeout_s=0.)
+    # Retain calibrated pose and measured joints without converting or storing RGB.
+    row = {"message_type": "collector_gimbal_eval_sample", "sim_stamp_ns": sample.sensor_stamp_ns}
+    try:
+        obs = build_observation(
+            dataclasses.replace(sample, rgb=None, depth=None, depth_frame=None),
+            aligned, camera_mount=camera_mount, camera_geometry=camera_geometry,
+            gimbal_sample={"message": None},
+        )
+    except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+        return {**row, "observation_error": str(exc)}
+    att_ms = _field(aligned.get("ATTITUDE"), "time_boot_ms", None)
+    return {**row,
+            "attitude_skew_ms": (sample.sensor_stamp_ns / 1e6 - att_ms
+                                 if type(att_ms) in (int, float) else None),
+            **{key: obs.get(key) for key in (
+                "gimbal_state", "camera_pose", "camera_info", "pose", "sim_skew_ms",
+            )}}
 
 
 class MavlinkTelemetrySilenceWatchdog:
@@ -6942,7 +6964,8 @@ def run_episode(
                     "yaw_mode": horizon_stabilizer.yaw_mode,
                     "target_deg": target,
                     "track_targets": [asdict(point) for point in track_targets],
-                    **({"eval_track_step": plan.gimbal_eval_track_step}
+                    **({"eval_track_step": plan.gimbal_eval_track_step,
+                        "eval_tracking_sample_hz": X1_TRACK_SAMPLE_HZ}
                        if plan.gimbal_eval_track_step is not None else {}),
                     "host_hz": 50.0,
                     "requested_attitude_interval_us": attitude_interval_us,
@@ -7970,6 +7993,8 @@ def run_episode(
                     action = policy.next_action()
                     labels = {}
                     timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
+                track_capture = None
+                track_steady_ns = None
                 if plan.gimbal_eval_track_step is not None and index in (
                     plan.gimbal_eval_track_step, plan.gimbal_eval_track_step + 1
                 ):
@@ -7978,9 +8003,19 @@ def run_episode(
                     if (horizon_stabilizer is None or action.kind != expected_kind
                             or (tracking and _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3)):
                         raise RuntimeError("X1 gimbal evaluation did not reach its expected MC hover/stop")
+                    switch_wall_ns = time.monotonic_ns()
+                    switch_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
                     horizon_stabilizer.set_mode("track" if tracking else "lock")
                     recorder.record_mavlink({"message_type": "collector_gimbal_eval_mode",
-                                             "step_index": index, "mode": horizon_stabilizer.mode})
+                                             "step_index": index, "mode": horizon_stabilizer.mode,
+                                             "sim_stamp_ns": switch_sim_ns,
+                                             "marker_monotonic_ns": switch_wall_ns,
+                                             **({"target_ref": plan.track_targets[0].reference()}
+                                                if tracking else {})})
+                    if tracking:
+                        track_capture = X1TrackCapture(switch_sim_ns)
+                        if switch_sim_ns is not None:
+                            track_steady_ns = switch_sim_ns + X1_TRACK_TRANSIENT_SIM_S * 10**9
                 managed_gimbal_action = _managed_teacher_gimbal_action(
                     action, camera_mount,
                     _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,
@@ -8119,12 +8154,20 @@ def run_episode(
                                                   daemon=managed_gimbal_action is not None)
                 execute_thread.start()
                 def _action_tick() -> None:
-                    nonlocal next_video_s
+                    nonlocal next_video_s, track_steady_ns
                     episode_watchdog.check()
                     if horizon_loop is not None:
                         horizon_loop.check()
                     if long_range_gimbal_hold is not None and not landing_started:
                         long_range_gimbal_hold.tick()
+                    if track_steady_ns is not None:
+                        sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                        if sim_ns is not None and sim_ns >= track_steady_ns:
+                            recorder.record_mavlink({
+                                "message_type": "collector_gimbal_eval_steady", "step_index": index,
+                                "sim_stamp_ns": sim_ns, "marker_monotonic_ns": time.monotonic_ns(),
+                            })
+                            track_steady_ns = None
                     if plan.video_use_sim_time and horizon_loop is None and (
                         motion is None or motion.kind != "reposition" or motion.mode != "FW"
                     ):
@@ -8137,6 +8180,16 @@ def run_episode(
                         _video_tick(index, stage, wall_due_s=next_video_s)
                         if video_writer is not None and not plan.video_use_sim_time:
                             next_video_s += 1.0 / plan.video_hz
+                    if track_capture is not None:
+                        sample = track_capture.tick(
+                            sensor_reader, sim_ns=_pose_sim_stamp_ns(mav_reader.state),
+                            wall_s=time.monotonic(),
+                        )
+                        if sample is not None:
+                            recorder.record_mavlink({**_x1_track_sample(
+                                mav_reader, sample, camera_mount=camera_mount,
+                                camera_geometry=camera_geometry,
+                            ), "step_index": index})
 
                 try:
                     poll_session = (
@@ -8159,6 +8212,12 @@ def run_episode(
                     raise
                 if execute_error:
                     raise execute_error[0]
+                if track_capture is not None:
+                    recorder.record_mavlink({
+                        "message_type": "collector_gimbal_eval_end", "step_index": index,
+                        "marker_monotonic_ns": time.monotonic_ns(),
+                        "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                    })
                 result = result_box[0]
                 if getattr(action, "kind", None) == "land" and result.status == "success":
                     landing_started = True
