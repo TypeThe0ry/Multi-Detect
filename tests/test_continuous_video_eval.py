@@ -76,3 +76,7 @@ def test_video_sampling_takes_new_frames_that_lag_the_pose():
     assert _new_video_sample(SimpleNamespace(sensor_stamp_ns=1_000), -1)
     assert not _new_video_sample(SimpleNamespace(sensor_stamp_ns=1_000), 1_000)
     assert _new_video_sample(SimpleNamespace(sensor_stamp_ns=1_100), 1_000)
+    assert not _new_video_sample(SimpleNamespace(sensor_stamp_ns=6_999_999_999), 1_000_000_000,
+                                 due_ns=7_000_000_000)
+    assert _new_video_sample(SimpleNamespace(sensor_stamp_ns=7_000_000_000), 1_000_000_000,
+                             due_ns=7_000_000_000)

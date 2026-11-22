@@ -145,6 +145,41 @@ def test_attach_rejects_container_replacement_before_recording(tmp_path, monkeyp
             environment.remember_px4_process()
 
 
+@pytest.mark.parametrize('requested,enabled,capable,passed', [
+    (False, False, False, True),
+    (False, False, True, True),
+    (True, True, True, True),
+    (True, True, False, False),
+    (True, False, True, False),
+    (False, True, True, False),
+])
+def test_collector_records_bridge_check_from_inspected_container(
+    tmp_path, monkeypatch, requested, enabled, capable, passed,
+):
+    inspect_stub(monkeypatch, {
+        'Id': CONTAINER_ID, 'Image': ACTUAL_IMAGE, 'State': {'Running': True},
+        'Config': {'Env': [f'{collector.BRIDGE_STABILIZE_ENV}={int(enabled)}'],
+                   'Labels': {collector.BRIDGE_STABILIZE_LABEL: '1'} if capable else {}},
+    })
+    plan = replace(attached_plan(tmp_path), attach_container=None, gimbal_bridge_stabilize=requested)
+    environment = collector.DockerSimEnvironment(plan, 'test')
+    messages = []
+    recorder = SimpleNamespace(meta={}, episode_path=tmp_path/'episode.json', record_mavlink=messages.append)
+    if passed:
+        collector._record_container_started(recorder, environment)
+        assert json.loads(recorder.episode_path.read_text()) == recorder.meta
+    else:
+        with pytest.raises(RuntimeError, match='matching container setting'):
+            collector._record_container_started(recorder, environment)
+        assert not messages
+    identity = recorder.meta['simulator_container']
+    assert identity['image_id'] == ACTUAL_IMAGE
+    assert identity['requested_image'] == plan.image
+    assert identity['bridge_stabilize_check'] == {
+        'requested': requested, 'env_enabled': enabled, 'capable': capable, 'passed': passed,
+    }
+
+
 def test_viewer_is_software_rendered_even_under_gpu_defaults():
     command, plan, _ = viewer.build_session_command(container_name='viewer-test')
     assert viewer.VIEWER_IMAGE in command and DEFAULT_GPU_IMAGE not in command

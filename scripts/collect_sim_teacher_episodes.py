@@ -13,6 +13,7 @@ import csv
 import dataclasses
 import io
 import json
+import logging
 import math
 import os
 import queue
@@ -62,6 +63,18 @@ from multidetect.sim_teacher import (  # noqa: E402
     PymavlinkPrimitiveExecutor,
     SetpointStreamer,
     primitive_to_ned,
+)
+from multidetect.sim_teacher.gimbal_recording import (
+    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_PREVIEW_S, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    collector_camera_mount,
+)
+from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
+from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
+    BRIDGE_STABILIZE_ENV, BRIDGE_STABILIZE_LABEL, BridgeHorizonTarget,
+    HorizonStabilizer, HostHorizonLoop, bridge_pose_readback,
+)
+from multidetect.sim_teacher.target_tracking import (  # noqa: E402
+    WorldTarget, track_cli_argv, world_target_from_mavlink,
 )
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.executor import (  # noqa: E402
@@ -874,6 +887,9 @@ class CollectionPlan:
     depth_encoding: str = DEFAULT_DEPTH_ENCODING
     segmentation: bool = False
     camera_noise_overlay: bool = False
+    # Optional generated RTF experiment overlay.  The directory contains
+    # ``mono_cam`` and, when needed, the selected ``*_mono_cam`` wrapper.
+    rtf_overlay_root: str | None = None
     wind_vehicle_overlay: bool = False
     # Extra SIM-only PX4 parameters for this run, e.g. a slower simulated
     # battery for an interactive session; batch campaigns pass none.
@@ -900,6 +916,7 @@ class CollectionPlan:
     min_free_gb: float = 15.0
     disk_check_interval_steps: int = 10
     video_hz: float = 0.0
+    video_use_sim_time: bool = False
     video_max_bytes: int = DEFAULT_VIDEO_MAX_BYTES
     airframe: str = "x500_mono_cam"
     vtol_hover_mission: bool | None = None
@@ -923,12 +940,32 @@ class CollectionPlan:
     operator_port: int = 14580
     requested_image: str | None = None
     runtime_image_verification: dict | None = None
+    # None preserves policy-owned stabilization for existing collection tasks.
+    gimbal_mode: str | None = None
+    gimbal_bridge_stabilize: bool = False
+    track_targets: tuple[WorldTarget, ...] = ()
+    gimbal_eval_track_step: int | None = None
     max_episode_sim_s: float | None = None
     px4_profile: str | None = None
 
     def __post_init__(self) -> None:
         if self.max_episode_sim_s is not None and not 1.0 <= self.max_episode_sim_s <= 86400.0:
             raise ValueError("--max-episode-sim-seconds must be between 1 and 86400 seconds")
+        if self.gimbal_mode not in {None, "lock", "follow", "track"}:
+            raise ValueError("gimbal_mode must be lock, follow or track")
+        if any(not isinstance(target, WorldTarget) for target in self.track_targets):
+            raise ValueError("track_targets must contain WorldTarget values")
+        if self.gimbal_eval_track_step is not None and (
+            type(self.gimbal_eval_track_step) is not int
+            or not 0 <= self.gimbal_eval_track_step < self.steps_per_episode - 1
+            or self.gimbal_mode != "lock" or len(self.track_targets) != 1
+            or not self.gimbal_bridge_stabilize
+            or self.airframe != "delta_tailsitter_gimbal_cam" or not self.video_use_sim_time
+        ):
+            raise ValueError("gimbal evaluation requires a bounded X1 bridge tracking step")
+        if self.gimbal_mode == "track" and not self.track_targets:
+            logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
+            object.__setattr__(self, "gimbal_mode", "lock")
         # Bind the selected image before metadata, progress headers or Docker argv
         # are emitted. Later environment changes cannot silently change a plan.
         automatic_image = self.image is None and "MULTIDETECT_SIM_IMAGE" not in os.environ
@@ -949,7 +986,7 @@ class CollectionPlan:
             object.__setattr__(self, "gpu_device", device)
             object.__setattr__(self, "gpu_devices", devices)
 
-    def to_mapping(self) -> dict[str, Any]:
+    def to_mapping(self, *, include_docker_command: bool = True) -> dict[str, Any]:
         result = asdict(self)
         result["requested_image"] = self.requested_image or self.image
         result["image_identity_status"] = "content_verified" if self.runtime_image_verification else "planned_reference"
@@ -959,7 +996,9 @@ class CollectionPlan:
         result["px4_logger_mode"] = _effective_px4_logger_mode(self)
         result["px4_profile"] = resolve_px4_profile(self.px4_profile)
         result["px4_daemon_mode"] = resolve_px4_daemon_mode()
-        result["docker_command"] = None if self.attach_container else docker_command(self)
+        result["docker_command"] = (
+            docker_command(self) if include_docker_command and not self.attach_container else None
+        )
         if self.attach_container:
             # An attachment cannot know its runtime identity before Docker inspect.
             result["requested_image"] = self.image
@@ -1117,14 +1156,14 @@ def _delta_fw_ring_metrics_from_files(
     return _delta_fw_ring_metrics(_jsonl(mavlink_path), _jsonl(steps_path))
 
 
-def _new_video_sample(sample: Any, last_written_ns: int) -> bool:
+def _new_video_sample(sample: Any, last_written_ns: int, *, due_ns: int = 0) -> bool:
     """A camera sample the continuous video has not written yet.
 
     The image pipeline always lags the newest pose, so requiring the sample to
     be at or after the current pose stamp wrote no frame at all; the pose for
     the frame comes from ``aligned_state`` at the image's own stamp instead.
     """
-    return sample is not None and int(sample.sensor_stamp_ns) > last_written_ns
+    return sample is not None and int(sample.sensor_stamp_ns) >= max(last_written_ns + 1, due_ns)
 
 
 def _gazebo_model_name(plan: CollectionPlan, runtime: Mapping[str, Any]) -> str:
@@ -1275,6 +1314,22 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
             command.index("run"),
         )
         command[parent_mount + 1 : parent_mount + 1] = list(overlay_mount)
+    if plan.rtf_overlay_root:
+        overlay_root = Path(plan.rtf_overlay_root).expanduser().resolve()
+        if not overlay_root.is_dir():
+            raise FileNotFoundError(overlay_root)
+        mounts = []
+        mono = overlay_root / "mono_cam"
+        if mono.is_dir():
+            mounts += ["--mount", f"type=bind,source={mono},target=/opt/px4-gazebo/share/gz/models/mono_cam,readonly"]
+        wrapper = overlay_root / f"{plan.airframe}"
+        if wrapper.is_dir():
+            mounts += ["--mount", f"type=bind,source={wrapper},target={CONTAINER_MODEL_ROOT}/{plan.airframe},readonly"]
+        if not mounts:
+            raise FileNotFoundError(f"RTF overlay has no mono_cam or {plan.airframe}: {overlay_root}")
+        parent_mount = next((index for index, token in enumerate(command)
+                             if token.startswith("type=bind,") and "target=/opt/multidetect-gazebo-models," in token), command.index("run"))
+        command[parent_mount + 1 : parent_mount + 1] = mounts
     if plan.wind_vehicle_overlay and not plan.segmentation:
         overlay = ROOT / "simulation/gazebo/model-overlays/x500_mono_cam_wind"
         overlay_mount = (
@@ -1296,6 +1351,8 @@ def docker_command(plan: CollectionPlan, *, name: str | None = None) -> list[str
     # json-file logs grew Docker's WSL disk by tens of GB. Keep a small rolling tail.
     if "run" in command:
         at = command.index("run") + 1
+        if plan.gimbal_bridge_stabilize:
+            command[at:at] = ["--env", f"{BRIDGE_STABILIZE_ENV}=1"]
         command[at:at] = ["--log-opt", "max-size=5m", "--log-opt", "max-file=2"]
         invocation = os.environ.get("MD_GIMBAL_INVOCATION")
         if invocation is not None:
@@ -1326,8 +1383,19 @@ def _docker_executable(plan: CollectionPlan) -> str:
     return executable
 
 
+class BridgeStabilizeMismatch(RuntimeError):
+    def __init__(self, identity: dict[str, Any]):
+        super().__init__("--gimbal-bridge-stabilize requires the horizon image and matching container setting")
+        self.identity = identity
+
+
 def _record_container_started(recorder, environment: DockerSimEnvironment) -> None:
-    identity = environment.remember_px4_process()
+    try:
+        identity = environment.remember_px4_process()
+    except BridgeStabilizeMismatch as exc:
+        # The failure handler writes this evidence into the failed episode.
+        recorder.meta["simulator_container"] = exc.identity
+        raise
     recorder.meta["simulator_container"] = identity
     recorder.meta["simulator_image"] = identity["image"]
     recorder.meta["requested_simulator_image"] = identity["requested_image"]
@@ -1779,6 +1847,10 @@ class DockerSimEnvironment:
                 state = details.get("State") or {}
                 snapshot["container_id"] = details.get("Id")
                 snapshot["image"] = details.get("Image")
+                config = details.get("Config") or {}
+                env = config.get("Env") or []
+                snapshot["gimbal_bridge_stabilize"] = f"{BRIDGE_STABILIZE_ENV}=1" in env
+                snapshot["gimbal_bridge_capable"] = (config.get("Labels") or {}).get(BRIDGE_STABILIZE_LABEL) == "1"
                 snapshot["state"] = {
                     "running": state.get("Running"),
                     "exit_code": state.get("ExitCode"),
@@ -1822,6 +1894,28 @@ class DockerSimEnvironment:
 
     def remember_px4_process(self) -> dict[str, Any]:
         snapshot = self._container_snapshot()
+        requested = self.plan.gimbal_bridge_stabilize
+        env_enabled = snapshot.get("gimbal_bridge_stabilize")
+        capable = snapshot.get("gimbal_bridge_capable")
+        mismatch = bool(env_enabled) != requested or (requested and not capable)
+        identity = {
+            "container_name": self.name,
+            "container_id": snapshot.get("container_id"),
+            "image": self.runtime_image,
+            "image_id": snapshot.get("image"),
+            "requested_image": self.plan.requested_image or self.plan.image,
+            "runtime_image_verification": self.plan.runtime_image_verification,
+            "image_identity_source": "container_inspect" if self.attached or self.plan.runtime_image_verification else "launch_plan",
+            "px4_host_pids": snapshot.get("px4_host_pids", []),
+            "bridge_stabilize_check": {
+                "requested": requested,
+                "env_enabled": env_enabled,
+                "capable": capable,
+                "passed": False if mismatch else (True if env_enabled is not None else None),
+            },
+        }
+        if mismatch:
+            raise BridgeStabilizeMismatch(identity)
         if self.plan.runtime_image_verification and not self.attached and (
             snapshot.get("image") != self.runtime_image
             or re.fullmatch(r"[0-9a-f]{64}", str(snapshot.get("container_id", ""))) is None
@@ -1833,15 +1927,7 @@ class DockerSimEnvironment:
             or snapshot.get("image") != self.runtime_image
         ):
             raise RuntimeError("Attached container identity changed or is unavailable")
-        return {
-            "container_name": self.name,
-            "container_id": snapshot.get("container_id"),
-            "image": self.runtime_image,
-            "requested_image": self.plan.requested_image or self.plan.image,
-            "runtime_image_verification": self.plan.runtime_image_verification,
-            "image_identity_source": "container_inspect" if self.attached or self.plan.runtime_image_verification else "launch_plan",
-            "px4_host_pids": snapshot.get("px4_host_pids", []),
-        }
+        return identity
 
     def capture_failure_diagnostics(
         self, reason: str, *, px4_clock_diagnostics: dict[str, Any] | None = None
@@ -2473,12 +2559,8 @@ def gps_to_local_ned(
 
 def _scenario_origin(plan: CollectionPlan) -> tuple[float, float, float]:
     """Read the WGS-84 origin from the scenario-owned world SDF."""
-    runtime = json.loads(Path(plan.runtime).read_text(encoding="utf-8"))
-    scenario_id = str(runtime.get("scenario_id", "urban_inspection_multirotor_001"))
-    world_path = ROOT / "simulation" / "gazebo" / "worlds" / f"{scenario_id}.sdf"
-    if not world_path.is_file():
-        world_path = ROOT / "simulation" / "gazebo" / "worlds" / "variants" / f"{scenario_id}.sdf"
-    if not world_path.is_file():
+    world_path = scenario_world_path(plan.runtime)
+    if world_path is None:
         return 1.352100, 103.819800, 18.0
     root = ET.fromstring(world_path.read_text(encoding="utf-8"))
     spherical = root.find(".//spherical_coordinates")
@@ -2503,6 +2585,17 @@ def scenario_world_path(runtime_path: str | Path) -> Path | None:
     scenario_id = str(runtime.get("scenario_id", "")) if isinstance(runtime, dict) else ""
     if not scenario_id:
         return None
+    override = os.environ.get("MULTIDETECT_RTF_WORLD_ROOT", "").strip()
+    if override:
+        world_root = Path(override).expanduser()
+        if not world_root.is_absolute():
+            world_root = ROOT / world_root
+        world_path = (world_root / f"{scenario_id}.sdf").resolve()
+        try:
+            world_path.relative_to(ROOT.resolve())
+        except ValueError:
+            return None
+        return world_path if world_path.is_file() else None
     world_path = ROOT / "simulation" / "gazebo" / "worlds" / f"{scenario_id}.sdf"
     if world_path.is_file():
         return world_path
@@ -2548,6 +2641,7 @@ def auto_takeoff_altitude_m(world_path: str | Path | None) -> tuple[float, str]:
 def resolve_takeoff_altitude(
     runtime_path: str | Path,
     explicit_altitude_m: float | None = None,
+    *, maximum_m: float = MAX_TAKEOFF_ALTITUDE_M,
 ) -> tuple[float, str]:
     """Resolve an explicit or scenario-derived takeoff altitude."""
     if explicit_altitude_m is not None:
@@ -2556,14 +2650,16 @@ def resolve_takeoff_altitude(
             raise ValueError(
                 f"takeoff altitude must be finite and >= {DEFAULT_TAKEOFF_ALTITUDE_M:g} m"
             )
-        if altitude > MAX_TAKEOFF_ALTITUDE_M:
-            raise ValueError(f"takeoff altitude must be <= {MAX_TAKEOFF_ALTITUDE_M:g} m")
+        if altitude > maximum_m:
+            raise ValueError(f"takeoff altitude must be <= {maximum_m:g} m")
         return altitude, "explicit_cli"
     return auto_takeoff_altitude_m(scenario_world_path(runtime_path))
 
 
 def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
-    altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m)
+    profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
+    maximum_m = 90.0 if profile is not None and profile.category == "vtol" else MAX_TAKEOFF_ALTITUDE_M
+    altitude, source = resolve_takeoff_altitude(plan.runtime, plan.takeoff_altitude_m, maximum_m=maximum_m)
     hover_floor_m: float | None = None
     # Generated teacher intent is the authoritative camera geometry.  Resolve it
     # before launch so PX4 takeoff and episode metadata agree with the route.
@@ -2585,7 +2681,6 @@ def _takeoff_altitude_for_plan(plan: CollectionPlan) -> tuple[float, str]:
                 hover_floor_m = float(observation["vtol_hover_floor_m"])
         except (OSError, json.JSONDecodeError):
             pass
-    profile = _airframe_profile(plan.airframe) if plan.airframe != "x500_mono_cam" else None
     if profile is None or profile.category == "multirotor":
         return altitude, source
     # A hover-only tailsitter mission never transitions, so the scenario may lower the
@@ -2916,7 +3011,8 @@ def _wait_motion_command(
         leg = math.hypot(command.target_ned[0] - start[0], command.target_ned[1] - start[1])
         timeout = min(MOTION_REPOSITION_TIMEOUT_S, leg / max(MC_SPEED_FLOOR_MPS, 1.0) * 1.5 + 20.0)
         if kind == "mc_hold":
-            timeout = max(timeout, min(float(command.duration_s or 0.0), MOTION_LOITER_MAX_WAIT_S))
+            # The hold deadline must leave room for polling and settling.
+            timeout += min(float(command.duration_s or 0.0), MOTION_LOITER_MAX_WAIT_S)
         distance = yaw_error = speed = float("inf")
         settled_since: float | None = None
         # Timed on PX4's lockstep clock: on a loaded host the simulation runs well
@@ -2990,10 +3086,15 @@ def _wait_motion_command(
             timeout = slice_s
         else:
             slice_s = 0.0
+        sim_clock = _SimClock(reader)
+        sim_started = sim_clock()
         distance = leg
         orbit_angle = 0.0
         previous_yaw: float | None = None
-        while time.monotonic() - started < timeout:
+        while (
+            sim_clock() - sim_started < timeout
+            and time.monotonic() - started < _sim_teacher_hard_wall_timeout_s()
+        ):
             reader.raise_if_failed()
             pose = _state_position(reader.state)
             dn, de = command.target_ned[0] - pose[0], command.target_ned[1] - pose[1]
@@ -3015,6 +3116,7 @@ def _wait_motion_command(
                 centre_n=command.target_ned[0],
                 centre_e=command.target_ned[1],
                 angle_deg=orbit_angle,
+                fly_through_radius_m=command.fly_through_radius_m,
             ):
                 return {
                     "waited": "arrived",
@@ -3031,7 +3133,12 @@ def _wait_motion_command(
         }
     if kind in {"loiter", "orbit", "mc_hold"} and float(command.duration_s or 0.0) > 0.0:
         hold = min(float(command.duration_s), MOTION_LOITER_MAX_WAIT_S)
-        while time.monotonic() - started < hold:
+        sim_clock = _SimClock(reader)
+        sim_started = sim_clock()
+        while (
+            sim_clock() - sim_started < hold
+            and time.monotonic() - started < _sim_teacher_hard_wall_timeout_s()
+        ):
             reader.raise_if_failed()
             time.sleep(0.2)
         return {"waited": "duration", "elapsed_s": time.monotonic() - started}
@@ -3059,7 +3166,7 @@ def _wait_smoke_reposition(
             "target_ned_m": list(target_ned),
             **reposition_ring_metrics([], target_ned=target_ned, radius_m=FIXED_WING_LOITER_CAPTURE_M),
         }
-    wall_ceiling = max(180.0, float(timeout_s) * 10.0)
+    wall_ceiling = _sim_teacher_hard_wall_timeout_s()
     distance = float("inf")
     sim_elapsed_s = 0.0
     observations: list[dict[str, Any]] = []
@@ -3130,6 +3237,7 @@ def _fixed_wing_reposition_complete(
     centre_n: float | None = None,
     centre_e: float | None = None,
     angle_deg: float = 0.0,
+    fly_through_radius_m: float | None = None,
 ) -> bool:
     """Return whether a fixed-wing leg has actually reached or passed its target.
 
@@ -3137,8 +3245,11 @@ def _fixed_wing_reposition_complete(
     direct ``distance`` check is too strict.  The old projection-only check was
     too permissive: any crossing of the target's perpendicular plane counted,
     even with a large cross-track error.  Require either a close arrival or a
-    bounded cross-track pass through the target plane.
+    bounded cross-track pass through the target plane. Explicit fly-through
+    commands require telemetry inside the horizontal capture disk instead.
     """
+    if fly_through_radius_m is not None:
+        return distance_m <= fly_through_radius_m
     if distance_m <= MOTION_ARRIVAL_TOLERANCE_M:
         return True
     # A fixed-wing reposition is captured when PX4 enters its loiter ring;
@@ -3435,9 +3546,11 @@ def _flight_state_snapshot(state: Any) -> dict[str, Any]:
 
 
 # Wall-clock bound on one primitive when it is timed on the simulation clock.
-PRIMITIVE_MAX_WALL_S = 180.0
+PRIMITIVE_MAX_WALL_S = 3600.0
 LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S = 45.0
 LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_ENV = "LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S"
+SIM_TEACHER_HARD_WALL_TIMEOUT_S = 3600.0
+SIM_TEACHER_HARD_WALL_TIMEOUT_ENV = "SIM_TEACHER_HARD_WALL_TIMEOUT_S"
 
 
 def _linux_primitive_clock_stall_timeout_s() -> float:
@@ -3453,6 +3566,23 @@ def _linux_primitive_clock_stall_timeout_s() -> float:
     if not math.isfinite(value) or value <= 0:
         raise ValueError(
             f"{LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_ENV} must be a finite positive number"
+        )
+    return value
+
+
+def _sim_teacher_hard_wall_timeout_s() -> float:
+    raw = os.environ.get(SIM_TEACHER_HARD_WALL_TIMEOUT_ENV)
+    if raw is None:
+        return SIM_TEACHER_HARD_WALL_TIMEOUT_S
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{SIM_TEACHER_HARD_WALL_TIMEOUT_ENV} must be a finite positive number"
+        ) from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(
+            f"{SIM_TEACHER_HARD_WALL_TIMEOUT_ENV} must be a finite positive number"
         )
     return value
 
@@ -3566,6 +3696,27 @@ def _pose_sim_stamp_ns(state: Any) -> int | None:
     if not math.isfinite(value) or value < 0:
         return None
     return int(value * 1_000_000)
+
+
+def _x1_track_sample(reader, sample, *, camera_mount, camera_geometry):
+    aligned = reader.aligned_state(sample.sensor_stamp_ns, timeout_s=0.)
+    # Retain calibrated pose and measured joints without converting or storing RGB.
+    row = {"message_type": "collector_gimbal_eval_sample", "sim_stamp_ns": sample.sensor_stamp_ns}
+    try:
+        obs = build_observation(
+            dataclasses.replace(sample, rgb=None, depth=None, depth_frame=None),
+            aligned, camera_mount=camera_mount, camera_geometry=camera_geometry,
+            gimbal_sample={"message": None},
+        )
+    except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+        return {**row, "observation_error": str(exc)}
+    att_ms = _field(aligned.get("ATTITUDE"), "time_boot_ms", None)
+    return {**row,
+            "attitude_skew_ms": (sample.sensor_stamp_ns / 1e6 - att_ms
+                                 if type(att_ms) in (int, float) else None),
+            **{key: obs.get(key) for key in (
+                "gimbal_state", "camera_pose", "camera_info", "pose", "sim_skew_ms",
+            )}}
 
 
 class MavlinkTelemetrySilenceWatchdog:
@@ -3744,6 +3895,45 @@ def _snapshot_mavlink_state(state: MavlinkState) -> MavlinkState:
         vehicle_time_boot_ms=state.vehicle_time_boot_ms,
         received_vehicle_ms=dict(state.received_vehicle_ms),
     )
+
+
+def _fresh_track_position(state: MavlinkState, *, now_ns: int, max_age_s: float = 0.2):
+    """Require fresh position on both host and PX4 clocks before aiming."""
+    message = state.get("GLOBAL_POSITION_INT")
+    received = state.received_monotonic_ns.get("GLOBAL_POSITION_INT")
+    stamp = _field(message, "time_boot_ms", None)
+    now_ms = state.vehicle_time_boot_ms
+    if None in (received, stamp, now_ms):
+        return None
+    if not (0 <= (now_ns - received) / 1e9 <= max_age_s
+            and 0 <= (now_ms - stamp) / 1000 <= max_age_s):
+        return None
+    return world_target_from_mavlink(message)
+
+
+def _collection_gimbal_config(plan: CollectionPlan, policy, profile):
+    """Resolve explicit collection options without modifying the flight policy."""
+    target = getattr(policy, "cruise_gimbal_target", None)
+    mode = plan.gimbal_mode or getattr(policy, "gimbal_mode", "lock")
+    track_targets = plan.track_targets or tuple(getattr(policy, "track_targets", ()))
+    if mode == "track" and not track_targets:
+        logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
+        mode = "lock"
+    if plan.gimbal_mode is not None or plan.gimbal_bridge_stabilize:
+        if not _uses_gazebo_gimbal_body_joints(profile):
+            raise ValueError("gimbal stabilization options require the supported C11 simulation gimbal")
+        target = target or {"roll": 0.0, "pitch": -45.0, "yaw": 0.0}
+    return target, mode, getattr(policy, "gimbal_yaw_mode", "follow"), track_targets
+
+
+def _stabilization_command_settled(result, mode):
+    """Readback can settle on a nearest reachable pointing with tilted horizon."""
+    if result is None:
+        return False
+    if mode == "track":
+        return (type(result.get("target_reachable")) is bool
+                and not result.get("rate_limited", True))
+    return not result["horizon_degraded"]
 
 
 def _is_terminal_action(action: Any) -> bool:
@@ -4235,6 +4425,8 @@ def _wait_for_offboard(
     reader: MavlinkReader,
     streamer: SetpointStreamer,
     timeout_s: float = DEFAULT_OFFBOARD_ENTER_TIMEOUT_S,
+    *,
+    after_ns: int | None = None,
 ) -> None:
     """Request OFFBOARD until PX4 reports the mode on HEARTBEAT."""
     offboard_modes = {"393216", "OFFBOARD", "OFFBOARD_NED"}
@@ -4247,6 +4439,8 @@ def _wait_for_offboard(
             last_mode_request[0] = now
             _set_mode(connection, "OFFBOARD")
         heartbeat = reader.state.get("HEARTBEAT")
+        if after_ns is not None and reader.state.received_monotonic_ns.get("HEARTBEAT", -1) < after_ns:
+            return False
         return heartbeat is not None and str(_field(heartbeat, "custom_mode", "")) in offboard_modes
 
     _wait_for(
@@ -4409,6 +4603,7 @@ class _GimbalSendGate:
         self._worker: threading.Thread | None = None
         self._closed = False
         self._vehicle_clock = lambda: None
+        self.before_close: Callable[[], None] | None = None
 
     def __enter__(self):
         return self
@@ -4484,6 +4679,8 @@ class _GimbalSendGate:
                 self._record("cancelled")
 
     def close(self) -> None:
+        if self.before_close is not None:
+            self.before_close()
         self.cancel()
         with self._admission_lock:
             if self._closed:
@@ -4576,13 +4773,14 @@ def _execute_managed_gimbal_action(
             return ExecutionResult("rejected", clock() - started, ack={"reason": "gimbal_angle_out_of_range", "axis": axis, "value_deg": value})
     _finish_teacher_gimbal(session, check, sleep=sleep)
     check()
+    gazebo_body_joints = _uses_gazebo_gimbal_body_joints(profile)
+    command_flags = _gimbal_readback_command_flags(gazebo_body_joints)
     session.command(MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, target["pitch"], target["yaw"],
-                    math.nan, math.nan, float(GIMBAL_MANAGER_FLAGS_ROLL_LOCK |
-                    GIMBAL_MANAGER_FLAGS_PITCH_LOCK | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME),
+                    math.nan, math.nan, float(command_flags),
                     0.0, float(GIMBAL_MANAGER_DEVICE_ID))
     command_ns = session.last_command_started_ns
     readback_started = clock() if command_ns is not None else None
-    last_error = None
+    last_readback = _gimbal_readback(reader, None, target, gazebo_body_joints=gazebo_body_joints)
     while True:
         check()
         phase = session.poll()
@@ -4591,79 +4789,138 @@ def _execute_managed_gimbal_action(
             readback_started = clock()
         if readback_started is not None and clock() - readback_started >= timeout_s:
             break
-        state = reader.state
         status, stamp = session.latest_attitude or (None, -1)
-        attitude = state.get("ATTITUDE")
-        vehicle_yaw = math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
         if phase == "ready" and command_ns is not None and status is not None and stamp >= command_ns:
-            last_error = _gimbal_attitude_error_deg(status, target, vehicle_yaw_deg=vehicle_yaw,
-                                                    yaw_correction_deg=yaw_correction_deg)
-            if last_error is not None and max(last_error.values()) <= tolerance_deg:
+            last_readback = _gimbal_readback(
+                reader, status, target, yaw_correction_deg=yaw_correction_deg,
+                gazebo_body_joints=gazebo_body_joints)
+            errors = last_readback["error_deg"]
+            if errors is not None and max(errors.values()) <= tolerance_deg:
                 return ExecutionResult("success", clock() - started,
                                        ack={"command": "MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW",
                                             "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
                                             "configure_command_id": MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
-                                            "target_deg": target,
-                                            "actual_deg": _gimbal_attitude_angles_deg(status, vehicle_yaw_deg=vehicle_yaw,
-                                                                                     yaw_correction_deg=yaw_correction_deg),
-                                            "error_deg": last_error})
+                                            "command_flags": command_flags,
+                                            **last_readback})
         sleep(0.02)
     # Do not resume normal use with an unobserved in-flight command.
     session.error = "managed gimbal primitive readback timeout"
     session.phase = "failed"
-    return ExecutionResult("timeout", clock() - started, ack={"reason": session.error, "error_deg": last_error})
+    return ExecutionResult("timeout", clock() - started,
+                           ack={"reason": session.error, "command_flags": command_flags, **last_readback})
 
 
 def _gimbal_attitude_angles_deg(
-    status: Any,
-    *,
-    vehicle_yaw_deg: float | None = None,
-    yaw_correction_deg: float = 0.0,
+    status: Any, *, vehicle_yaw_deg: float | None = None,
+    yaw_correction_deg: float = 0.0, vehicle_attitude: Any = None,
+    gazebo_body_joints: bool = False,
 ) -> dict[str, float] | None:
-    """Decode the device quaternion, converting earth-frame yaw to body yaw."""
-    q = _field(status, "q", None)
-    if not isinstance(q, (list, tuple)) or len(q) < 4:
-        return None
-    w, x, y, z = (float(value) for value in q[:4])
-    norm = math.sqrt(w * w + x * x + y * y + z * z)
-    if not math.isfinite(norm) or norm <= 1e-9:
-        return None
-    w, x, y, z = (value / norm for value in (w, x, y, z))
-    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
-    pitch = math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))
-    yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    yaw_deg = math.degrees(yaw)
-    # MAVLink GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME is bit 6.  PX4 uses this
-    # flag for the tailsitter bridge while roll/pitch remain device axes.
-    flags = int(_field(status, "flags", 0) or 0)
-    if vehicle_yaw_deg is not None and flags & 64:
-        yaw_deg = (yaw_deg - float(vehicle_yaw_deg) + 180.0) % 360.0 - 180.0
-    yaw_deg = (yaw_deg + float(yaw_correction_deg) + 180.0) % 360.0 - 180.0
-    return {
-        "yaw": yaw_deg,
-        "roll": math.degrees(roll),
-        "pitch": math.degrees(pitch),
-    }
+    return attitude_readback(
+        status, {"yaw": 0.0, "roll": 0.0, "pitch": 0.0},
+        vehicle_yaw_deg=vehicle_yaw_deg, yaw_correction_deg=yaw_correction_deg,
+        vehicle_attitude=vehicle_attitude, gazebo_body_joints=gazebo_body_joints,
+    )["actual_deg"]
 
 
 def _gimbal_attitude_error_deg(
-    status: Any,
-    target: Mapping[str, float],
-    *,
-    vehicle_yaw_deg: float | None = None,
-    yaw_correction_deg: float = 0.0,
+    status: Any, target: Mapping[str, float], *,
+    vehicle_yaw_deg: float | None = None, yaw_correction_deg: float = 0.0,
+    vehicle_attitude: Any = None, gazebo_body_joints: bool = False,
 ) -> dict[str, float] | None:
-    actual = _gimbal_attitude_angles_deg(
-        status,
-        vehicle_yaw_deg=vehicle_yaw_deg,
-        yaw_correction_deg=yaw_correction_deg,
+    return attitude_readback(
+        status, target, vehicle_yaw_deg=vehicle_yaw_deg,
+        yaw_correction_deg=yaw_correction_deg, vehicle_attitude=vehicle_attitude,
+        gazebo_body_joints=gazebo_body_joints,
+    )["error_deg"]
+
+
+def _uses_gazebo_gimbal_body_joints(profile: Any) -> bool:
+    gimbal = getattr(getattr(profile, "camera", None), "gimbal", {})
+    return isinstance(gimbal, Mapping) and gimbal.get("simulation_readback") == GAZEBO_BODY_JOINTS
+
+
+def _gimbal_readback_command_flags(gazebo_body_joints: bool) -> int:
+    # The C11 bridge executes body joint angles. Do not request or claim
+    # horizon lock when checking that simulation-specific joint contract.
+    return (GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME if gazebo_body_joints else
+            GIMBAL_MANAGER_FLAGS_ROLL_LOCK | GIMBAL_MANAGER_FLAGS_PITCH_LOCK |
+            GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME)
+
+
+def _gimbal_readback(reader: Any, status: Any, target: Mapping[str, float], *,
+                     yaw_correction_deg: float = 0.0, gazebo_body_joints: bool = False) -> dict[str, Any]:
+    # Match full vehicle attitude to the device measurement time, rather than
+    # mixing an older IMU sample with the newest body tilt during transition.
+    sample_at = getattr(reader, "attitude_at", None)
+    stamp = _field(status, "time_boot_ms", None)
+    attitude = (sample_at(stamp) if callable(sample_at) and isinstance(stamp, (int, float))
+                else reader.state.get("ATTITUDE"))
+    yaw = _field(attitude, "yaw", None)
+    return attitude_readback(
+        status, target, vehicle_yaw_deg=math.degrees(float(yaw)) if yaw is not None else None,
+        vehicle_attitude=attitude if gazebo_body_joints else None,
+        yaw_correction_deg=yaw_correction_deg, gazebo_body_joints=gazebo_body_joints,
     )
-    if actual is None:
-        return None
-    return {
-        axis: abs((actual[axis] - float(target[axis]) + 180.0) % 360.0 - 180.0)
-        for axis in ("yaw", "roll", "pitch")
-    }
+
+
+class _LongRangeGimbalHold:
+    """Refresh the cruise target through the shared manager and require readback.
+
+    This runs on every action tick, including between sampled video frames.
+    Every refresh must be acknowledged and followed by a measured attitude.
+    """
+
+    def __init__(self, session, reader, target, record, *, yaw_correction_deg=0.0,
+                 gazebo_body_joints=False, clock=time.monotonic):
+        self.session, self.reader, self.target, self.record = session, reader, target, record
+        self.yaw_correction_deg, self.clock = yaw_correction_deg, clock
+        self.gazebo_body_joints = gazebo_body_joints
+        self.sent_vehicle_ms = None
+        self.sent_wall_s = None
+        self.awaiting_readback = False
+        self.readback_count = 0
+
+    def tick(self, *, refresh=True):
+        phase = self.session.poll()
+        now_ms = self.reader.state.vehicle_time_boot_ms
+        if now_ms is None:
+            raise RuntimeError("long-range gimbal hold requires vehicle clock")
+        if self.sent_wall_s is not None and self.awaiting_readback:
+            status, received_ns = self.session.latest_attitude or (None, -1)
+            command_ns = self.session.last_command_started_ns
+            stamp_ms = _field(status, "time_boot_ms", None)
+            fresh = isinstance(stamp_ms, (float, int)) and 0 <= now_ms - stamp_ms <= 2000
+            readback = _gimbal_readback(
+                self.reader, status, self.target, yaw_correction_deg=self.yaw_correction_deg,
+                gazebo_body_joints=self.gazebo_body_joints,
+            )
+            errors = readback["error_deg"]
+            if (phase == "ready" and command_ns is not None and received_ns >= command_ns
+                    and fresh and errors is not None and max(errors.values()) <= 4.0):
+                self.awaiting_readback = False
+                self.readback_count += 1
+                self.record({"message_type": "long_range_gimbal_hold_readback", "status": "reached",
+                             **readback, "command_flags": _gimbal_readback_command_flags(self.gazebo_body_joints),
+                             "time_boot_ms": now_ms, "source_time_boot_ms": stamp_ms})
+            elif now_ms - self.sent_vehicle_ms > 2000 or self.clock() - self.sent_wall_s > 30:
+                self.record({"message_type": "long_range_gimbal_hold_readback", "status": "timeout",
+                             **readback, "command_flags": _gimbal_readback_command_flags(self.gazebo_body_joints),
+                             "source_time_boot_ms": stamp_ms})
+                raise RuntimeError(f"long-range gimbal hold readback missing, stale or outside tolerance: {readback}")
+        if (refresh and not self.awaiting_readback and phase in {"idle", "ready"}
+                and (self.sent_vehicle_ms is None or now_ms - self.sent_vehicle_ms >= 1000)):
+            self.session.command(
+                MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, self.target["pitch"], self.target["yaw"],
+                math.nan, math.nan,
+                float(_gimbal_readback_command_flags(self.gazebo_body_joints)),
+                0.0, float(GIMBAL_MANAGER_DEVICE_ID),
+            )
+            self.sent_vehicle_ms, self.sent_wall_s = now_ms, self.clock()
+            self.awaiting_readback = True
+
+
+# Wall-clock windows for successive gimbal-manager configure attempts.
+GIMBAL_CONFIGURE_ACK_WINDOWS_S = (5.0, 10.0, 20.0)
 
 
 # Wall-clock windows for successive gimbal-manager configure attempts.
@@ -4678,6 +4935,7 @@ def _command_and_wait_gimbal(
     timeout_s: float = 15.0,
     tolerance_deg: float = 4.0,
     yaw_correction_deg: float = 0.0,
+    gazebo_body_joints: bool = False,
 ) -> dict[str, Any]:
     """Acquire gimbal-manager control, command pitch/yaw, and verify fresh telemetry."""
     sender = getattr(getattr(connection, "mav", None), "command_long_send", None)
@@ -4736,11 +4994,7 @@ def _command_and_wait_gimbal(
     sender(
         target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, 0,
         float(target["pitch"]), float(target["yaw"]), math.nan, math.nan,
-        float(
-            GIMBAL_MANAGER_FLAGS_ROLL_LOCK
-            | GIMBAL_MANAGER_FLAGS_PITCH_LOCK
-            | GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME
-        ),
+        float(_gimbal_readback_command_flags(gazebo_body_joints)),
         0.0, float(GIMBAL_MANAGER_DEVICE_ID),
     )
     ack = _ReaderAckLink(connection, reader).wait_command_ack(
@@ -4755,7 +5009,7 @@ def _command_and_wait_gimbal(
             "tolerance_deg": tolerance_deg,
         }
     started = time.monotonic()
-    last_error = None
+    last_readback = _gimbal_readback(reader, None, target, gazebo_body_joints=gazebo_body_joints)
     while time.monotonic() - started < timeout_s:
         reader.raise_if_failed()
         status = reader.state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
@@ -4764,36 +5018,18 @@ def _command_and_wait_gimbal(
             if isinstance(reader.state, dict)
             else getattr(reader.state, "received_monotonic_ns", {})
         )
-        attitude = reader.state.get("ATTITUDE")
-        vehicle_yaw_deg = (
-            math.degrees(float(_field(attitude, "yaw", 0.0))) if attitude is not None else None
-        )
-        error = (
-            _gimbal_attitude_error_deg(
-                status,
-                target,
-                vehicle_yaw_deg=vehicle_yaw_deg,
-                yaw_correction_deg=yaw_correction_deg,
-            )
-            if received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns
-            else None
-        )
-        if error is not None:
-            last_error = error
-            if max(error.values()) <= tolerance_deg:
-                return {
-                    "status": "reached",
-                    "target_deg": dict(target),
-                    "actual_deg": _gimbal_attitude_angles_deg(
-                        status,
-                        vehicle_yaw_deg=vehicle_yaw_deg,
-                        yaw_correction_deg=yaw_correction_deg,
-                    ),
-                    "error_deg": error,
-                    "tolerance_deg": tolerance_deg,
-                }
+        if received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns:
+            last_readback = _gimbal_readback(
+                reader, status, target, yaw_correction_deg=yaw_correction_deg,
+                gazebo_body_joints=gazebo_body_joints)
+            error = last_readback["error_deg"]
+            if error is not None and max(error.values()) <= tolerance_deg:
+                return {"status": "reached", **last_readback,
+                        "command_flags": _gimbal_readback_command_flags(gazebo_body_joints),
+                        "tolerance_deg": tolerance_deg}
         time.sleep(0.05)
-    return {"status": "timeout", "target_deg": dict(target), "error_deg": last_error,
+    return {"status": "timeout", **last_readback,
+            "command_flags": _gimbal_readback_command_flags(gazebo_body_joints),
             "configure_ack": configure_ack, "command_ack": ack,
             "command_id": MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, "tolerance_deg": tolerance_deg}
 
@@ -4821,6 +5057,7 @@ def _return_onboard_gimbal_to_search_angle(
         {axis: float(target[axis]) for axis in ("yaw", "roll", "pitch")},
         tolerance_deg=4.0,
         yaw_correction_deg=yaw_correction_deg,
+        gazebo_body_joints=_uses_gazebo_gimbal_body_joints(profile),
     )
     if result.get("status") != "reached":
         raise RuntimeError(f"gimbal did not return to onboard search angle: {result}")
@@ -4957,8 +5194,12 @@ class _ReaderAckLink:
 
     def wait_command_ack(self, command: int, timeout_s: float) -> Any:
         started_ns = time.monotonic_ns()
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
+        started_wall = time.monotonic()
+        last_clock_progress_wall = started_wall
+        started_sim_stamp_ns = _pose_sim_stamp_ns(self._reader.state)
+        last_sim_stamp_ns = started_sim_stamp_ns
+        hard_wall_timeout = _sim_teacher_hard_wall_timeout_s()
+        while time.monotonic() - started_wall < hard_wall_timeout:
             per_command = getattr(self._reader.state, "command_acks", {}).get(int(command))
             if per_command is not None and per_command[1] >= started_ns:
                 return {
@@ -4973,6 +5214,22 @@ class _ReaderAckLink:
                 and int(_field(ack, "command", -1)) == int(command)
             ):
                 return {"command": int(command), "result": int(_field(ack, "result", -1))}
+            now = time.monotonic()
+            sim_stamp_ns = _pose_sim_stamp_ns(self._reader.state)
+            if started_sim_stamp_ns is None and sim_stamp_ns is not None:
+                started_sim_stamp_ns = sim_stamp_ns
+                last_sim_stamp_ns = sim_stamp_ns
+                last_clock_progress_wall = now
+            elif sim_stamp_ns is not None and last_sim_stamp_ns is not None:
+                if sim_stamp_ns > last_sim_stamp_ns:
+                    last_sim_stamp_ns = sim_stamp_ns
+                    last_clock_progress_wall = now
+                elif now - last_clock_progress_wall >= LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S:
+                    return None
+                if (sim_stamp_ns - started_sim_stamp_ns) / 1e9 >= timeout_s:
+                    return None
+            elif now - started_wall >= timeout_s:
+                return None
             time.sleep(0.02)
         return None
 
@@ -5739,6 +5996,7 @@ def _fixed_wing_or_vtol_land_and_wait(
     reader: MavlinkReader,
     *,
     timeout_s: float | None = None,
+    already_in_mc: bool = False,
     clock: callable = time.monotonic,
     sleep: callable = time.sleep,
 ) -> dict[str, Any]:
@@ -5766,7 +6024,7 @@ def _fixed_wing_or_vtol_land_and_wait(
             "command": None,
             "already_landed": True,
         }
-    result = executor.land()
+    result = executor.land(already_in_mc=True) if already_in_mc else executor.land()
     if result.status != "success":
         resource_reason = _episode_resource_stop_reason(getattr(result, "ack", None))
         if resource_reason is not None:
@@ -6237,6 +6495,8 @@ def run_episode(
     episode_index: int,
     *,
     free_space_fn: Any = free_space_bytes,
+    policy_override: Any = None,
+    land_after_route: bool = False,
 ) -> Path:
     _env_positive_gb("MD_SIM_SERVER_RSS_SOFT_LIMIT_GB")
     plan = freeze_collection_runtime(plan)
@@ -6255,14 +6515,20 @@ def run_episode(
     use_multirotor_executor = airframe_uses_multirotor_executor(
         airframe_profile or plan.airframe, plan.takeoff_method, base_dir=ROOT
     )
-    camera_mount = (
-        airframe_profile.camera_mount.to_camera_mount()
-        if airframe_profile is not None and airframe_profile.camera_mount is not None
-        else None
+    camera_mount = collector_camera_mount(airframe_profile)
+    camera_geometry = (
+        DeltaCameraGeometry.from_sdf(
+            (Path(plan.rtf_overlay_root) if plan.rtf_overlay_root else ROOT / "simulation/gazebo/models")
+            / plan.airframe / "model.sdf"
+        )
+        if plan.airframe == "delta_tailsitter_gimbal_cam" else None
     )
     strict_delta_smoke = False
     sensor_frame_wait_s = SENSOR_FRAME_WAIT_S
-    if plan.smoke_flight:
+    if policy_override is not None:
+        policy = policy_override
+        task_text = plan.task_text or "Guided route"
+    elif plan.smoke_flight:
         smoke_profile = _airframe_profile(plan.airframe)
         strict_delta_smoke = bool(
             smoke_profile is not None
@@ -6292,6 +6558,9 @@ def run_episode(
     else:
         policy = _policy_for(plan, truth_path, plan.seed + episode_index)
         task_text = "\u63a2\u7d22\u573a\u666f\u5e76\u8bb0\u5f55\u89c2\u6d4b"
+    stabilization_target, stabilization_mode, stabilization_yaw_mode, track_targets = (
+        _collection_gimbal_config(plan, policy, airframe_profile)
+    )
     recorder = EpisodeRecorder(
         plan.out,
         episode_id,
@@ -6307,12 +6576,18 @@ def run_episode(
     )
     video_writer = (
         ContinuousVideoWriter(
-            recorder.episode_dir, hz=plan.video_hz, max_bytes=plan.video_max_bytes
+            recorder.episode_dir, hz=plan.video_hz, max_bytes=plan.video_max_bytes,
+            require_gimbal=camera_mount is not None and camera_mount.kind == "gimbal",
         )
         if plan.video_hz > 0.0
         else None
     )
+    long_range_gimbal_hold = None
+    horizon_loop = None
+    horizon_stabilizer = None
     last_video_stamp_ns: list[int] = [-1]
+    next_video_sim_ns: int | None = None
+    next_video_request_s = 0.0
     # Persist the effective per-episode seed/index so a campaign can retry an
     # individual failed recording exactly, even when its next invocation uses a
     # different --episodes value.
@@ -6459,10 +6734,16 @@ def run_episode(
                 _progress("mover_driver_started", command=mover_driver["command"])
                 _wait_for_mover_driver_start(plan, environment, mover_driver)
                 _progress("mover_driver_initial_visibility_ready")
+            if stabilization_target:
+                # GIMBAL_MANAGER_SET_ATTITUDE requires the MAVLink 2 dialect.
+                os.environ["MAVLINK20"] = "1"
             try:
                 from pymavlink import mavutil
             except ImportError as exc:
                 raise RuntimeError("pymavlink is required for a real SIM episode") from exc
+            if (stabilization_target
+                    and mavutil.mavlink.WIRE_PROTOCOL_VERSION != "2.0"):
+                mavutil.set_dialect(mavutil.current_dialect)
             telemetry_connection = mavutil.mavlink_connection(
                 sim_udpin_endpoint(plan.telemetry_port, mode=plan.sim_network),
                 source_system=GCS_SOURCE_SYSTEM,
@@ -6486,7 +6767,19 @@ def run_episode(
                             int(getattr(telemetry_connection, "target_component", 1) or 1),
                             int(cmd), 0, *values)
                     if gimbal_session is None:
-                        gimbal_session = GimbalManagerSession(telemetry_connection, mav_reader, send, wall_timeout_s=30.0)
+                        device = mav_reader.state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+                        device_mapping = MavlinkReader._mapping(device) if device is not None else {}
+                        attitude_device_id = (
+                            0 if plan.airframe == "delta_tailsitter_gimbal_cam"
+                            and _field(device, "gimbal_device_id", None) == 0 else 1
+                        )
+                        if (device_mapping.get("_source_system") != telemetry_connection.target_system
+                                or device_mapping.get("_source_component") != telemetry_connection.target_component):
+                            attitude_device_id = 1
+                        gimbal_session = GimbalManagerSession(
+                            telemetry_connection, mav_reader, send, wall_timeout_s=30.0,
+                            attitude_device_id=attitude_device_id,
+                        )
                     return gimbal_session
 
                 def _send_gimbal_command(command: int, params: tuple[float, ...]) -> None:
@@ -6504,6 +6797,9 @@ def run_episode(
             def _record_mavlink(row: dict[str, Any]) -> None:
                 if str(row.get("message_type", "")).upper() == "STATUSTEXT":
                     launch_status_texts.append(str(row.get("text", "")))
+                controller = horizon_stabilizer
+                if isinstance(controller, BridgeHorizonTarget):
+                    controller.record_bridge_status(row)
                 recorder.record_mavlink(row)
 
             mav_reader = MavlinkReader(telemetry_connection, on_message=_record_mavlink).start()
@@ -6824,6 +7120,253 @@ def run_episode(
                 )
             except TimeoutError as exc:
                 raise TimeoutError(f"{exc}; still missing: {_ekf_missing()}") from exc
+
+            def _start_horizon_stabilization():
+                nonlocal horizon_loop, horizon_stabilizer
+                target = stabilization_target
+                if (
+                    horizon_loop is not None
+                    or not target
+                    or not _uses_gazebo_gimbal_body_joints(airframe_profile)
+                ):
+                    return
+                session = _ensure_gimbal_session()
+                # Acquire and verify the same manager before streaming unacknowledged
+                # SET_ATTITUDE messages. PITCHYAW alone cannot carry roll.
+                initial = _execute_managed_gimbal_action(
+                    ActionPrimitive.gimbal(pitch_deg=0.0, yaw_deg=0.0),
+                    session=session,
+                    profile=airframe_profile,
+                    reader=mav_reader,
+                    check=episode_watchdog.check,
+                    yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                )
+                if initial.status != "success":
+                    raise RuntimeError(
+                        f"horizon manager acquisition/readback failed: {initial.ack}"
+                    )
+                sender = getattr(telemetry_connection.mav, "gimbal_manager_set_attitude_send", None)
+                if not callable(sender):
+                    raise RuntimeError("MAVLink dialect lacks GIMBAL_MANAGER_SET_ATTITUDE")
+                # Request new ATTITUDE messages at the control cadence. A 50 Hz
+                # wall loop alone would just resend the same lower-rate telemetry.
+                attitude_interval_us = 20_000
+                intervals = [
+                    (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, attitude_interval_us),
+                    (mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE, 100_000),
+                ]
+                if track_targets:
+                    intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, attitude_interval_us))
+                if plan.gimbal_bridge_stabilize:
+                    intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_NAMED_VALUE_FLOAT, attitude_interval_us))
+                for message_id, interval_us in intervals:
+                    telemetry_connection.mav.command_long_send(
+                        *session.target, mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+                        message_id, interval_us, 0, 0, 0, 0, 0,
+                    )
+                bounds = dict(airframe_profile.camera.gimbal["angle_range_deg"])
+                # Legacy Eulerf carrier cannot express pitch beyond +/-90 or
+                # retain yaw windings across +/-180. Expose saturation as a limit.
+                if not plan.gimbal_bridge_stabilize:
+                    bounds["pitch"] = (max(bounds["pitch"][0], -89.9), min(bounds["pitch"][1], 89.9))
+                    bounds["yaw"] = (max(bounds["yaw"][0], -179.9), min(bounds["yaw"][1], 179.9))
+                stabilizer_cls = BridgeHorizonTarget if plan.gimbal_bridge_stabilize else HorizonStabilizer
+                horizon_stabilizer = stabilizer_cls(
+                    target,
+                    mode=stabilization_mode,
+                    yaw_mode=stabilization_yaw_mode,
+                    limits_deg=bounds,
+                    track_targets=track_targets,
+                    **({"status_sender": session.target,
+                        "track_preview_s": (X1_TRACK_PREVIEW_S if plan.gimbal_eval_track_step is not None
+                                            else 0.0)}
+                       if plan.gimbal_bridge_stabilize else {}),
+                )
+
+                def sample():
+                    state = _snapshot_mavlink_state(mav_reader.state)
+                    attitude = state.get("ATTITUDE")
+                    received = state.received_monotonic_ns.get("ATTITUDE")
+                    stamp = _field(attitude, "time_boot_ms", None)
+                    now_ms = state.vehicle_time_boot_ms
+                    age = (
+                        max((time.monotonic_ns() - received) / 1e9, (now_ms - stamp) / 1000.0)
+                        if None not in (received, stamp, now_ms)
+                        else math.inf
+                    )
+                    feedback, feedback_received = session.latest_attitude or (None, None)
+                    if (
+                        feedback_received is None
+                        or time.monotonic_ns() - feedback_received > 500_000_000
+                        or _field(feedback, "failure_flags", 0)
+                    ):
+                        age = math.inf
+                    body = {
+                        a: math.degrees(float(_field(attitude, a, math.nan)))
+                        for a in ("roll", "pitch", "yaw")
+                    }
+                    position = _fresh_track_position(state, now_ns=time.monotonic_ns())
+                    sample_tail = (position,)
+                    if plan.gimbal_bridge_stabilize:
+                        # Body-frame rates (rad/s) for the track-pose preview; unused outside eval.
+                        sample_tail += (tuple(float(_field(attitude, k, math.nan))
+                                              for k in ("rollspeed", "pitchspeed", "yawspeed")),)
+                    return (body, time.monotonic() - age,
+                            now_ms / 1000 if now_ms is not None else None, *sample_tail)
+
+                def send_quaternion(q, flags=GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME):
+                    return gimbal_send_gate.send(
+                        sender,
+                        *session.target,
+                        flags,
+                        session.device_id,
+                        q,
+                        math.nan,
+                        math.nan,
+                        math.nan,
+                    )
+
+                horizon_loop = HostHorizonLoop(
+                    horizon_stabilizer,
+                    sample,
+                    send_quaternion,
+                    session=session,
+                    record=recorder.record_mavlink,
+                )
+                gimbal_send_gate.before_close = horizon_loop.close
+                horizon_loop.start()
+                recorder.meta["horizon_stabilization"] = {
+                    "source": horizon_stabilizer.source,
+                    "mode": horizon_stabilizer.mode,
+                    "yaw_mode": horizon_stabilizer.yaw_mode,
+                    "target_deg": target,
+                    "track_targets": [asdict(point) for point in track_targets],
+                    **({"eval_track_step": plan.gimbal_eval_track_step,
+                        "eval_tracking_sample_hz": X1_TRACK_SAMPLE_HZ}
+                       if plan.gimbal_eval_track_step is not None else {}),
+                    "host_hz": 50.0,
+                    "requested_attitude_interval_us": attitude_interval_us,
+                    "max_age_s": 0.2,
+                    "max_rate_deg_s": 180.0,
+                    "transport_flags": (horizon_stabilizer.transport_flags
+                                        if plan.gimbal_bridge_stabilize else 32),
+                    "bridge_actuation_hz": ("unverified; candidate timer is 50 Hz"
+                                            if plan.gimbal_bridge_stabilize else
+                                            "unverified; pinned timer is 5 Hz"),
+                }
+                # Settle before the first transition; startup slew is not a
+                # horizon-lock acceptance window. Only measured feedback admits it.
+                deadline = time.monotonic() + 30.0
+                while time.monotonic() < deadline:
+                    episode_watchdog.check()
+                    horizon_loop.check()
+                    result = horizon_stabilizer.last_result
+                    status, _ = session.latest_attitude or (None, -1)
+                    if plan.gimbal_bridge_stabilize and result is not None:
+                        readback = _gimbal_readback(
+                            mav_reader, status, dict.fromkeys(("roll", "pitch", "yaw"), 0.0),
+                            gazebo_body_joints=True,
+                            yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                        )
+                        stamp = readback["time_boot_ms"]
+                        now = mav_reader.state.vehicle_time_boot_ms
+                        if (stamp is not None and now is not None and 0 <= now - stamp <= 200
+                                and horizon_stabilizer.frame_horizon_degraded(now * 1_000_000, result) is not None):
+                            readback = bridge_pose_readback(horizon_stabilizer, result, readback)
+                            if readback is not None:
+                                recorder.meta["horizon_stabilization"]["initial_readback"] = readback
+                                break
+                    elif not plan.gimbal_bridge_stabilize and _stabilization_command_settled(result, horizon_stabilizer.mode):
+                        readback = _gimbal_readback(
+                            mav_reader,
+                            status,
+                            result["joint_deg"],
+                            gazebo_body_joints=True,
+                            yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                        )
+                        errors = readback["error_deg"]
+                        stamp = _field(status, "time_boot_ms", None)
+                        now = mav_reader.state.vehicle_time_boot_ms
+                        if (
+                            errors is not None
+                            and max(errors.values()) <= 2.0
+                            and stamp is not None
+                            and now is not None
+                            and 0 <= now - stamp <= 200
+                        ):
+                            recorder.meta["horizon_stabilization"]["initial_readback"] = readback
+                            break
+                    time.sleep(0.02)
+                else:
+                    raise RuntimeError(
+                        f"{horizon_stabilizer.source} horizon stabilization did not settle with fresh readback"
+                    )
+
+            def _video_tick(action_index: int, flight_stage: str, *, wall_due_s=None):
+                nonlocal next_video_sim_ns, next_video_request_s
+                if video_writer is None or video_writer.truncated:
+                    return
+                now = time.monotonic()
+                if plan.video_use_sim_time:
+                    video_stamp = _pose_sim_stamp_ns(mav_reader.state)
+                    if video_stamp is None:
+                        return
+                    if next_video_sim_ns is None:
+                        next_video_sim_ns = video_stamp
+                    sample = sensor_reader.latest
+                    if not _new_video_sample(sample, last_video_stamp_ns[0], due_ns=next_video_sim_ns):
+                        if video_stamp >= next_video_sim_ns and now >= next_video_request_s:
+                            next_video_request_s = now + min(1.0, 1.0 / plan.video_hz)
+                            sensor_reader.request(next_video_sim_ns)
+                        return
+                elif wall_due_s is not None and now >= wall_due_s:
+                    video_stamp = _pose_sim_stamp_ns(_snapshot_mavlink_state(mav_reader.state))
+                    sensor_reader.request(video_stamp or 0)
+                    sample = sensor_reader.latest
+                else:
+                    return
+                if not _new_video_sample(sample, last_video_stamp_ns[0]):
+                    return
+                last_video_stamp_ns[0] = sample.sensor_stamp_ns
+                if plan.video_use_sim_time:
+                    next_video_sim_ns = sample.sensor_stamp_ns + round(1e9 / plan.video_hz)
+                try:
+                    aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
+                    gimbal_sample = None
+                    if camera_mount is not None and camera_mount.kind == "gimbal":
+                        gimbal_sample = mav_reader.gimbal_sample_at(
+                            sample.sensor_stamp_ns,
+                            device_id=gimbal_session.attitude_device_id if gimbal_session else 1,
+                        ) or {"message": None}
+                    video_obs = _png_observation(build_observation(
+                        sample,
+                        aligned,
+                        camera_mount=camera_mount,
+                        gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
+                        gimbal_sample=gimbal_sample,
+                        gimbal_max_age_s=2.0,
+                        camera_geometry=camera_geometry,
+                        horizon_stabilizer=horizon_stabilizer,
+                        camera_info={
+                            **DEFAULT_CAMERA_INFO,
+                            "width": plan.rgb_size[0],
+                            "height": plan.rgb_size[1],
+                            "fx": DEFAULT_CAMERA_INFO["fx"] * plan.rgb_size[0] / 1280.0,
+                            "fy": DEFAULT_CAMERA_INFO["fy"] * plan.rgb_size[1] / 960.0,
+                            "cx": DEFAULT_CAMERA_INFO["cx"] * plan.rgb_size[0] / 1280.0,
+                            "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
+                        },
+                    ))
+                    video_obs["flight_stage"] = flight_stage
+                    if not plan.capture_depth:
+                        video_obs["depth"] = None
+                    video_writer.write(video_obs, action_index=action_index)
+                except Exception as exc:
+                    recorder.record_mavlink({"message_type": "video_capture_error", "error": str(exc)})
+                    if camera_mount is not None and camera_mount.kind == "gimbal":
+                        video_writer.record_capture_error(str(exc))
+                        raise RuntimeError(f"gimbal video frame rejected: {exc}") from exc
+
             vehicle = telemetry_connection
             primitive_sim_clock = _SimClock(mav_reader)
             start_pos = _state_position(mav_reader.state)
@@ -6966,6 +7509,7 @@ def run_episode(
                     # below so a stalled simulator still terminates.
                     clock=primitive_sim_clock,
                 )
+                setpoint_streamer = getattr(executor, "offboard_streamer", None)
                 recorder.meta["airframe_profile"] = profile.to_mapping()
                 recorder.meta["vtol_hover_mission"] = hover_mission
                 recorder.meta["takeoff_method"] = takeoff_method
@@ -7275,7 +7819,7 @@ def run_episode(
                                 continuous_fw=False,
                             )
                             return False
-                        wall_ceiling = max(300.0, timeout_s * 10.0)
+                        wall_ceiling = _sim_teacher_hard_wall_timeout_s()
                         fw_duration_s = 0.0
                         orbit_degrees = 0.0
                         previous_sim_ns = started_sim_ns
@@ -7370,9 +7914,13 @@ def run_episode(
                         )
                     # Allow very slow lockstep (the delta tailsitter measured
                     # about 0.12x realtime) while retaining a finite fallback.
-                    wall_ceiling = max(180.0, float(timeout_s) * 10.0)
+                    wall_ceiling = _sim_teacher_hard_wall_timeout_s()
                     while state_clock() - started_sim < timeout_s and time.monotonic() - started_wall < wall_ceiling:
                         mav_reader.raise_if_failed()
+                        if horizon_loop is not None:
+                            horizon_loop.check()
+                            if phase == "transition_fw" and plan.video_use_sim_time:
+                                _video_tick(-1, "transition_to_fw")
                         state = _flight_state_snapshot(mav_reader.state)
                         z = _state_position(mav_reader.state)[2]
                         if transition_altitude_m is not None:
@@ -7505,6 +8053,7 @@ def run_episode(
                         {"yaw": 0.0, "roll": 0.0, "pitch": -45.0},
                         tolerance_deg=4.0,
                         yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                        gazebo_body_joints=_uses_gazebo_gimbal_body_joints(profile),
                     )
                     after_sample = _request_fresh_sensor_sample(
                     sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s
@@ -7541,6 +8090,13 @@ def run_episode(
                             json.dumps(recorder.meta, indent=2), encoding="utf-8"
                         )
                     if not hover_mission:
+                        _start_horizon_stabilization()
+                        if horizon_loop is not None and video_writer is not None and plan.video_use_sim_time:
+                            hover_sample = _request_fresh_sensor_sample(
+                                sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s,
+                            )
+                            next_video_sim_ns = hover_sample.sensor_stamp_ns
+                            _video_tick(-1, "pre_transition_hover")
                         transition = executor._invoke(
                             "vtol_transition", "FW", timeout_s=executor._timeout()
                         )
@@ -7603,6 +8159,29 @@ def run_episode(
             # PX4 releases gimbal manager control once a land primitive starts
             # (255/190 -> 1/1 -> 0/0), so later pitch/yaw commands are DENIED.
             landing_started = False
+            cruise_gimbal_target = stabilization_target
+            _start_horizon_stabilization()
+            if (horizon_loop is None and camera_mount is not None
+                    and camera_mount.kind == "gimbal" and cruise_gimbal_target):
+                session = _ensure_gimbal_session()
+                initial = _execute_managed_gimbal_action(
+                    ActionPrimitive.gimbal(pitch_deg=cruise_gimbal_target["pitch"],
+                                           yaw_deg=cruise_gimbal_target["yaw"]),
+                    session=session, profile=airframe_profile, reader=mav_reader,
+                    check=episode_watchdog.check,
+                    yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                )
+                if initial.status != "success":
+                    raise RuntimeError(f"long-range initial gimbal readback failed: {initial.ack}")
+                long_range_gimbal_hold = _LongRangeGimbalHold(
+                    session, mav_reader, cruise_gimbal_target, recorder.record_mavlink,
+                    yaw_correction_deg=simulation_gimbal_yaw_correction_deg or 0.0,
+                    gazebo_body_joints=_uses_gazebo_gimbal_body_joints(airframe_profile),
+                )
+                recorder.meta["gimbal_hold"] = {"target_deg": cruise_gimbal_target,
+                                               "refresh_interval_sim_s": 1.0,
+                                               "readback_max_age_ms": 2000.0,
+                                               "initial_readback": initial.ack}
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
@@ -7617,6 +8196,8 @@ def run_episode(
                 mav_reader.raise_if_failed()
                 resource_guard.check()
                 episode_watchdog.check()
+                if horizon_loop is not None:
+                    horizon_loop.check()
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 t = time.perf_counter_ns()
@@ -7632,6 +8213,8 @@ def run_episode(
                     before_sample,
                     before_state,
                     camera_mount=camera_mount,
+                    camera_geometry=camera_geometry,
+                    horizon_stabilizer=horizon_stabilizer,
                     ground_agl_max_age_s=(
                         policy.ground_projection.agl_max_age_s
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
@@ -7694,12 +8277,35 @@ def run_episode(
                     action = policy.next_action()
                     labels = {}
                     timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
+                track_capture = None
+                track_steady_ns = None
+                if plan.gimbal_eval_track_step is not None and index in (
+                    plan.gimbal_eval_track_step, plan.gimbal_eval_track_step + 1
+                ):
+                    tracking = index == plan.gimbal_eval_track_step
+                    expected_kind = "mc_hold" if tracking else "stop"
+                    if (horizon_stabilizer is None or action.kind != expected_kind
+                            or (tracking and _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3)):
+                        raise RuntimeError("X1 gimbal evaluation did not reach its expected MC hover/stop")
+                    switch_wall_ns = time.monotonic_ns()
+                    switch_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                    horizon_stabilizer.set_mode("track" if tracking else "lock")
+                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_mode",
+                                             "step_index": index, "mode": horizon_stabilizer.mode,
+                                             "sim_stamp_ns": switch_sim_ns,
+                                             "marker_monotonic_ns": switch_wall_ns,
+                                             **({"target_ref": plan.track_targets[0].reference()}
+                                                if tracking else {})})
+                    if tracking:
+                        track_capture = X1TrackCapture(switch_sim_ns)
+                        if switch_sim_ns is not None:
+                            track_steady_ns = switch_sim_ns + X1_TRACK_TRANSIENT_SIM_S * 10**9
                 managed_gimbal_action = _managed_teacher_gimbal_action(
                     action, camera_mount,
                     _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,
                 )
                 if (camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None
-                        and not locals().get("landing_started", False)):
+                        and not landing_started and horizon_loop is None):
                     if gimbal_session is not None:
                         gimbal_session.poll()
                     _dispatch_teacher_gimbal_command(
@@ -7822,65 +8428,67 @@ def run_episode(
                     except BaseException as exc:
                         execute_error.append(exc)  # noqa: B023
 
+                if horizon_loop is not None and managed_gimbal_action is not None:
+                    raise RuntimeError("explicit joint primitive conflicts with earth stabilization")
+                if horizon_loop is not None and getattr(action, "kind", None) == "land":
+                    horizon_loop.close()
                 if getattr(action, "kind", None) == "land" and gimbal_session is not None:
                     gimbal_session.control_release_expected = True
                 execute_thread = threading.Thread(target=_execute, name="sim-teacher-action",
                                                   daemon=managed_gimbal_action is not None)
                 execute_thread.start()
                 def _action_tick() -> None:
-                    nonlocal next_video_s
+                    nonlocal next_video_s, track_steady_ns
                     resource_guard.check()
                     episode_watchdog.check()
-                    now = time.monotonic()
-                    if video_writer is not None and now >= next_video_s:
-                        try:
-                            video_stamp = _pose_sim_stamp_ns(
-                                _snapshot_mavlink_state(mav_reader.state)
-                            )
-                            sensor_reader.request(video_stamp or 0)
-                            sample = sensor_reader.latest
-                            if _new_video_sample(sample, last_video_stamp_ns[0]):
-                                last_video_stamp_ns[0] = sample.sensor_stamp_ns
-                                aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
-                                video_obs = _png_observation(
-                                    build_observation(
-                                        sample,
-                                        aligned,
-                                        camera_mount=camera_mount,
-                                        gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
-                                        camera_info={
-                                            **DEFAULT_CAMERA_INFO,
-                                            "width": plan.rgb_size[0],
-                                            "height": plan.rgb_size[1],
-                                            "fx": DEFAULT_CAMERA_INFO["fx"]
-                                            * plan.rgb_size[0]
-                                            / 1280.0,
-                                            "fy": DEFAULT_CAMERA_INFO["fy"]
-                                            * plan.rgb_size[1]
-                                            / 960.0,
-                                            "cx": DEFAULT_CAMERA_INFO["cx"]
-                                            * plan.rgb_size[0]
-                                            / 1280.0,
-                                            "cy": DEFAULT_CAMERA_INFO["cy"]
-                                            * plan.rgb_size[1]
-                                            / 960.0,
-                                        },
-                                    )
-                                )
-                                video_obs["flight_stage"] = "action"
-                                if not plan.capture_depth:
-                                    video_obs["depth"] = None
-                                video_writer.write(video_obs, action_index=index)
-                        except Exception as exc:
-                            recorder.record_mavlink(
-                                {"message_type": "video_capture_error", "error": str(exc)}
-                            )
-                        next_video_s += 1.0 / plan.video_hz
+                    if horizon_loop is not None:
+                        horizon_loop.check()
+                    if long_range_gimbal_hold is not None and not landing_started:
+                        long_range_gimbal_hold.tick()
+                    if track_steady_ns is not None:
+                        sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                        if sim_ns is not None and sim_ns >= track_steady_ns:
+                            recorder.record_mavlink({
+                                "message_type": "collector_gimbal_eval_steady", "step_index": index,
+                                "sim_stamp_ns": sim_ns, "marker_monotonic_ns": time.monotonic_ns(),
+                            })
+                            track_steady_ns = None
+                    if plan.video_use_sim_time and horizon_loop is None and (
+                        motion is None or motion.kind != "reposition" or motion.mode != "FW"
+                    ):
+                        return
+                    if plan.video_use_sim_time or time.monotonic() >= next_video_s:
+                        stage = "transition_to_mc" if (
+                            horizon_loop is not None and motion is not None
+                            and motion.kind == "transition" and motion.mode == "MC"
+                        ) else "action"
+                        _video_tick(index, stage, wall_due_s=next_video_s)
+                        if video_writer is not None and not plan.video_use_sim_time:
+                            next_video_s += 1.0 / plan.video_hz
+                    if track_capture is not None:
+                        sample = track_capture.tick(
+                            sensor_reader, sim_ns=_pose_sim_stamp_ns(mav_reader.state),
+                            wall_s=time.monotonic(),
+                        )
+                        if sample is not None:
+                            recorder.record_mavlink({**_x1_track_sample(
+                                mav_reader, sample, camera_mount=camera_mount,
+                                camera_geometry=camera_geometry,
+                            ), "step_index": index})
 
                 try:
-                    _join_action_with_gimbal(execute_thread, None if managed_gimbal_action is not None else gimbal_session, _action_tick,
-                                             cancel=gimbal_send_gate.cancel,
-                                             abandon_on_cancel=managed_gimbal_action is not None)
+                    poll_session = (
+                        None
+                        if managed_gimbal_action is not None or horizon_loop is not None
+                        else gimbal_session
+                    )
+                    _join_action_with_gimbal(
+                        execute_thread,
+                        poll_session,
+                        _action_tick,
+                        cancel=gimbal_send_gate.cancel,
+                        abandon_on_cancel=managed_gimbal_action is not None,
+                    )
                 except Exception as exc:
                     _progress("gimbal_action_failed", error=str(exc),
                               cleanup="waiting_for_gimbal_sender_before_connection_teardown")
@@ -7889,6 +8497,12 @@ def run_episode(
                     raise
                 if execute_error:
                     raise execute_error[0]
+                if track_capture is not None:
+                    recorder.record_mavlink({
+                        "message_type": "collector_gimbal_eval_end", "step_index": index,
+                        "marker_monotonic_ns": time.monotonic_ns(),
+                        "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                    })
                 result = result_box[0]
                 if getattr(action, "kind", None) == "land" and result.status == "success":
                     landing_started = True
@@ -7910,19 +8524,31 @@ def run_episode(
                 timing.setdefault("completion_check_ms", 0.0)
                 timing.setdefault("timeout_ms", timing["command_and_primitive_wait_ms"] if result.status == "timeout" else 0.0)
                 timing["primitive_status"] = result.status
-                if video_writer is not None:
+                if video_writer is not None and not plan.video_use_sim_time:
                     # Ensure the final in-flight frame is represented at the
                     # primitive boundary when the simulator emitted one.
                     sample = sensor_reader.latest
                     if sample is not None:
                         try:
                             aligned = mav_reader.aligned_state(sample.sensor_stamp_ns)
+                            gimbal_sample = (
+                                mav_reader.gimbal_sample_at(
+                                    sample.sensor_stamp_ns,
+                                    device_id=gimbal_session.attitude_device_id if gimbal_session else 1,
+                                ) or {"message": None}
+                                if camera_mount is not None and camera_mount.kind == "gimbal"
+                                else None
+                            )
                             final_obs = _png_observation(
                                 build_observation(
                                     sample,
                                     aligned,
                                     camera_mount=camera_mount,
                                     gimbal_yaw_correction_deg=simulation_gimbal_yaw_correction_deg,
+                                    gimbal_sample=gimbal_sample,
+                                    gimbal_max_age_s=2.0,
+                                    camera_geometry=camera_geometry,
+                                    horizon_stabilizer=horizon_stabilizer,
                                     camera_info={
                                         **DEFAULT_CAMERA_INFO,
                                         "width": plan.rgb_size[0],
@@ -7938,8 +8564,10 @@ def run_episode(
                             if not plan.capture_depth:
                                 final_obs["depth"] = None
                             video_writer.write(final_obs, action_index=index)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            if camera_mount is not None and camera_mount.kind == "gimbal":
+                                video_writer.record_capture_error(str(exc))
+                                raise RuntimeError(f"gimbal action-end frame rejected: {exc}") from exc
                 primitive_end_ns = time.monotonic_ns()
                 mav_reader.raise_if_failed()
                 _progress(
@@ -7963,6 +8591,8 @@ def run_episode(
                     after_sample,
                     after_state,
                     camera_mount=camera_mount,
+                    camera_geometry=camera_geometry,
+                    horizon_stabilizer=horizon_stabilizer,
                     ground_agl_max_age_s=(
                         policy.ground_projection.agl_max_age_s
                         if getattr(getattr(policy, "ground_projection", None), "use_agl", False)
@@ -8097,6 +8727,8 @@ def run_episode(
                         json.dumps(recorder.meta, indent=2), encoding="utf-8"
                     )
                     _progress("fw_overspeed_recovery_end", **overspeed_result)
+                if land_after_route and result.status != "success":
+                    raise RuntimeError(f"guided VTOL route step {index} failed: {result.status}")
                 # STOP is a terminal policy action.  Keep this step in the
                 # episode (including its observation pair), then immediately
                 # leave the primitive loop so we do not execute redundant
@@ -8105,6 +8737,17 @@ def run_episode(
                     episode_data_complete = index + 1 >= plan.steps_per_episode
                     _progress("policy_stop", step=index)
                     break
+            if long_range_gimbal_hold is not None:
+                while long_range_gimbal_hold.awaiting_readback:
+                    episode_watchdog.check()
+                    long_range_gimbal_hold.tick(refresh=False)
+                    time.sleep(0.02)
+                recorder.meta["gimbal_hold"]["readback_count"] = long_range_gimbal_hold.readback_count
+                recorder.meta["gimbal_hold"]["passed"] = long_range_gimbal_hold.readback_count > 0
+            if horizon_loop is not None:
+                horizon_loop.close()
+                horizon_loop.check()
+                recorder.meta["horizon_stabilization"]["sent_count"] = horizon_loop.sent_count
             try:
                 _finish_teacher_gimbal(gimbal_session, episode_watchdog.check)
                 gimbal_send_gate.close()
@@ -8116,7 +8759,10 @@ def run_episode(
                 # make a fixed wall-clock wait expire before PX4 reaches the ground.
                 mav_reader.raise_if_failed()
                 _progress("land")
-                if not use_multirotor_executor:
+                if land_after_route:
+                    if _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3:
+                        raise RuntimeError("guided VTOL landing requires confirmed MC mode")
+                elif not use_multirotor_executor:
                     rtl_started_ns = time.monotonic_ns()
                     executor.rtl()
                     # Confirm PX4 is really in AUTO.RTL before anything else is sent:
@@ -8163,7 +8809,9 @@ def run_episode(
                         setpoint_streamer,
                     )
                 else:
-                    land_result = _fixed_wing_or_vtol_land_and_wait(executor, mav_reader)
+                    land_result = _fixed_wing_or_vtol_land_and_wait(
+                        executor, mav_reader, already_in_mc=land_after_route
+                    )
             except _EpisodeEarlyStop as exc:
                 if not episode_data_complete or exc.reason not in _EPISODE_RESOURCE_STOP_REASONS:
                     raise
@@ -8181,6 +8829,10 @@ def run_episode(
             recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
             if video_writer is not None:
                 recorder.meta["video"] = video_writer.close()
+            if video_writer is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+                recorder.meta["gimbal_check"] = recorder.meta["video"]["gimbal_check"]
+                if not recorder.meta["gimbal_check"]["passed"]:
+                    raise RuntimeError("gimbal_check_failed: one or more video frames lack fresh camera feedback")
             _copy_mover_driver_log(plan, environment, recorder, mover_driver)
             recorder.meta["mover_driver"] = mover_driver
             recorder.mark_finished(status="complete")
@@ -8250,6 +8902,8 @@ def run_episode(
                     pass
         if video_writer is not None:
             recorder.meta["video"] = video_writer.close()
+        if video_writer is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+            recorder.meta["gimbal_check"] = recorder.meta["video"]["gimbal_check"]
         if environment is not None and environment.evidence_index is not None:
             recorder.meta["container_evidence"] = environment.evidence_index
         status = "aborted_low_disk"
@@ -8301,6 +8955,8 @@ def run_episode(
             recorder.close_mavlink_stream()
         if video_writer is not None:
             recorder.meta["video"] = video_writer.close()
+        if video_writer is not None and camera_mount is not None and camera_mount.kind == "gimbal":
+            recorder.meta["gimbal_check"] = recorder.meta["video"]["gimbal_check"]
         if environment is not None and environment.evidence_index is not None:
             recorder.meta["container_evidence"] = environment.evidence_index
         failure_text = f"{type(exc).__name__}: {exc}"
@@ -8337,7 +8993,26 @@ def run_episode(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scenario", type=Path, required=True)
+    parser.add_argument("--scenario", type=Path, required=False)
+    parser.add_argument(
+        "--long-range-profile",
+        choices=("rw_farm_iowa_w6km__clear_noon", "rw_city_zurich_w6km__clear_noon"),
+        default=None,
+        help="dispatch to the selected 6 km wide-area route",
+    )
+    parser.add_argument(
+        "--long-range-slot",
+        type=int,
+        choices=(5, 6, 7),
+        default=7,
+        help="SITL slot used by --long-range-profile",
+    )
+    parser.add_argument(
+        "--min-rtf",
+        type=float,
+        default=0.9,
+        help="minimum stable-window RTF recorded by the long-range profile",
+    )
     parser.add_argument(
         "--airframe",
         default="x500_mono_cam",
@@ -8356,6 +9031,12 @@ def build_parser() -> argparse.ArgumentParser:
         "observe from the hover stations (use with --no-vtol-hover-mission)",
     )
     parser.add_argument("--takeoff-method", choices=("runway", "hand", "catapult", "vtol"))
+    parser.add_argument("--gimbal-mode", choices=("lock", "follow", "track"), default=None,
+                        help="C11 stabilization mode; omitted keeps the existing policy default")
+    parser.add_argument("--gimbal-bridge-stabilize", action="store_true",
+                        help="send C11 pose targets to the horizon-enabled PX4 image")
+    parser.add_argument("--track-target", type=WorldTarget.parse, action="append", default=[],
+                        metavar="LAT,LON,ALT_M", help="world target, altitude AMSL metres (repeatable)")
     parser.add_argument(
         "--smoke-flight", action="store_true", help="use deterministic fixed-wing smoke route"
     )
@@ -8468,7 +9149,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sim-instance", type=int, default=0)
     parser.add_argument("--px4-profile", choices=("pinned", "main"), default=None)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=False)
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S)
     parser.add_argument("--max-episode-s", type=float, default=None)
     parser.add_argument(
@@ -8523,7 +9204,49 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
-    args = build_parser().parse_args(list(argv) if argv is not None else None)
+    args = build_parser().parse_args(track_cli_argv(sys.argv[1:] if argv is None else argv))
+    if args.long_range_profile:
+        from scripts.realworld import long_range_flight
+
+        airframe = (long_range_flight.DELTA if args.airframe == "x500_mono_cam" and args.scenario is None
+                    else args.airframe)
+        if airframe not in long_range_flight.AIRFRAME_PROFILES:
+            raise SystemExit("--long-range-profile requires --airframe delta_tailsitter_gimbal_cam or rc_cessna_mono_cam")
+        if args.teacher != "explore" or args.episodes != 1:
+            raise SystemExit("--long-range-profile requires --teacher explore and --episodes 1")
+        if not math.isfinite(args.min_rtf) or args.min_rtf < long_range_flight.DEFAULT_MIN_RTF:
+            raise SystemExit(
+                f"--min-rtf must be at least {long_range_flight.DEFAULT_MIN_RTF:g}"
+            )
+        try:
+            scenario = long_range_flight.resolve_profile(args.long_range_profile, args.scenario, airframe)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        if not scenario.is_file():
+            raise SystemExit(f"scenario not found: {scenario}")
+        out = args.out or long_range_flight.default_output_path(scenario, args.min_rtf)
+        delegated = [
+            str(args.long_range_slot),
+            str(scenario),
+            str(out),
+            "--min-rtf",
+            str(args.min_rtf),
+            "--airframe",
+            airframe,
+        ]
+        if args.gimbal_mode is not None:
+            delegated.extend(("--gimbal-mode", args.gimbal_mode))
+        if args.gimbal_bridge_stabilize:
+            delegated.append("--gimbal-bridge-stabilize")
+        if args.image is not None:
+            delegated.extend(("--image", args.image))
+        for target in args.track_target:
+            delegated.append(f"--track-target={target.lat_deg},{target.lon_deg},{target.alt_m}")
+        if args.dry_run:
+            delegated.append("--plan-only")
+        return long_range_flight.main(delegated)
+    if args.scenario is None or args.out is None:
+        raise SystemExit("--scenario and --out are required unless --long-range-profile is used")
     if args.episodes < 1 or args.steps_per_episode < 1:
         raise SystemExit("--episodes and --steps-per-episode must be positive")
     if args.video_hz < 0.0 or args.video_max_gb <= 0.0:
@@ -8559,6 +9282,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         raise SystemExit(f"scenario not found: {scenario}")
     runtime_path, truth_path = _scenario_channels(scenario)
     _airframe_profile(args.airframe)
+    if (args.gimbal_mode is not None or args.gimbal_bridge_stabilize) and not _uses_gazebo_gimbal_body_joints(_airframe_profile(args.airframe)):
+        raise SystemExit("gimbal stabilization options require the supported C11 simulation gimbal")
     _validate_runtime(runtime_path, args.airframe)
     sim_climb_timeout_injection = False
     if args.onboard_config is not None:
@@ -8646,6 +9371,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         ),
         worker_index=args.worker_index,
         operator_port=args.operator_port,
+        gimbal_mode=args.gimbal_mode,
+        gimbal_bridge_stabilize=args.gimbal_bridge_stabilize,
+        track_targets=tuple(args.track_target),
         px4_profile=resolve_px4_profile(args.px4_profile),
     )
     _validate_spawn_clearance(plan)

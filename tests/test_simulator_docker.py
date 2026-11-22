@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from scripts import run_simulator_docker as simulator_docker
+from multidetect.autonomy.serialization import canonical_sha256
 from scripts.run_simulator_docker import (
     PINNED_IMAGE,
     DockerSimulatorPlanError,
@@ -16,6 +20,11 @@ from scripts.run_simulator_docker import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIO = ROOT / "configs" / "scenarios" / "river_rescue_vtol_001.scenario.json"
+WIDE_AREA_SCENARIO = (
+    ROOT
+    / "configs/scenarios/realworld/rc_cessna_mono_cam"
+    / "rw_farm_iowa_w6km__clear_noon.scenario.json"
+)
 
 
 def test_docker_plan_is_pinned_readonly_loopback_and_cleanup_bound(tmp_path: Path) -> None:
@@ -143,6 +152,56 @@ def test_gimbal_airframe_uses_px4_gimbal_model_without_starting_docker(tmp_path:
     assert env["PX4_GZ_MODELS"] == "/opt/px4-gazebo/share/gz/models"
 
 
+def test_gimbal_runtime_model_selects_device_model_and_topic_name(tmp_path: Path) -> None:
+    runtime = json.loads(
+        (ROOT / "configs/scenarios/urban_inspection_multirotor_001.runtime.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    runtime["vehicle"]["model"] = "x500_gimbal"
+    runtime_path = tmp_path / "x500-gimbal.runtime.json"
+    runtime_path.write_text(json.dumps(runtime), encoding="utf-8")
+    channels = {
+        "runtime_input": {
+            "path": runtime_path.name,
+            "sha256": canonical_sha256(runtime),
+        }
+    }
+    for name in ("truth", "expectations"):
+        source_path = ROOT / f"configs/scenarios/urban_inspection_multirotor_001.{name}.json"
+        copied_path = tmp_path / source_path.name
+        shutil.copy2(source_path, copied_path)
+        channels[name] = {
+            "path": copied_path.name,
+            "sha256": canonical_sha256(json.loads(copied_path.read_text(encoding="utf-8"))),
+        }
+    manifest_path = tmp_path / "x500-gimbal.scenario.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "scenario_id": runtime["scenario_id"],
+                "scenario_version": runtime["scenario_version"],
+                "channels": channels,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = build_docker_simulator_plan(
+        manifest_path,
+        repository_root=ROOT,
+        job_dir=tmp_path / "gimbal-runtime",
+    )
+
+    env = dict(plan.environment)
+    assert plan.vehicle_model == "x500_gimbal"
+    assert plan.model_name == "x500_gimbal"
+    assert env["PX4_SYS_AUTOSTART"] == "4019"
+    assert env["PX4_SIM_MODEL"] == "gz_x500_gimbal"
+    assert env["PX4_GZ_MODELS"] == "/opt/px4-gazebo/share/gz/models"
+
+
 @pytest.mark.parametrize(
     ("option", "value", "gate"),
     (
@@ -184,6 +243,273 @@ def test_docker_plan_hash_and_json_are_stable(tmp_path: Path) -> None:
     assert document["sha256"] == plan.evidence_hash
     assert document["stack_plan_sha256"]
     assert not (out.parent / ".evidence.json.tmp").exists()
+
+
+@pytest.mark.parametrize("relative", [False, True])
+def test_fuel_resolved_override_is_mounted_readonly_without_docker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool
+) -> None:
+    # Keep the relative case on the repository drive on Windows, where the
+    # pytest temporary directory can be on a different drive.
+    resolved_root = ROOT / "simulation/gazebo/models" if relative else tmp_path / "private-resolved"
+    if not relative:
+        resolved_root.mkdir()
+    working_dir = tmp_path / "unrelated-cwd"
+    working_dir.mkdir()
+    monkeypatch.chdir(working_dir)
+    selected = os.path.relpath(resolved_root, ROOT) if relative else str(resolved_root)
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", selected)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    plan = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "job"
+    )
+
+    assert plan.fuel_resolved_root == resolved_root.resolve()
+    container_root = "/opt/multidetect-gz-fuel-resolved"
+    mount = f"type=bind,source={resolved_root.resolve()},target={container_root},readonly"
+    assert mount in plan.command
+    resource_path = dict(plan.environment)["GZ_SIM_RESOURCE_PATH"]
+    assert resource_path.split(":")[0] == container_root
+    assert f"export GZ_SIM_RESOURCE_PATH={container_root}:" in plan.command[-1]
+    assert plan.to_mapping()["external_processes_started"] is False
+
+
+@pytest.mark.parametrize("kind", ["missing", "file"])
+def test_fuel_resolved_override_rejects_invalid_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    resolved_root = tmp_path / "private-resolved"
+    if kind == "file":
+        resolved_root.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", str(resolved_root))
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    with pytest.raises(DockerSimulatorPlanError, match="MULTIDETECT_SIM_FUEL_RESOLVED_ROOT"):
+        build_docker_simulator_plan(
+            SCENARIO, repository_root=ROOT, job_dir=tmp_path / "job"
+        )
+
+
+def test_fuel_resolved_default_keeps_shared_cache_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", raising=False)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+    plan = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "job"
+    )
+    default_root = (ROOT / "artifacts/cache/gz-fuel/resolved").resolve()
+    expected_root = default_root if default_root.is_dir() else None
+    assert plan.fuel_resolved_root == expected_root
+    container_root = "/opt/multidetect-gz-fuel-resolved"
+    resolved_mounts = [
+        token for token in plan.command if f"target={container_root}," in token
+    ]
+    assert resolved_mounts == (
+        [f"type=bind,source={default_root},target={container_root},readonly"]
+        if expected_root is not None else []
+    )
+
+
+def test_rtf_model_root_is_mounted_readonly_ahead_of_shared_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model_root = tmp_path / "rtf-models"
+    (model_root / "rw_farm_iowa").mkdir(parents=True)
+    (model_root / "rw_farm_iowa/model.config").write_text("{}", encoding="utf-8")
+    fuel_root = tmp_path / "fuel-cache"
+    fuel_root.mkdir()
+    monkeypatch.setenv("MULTIDETECT_RTF_MODEL_ROOT", str(model_root))
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", str(fuel_root))
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    plan = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "rtf-model-plan"
+    )
+
+    container_root = "/opt/multidetect-rtf-models"
+    mount = f"type=bind,source={model_root.resolve()},target={container_root},readonly"
+    assert mount in plan.command
+    resource_path = dict(plan.environment)["GZ_SIM_RESOURCE_PATH"].split(":")
+    assert resource_path[:2] == [container_root, "/opt/multidetect-gz-fuel-resolved"]
+    assert (
+        f"export GZ_SIM_RESOURCE_PATH={container_root}:/opt/multidetect-gz-fuel-resolved:"
+        in plan.command[-1]
+    )
+    evidence = plan.to_mapping()
+    assert evidence["mounts"]["rtf_model_overlay"] == {
+        "host": str(model_root.resolve()),
+        "container": container_root,
+        "readonly": True,
+        "sha256": plan.rtf_model_root_sha256,
+    }
+    assert len(plan.rtf_model_root_sha256) == 64
+    assert evidence["external_processes_started"] is False
+
+
+def test_w6km_world_defaults_to_wide_area_camera_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+    assert simulator_docker._resolve_rtf_model_root(
+        ROOT, Path("rw_farm_iowa_w6km__clear_noon.sdf")
+    ) == (ROOT / "simulation/gazebo/models-wide-area").resolve()
+    assert simulator_docker._resolve_rtf_model_root(
+        ROOT, Path("rw_farm_iowa_w2km__clear_noon.sdf")
+    ) is None
+    assert simulator_docker._resolve_rtf_model_root(
+        ROOT, Path("rw_farm_iowa_w6km-clear_noon.sdf")
+    ) is None
+
+
+@pytest.mark.skipif(
+    not WIDE_AREA_SCENARIO.is_file(),
+    reason="wide-area scenario fixture is not present in this checkout",
+)
+def test_w6km_plan_mounts_default_overlay_and_server_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not (ROOT / "configs/scenarios/airframes/rw_farm_iowa_w6km__clear_noon.sdf").is_file():
+        pytest.skip("generated world SDF is not present in this checkout")
+    monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+    monkeypatch.delenv("MULTIDETECT_RTF_SERVER_CONFIG", raising=False)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    plan = build_docker_simulator_plan(
+        WIDE_AREA_SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "w6km-default-overlay",
+    )
+
+    overlay_root = (ROOT / "simulation/gazebo/models-wide-area").resolve()
+    server_config = (ROOT / "simulation/gazebo/server-wide-area.config").resolve()
+    server_config_sha256 = hashlib.sha256(server_config.read_bytes()).hexdigest()
+    mount_target = "/opt/multidetect-rtf-server.config"
+    evidence = plan.to_mapping()
+    assert plan.world_path.name == "rw_farm_iowa_w6km__clear_noon.sdf"
+    assert plan.rtf_model_root == overlay_root
+    assert evidence["mounts"]["rtf_model_overlay"]["sha256"] == (
+        plan.rtf_model_root_sha256
+    )
+    assert plan.rtf_server_config == server_config
+    assert plan.rtf_server_config_sha256 == server_config_sha256
+    assert evidence["mounts"]["rtf_server_config"] == {
+        "host": str(server_config),
+        "container": mount_target,
+        "readonly": True,
+        "sha256": server_config_sha256,
+    }
+    assert plan.evidence_hash != replace(plan, rtf_server_config_sha256="0" * 64).evidence_hash
+    assert f"type=bind,source={server_config},target={mount_target},readonly" in plan.command
+    assert dict(plan.environment)["GZ_SIM_SERVER_CONFIG_PATH"] == mount_target
+    assert f"sed '/gz-sim-magnetometer-system/d' {mount_target} " in plan.command[-1]
+
+
+@pytest.mark.skipif(
+    not WIDE_AREA_SCENARIO.is_file(),
+    reason="wide-area scenario fixture is not present in this checkout",
+)
+def test_explicit_rtf_server_config_overrides_w6km_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not (ROOT / "configs/scenarios/airframes/rw_farm_iowa_w6km__clear_noon.sdf").is_file():
+        pytest.skip("generated world SDF is not present in this checkout")
+    config = tmp_path / "override.config"
+    config.write_bytes(b"<server_config><plugins/></server_config>\n")
+    monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(config))
+    monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+
+    plan = build_docker_simulator_plan(
+        WIDE_AREA_SCENARIO, repository_root=ROOT, job_dir=tmp_path / "override-plan"
+    )
+
+    assert plan.rtf_model_root == (ROOT / "simulation/gazebo/models-wide-area").resolve()
+    assert plan.rtf_server_config == config.resolve()
+    assert plan.to_mapping()["mounts"]["rtf_server_config"]["sha256"] == (
+        hashlib.sha256(config.read_bytes()).hexdigest()
+    )
+
+
+@pytest.mark.parametrize("name", ["rw_farm_iowa_w2km__clear_noon.sdf", "rw_farm_iowa_w6km-clear_noon.sdf"])
+def test_rtf_server_config_pattern_rejects_near_misses(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_SERVER_CONFIG", raising=False)
+    assert simulator_docker._resolve_rtf_server_config(ROOT, Path(name)) is None
+
+
+def test_explicit_rtf_model_root_overrides_w6km_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    override_root = tmp_path / "explicit-rtf-models"
+    override_root.mkdir()
+    monkeypatch.setenv("MULTIDETECT_RTF_MODEL_ROOT", str(override_root))
+    assert simulator_docker._resolve_rtf_model_root(
+        ROOT, Path("rw_farm_iowa_w6km__clear_noon.sdf")
+    ) == override_root.resolve()
+
+
+def test_non_w6km_world_does_not_auto_mount_wide_area_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_MODEL_ROOT", raising=False)
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "non-w6km-default-overlay",
+    )
+
+    assert plan.world_path.name != "rw_farm_iowa_w6km__clear_noon.sdf"
+    assert plan.rtf_model_root is None
+    assert "rtf_model_overlay" not in plan.to_mapping()["mounts"]
+
+
+def test_optional_rtf_server_config_is_hash_bound_mounted_readonly_and_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "server.config"
+    config.write_text("<server_config><plugins/></server_config>", encoding="utf-8")
+    monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(config))
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "server-config-plan",
+    )
+    evidence = plan.to_mapping()
+    mount = evidence["mounts"]["rtf_server_config"]
+    assert mount["host"] == str(config.resolve())
+    assert mount["container"] == "/opt/multidetect-rtf-server.config"
+    assert mount["readonly"] is True
+    assert mount["sha256"] == plan.rtf_server_config_sha256
+    assert dict(plan.environment)["GZ_SIM_SERVER_CONFIG_PATH"] == mount["container"]
+    assert any(
+        token == "type=bind,source=" + str(config.resolve()) + ",target=" + mount["container"] + ",readonly"
+        for token in plan.command
+    )
+    startup = plan.command[-1]
+    assert "sed '/gz-sim-magnetometer-system/d' " + mount["container"] in startup
+    assert "export GZ_SIM_SERVER_CONFIG_PATH=/tmp/multidetect-gz-server.config; " in startup
+
+
+def test_rtf_server_config_is_optional_and_must_be_a_regular_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MULTIDETECT_RTF_SERVER_CONFIG", raising=False)
+    default_plan = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "server-config-default"
+    )
+    assert "rtf_server_config" not in default_plan.to_mapping()["mounts"]
+    assert "GZ_SIM_SERVER_CONFIG_PATH" not in dict(default_plan.environment)
+
+    missing = tmp_path / "missing.config"
+    monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(missing))
+    with pytest.raises(DockerSimulatorPlanError, match="is not a file"):
+        build_docker_simulator_plan(
+            SCENARIO, repository_root=ROOT, job_dir=tmp_path / "server-config-missing"
+        )
 
 
 def test_docker_plan_uses_selected_network_for_container_and_px4_target(
@@ -269,7 +595,7 @@ def test_host_network_gpu_render_plan_keeps_both_runtime_controls(
     assert "mavlink start -x -t 127.0.0.1" in startup
     assert "export PX4_NET_INTERFACE=lo;" in startup
     assert "--headless-rendering" in startup
-    assert "--render-engine ogre2" in startup
+    assert 'set -- "$@" --render-engine "$render_engine"' in startup
     assert "px4 -i 1" in startup
 
 
@@ -330,6 +656,55 @@ def test_docker_plan_supports_fixed_wing_assets(tmp_path: Path) -> None:
     assert plan.scenario_id == "coastal_patrol_fixed_wing_001"
     assert plan.model_root.name == "models"
     assert plan.world_path.name == "coastal_patrol_fixed_wing_001.sdf"
+
+
+def test_docker_plan_mounts_explicit_external_world_and_resource_directory(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    baseline = build_docker_simulator_plan(
+        SCENARIO, repository_root=ROOT, job_dir=tmp_path / "baseline"
+    )
+    external_dir = tmp_path / "external-worlds"
+    external_dir.mkdir()
+    external_world = external_dir / baseline.world_path.name
+    shutil.copyfile(baseline.world_path, external_world)
+    resolved_models = tmp_path / "resolved-models"
+    resolved_models.mkdir()
+    monkeypatch.setenv("MULTIDETECT_SIM_FUEL_RESOLVED_ROOT", str(resolved_models))
+
+    plan = build_docker_simulator_plan(
+        SCENARIO,
+        repository_root=ROOT,
+        job_dir=tmp_path / "external",
+        world_sdf_path=external_world,
+    )
+
+    assert plan.world_path == external_world.resolve()
+    assert plan.external_world_sdf is True
+    assert plan.external_world_resource_root == external_dir.resolve()
+    assert plan.to_mapping()["mounts"]["world"]["external"] is True
+    assert plan.to_mapping()["mounts"]["external_world_resources"] == {
+        "host": str(external_dir.resolve()),
+        "container": "/opt/polaris-sim-world-resources",
+        "readonly": True,
+    }
+    assert "/opt/polaris-sim-world-resources" in dict(plan.environment)["GZ_SIM_RESOURCE_PATH"]
+    assert "/opt/multidetect-gz-fuel-resolved" in dict(plan.environment)["GZ_SIM_RESOURCE_PATH"]
+    command_pairs = tuple(zip(plan.command, plan.command[1:], strict=False))
+    world_resources_mount = (
+        "--mount",
+        "type=bind,"
+        f"source={external_dir.resolve()},"
+        "target=/opt/polaris-sim-world-resources,readonly",
+    )
+    fuel_cache_mount = (
+        "--mount",
+        "type=bind,"
+        f"source={resolved_models.resolve()},"
+        "target=/opt/multidetect-gz-fuel-resolved,readonly",
+    )
+    assert world_resources_mount in command_pairs
+    assert fuel_cache_mount in command_pairs
 
 
 @pytest.mark.parametrize("invalid,error", [

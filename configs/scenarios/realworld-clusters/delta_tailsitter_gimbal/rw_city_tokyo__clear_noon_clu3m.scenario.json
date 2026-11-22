@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_city_tokyo__clear_noon_clu3m.expectations.json",
+      "sha256": "5c97587444443bd5c9aa9119df81b8fcbe1e731ad639c531c10fb638e75c5d9c"
+    },
+    "runtime_input": {
+      "path": "rw_city_tokyo__clear_noon_clu3m.runtime_input.json",
+      "sha256": "e5fd327a92026b46b41614152ed2bbe45b5932c7c5114a1a64c01e1ddc9693cf"
+    },
+    "truth": {
+      "path": "rw_city_tokyo__clear_noon_clu3m.truth.json",
+      "sha256": "811d0114a10fbad822dcde1f197cd72df7797d72bc233fcdd3950131326faa29"
+    }
+  },
+  "scenario_id": "rw_city_tokyo__clear_noon_clu3m",
+  "scenario_version": 1,
+  "schema_version": 1
+}

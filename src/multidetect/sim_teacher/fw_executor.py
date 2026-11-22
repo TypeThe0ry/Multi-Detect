@@ -712,6 +712,8 @@ class FixedWingVtolExecutor:
                 return ExecutionResult(
                     "failed", self._clock() - started, ack={"reason": command.reason}
                 )
+            if command.fly_through_radius_m is not None:
+                raise ValueError("FW fly-through requires a position-and-tangent Offboard executor")
             if command.kind == "gimbal":
                 action = command.action or ActionPrimitive.gimbal(
                     pitch_deg=float(command.gimbal_pitch_deg or 0.0),
@@ -871,10 +873,10 @@ class FixedWingVtolExecutor:
                 self._invoke_command_long("rtl", timeout_s=self._timeout())
         self._armed = False
 
-    def land(self) -> ExecutionResult:
+    def land(self, *, already_in_mc: bool = False) -> ExecutionResult:
         started = self._clock()
         try:
-            if self.airframe == "vtol":
+            if self.airframe == "vtol" and not already_in_mc:
                 transition = self._invoke("vtol_transition", "MC", timeout_s=self._timeout())
                 if not self._ok(transition):
                     return self._failure(started, phase="transition_mc", result=transition)

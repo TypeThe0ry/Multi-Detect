@@ -183,7 +183,7 @@ def test_x500_subscribes_to_the_spawned_model_not_the_runtime_airframe_name() ->
 def test_fixed_wing_and_vtol_never_fly_at_the_multirotor_default_altitude(monkeypatch) -> None:
     # The tiltrotor transitioned at the 5 m multirotor default and sank into the ground.
     monkeypatch.setattr(
-        collector, "resolve_takeoff_altitude", lambda runtime, override: (5.0, "default")
+        collector, "resolve_takeoff_altitude", lambda runtime, override, **_kwargs: (5.0, "default")
     )
     base = dict(
         scenario="s.json",

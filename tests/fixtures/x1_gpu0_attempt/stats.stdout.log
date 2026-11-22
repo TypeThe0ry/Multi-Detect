@@ -1,0 +1,6 @@
+usage: sample_stats.py [-h]
+                       (--container CONTAINER | --container-prefix CONTAINER_PREFIX)
+                       [--wait-s WAIT_S] [--gpu {1,3}] [--warmup-s WARMUP_S]
+                       [--window-s WINDOW_S] [--interval-s INTERVAL_S] --out
+                       OUT
+sample_stats.py: error: argument --gpu: invalid choice: '0' (choose from 1, 3)

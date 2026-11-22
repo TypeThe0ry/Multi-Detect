@@ -31,6 +31,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from instancing import ASSET_BY_SLUG, Merger, has_local_model  # noqa: E402
 from city_models import read_normalized  # noqa: E402
+from range_profile import profile_for_site  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CFG = json.loads((ROOT / "configs/sim-assets/realworld-sites.json").read_text())
@@ -47,8 +48,9 @@ PAD_R = 25.0
 FLOOR_M = 3.2
 
 
-def validate_launch_water(water_polys, clearance_m: float = PAD_R) -> None:
+def validate_launch_water(water_polys, clearance_m: float | None = None) -> None:
     """Reject water beneath the flattened launch pad instead of hiding it."""
+    clearance_m = PAD_R if clearance_m is None else float(clearance_m)
     pad = Point(0, 0).buffer(clearance_m)
     if any(not polygon.is_empty and polygon.intersects(pad) for polygon in water_polys):
         raise ValueError("launch pad intersects mapped water; choose a dry site origin and fetch matching raw data")
@@ -716,21 +718,43 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("site")
     ap.add_argument("--max-trees", type=int, default=2500)
-    ap.add_argument("--grid", type=float, default=4.0)
+    ap.add_argument("--grid", type=float, help="视觉网格间距；默认按 profile（通常 4 m）")
     ap.add_argument("--output-root", type=Path, default=RESOLVED, help="模型输出目录")
     ap.add_argument("--scene-root", type=Path, default=Path(os.environ.get("REALWORLD_SCENE_ROOT", SCENE_ROOT / "sites")), help="scene.json 输出目录")
     ap.add_argument("--raw-root", type=Path, default=ASSET_ROOT / "sites", help="原始数据站点目录")
+    ap.add_argument("--extent-m", type=float, help="正方形边长（米）；需与 fetch_site 的范围一致")
+    ap.add_argument("--origin", nargs=2, type=float, metavar=("LAT", "LON"), help="为 6 km 构建指定已取数的起降原点")
+    ap.add_argument("--output-name", help="独立 scene/model 名；仍读取原站点 raw")
+    ap.add_argument("--budget-profile", choices=("budget_6km",), help="显式预算实验，不改变默认 profile")
     a = ap.parse_args()
-    name = a.site
-    site = CFG["sites"][name]
+    name = a.output_name or a.site
+    if not name.replace("_", "").isalnum():
+        ap.error("output name must contain only letters, numbers and underscores")
+    if a.budget_profile and name == a.site:
+        ap.error("budget profile requires an independent --output-name")
+    site = CFG["sites"][a.site]
+    if a.origin is not None:
+        lat, lon = a.origin
+        if a.extent_m != 6000 or not (-90 < lat < 90 and -180 <= lon <= 180):
+            ap.error("--origin requires valid coordinates and --extent-m 6000")
+        site = {**site, "lat": lat, "lon": lon}
+    profile = profile_for_site(site, a.extent_m, name=a.budget_profile)
+    a.grid = profile.visual_grid_m if a.grid is None else a.grid
+    if not math.isfinite(a.grid) or a.grid <= 0:
+        ap.error("grid must be finite and positive")
+    site = {**site, "size_m": profile.extent_m, "range_profile": profile.name}
     kind = site["kind"]
-    raw = a.raw_root / name / "raw"
+    raw = a.raw_root / a.site / "raw"
     provenance_path = raw / "provenance.json"
+    if a.origin is not None and not provenance_path.is_file():
+        raise ValueError("--origin requires matching raw provenance")
     if provenance_path.exists():
         provenance = json.loads(provenance_path.read_text())
         if any(abs(float(provenance[key]) - float(site[key])) > 1e-5 for key in ("lat", "lon")):
             raise ValueError(f"raw origin differs from configured site {name}; fetch matching data before building")
-    half = site["size_m"] / 2
+        if abs(float(provenance.get("size_m", profile.extent_m)) - profile.extent_m) > 1e-6:
+            raise ValueError(f"raw extent differs from requested {profile.extent_m:g} m; fetch matching data before building")
+    half = profile.half_extent_m
     rng_py = random.Random(hash(name) & 0xffff if False else sum(map(ord, name)))
     rng = np.random.default_rng(sum(map(ord, name)))
     proj = Transformer.from_crs("EPSG:4326", f"+proj=tmerc +lat_0={site['lat']} +lon_0={site['lon']} +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m", always_xy=True)
@@ -869,7 +893,7 @@ def main() -> None:
     for r in osm.rel_polys:
         if r["tags"].get("natural") == "water" or r["tags"].get("waterway") == "riverbank":
             water_polys.append(r["poly"].intersection(area))
-    validate_launch_water(water_polys)
+    validate_launch_water(water_polys, profile.spawn_clearance_m)
     for r in osm.ways:
         t = r["tags"]
         if t.get("aeroway") in {"runway", "apron", "taxiway"} and r["closed"]:
@@ -937,7 +961,12 @@ def main() -> None:
             rgb8 = (rgb * 255).astype(np.uint8)
             # Rows in the PNG run north to south; UV v=0 is at the south edge.
             tile_distance = math.hypot((-half + (i + 0.5) * TILE_M), (-half + (j + 0.5) * TILE_M))
-            tile_out_px = 4096 if tile_distance <= TILE_M * 0.85 else 2048
+            if tile_distance <= profile.near_radius_m:
+                tile_out_px = profile.near_texture_px
+            elif tile_distance <= profile.mid_radius_m:
+                tile_out_px = profile.mid_texture_px
+            else:
+                tile_out_px = profile.far_texture_px
             tile_rgb = rgb8 if tile_out_px == rgb8.shape[0] else np.asarray(Image.fromarray(rgb8).resize((tile_out_px, tile_out_px), Image.LANCZOS))
             Image.fromarray(tile_rgb).save(out / "textures" / f"ground_{i}_{j}.jpg", quality=90, subsampling=0)
             small = np.asarray(Image.fromarray(np.dstack([rgb8, arr[..., 3]])).resize((tile_px, tile_px), Image.LANCZOS))
@@ -1191,7 +1220,7 @@ def main() -> None:
             tree_count += 1
         filtered_objects.append(obj)
     scene["objects"] = filtered_objects
-    merger = Merger(name, out)
+    merger = Merger(name, out, max_triangles=profile.max_prop_triangles)
     for t in scene["trees"]:
         merger.add(t["cat"], t["x"], t["y"], t["z"], t["yaw"], t["s"])
     # Things the AI must tell apart stay separate and labelled; the rest merges.
@@ -1209,7 +1238,8 @@ def main() -> None:
         n_containers = add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng, vis_xml, coll_xml, water_polys=water_polys)
         print("containers", n_containers, flush=True)
     print("merged groups", len(merger.groups), flush=True)
-    ground_classes = write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm if site.get("provider") == "global" else None)
+    ground_classes = write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm if site.get("provider") == "global" else None,
+                                       texture_px=profile.core_texture_px)
     # ---- Model files
     provenance = json.loads((raw / "provenance.json").read_text()) if (raw / "provenance.json").exists() else {}
     attributions = [source.get("attribution") for source in provenance.get("sources", {}).values()
@@ -1245,6 +1275,7 @@ def main() -> None:
     merged_tree_instances = sum(stats["instances"] for slug, stats in merger.stats.items()
                                 if ASSET_BY_SLUG.get(slug, {}).get("category") in {"broadleaf_tree", "conifer"})
     scene.update({"raw_dir": str(raw.resolve()), "site": name, "title": site["title"], "lat": site["lat"], "lon": site["lon"], "elevation": terrain.elev0, "size_m": site["size_m"], "kind": kind,
+                  "source_site": a.site, "visual_grid_m": a.grid, "range_profile": profile.as_dict(),
                   "stats": {"ground_class_pixels": ground_classes, "city_model_buildings": city_stats[0], "city_model_triangles": city_stats[1],
                             "city_model_texture_bytes": (out / "textures/city_texture.jpg").stat().st_size if city_stats[1] else 0,
                             "buildings": len(buildings) + len(city_rows), "trees": merged_tree_instances, "tree_candidates": len(scene["trees"]), "road_km": sum(r["line"].length for r in road_lines) / 1000,
@@ -1322,10 +1353,10 @@ def add_containers(name, out, mosaic, half, buildings, road_lines, terrain, rng,
     return count
 
 
-def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm=None) -> dict[str, int]:
+def write_core_ground(name, out, raw, terrain_vis, half, vis_xml, tiles, stretch, osm=None, *, texture_px=8192) -> dict[str, int]:
     """Sharp ground around the takeoff point: the aerial photo sets colour, CC0 photos add fine detail."""
     core_half = 300.0
-    px = 8192
+    px = texture_px
     res = 2 * core_half / px
     src_res = TILE_M / tiles[(0, 0)].shape[0]
     # Stitch just the part of the tile mosaic the core needs.

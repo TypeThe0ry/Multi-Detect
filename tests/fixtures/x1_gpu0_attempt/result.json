@@ -1,0 +1,32 @@
+{
+  "name": "493fcd1aabe6b5e143151876b80a72d801456d16e9f62158d0816b456d180231",
+  "variant": "V9",
+  "attempt": 1,
+  "extent_m": 6000.0,
+  "minimum_max_distance_m": 4000.0,
+  "minimum_rtf": 0.9,
+  "airframe": "delta_tailsitter_gimbal_cam",
+  "stats_returncode": 2,
+  "flight_returncode": 0,
+  "route_completed": true,
+  "max_distance_from_spawn_m": 4159.576509533847,
+  "flight_status": "pass",
+  "container_name_slot_verified": false,
+  "valid_round": false,
+  "round_errors": [
+    "stats.json is incomplete or has errors",
+    "rtf_window_median is below 0.9 or missing",
+    "container name does not contain -slot-5-"
+  ],
+  "measurement_complete": false,
+  "gpu_uuid": "GPU-952f7216-7210-0257-8e8c-55e02f203073",
+  "image": "sha256:34fb3975ca6d185f081bcce0639d1c49f68f2c0588c1dcf47c8f3fb103c61425",
+  "image_id": "sha256:34fb3975ca6d185f081bcce0639d1c49f68f2c0588c1dcf47c8f3fb103c61425",
+  "bridge_stabilize": true,
+  "bridge_stabilize_check": {
+    "requested": true,
+    "env_enabled": true,
+    "capable": true,
+    "passed": true
+  }
+}

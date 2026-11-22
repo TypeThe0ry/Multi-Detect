@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "scenario_id": "rw_city_zurich_w6km__clear_noon",
+  "profile": "rw_city_zurich_w6km__clear_noon",
+  "airframe": "delta_tailsitter_gimbal_cam",
+  "minimum_rtf": 0.9,
+  "output_stem": "rw_city_zurich_w6km__clear_noon__long-range__rtf90",
+  "extent_m": 6000.0,
+  "minimum_max_distance_m": 4000.0,
+  "max_wall_s": 14400.0,
+  "mission_compile_runtime": {
+    "schema_version": 1,
+    "vehicle_class": "vtol",
+    "home_position": {
+      "latitude_deg": 47.366373353,
+      "longitude_deg": 8.554568286
+    },
+    "mission_geometry": {
+      "waypoints": [
+        {
+          "latitude_deg": 47.37400903291502,
+          "longitude_deg": 8.543294712627885,
+          "altitude_m": 67.97000000000003,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.38838207746093,
+          "longitude_deg": 8.525389625507469,
+          "altitude_m": 64.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.39233466471106,
+          "longitude_deg": 8.516238136534811,
+          "altitude_m": 62.14239999999995,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.38658544689269,
+          "longitude_deg": 8.5186254814842,
+          "altitude_m": 63.99200000000002,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.37993791379021,
+          "longitude_deg": 8.52936853375645,
+          "altitude_m": 68.606,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.37302088610249,
+          "longitude_deg": 8.542631561253055,
+          "altitude_m": 67.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.36906829885236,
+          "longitude_deg": 8.549793596101223,
+          "altitude_m": 85.52600000000001,
+          "altitude_reference": "relative_home"
+        }
+      ],
+      "takeoff_altitude_m": 65.0,
+      "loiter_time_s": 1.0,
+      "loiter_radius_m": 80.0,
+      "acceptance_radius_m": 25.0,
+      "landing": {
+        "latitude_deg": 47.366373353,
+        "longitude_deg": 8.554568286,
+        "altitude_m": 0.0,
+        "altitude_reference": "relative_home"
+      }
+    },
+    "safety_policy": {
+      "geofence_center": {
+        "latitude_deg": 47.366373353,
+        "longitude_deg": 8.554568286
+      },
+      "geofence_radius_m": 4242.640687119286,
+      "allowed_airframe_profile_ids": [
+        "px4_delta_tailsitter_gimbal_gazebo_v1"
+      ],
+      "minimum_relative_altitude_m": 5.0,
+      "maximum_relative_altitude_m": 150.0,
+      "maximum_mission_radius_m": 4192.640687119286,
+      "maximum_loiter_radius_m": 150.0,
+      "maximum_loiter_time_s": 600.0,
+      "maximum_landing_offset_m": 20.0,
+      "home_match_tolerance_m": 2.0,
+      "maximum_items": 64
+    }
+  },
+  "task": {
+    "schema_version": 1,
+    "task_id": "rw_city_zurich_w6km__clear_noon-long-range",
+    "task_type": "survey",
+    "geometry": {
+      "kind": "map_feature",
+      "resolved_feature_id": "long-range-circuit",
+      "direction": "clockwise",
+      "length_m": 8303.118497527486,
+      "buffer_m": 0.0,
+      "centerline": [
+        {
+          "latitude_deg": 47.366373353,
+          "longitude_deg": 8.554568286
+        },
+        {
+          "latitude_deg": 47.37400903291502,
+          "longitude_deg": 8.543294712627885,
+          "altitude_m": 67.97000000000003,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.38838207746093,
+          "longitude_deg": 8.525389625507469,
+          "altitude_m": 64.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.39233466471106,
+          "longitude_deg": 8.516238136534811,
+          "altitude_m": 62.14239999999995,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.38658544689269,
+          "longitude_deg": 8.5186254814842,
+          "altitude_m": 63.99200000000002,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.37993791379021,
+          "longitude_deg": 8.52936853375645,
+          "altitude_m": 68.606,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.37302088610249,
+          "longitude_deg": 8.542631561253055,
+          "altitude_m": 67.0,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.36906829885236,
+          "longitude_deg": 8.549793596101223,
+          "altitude_m": 85.52600000000001,
+          "altitude_reference": "relative_home"
+        },
+        {
+          "latitude_deg": 47.366373353,
+          "longitude_deg": 8.554568286
+        }
+      ],
+      "resolution_confidence": 1.0
+    },
+    "target_classes": [
+      "terrain"
+    ],
+    "on_detection": [],
+    "constraints": {
+      "minimum_return_battery_pct": 30.0,
+      "maximum_duration_s": 3600.0,
+      "remain_inside_geofence": true
+    },
+    "completion_action": "return",
+    "unresolved_assumptions": []
+  },
+  "context": {
+    "schema_version": 1,
+    "snapshot_id": "offline-long-range-feasibility",
+    "captured_at_s": 0.0,
+    "captured_at_utc": "2026-11-15T00:00:00Z",
+    "aircraft_position": {
+      "latitude_deg": 47.366373353,
+      "longitude_deg": 8.554568286
+    },
+    "home_position": {
+      "latitude_deg": 47.366373353,
+      "longitude_deg": 8.554568286
+    },
+    "airframe_profile_id": "px4_delta_tailsitter_gimbal_gazebo_v1",
+    "battery_remaining_pct": 100.0,
+    "estimated_flight_time_s": 3600.0,
+    "ground_speed_mps": 15.0,
+    "airspeed_mps": 15.0,
+    "wind_north_mps": 0.0,
+    "wind_east_mps": 0.0,
+    "gps_fix_type": 3,
+    "gps_horizontal_accuracy_m": 1.0,
+    "geofence_valid": true,
+    "camera_available": true,
+    "perception_available": true,
+    "map_cache_available": true,
+    "dem_available": true
+  },
+  "context_scope": "offline assumed healthy SIM inputs; not observed telemetry",
+  "sim_params": {
+    "GF_MAX_HOR_DIST": 4242.640687119286,
+    "GF_MAX_VER_DIST": 180,
+    "GF_ACTION": 1,
+    "FW_R_LIM": 35.0
+  },
+  "boundary": {
+    "east_min_m": -3000.0,
+    "east_max_m": 3000.0,
+    "north_min_m": -3000.0,
+    "north_max_m": 3000.0
+  },
+  "kind": "vtol",
+  "capture_interval_sim_s": 6.0,
+  "gimbal_pitch_deg": -56.0
+}

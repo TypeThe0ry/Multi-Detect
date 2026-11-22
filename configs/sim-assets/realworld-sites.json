@@ -53,6 +53,14 @@
       "kind": "urban",
       "provider": "swiss"
     },
+    "rw_city_zurich_w6km": {
+      "title": "苏黎世老城与湖滨",
+      "lat": 47.366373353,
+      "lon": 8.554568286,
+      "size_m": 2000,
+      "kind": "urban",
+      "provider": "swiss"
+    },
     "rw_alpine_grindelwald": {
       "title": "格林德瓦山村",
       "lat": 46.6245,
@@ -140,6 +148,58 @@
       "kind": "urban",
       "provider": "global",
       "takeoff_surface": "OSM landuse=grass The Promontory@Marina Bay；25m起飞盘须通过构建检查"
+    },
+    "rw_alpine_grindelwald_w6km": {
+      "title": "格林德瓦山村",
+      "lat": 46.615953933,
+      "lon": 8.036630765,
+      "size_m": 6000,
+      "kind": "mountain",
+      "provider": "swiss",
+      "origin_moved_for_pad": true
+    },
+    "rw_canal_amsterdam_w6km": {
+      "title": "阿姆斯特丹运河区",
+      "lat": 52.357,
+      "lon": 4.882,
+      "size_m": 6000,
+      "kind": "urban",
+      "provider": "nl"
+    },
+    "rw_port_rotterdam_w6km": {
+      "title": "鹿特丹港区",
+      "lat": 51.887021903,
+      "lon": 4.422107006,
+      "size_m": 6000,
+      "kind": "industrial",
+      "provider": "nl",
+      "origin_moved_for_pad": true
+    },
+    "rw_city_berlin_w6km": {
+      "title": "柏林 Tiergarten 周边",
+      "lat": 52.5145,
+      "lon": 13.3501,
+      "size_m": 6000,
+      "kind": "urban",
+      "provider": "berlin",
+      "city_model": "Berlin LoD2 CityGML + DOP20"
+    },
+    "rw_city_singapore_w6km": {
+      "title": "新加坡 Upper Thomson 开阔草地（距默认家点约 0.7 km）",
+      "lat": 1.357442,
+      "lon": 103.82375,
+      "size_m": 6000,
+      "kind": "urban",
+      "provider": "global"
+    },
+    "rw_city_shenzhen_w6km": {
+      "title": "深圳南山 深圳湾公园开阔地",
+      "lat": 22.521144928,
+      "lon": 113.951372005,
+      "size_m": 6000,
+      "kind": "coast",
+      "provider": "global",
+      "origin_moved_for_pad": true
     }
   }
 }

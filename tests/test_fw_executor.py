@@ -8,6 +8,7 @@ from multidetect.autonomy.motion_intent import MotionCommand
 from multidetect.sim_teacher.fw_executor import FixedWingVtolExecutor
 from multidetect.sim_teacher.primitives import ActionPrimitive
 from scripts.collect_sim_teacher_episodes import (
+    _ReaderAckLink,
     _apply_motion_wait_result,
     _SimClock,
     _fixed_wing_reposition_complete,
@@ -195,6 +196,14 @@ def test_vtol_takeoff_and_landing_transition_sequence() -> None:
     assert [name for name, _, _ in fake.calls[-2:]] == ["vtol_transition", "fw_land"]
 
 
+def test_vtol_lands_in_mc_without_reissuing_the_transition():
+    fake = FakeVehicle()
+    executor = FixedWingVtolExecutor(fake, airframe="vtol", landing_method="vtol")
+    assert executor.execute(MotionCommand("transition", mode="MC")).status == "success"
+    assert executor.land(already_in_mc=True).status == "success"
+    assert [name for name, _, _ in fake.calls] == ["vtol_transition", "fw_land"]
+
+
 def test_profile_alias_uses_vtol_sequence_and_nonzero_ack_timeout() -> None:
     fake = FakeVehicle()
     executor = FixedWingVtolExecutor(fake, airframe="standard_vtol_mono_cam")
@@ -239,6 +248,81 @@ def test_state_wait_budget_uses_injected_sim_clock():
     assert clock() == pytest.approx(100.0)
     reader.state.messages["LOCAL_POSITION_NED"].time_boot_ms = 2000
     assert clock() == pytest.approx(101.0)
+
+
+def test_reader_ack_wait_allows_slow_wall_time_when_px4_clock_advances(monkeypatch):
+    class State:
+        messages = {"LOCAL_POSITION_NED": type("M", (), {"time_boot_ms": 1000})()}
+        command_acks = {}
+        received_monotonic_ns = {}
+
+        def get(self, name):
+            return self.messages.get(name)
+
+    state = State()
+    reader = type("Reader", (), {"state": state})()
+    link = _ReaderAckLink(object(), reader)
+    wall = [0.0]
+
+    monkeypatch.setattr("scripts.collect_sim_teacher_episodes.time.monotonic", lambda: wall[0])
+    monkeypatch.setattr("scripts.collect_sim_teacher_episodes.time.monotonic_ns", lambda: int(wall[0] * 1e9))
+
+    def slow_sleep(_seconds):
+        wall[0] += 1.0
+        state.messages["LOCAL_POSITION_NED"].time_boot_ms += 200
+        if wall[0] == 10.0:
+            state.command_acks[77] = (type("Ack", (), {"result": 0})(), int(wall[0] * 1e9))
+
+    monkeypatch.setattr("scripts.collect_sim_teacher_episodes.time.sleep", slow_sleep)
+    ack = link.wait_command_ack(77, timeout_s=8.0)
+
+    assert ack == {"command": 77, "result": 0}
+    assert wall[0] == 10.0
+
+
+def test_reader_ack_wait_fails_after_sim_clock_stalls(monkeypatch):
+    class State:
+        messages = {"LOCAL_POSITION_NED": type("M", (), {"time_boot_ms": 1000})()}
+        command_acks = {}
+        received_monotonic_ns = {}
+
+        def get(self, name):
+            return self.messages.get(name)
+
+    state = State()
+    link = _ReaderAckLink(object(), type("Reader", (), {"state": state})())
+    wall = [0.0]
+    monkeypatch.setattr("scripts.collect_sim_teacher_episodes.time.monotonic", lambda: wall[0])
+    monkeypatch.setattr("scripts.collect_sim_teacher_episodes.time.monotonic_ns", lambda: 1)
+    monkeypatch.setattr("scripts.collect_sim_teacher_episodes.LINUX_PRIMITIVE_CLOCK_STALL_TIMEOUT_S", 3.0)
+    monkeypatch.setattr(
+        "scripts.collect_sim_teacher_episodes.time.sleep", lambda _seconds: wall.__setitem__(0, wall[0] + 1.0)
+    )
+
+    assert link.wait_command_ack(77, timeout_s=8.0) is None
+    assert wall[0] == 3.0
+
+
+def test_reader_ack_wait_respects_configurable_wall_hard_limit(monkeypatch):
+    class State:
+        messages = {}
+        command_acks = {}
+        received_monotonic_ns = {}
+
+        def get(self, name):
+            return self.messages.get(name)
+
+    link = _ReaderAckLink(object(), type("Reader", (), {"state": State()})())
+    wall = [0.0]
+    monkeypatch.setenv("SIM_TEACHER_HARD_WALL_TIMEOUT_S", "2")
+    monkeypatch.setattr("scripts.collect_sim_teacher_episodes.time.monotonic", lambda: wall[0])
+    monkeypatch.setattr("scripts.collect_sim_teacher_episodes.time.monotonic_ns", lambda: 1)
+    monkeypatch.setattr(
+        "scripts.collect_sim_teacher_episodes.time.sleep", lambda _seconds: wall.__setitem__(0, wall[0] + 1.0)
+    )
+
+    assert link.wait_command_ack(77, timeout_s=8.0) is None
+    assert wall[0] == 2.0
 
 
 def test_command_rejection_does_not_advance_commanded_position() -> None:

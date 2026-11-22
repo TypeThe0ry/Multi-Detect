@@ -28,6 +28,7 @@ class GimbalManagerSession:
 
     def __init__(self, connection: Any, reader: Any, send: Callable[..., None], *,
                  device_id: int = 1, wall_timeout_s: float = 5.0,
+                 attitude_device_id: int | None = None,
                  vehicle_timeout_s: float = 2.0,
                  owner_vehicle_timeout_s: float = 4.0,
                  target: tuple[int, int] | None = None,
@@ -42,6 +43,9 @@ class GimbalManagerSession:
             raise RuntimeError("MAVLink manager target is unknown")
         self.reader, self.send = reader, send
         self.device_id, self.wall_timeout_s = device_id, wall_timeout_s
+        # Older PX4 Gazebo bridges omit the attitude device id (zero). The
+        # caller may bind that id explicitly; manager ownership stays device 1.
+        self.attitude_device_id = device_id if attitude_device_id is None else attitude_device_id
         self.vehicle_timeout_s, self.owner_vehicle_timeout_s, self.clock_ns = vehicle_timeout_s, owner_vehicle_timeout_s, clock_ns
         self.cursor = reader.gimbal_events_cursor()
         self.phase = "idle"
@@ -135,7 +139,7 @@ class GimbalManagerSession:
                 if stamp < self.started_ns or not self._source_matches(msg):
                     continue
                 if name == "GIMBAL_DEVICE_ATTITUDE_STATUS":
-                    if self._field(msg, "gimbal_device_id") == self.device_id:
+                    if self._field(msg, "gimbal_device_id") == self.attitude_device_id:
                         self.latest_attitude = (msg, stamp)
                     continue
                 if name == "COMMAND_ACK":

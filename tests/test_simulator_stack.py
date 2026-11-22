@@ -14,6 +14,8 @@ from multidetect.simulator.stack import (
     StackPlan,
     StackPlanError,
     build_stack_plan,
+    parse_builtin_asset_uri,
+    parse_builtin_world_uri,
     read_world_coordinates,
     resolve_simulator_assets,
     stack_plan_from_scenario,
@@ -21,6 +23,36 @@ from multidetect.simulator.stack import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = ROOT / "configs" / "scenarios"
+
+
+def test_rtf_asset_roots_resolve_scenario_owned_files(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "simulation" / "gazebo").mkdir(parents=True)
+    world_root = tmp_path / "variant-worlds"
+    map_root = tmp_path / "variant-maps"
+    terrain_root = tmp_path / "variant-terrain"
+    world_root.mkdir()
+    map_root.mkdir()
+    terrain_root.mkdir()
+    world = world_root / "rw_variant.sdf"
+    world.write_text('<sdf version="1.9"><world name="default"><spherical_coordinates/>'
+                     '</world></sdf>', encoding="utf-8")
+    map_path = map_root / "rw_variant.geojson"
+    dem_path = terrain_root / "rw_variant.dem.json"
+    map_path.write_text("{}", encoding="utf-8")
+    dem_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("MULTIDETECT_RTF_WORLD_ROOT", str(world_root))
+    monkeypatch.setenv("MULTIDETECT_RTF_MAP_ROOT", str(map_root))
+    monkeypatch.setenv("MULTIDETECT_RTF_TERRAIN_ROOT", str(terrain_root))
+
+    resolved_world = parse_builtin_world_uri("builtin://gazebo/rw_variant", repository_root=tmp_path,
+                                             scenario_id="rw_variant")
+    resolved_map = parse_builtin_asset_uri("builtin://maps/rw_variant.geojson", kind="maps",
+                                           repository_root=tmp_path, scenario_id="rw_variant")
+    resolved_dem = parse_builtin_asset_uri("builtin://terrain/rw_variant.dem.json", kind="terrain",
+                                           repository_root=tmp_path, scenario_id="rw_variant")
+    assert resolved_world.path == world
+    assert resolved_map.path == map_path
+    assert resolved_dem.path == dem_path
 
 
 @pytest.mark.parametrize(
@@ -144,6 +176,28 @@ def test_multirotor_stack_selects_x500_and_px4_autostart() -> None:
     assert document["vehicle"]["model_name"] == "x500_mono_cam"
     assert document["environment"]["PX4_SYS_AUTOSTART"] == "4001"
     assert document["environment"]["PX4_SIM_MODEL"] == "gz_x500_mono_cam"
+
+
+def test_x500_gimbal_runtime_model_selects_gimbal_autostart_with_shared_multirotor_profile() -> None:
+    runtime = load_runtime_scenario(
+        SCENARIOS / "urban_inspection_multirotor_001.scenario.json",
+        mode=RuntimeMode.SIM,
+    )
+    gimbal_runtime = replace(
+        runtime,
+        vehicle=replace(runtime.vehicle, model="x500_gimbal"),
+    )
+
+    plan = build_stack_plan(
+        gimbal_runtime,
+        repository_root=ROOT,
+        tool_capabilities={"gazebo": False, "px4": False},
+    )
+
+    assert plan.airframe_profile_id == "px4_multirotor_gazebo_v1"
+    assert plan.model_name == "x500_mono_cam"
+    assert plan.environment_mapping["PX4_SYS_AUTOSTART"] == "4019"
+    assert plan.environment_mapping["PX4_SIM_MODEL"] == "gz_x500_gimbal"
 
 
 def test_hash_bound_spawn_pose_is_forwarded_to_px4_gazebo_environment() -> None:

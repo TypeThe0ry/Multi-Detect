@@ -244,6 +244,7 @@ class SetpointStreamer:
     """Continuously send a local-NED position/yaw target on one MAVLink link."""
 
     TYPE_MASK = 0b101111111000
+    PATH_TYPE_MASK = 0xDC0  # Position and velocity only; ignore acceleration, yaw and yaw rate.
     FRAME_LOCAL_NED = 1
 
     def __init__(
@@ -265,6 +266,7 @@ class SetpointStreamer:
         self._target_component = target_component
         self._lock = threading.Lock()
         self._target: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+        self._path_velocity: tuple[float, float] | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.error: BaseException | None = None
@@ -276,6 +278,17 @@ class SetpointStreamer:
             raise ValueError("setpoint target must contain finite values")
         with self._lock:
             self._target = target
+            self._path_velocity = None
+
+    def set_path_target(self, position: tuple[float, float, float], velocity_ne: tuple[float, float]) -> None:
+        """Stream a point and its horizontal tangent for PX4 FW Offboard path guidance."""
+        north, east, down = position
+        vn, ve = velocity_ne
+        if not all(math.isfinite(value) for value in (north, east, down, vn, ve)) or math.hypot(vn, ve) <= 0:
+            raise ValueError("path setpoint requires a finite position and nonzero horizontal velocity")
+        with self._lock:
+            self._target = (north, east, down, 0.0)
+            self._path_velocity = (vn, ve)
 
     update_target = set_target
 
@@ -297,7 +310,10 @@ class SetpointStreamer:
         self._send_once()
 
     def _send_once(self) -> None:
-        north, east, down, yaw_deg = self.target
+        with self._lock:
+            north, east, down, yaw_deg = self._target
+            velocity = self._path_velocity
+        vn, ve = velocity if velocity is not None else (0.0, 0.0)
         target_system = self._target_system
         if target_system is None:
             target_system = int(getattr(self.vehicle, "target_system", 1) or 1)
@@ -309,12 +325,12 @@ class SetpointStreamer:
             int(target_system),
             int(target_component),
             self.FRAME_LOCAL_NED,
-            self.TYPE_MASK,
+            self.PATH_TYPE_MASK if velocity is not None else self.TYPE_MASK,
             north,
             east,
             down,
-            0.0,
-            0.0,
+            vn,
+            ve,
             0.0,
             0.0,
             0.0,

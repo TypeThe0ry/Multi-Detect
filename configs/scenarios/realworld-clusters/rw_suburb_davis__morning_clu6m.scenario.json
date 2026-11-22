@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_suburb_davis__morning_clu6m",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_suburb_davis__morning_clu6m.runtime.json",
+   "sha256": "ede91b6fb95d182c54ee33f1d66d1c54e580cc206b3a8f49ee6090988a81ef0c"
+  },
+  "truth": {
+   "path": "rw_suburb_davis__morning_clu6m.truth.json",
+   "sha256": "08cb10014dc1122d0eabdd0955aefb3e1b050bb819b28edb73368bbd28a1a6db"
+  },
+  "expectations": {
+   "path": "rw_suburb_davis__morning_clu6m.expectations.json",
+   "sha256": "5073bbef9cd4c0b69fe03184c9c2a025e6257341eab431745d0c0cab8b27bf1d"
+  }
+ }
+}

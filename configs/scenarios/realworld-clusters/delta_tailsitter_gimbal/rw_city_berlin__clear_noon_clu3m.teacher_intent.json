@@ -1,0 +1,114 @@
+{
+ "kind": "find_and_observe",
+ "observation": {
+  "camera_altitude_m": 20.0,
+  "camera_pitch_rad": -0.785,
+  "max_detection_range_m": 60.0,
+  "vtol_hover_floor_m": 12.0,
+  "observation_frames": 3,
+  "estimate_motion_frame_offset": false,
+  "observation_waypoint": {
+   "x_east_m": 0.0,
+   "y_north_m": 0.0,
+   "z_up_m": 0.0
+  },
+  "views": [
+   {
+    "view": "v00",
+    "observation_waypoint": {
+     "x_east_m": 14.64,
+     "y_north_m": -14.61,
+     "z_up_m": 15.08
+    }
+   },
+   {
+    "view": "v01",
+    "observation_waypoint": {
+     "x_east_m": 11.61,
+     "y_north_m": -29.88,
+     "z_up_m": 19.32
+    }
+   },
+   {
+    "view": "v02",
+    "observation_waypoint": {
+     "x_east_m": 19.97,
+     "y_north_m": -28.63,
+     "z_up_m": 13.01
+    }
+   },
+   {
+    "view": "v03",
+    "observation_waypoint": {
+     "x_east_m": 31.68,
+     "y_north_m": -38.89,
+     "z_up_m": 18.69
+    }
+   },
+   {
+    "view": "v04",
+    "observation_waypoint": {
+     "x_east_m": 34.78,
+     "y_north_m": -31.02,
+     "z_up_m": 13.07
+    }
+   },
+   {
+    "view": "v05",
+    "observation_waypoint": {
+     "x_east_m": 49.51,
+     "y_north_m": -26.01,
+     "z_up_m": 19.37
+    }
+   },
+   {
+    "view": "v06",
+    "observation_waypoint": {
+     "x_east_m": 44.25,
+     "y_north_m": -19.39,
+     "z_up_m": 13.27
+    }
+   },
+   {
+    "view": "v07",
+    "observation_waypoint": {
+     "x_east_m": 47.28,
+     "y_north_m": -4.12,
+     "z_up_m": 18.84
+    }
+   },
+   {
+    "view": "v08",
+    "observation_waypoint": {
+     "x_east_m": 38.92,
+     "y_north_m": -5.37,
+     "z_up_m": 13.66
+    }
+   },
+   {
+    "view": "v09",
+    "observation_waypoint": {
+     "x_east_m": 27.21,
+     "y_north_m": 4.89,
+     "z_up_m": 20.78
+    }
+   },
+   {
+    "view": "v10",
+    "observation_waypoint": {
+     "x_east_m": 24.11,
+     "y_north_m": -2.98,
+     "z_up_m": 15.06
+    }
+   },
+   {
+    "view": "v11",
+    "observation_waypoint": {
+     "x_east_m": 9.38,
+     "y_north_m": -7.99,
+     "z_up_m": 22.56
+    }
+   }
+  ]
+ }
+}

@@ -1,0 +1,13 @@
+{
+  "generator": "multidetect.simulator.world_gen.derive_fixed_wing_scenario",
+  "schema_version": 1,
+  "worlds": [
+    {
+      "airframe": "fixed_wing",
+      "runway_clearance_m": null,
+      "runway_heading_deg": 90.0,
+      "source_scenario": "rw_farm_iowa_w2km__clear_noon.scenario.json",
+      "world_id": "rw_farm_iowa_w2km__clear_noon"
+    }
+  ]
+}

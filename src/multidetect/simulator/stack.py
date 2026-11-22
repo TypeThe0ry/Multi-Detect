@@ -364,6 +364,7 @@ class SimulatorStackPlan:
     # Tool discovery is advisory: a plan remains serializable in dry-run mode
     # when PX4/Gazebo are not installed on the planning host.
     tool_capabilities: tuple[tuple[str, bool], ...] = ()
+    external_world_sdf: bool = False
 
     def __post_init__(self) -> None:
         if self.schema_version != SCHEMA_VERSION:
@@ -443,7 +444,16 @@ class SimulatorStackPlan:
             bindings.append((sensor_id, source, bound))
         object.__setattr__(self, "sensor_port_bindings", tuple(bindings))
         root = self.repository_root.resolve()
-        _assert_contained_file(self.world_path, root, "world_path")
+        if self.external_world_sdf:
+            world_path = Path(self.world_path)
+            if world_path.is_symlink() or not world_path.is_file():
+                raise SimulatorStackError("external world_path must be a regular file")
+            if world_path.resolve() != self.assets.world_path.resolve():
+                raise SimulatorStackError(
+                    "external world_path must match the explicitly resolved world asset"
+                )
+        else:
+            _assert_contained_file(self.world_path, root, "world_path")
         _assert_contained_file(self.map_path, root, "map_path")
         _assert_contained_file(self.dem_path, root, "dem_path")
         _assert_contained_file(self.model_path, root, "model_path")
@@ -526,6 +536,7 @@ class SimulatorStackPlan:
                 "name": self.world_name,
                 "path": _display_path(self.world_path, root),
                 "absolute_path": str(self.world_path),
+                "external": self.external_world_sdf,
             },
             "map": {
                 "uri": self.map_uri,
@@ -541,7 +552,8 @@ class SimulatorStackPlan:
             },
             "repository": {
                 "root": str(root),
-                "owned": True,
+                "owned": not self.external_world_sdf,
+                "external_world_sdf": self.external_world_sdf,
                 "network_assets": False,
                 "truth_loaded": False,
             },
@@ -622,8 +634,9 @@ def parse_builtin_world_uri(
     *,
     repository_root: str | Path | None = None,
     scenario_id: str | None = None,
+    world_sdf_path: str | Path | None = None,
 ) -> BuiltinWorldReference:
-    """Resolve a literal ``builtin://gazebo/<scenario>`` URI to local SDF."""
+    """Resolve a literal world URI to its SDF, optionally using an explicit file."""
 
     if not isinstance(world_uri, str):
         raise SimulatorStackError("world_asset must be a string")
@@ -639,14 +652,33 @@ def parse_builtin_world_uri(
             f"builtin world '{name}' does not match scenario_id '{scenario_id}'"
         )
     root = _resolve_repository_root(repository_root)
-    path = root / "simulation" / "gazebo" / "worlds" / f"{name}.sdf"
-    if not path.is_file():
-        path = root / "simulation" / "gazebo" / "worlds" / "variants" / f"{name}.sdf"
-    # New airframe fixtures are self-contained under the scenario boundary so
-    # adding a model does not require changing the shared world asset tree.
-    if not path.is_file():
-        path = root / "configs" / "scenarios" / "airframes" / f"{name}.sdf"
-    _assert_contained_file(path, root, "world asset")
+    if world_sdf_path is not None:
+        candidate = Path(world_sdf_path).expanduser()
+        if candidate.is_symlink():
+            raise SimulatorStackError(f"world SDF must not be a symlink: {candidate}")
+        path = candidate.resolve()
+        if path.stem != name:
+            raise SimulatorStackError(
+                f"external world SDF '{path.name}' does not match builtin world '{name}'"
+            )
+        if not path.is_file():
+            raise SimulatorStackError(f"external world SDF does not exist: {path}")
+    else:
+        override = os.environ.get("MULTIDETECT_RTF_WORLD_ROOT", "").strip()
+        if override:
+            world_root = Path(override).expanduser()
+            if not world_root.is_absolute():
+                world_root = root / world_root
+            path = world_root / f"{name}.sdf"
+        else:
+            path = root / "simulation" / "gazebo" / "worlds" / f"{name}.sdf"
+            if not path.is_file():
+                path = root / "simulation" / "gazebo" / "worlds" / "variants" / f"{name}.sdf"
+            # New airframe fixtures are self-contained under the scenario boundary so
+            # adding a model does not require changing the shared world asset tree.
+            if not path.is_file():
+                path = root / "configs" / "scenarios" / "airframes" / f"{name}.sdf"
+        _assert_contained_file(path, root, "world asset")
     _validate_world_sdf(path, expected_name="default")
     return BuiltinWorldReference(value, name, path)
 
@@ -682,9 +714,17 @@ def parse_builtin_asset_uri(
             f"builtin {kind} asset '{asset_scenario_id}' does not match scenario_id '{scenario_id}'"
         )
     root = _resolve_repository_root(repository_root)
-    path = root / "simulation" / kind / name
-    if not path.is_file():
-        path = root / "configs" / "scenarios" / "airframes" / name
+    override_name = "MULTIDETECT_RTF_MAP_ROOT" if kind == "maps" else "MULTIDETECT_RTF_TERRAIN_ROOT"
+    override = os.environ.get(override_name, "").strip()
+    if override:
+        asset_root = Path(override).expanduser()
+        if not asset_root.is_absolute():
+            asset_root = root / asset_root
+        path = asset_root / name
+    else:
+        path = root / "simulation" / kind / name
+        if not path.is_file():
+            path = root / "configs" / "scenarios" / "airframes" / name
     _assert_contained_file(path, root, f"{kind} asset")
     return BuiltinAssetReference(value, kind, name, path)
 
@@ -693,6 +733,7 @@ def resolve_simulator_assets(
     runtime_input: ScenarioRuntimeInput,
     *,
     repository_root: str | Path | None = None,
+    world_sdf_path: str | Path | None = None,
 ) -> SimulatorStackAssets:
     """Resolve, validate and hash every world-facing runtime asset."""
 
@@ -703,6 +744,7 @@ def resolve_simulator_assets(
         runtime_input.world.world_asset,
         repository_root=root,
         scenario_id=runtime_input.scenario_id,
+        world_sdf_path=world_sdf_path,
     )
     coordinates = read_world_coordinates(world.path)
     if coordinates is None:
@@ -764,6 +806,7 @@ def build_stack_plan(
     realtime: bool = True,
     px4_workdir: str | Path | None = None,
     tool_capabilities: Mapping[str, object] | None = None,
+    world_sdf_path: str | Path | None = None,
 ) -> SimulatorStackPlan:
     """Build a deterministic stack plan without starting external programs."""
 
@@ -772,7 +815,9 @@ def build_stack_plan(
     selected_ports = _coerce_ports(ports)
     _validate_runtime_network(runtime, selected_ports)
     sensor_port_bindings = _sensor_port_bindings(runtime, selected_ports)
-    assets = resolve_simulator_assets(runtime, repository_root=root)
+    assets = resolve_simulator_assets(
+        runtime, repository_root=root, world_sdf_path=world_sdf_path
+    )
     vehicle_class, model_name = _vehicle_spec(
         runtime.vehicle.model, runtime.vehicle.airframe_profile_id
     )
@@ -832,6 +877,7 @@ def build_stack_plan(
         headless=bool(headless),
         realtime=bool(realtime),
         sensor_port_bindings=sensor_port_bindings,
+        external_world_sdf=world_sdf_path is not None,
     )
     return _with_tool_capabilities(plan, tool_capabilities)
 
@@ -1567,10 +1613,12 @@ def _build_environment(
         "delta_tailsitter_gimbal_cam": "4051",
         "tiltrotor_mono_cam": "4020",
     }.get(model_name)
-    gimbal_profile = runtime.vehicle.airframe_profile_id.lower() in {
+    gimbal_profile = runtime.vehicle.model.lower() in {"x500_gimbal", "px4_x500_gimbal"} or (
+        runtime.vehicle.airframe_profile_id.lower() in {
         "x500_gimbal",
         "px4_x500_gimbal",
-    }
+        }
+    )
     if gimbal_profile:
         autostart = "4019"
     if autostart is None:

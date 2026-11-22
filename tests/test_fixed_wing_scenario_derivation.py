@@ -73,6 +73,22 @@ def test_derived_runtime_spawns_a_fixed_wing_along_the_clearest_runway(tmp_path:
     assert row["world_id"] == world_id and row["task_text"] and row["runway_heading_deg"] == heading
 
 
+def test_derivation_can_select_the_rc_cessna_model(tmp_path: Path) -> None:
+    worlds, scenario = _world(tmp_path)
+    out = tmp_path / "configs/scenarios/fw"
+    derive_fixed_wing_scenario(
+        scenario, out, worlds_dir=worlds, corridor_half_width_m=0.0,
+        vehicle_model="rc_cessna_mono_cam",
+    )
+    runtime = json.loads((out / "gen_w0000.runtime_input.json").read_text(encoding="utf-8"))
+    vehicle = runtime["vehicle"]
+    assert vehicle["model"] == "rc_cessna_mono_cam"
+    assert _stack_vehicle_spec(vehicle["model"], vehicle["airframe_profile_id"]) == (
+        "fixed-wing",
+        "rc_cessna_mono_cam",
+    )
+
+
 def test_chosen_heading_is_the_clearest_and_a_blocked_runway_is_refused(tmp_path: Path) -> None:
     worlds, scenario = _world(tmp_path)
     out = tmp_path / "fw"

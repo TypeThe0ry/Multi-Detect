@@ -1,0 +1,73 @@
+{
+  "faults": [
+    {
+      "at_s": 35.0,
+      "duration_s": 4.0,
+      "event_id": "gps-dropout-001",
+      "kind": "gps_dropout"
+    },
+    {
+      "at_s": 80.0,
+      "duration_s": 5.0,
+      "event_id": "wind-gust-001",
+      "kind": "wind_gust",
+      "magnitude": 2.0
+    },
+    {
+      "at_s": 120.0,
+      "duration_s": 4.0,
+      "event_id": "camera-loss-001",
+      "kind": "camera_dropout"
+    }
+  ],
+  "scenario_id": "rw_port_oakland__clear_noon_clu6m",
+  "scenario_version": 1,
+  "schema_version": 1,
+  "seed": 91000,
+  "sensors": [
+    {
+      "calibration_id": "gazebo-fixed-wing-front-camera-v1",
+      "kind": "rgb_camera",
+      "sensor_id": "front-camera",
+      "stream_uri": "gazebo://rw_port_oakland__clear_noon_clu6m/front-camera"
+    },
+    {
+      "calibration_id": "gazebo-fixed-wing-depth-v1",
+      "kind": "depth_camera",
+      "sensor_id": "forward-depth",
+      "stream_uri": "gazebo://rw_port_oakland__clear_noon_clu6m/forward-depth"
+    },
+    {
+      "kind": "mavlink_telemetry",
+      "sensor_id": "px4-telemetry",
+      "stream_uri": "udp://127.0.0.1:14541"
+    },
+    {
+      "calibration_id": "gazebo-fixed-wing-airspeed-v1",
+      "kind": "airspeed",
+      "sensor_id": "airspeed",
+      "stream_uri": "gazebo://rw_port_oakland__clear_noon_clu6m/airspeed"
+    }
+  ],
+  "vehicle": {
+    "airframe_profile_id": "px4_delta_tailsitter_gimbal_gazebo_v1",
+    "model": "delta_tailsitter_gimbal_cam",
+    "spawn_id": "rw_port_oakland__clear_noon_clu6m_vtol",
+    "spawn_pose": {
+      "pitch_rad": 0.0,
+      "roll_rad": 0.0,
+      "x_east_m": 0.0,
+      "y_north_m": 0.0,
+      "yaw_rad": 0.0,
+      "z_up_m": 0.411
+    }
+  },
+  "world": {
+    "dem_asset": "builtin://terrain/rw_port_oakland__clear_noon_clu6m.dem.json",
+    "gust_mps": 0.0,
+    "map_asset": "builtin://maps/rw_port_oakland__clear_noon_clu6m.geojson",
+    "wind_east_mps": 0.0,
+    "wind_north_mps": 0.0,
+    "world_asset": "builtin://gazebo/rw_port_oakland__clear_noon_clu6m"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_city_zurich__evening_clu6m.expectations.json",
+      "sha256": "985b5ac1ee572b0ddc4412ff70012b13df8bcbe8ed7eacd65d5ad1a1387ce4ce"
+    },
+    "runtime_input": {
+      "path": "rw_city_zurich__evening_clu6m.runtime_input.json",
+      "sha256": "48c5faff5224e635c6b517912c57d91832026d770b980e9e5fcccf3889ab33d6"
+    },
+    "truth": {
+      "path": "rw_city_zurich__evening_clu6m.truth.json",
+      "sha256": "40f5befdc0c31abba8f5317c9744b889a9e30e188de6f321a850fc5a46c1e2dd"
+    }
+  },
+  "scenario_id": "rw_city_zurich__evening_clu6m",
+  "scenario_version": 1,
+  "schema_version": 1
+}

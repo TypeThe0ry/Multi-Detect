@@ -1,0 +1,1041 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spica://tools/target_query.json",
+  "title": "TargetQuery",
+  "description": "Canonical natural-language target query shared by Altair, Sirius and Mizar. All distances are metres and durations seconds.",
+  "type": "object",
+  "required": [
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Open vocabulary; alternatives (OR), never a fixed taxonomy."
+    },
+    "category_options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "minLength": 1
+          },
+          "synonyms": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "min_confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "category"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "description": "Per-category synonym alternatives and confidence override."
+    },
+    "attributes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Attribute"
+      },
+      "minItems": 1,
+      "description": "Conjunction (AND) of extensible filters."
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Relation"
+      },
+      "minItems": 1,
+      "description": "Conjunction (AND) of spatial or other constraints."
+    },
+    "count_or_condition": {
+      "$ref": "#/$defs/CountOrCondition"
+    },
+    "temporal": {
+      "$ref": "#/$defs/Temporal"
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "description": "Requested optional result groups. Absent uses the caller-configured default; [] requests no optional fields.",
+      "x-known-values": [
+        "distance",
+        "bearing",
+        "wgs84",
+        "elevation",
+        "covariance",
+        "ellipse",
+        "cep50",
+        "cep95",
+        "confidence",
+        "track_id",
+        "timestamp",
+        "history",
+        "trajectory",
+        "count",
+        "exists"
+      ]
+    },
+    "watch": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/WatchPolicy"
+        }
+      ]
+    },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "max_results": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "min_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "required": [
+        "categories"
+      ]
+    },
+    {
+      "required": [
+        "attributes"
+      ]
+    },
+    {
+      "required": [
+        "relations"
+      ]
+    },
+    {
+      "required": [
+        "temporal"
+      ]
+    }
+  ],
+  "$defs": {
+    "Attribute": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1,
+          "x-known-values": [
+            "eq",
+            "ne",
+            "in",
+            "not_in",
+            "lt",
+            "lte",
+            "gt",
+            "gte",
+            "contains",
+            "matches",
+            "exists"
+          ],
+          "description": "Open operator name; adapters validate value types. Known operators are annotations, not an enum."
+        },
+        "value": {},
+        "weight": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "op",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "Relation": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "x-known-values": [
+            "near",
+            "nearest",
+            "within_region",
+            "left_of",
+            "on_top_of",
+            "along",
+            "nth"
+          ],
+          "description": "Open relation name. x-known-values lists shared vocabulary without restricting extensions."
+        },
+        "anchor": {
+          "oneOf": [
+            {
+              "$ref": "#"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "$ref": "#/$defs/Coordinate"
+            }
+          ]
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Relation/plugin-specific parameters; execution adapter validates parameter semantics.",
+          "x-known-params": {
+            "near": {
+              "max_distance_m": "Nonnegative distance threshold in metres."
+            },
+            "nearest": {
+              "metric": "Distance metric plugin name; ascending distance with stable ID ties."
+            },
+            "within_region": {
+              "boundary": "inclusive or exclusive."
+            },
+            "left_of": {
+              "frame": "Explicit image or context-bound coordinate frame."
+            },
+            "on_top_of": {
+              "surface": "Surface selector, e.g. roof."
+            },
+            "along": {
+              "corridor_width_m": "Total corridor width in metres."
+            },
+            "nth": {
+              "rank": "Positive 1-based rank.",
+              "order_by": "Explicit ordering field.",
+              "direction": "ascending or descending."
+            }
+          }
+        }
+      },
+      "required": [
+        "type",
+        "anchor"
+      ],
+      "additionalProperties": false
+    },
+    "Coordinate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "const": "wgs84"
+            },
+            "lat": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "lon": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "alt": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "frame",
+            "lat",
+            "lon"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "const": "local_enu"
+            },
+            "east_m": {
+              "type": "number"
+            },
+            "north_m": {
+              "type": "number"
+            },
+            "up_m": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "frame",
+            "east_m",
+            "north_m"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "const": "image"
+            },
+            "x": {
+              "type": "number",
+              "minimum": 0
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0
+            },
+            "frame_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "frame",
+            "x",
+            "y",
+            "frame_id"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CountOrCondition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "count"
+            },
+            "comparison": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "enum": [
+                    "eq",
+                    "ne",
+                    "lt",
+                    "lte",
+                    "gt",
+                    "gte"
+                  ]
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "op",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "duration_s": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "exists"
+            },
+            "value": {
+              "type": "boolean"
+            },
+            "duration_s": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "threshold"
+            },
+            "metric": {
+              "type": "string",
+              "minLength": 1
+            },
+            "comparison": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "enum": [
+                    "eq",
+                    "ne",
+                    "lt",
+                    "lte",
+                    "gt",
+                    "gte"
+                  ]
+                },
+                "value": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "op",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "duration_s": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type",
+            "metric",
+            "comparison"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "trigger_on"
+            },
+            "event": {
+              "type": "string",
+              "minLength": 1
+            },
+            "comparison": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "enum": [
+                    "eq",
+                    "ne",
+                    "lt",
+                    "lte",
+                    "gt",
+                    "gte"
+                  ]
+                },
+                "value": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "op",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "duration_s": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type",
+            "event"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Temporal": {
+      "type": "object",
+      "properties": {
+        "as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "window": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "duration_s": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              },
+              "required": [
+                "duration_s"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "history": {
+          "type": "boolean"
+        },
+        "trajectory": {
+          "type": "boolean"
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "WatchPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "trigger_strategy": {
+          "type": "string",
+          "minLength": 1,
+          "x-known-values": [
+            "on_enter",
+            "on_exit",
+            "on_change",
+            "continuous",
+            "once"
+          ]
+        },
+        "report_interval_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "cooldown_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "debounce_s": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "car"
+      ],
+      "attributes": [
+        {
+          "name": "color",
+          "op": "eq",
+          "value": "red"
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "person"
+      ],
+      "attributes": [
+        {
+          "name": "clothing.color",
+          "op": "eq",
+          "value": "orange",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "attributes": [
+        {
+          "name": "state.smoking",
+          "op": "eq",
+          "value": true
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "car"
+      ],
+      "relations": [
+        {
+          "type": "near",
+          "anchor": {
+            "schema_version": "1.0",
+            "categories": [
+              "river"
+            ]
+          },
+          "params": {
+            "max_distance_m": 20
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "tent"
+      ],
+      "relations": [
+        {
+          "type": "nearest",
+          "anchor": "self",
+          "params": {
+            "metric": "ground_distance"
+          }
+        }
+      ],
+      "limits": {
+        "max_results": 1
+      },
+      "outputs": [
+        "distance",
+        "bearing",
+        "wgs84"
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "person"
+      ],
+      "relations": [
+        {
+          "type": "on_top_of",
+          "anchor": {
+            "schema_version": "1.0",
+            "categories": [
+              "building"
+            ],
+            "relations": [
+              {
+                "type": "nth",
+                "anchor": "self",
+                "params": {
+                  "rank": 2,
+                  "order_by": "bearing_deg",
+                  "direction": "ascending"
+                }
+              }
+            ],
+            "limits": {
+              "max_results": 1
+            }
+          },
+          "params": {
+            "surface": "roof"
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "deer"
+      ],
+      "count_or_condition": {
+        "type": "count"
+      },
+      "outputs": [
+        "count"
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "person"
+      ],
+      "attributes": [
+        {
+          "name": "action",
+          "op": "eq",
+          "value": "fallen"
+        }
+      ],
+      "count_or_condition": {
+        "type": "trigger_on",
+        "event": "match_enter",
+        "duration_s": 2
+      },
+      "watch": {
+        "enabled": true,
+        "trigger_strategy": "on_enter",
+        "report_interval_s": 1,
+        "cooldown_s": 10
+      },
+      "outputs": [
+        "track_id",
+        "timestamp"
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "car"
+      ],
+      "temporal": {
+        "track_id": "car-42",
+        "since": "2026-11-15T10:00:00Z",
+        "as_of": "2026-11-15T10:01:00Z",
+        "history": true,
+        "trajectory": true
+      },
+      "outputs": [
+        "bearing",
+        "history",
+        "trajectory",
+        "track_id",
+        "timestamp"
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "car"
+      ],
+      "relations": [
+        {
+          "type": "within_region",
+          "anchor": {
+            "id": "region-alpha"
+          },
+          "params": {
+            "boundary": "inclusive"
+          }
+        }
+      ],
+      "count_or_condition": {
+        "type": "exists",
+        "value": true
+      },
+      "outputs": [
+        "exists"
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "box"
+      ],
+      "attributes": [
+        {
+          "name": "material",
+          "op": "in",
+          "value": [
+            "steel",
+            "aluminium"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "type": "left_of",
+          "anchor": {
+            "schema_version": "1.0",
+            "categories": [
+              "tree"
+            ]
+          },
+          "params": {
+            "frame": "image"
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "person"
+      ],
+      "attributes": [
+        {
+          "name": "action",
+          "op": "eq",
+          "value": "moving"
+        }
+      ],
+      "relations": [
+        {
+          "type": "along",
+          "anchor": {
+            "schema_version": "1.0",
+            "categories": [
+              "river"
+            ]
+          },
+          "params": {
+            "corridor_width_m": 15
+          }
+        }
+      ],
+      "temporal": {
+        "window": {
+          "duration_s": 30
+        },
+        "trajectory": true
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "deer"
+      ],
+      "count_or_condition": {
+        "type": "count",
+        "comparison": {
+          "op": "gte",
+          "value": 5
+        },
+        "duration_s": 3
+      },
+      "watch": true,
+      "outputs": [
+        "count"
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "car"
+      ],
+      "count_or_condition": {
+        "type": "threshold",
+        "metric": "speed_mps",
+        "comparison": {
+          "op": "gt",
+          "value": 10
+        },
+        "duration_s": 2
+      },
+      "metrics": [
+        {
+          "name": "speed_mps",
+          "params": {
+            "smoothing_s": 1
+          }
+        }
+      ],
+      "watch": {
+        "enabled": true,
+        "trigger_strategy": "on_change",
+        "report_interval_s": 0.5
+      }
+    },
+    {
+      "schema_version": "1.0",
+      "categories": [
+        "shelter"
+      ],
+      "category_options": [
+        {
+          "category": "shelter",
+          "synonyms": [
+            "refuge",
+            "避难所"
+          ],
+          "min_confidence": 0.7
+        }
+      ],
+      "relations": [
+        {
+          "type": "near",
+          "anchor": {
+            "frame": "wgs84",
+            "lat": 1.3,
+            "lon": 103.8,
+            "alt": 12
+          },
+          "params": {
+            "max_distance_m": 50
+          }
+        }
+      ],
+      "limits": {
+        "min_confidence": 0.6,
+        "max_results": 3
+      },
+      "outputs": [
+        "wgs84",
+        "elevation",
+        "covariance",
+        "ellipse",
+        "cep50",
+        "cep95",
+        "confidence"
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "attributes": [
+        {
+          "name": "custom.thermal_state",
+          "op": "custom.matches",
+          "value": {
+            "band": "warm",
+            "range": [
+              20,
+              40
+            ]
+          }
+        }
+      ],
+      "relations": [
+        {
+          "type": "custom.visible_from",
+          "anchor": {
+            "frame": "local_enu",
+            "east_m": 10,
+            "north_m": 20
+          },
+          "params": {
+            "sensor": "ir"
+          }
+        }
+      ],
+      "temporal": {
+        "window": {
+          "start": "2026-11-15T10:00:00Z",
+          "end": "2026-11-15T10:01:00Z"
+        }
+      },
+      "metrics": [
+        {
+          "name": "custom.heat_score",
+          "params": {
+            "scale": 2
+          }
+        }
+      ],
+      "outputs": [
+        "custom.heat_score"
+      ],
+      "watch": false
+    }
+  ],
+  "x-example-prompts": [
+    "红车",
+    "穿橙色衣服的人",
+    "冒烟的地方",
+    "河边那辆车",
+    "离我最近的帐篷",
+    "第二栋楼楼顶的人",
+    "数一下有几只鹿",
+    "有人倒地就报警",
+    "刚才那辆车往哪开了",
+    "指定区域里有车吗",
+    "树左边的金属箱子",
+    "沿河移动的人",
+    "连续三秒至少五只鹿",
+    "速度超过每秒十米的车",
+    "坐标附近的应急设施",
+    "过去一分钟自定义状态的目标"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "scenario_id": "rw_canal_amsterdam__clear_noon_clu6m",
+ "scenario_version": 1,
+ "channels": {
+  "runtime_input": {
+   "path": "rw_canal_amsterdam__clear_noon_clu6m.runtime.json",
+   "sha256": "3157c7fa9e59840121da43de5b6c3f07dbfde2ffdea3c55e5f7e1e945d40ae18"
+  },
+  "truth": {
+   "path": "rw_canal_amsterdam__clear_noon_clu6m.truth.json",
+   "sha256": "56c3bd37158316a1199889db2af6c7143368d28c406f741e4027dfde99f40dc5"
+  },
+  "expectations": {
+   "path": "rw_canal_amsterdam__clear_noon_clu6m.expectations.json",
+   "sha256": "7a120d59205413c3ba16b5d73ad1a300af54033711ad87990c7171cb1b16afcd"
+  }
+ }
+}

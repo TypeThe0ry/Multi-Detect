@@ -1,0 +1,19 @@
+{
+  "channels": {
+    "expectations": {
+      "path": "rw_downtown_sf__morning_clu3m.expectations.json",
+      "sha256": "41ebee1c863b7ee3e403f7368413ee14e3d8002a235a1a483553f34961927928"
+    },
+    "runtime_input": {
+      "path": "rw_downtown_sf__morning_clu3m.runtime_input.json",
+      "sha256": "3117e77a38ab1f014e06f6a44752a43a79ae3f4cd4288a9b90a74d942732dda8"
+    },
+    "truth": {
+      "path": "rw_downtown_sf__morning_clu3m.truth.json",
+      "sha256": "0a6dcda0647f3fd55e488b8ba0a5ea287c862c0fc77c319581f24058e31fc937"
+    }
+  },
+  "scenario_id": "rw_downtown_sf__morning_clu3m",
+  "scenario_version": 1,
+  "schema_version": 1
+}
