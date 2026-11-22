@@ -62,15 +62,15 @@ def host(tmp_path, monkeypatch):
                            status=tmp_path / "GPU-STATUS.json")
 
 
-def test_prefers_gpu3_when_idle(host):
-    assert x1_gpu.select(host.status) == {"gpu_index": 3, "gpu_uuid": gpu_uuid(3),
-                                         "gpu_reason": "preferred_gpu3_idle", "gpu_shared_processes": []}
+def test_prefers_gpu0_when_idle(host):
+    assert x1_gpu.select(host.status) == {"gpu_index": 0, "gpu_uuid": gpu_uuid(0),
+                                         "gpu_reason": "fallback_gpu_idle", "gpu_shared_processes": []}
     assert json.loads(host.status.read_text())["blocked_gpus"] == {}
 
 
 @pytest.mark.parametrize("training_on_1,expected", [(False, 1), (True, 2)])
 def test_prefers_idle_over_shared_and_skips_training_gpu(host, training_on_1, expected):
-    host.live[3]["processes"] = [(123, "G", "/opt/google/chrome/chrome", 96)]
+    host.live[0]["processes"] = [(123, "G", "/opt/google/chrome/chrome", 96)]
     if training_on_1:
         host.training["md-sched-example.service"] = f"SCHED_GPU={gpu_uuid(1)}"
     assert x1_gpu.select(host.status) == {"gpu_index": expected, "gpu_uuid": gpu_uuid(expected),

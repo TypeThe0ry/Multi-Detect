@@ -5,7 +5,7 @@ keeper=${1:-/data/projects/Multi-Detect-env/runs/keepalive}
 registry=${2:-$keeper/registry.tsv}
 name=${3:-md-x1-resume}
 case $name in
-    md-x1-resume|md-x1-collect-next) gpu=3,1,2,0 ;;
+    md-x1-resume|md-x1-collect-next) gpu=0,1,2,3 ;;
     md-x1-worlds) gpu=- ;;
     *) exit 2 ;;
 esac

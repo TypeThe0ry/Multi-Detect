@@ -9,7 +9,7 @@ from scripts.realworld import wide_collect_batch as batch
 from scripts.realworld.sample_stats import run_read
 
 KEEPALIVE = Path("/data/projects/Multi-Detect-env/runs/keepalive")
-ORDER = (3, 1, 2, 0)
+ORDER = (0, 1, 2, 3)
 UUID = re.compile(r"GPU-[0-9a-fA-F-]{36}\Z")
 HEARTBEAT_MAX_AGE_S = 900  # Three five-minute keepalive intervals.
 DISPLAY_PROCESSES = {"xorg", "xwayland", "gnome-shell", "kwin_wayland", "kwin_x11", "sunshine",
@@ -18,6 +18,15 @@ SHARED_MEMORY_MIB = 1024
 SHARED_UTIL_PCT = 60
 BUSY_MEMORY_MIB = 2048
 ACTIVE = {"ALIVE", "PAUSED", "START_REQUESTED"}
+# Temporary opt-in: while this marker exists, Sunshine's idle compute context (type C, still bound by
+# the shared memory/utilization limits) may share a GPU with X1. Delete the marker to restore the rule.
+SUNSHINE_COMPUTE_MARKER = Path("/data/scratch/x1-allow-sunshine-compute")
+
+
+def shareable(kind, name):
+    return ((kind in {"G", "C+G"} and name.lower() in DISPLAY_PROCESSES)
+            or (kind == "C" and name.lower() == "sunshine" and SUNSHINE_COMPUTE_MARKER.exists()))
+
 UNAVAILABLE = "x1_gpu_unavailable"
 
 
@@ -131,7 +140,7 @@ def live_gpu(index):
         kind = item.findtext("type", "unknown").strip()
         name = Path((item.findtext("process_name", "").split() or [""])[0]).name  # nvidia-smi may report the whole command line
         pid = item.findtext("pid", "").strip()
-        if kind not in {"G", "C+G"} or name.lower() not in DISPLAY_PROCESSES or not pid.isdecimal():
+        if not shareable(kind, name) or not pid.isdecimal():
             reasons.append(f"gpu_process:{pid or 'unknown'}:{kind}:{name}")
             continue
         used = int(item.findtext("used_memory", "").removesuffix(" MiB"))
@@ -150,7 +159,7 @@ def heartbeat_blockers(row, uuid, shared):
     reasons += metric(row["util_pct"], SHARED_UTIL_PCT if shared else 5, "heartbeat_util_pct")
     # The compute-only snapshot can also report C+G. Only exempt the same PID
     # and executable already verified by the live, typed XML probe.
-    confirmed = {(p["pid"], p["name"]) for p in shared if p["type"] == "C+G"}
+    confirmed = {(p["pid"], p["name"]) for p in shared if p["type"] in {"C+G", "C"}}
     compute = row["compute"]
     if not isinstance(compute, list) or any(
             not isinstance(p, dict) or (p["pid"], Path((str(p["process"]).split() or [""])[0]).name) not in confirmed for p in compute):
