@@ -19,6 +19,18 @@ X1_TRACK_SAMPLE_HZ = 10
 X1_TRACK_TRANSIENT_SIM_S = 20  # measured settling: error < 2 deg by ~9-11 s (ROOTCAUSE.md)
 X1_TRACK_MIN_LOCK_RATE = 0.9  # a tracking hold below this geometric lock rate is an unacceptable eval run
 X1_TRACK_PREVIEW_S = 0.20  # body-rate lead for the bridge track pose (bridge lock mode uses the same 200 ms)
+X1_TRACK_PREVIEW_MAX_DEG = 12.0  # same cap as the bridge's own lock-mode preview
+
+
+def x1_track_preview(environ=None):
+    """(lead seconds, max lead radians) for the eval track pose; overridable for tuning flights."""
+    import os
+    env = os.environ if environ is None else environ
+    lead = float(env.get("MULTIDETECT_X1_TRACK_PREVIEW_S", X1_TRACK_PREVIEW_S))
+    cap = float(env.get("MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG", X1_TRACK_PREVIEW_MAX_DEG))
+    if not (math.isfinite(lead) and 0.0 <= lead <= 1.0 and math.isfinite(cap) and 0.0 < cap <= 90.0):
+        raise ValueError("invalid X1 track preview override")
+    return lead, math.radians(cap)
 
 
 def x1_track_preaim(track_step, index, action) -> bool:

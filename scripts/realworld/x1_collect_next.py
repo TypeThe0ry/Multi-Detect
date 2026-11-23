@@ -58,7 +58,7 @@ def verified_asset(asset, world_name, *, variant_dir=None):
 
 
 def site_plan(asset_root, site, index, image_id, spec=None, *,
-              conditions=("noon", "clear"), asset_dir=None, gimbal_eval=False, slot=None):
+              conditions=("noon", "clear"), asset_dir=None, gimbal_eval=False, slot=None, eval_tag=None):
     preset = batch.WEATHER[conditions]
     asset = asset_root / f"{site}_w6km" / "v1" if asset_dir is None else asset_dir
     variant_dir = None if preset == "clear_noon" else asset / "x1-variants" / preset
@@ -77,7 +77,8 @@ def site_plan(asset_root, site, index, image_id, spec=None, *,
         raise ValueError(f"{name}: variant sidecar does not certify {threshold} m")
     # Keep records for older versions. A rebuilt route or new image cannot qualify this run.
     eval_options = {"gimbal_eval": True} if gimbal_eval else {}
-    eval_identity = {**eval_options, "eval_capture_revision": EVAL_CAPTURE_REVISION} if gimbal_eval else {}
+    eval_identity = ({**eval_options, "eval_capture_revision": EVAL_CAPTURE_REVISION,
+                      **({"eval_tag": eval_tag} if eval_tag else {})} if gimbal_eval else {})
     suffix = batch.digest({"route": receipt, "image_id": image_id, "bridge": BRIDGE_STABILIZE,
                            **eval_identity})[:20]
     queue_key = site if variant_dir is None else f"{site}__{preset}"
@@ -207,6 +208,11 @@ def eval_config(*, require_enabled):
         raise ValueError("invalid X1 gimbal evaluation image override")
     if "only" in spec and (type(spec["only"]) is not list or not all(type(x) is str for x in spec["only"])):
         raise ValueError("invalid X1 gimbal evaluation condition filter")
+    if "tag" in spec and (type(spec["tag"]) is not str or not spec["tag"]):
+        raise ValueError("invalid X1 gimbal evaluation tag")
+    for key, high in (("track_preview_s", 1.0), ("track_preview_max_deg", 90.0)):
+        if key in spec and (type(spec[key]) not in (int, float) or not 0 < spec[key] <= high):
+            raise ValueError(f"invalid X1 gimbal evaluation {key}")
     return spec
 
 
@@ -240,7 +246,8 @@ def eval_plans(spec, iowa_spec, image_id, config, *, lane=None):
                 if batch.file_hash(source) != iowa_spec["world_sha256"]:
                     raise ValueError("Iowa base world does not match its pinned SHA-256")
                 suffix = batch.digest({"iowa": iowa_spec, "image_id": image_id, "gimbal_eval": True,
-                                       "eval_capture_revision": EVAL_CAPTURE_REVISION})[:20]
+                                       "eval_capture_revision": EVAL_CAPTURE_REVISION,
+                                       **({"eval_tag": config["tag"]} if config.get("tag") else {})})[:20]
                 stage = ROOT / ".tmp" / "x1-worlds" / f"{label}-{suffix}"
                 plan = batch.expand({**iowa_spec["batch"], "gpu": 0, "slots": [slot],
                                      "variant_world_root": str(stage),
@@ -256,7 +263,8 @@ def eval_plans(spec, iowa_spec, image_id, config, *, lane=None):
                     raise ValueError(f"{site}: invalid asset override")
                 plan, assets = site_plan(asset_root, site, index, image_id, spec, conditions=pair,
                                          asset_dir=asset_root / relative if relative is not None else None,
-                                         gimbal_eval=config["gimbal_eval"], slot=slot)
+                                         gimbal_eval=config["gimbal_eval"], slot=slot,
+                                         **({"eval_tag": config["tag"]} if config.get("tag") else {}))
             yield label, plan, assets
 
 
@@ -401,6 +409,10 @@ def main(argv=None):
             print(resume.read_cmd(["systemd-run", "--unit", unit, "--collect", "--working-directory", str(ROOT),
                                    "--property", f"RequiresMountsFor={resume.NAS}",
                                    "--property", "KillMode=control-group", "--setenv", "PYTHONDONTWRITEBYTECODE=1",
+                                   *(f"--setenv=MULTIDETECT_X1_{name}={config[key]}"
+                                     for key, name in (("track_preview_s", "TRACK_PREVIEW_S"),
+                                                       ("track_preview_max_deg", "TRACK_PREVIEW_MAX_DEG"))
+                                     if config and key in config),
                                    sys.executable, str(Path(__file__).resolve()),
                                    *(["--gimbal-eval"] if config else []), *(["--lane", lane] if lane else []),
                                    "run", "--image-id", image_id]))
