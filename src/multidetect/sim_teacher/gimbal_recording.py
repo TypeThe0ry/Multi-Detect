@@ -54,12 +54,12 @@ class X1FwPhase:
         return "turn" if self.turning else "cruise"
 
 
-def x1_track_preview(environ=None):
-    """(lead seconds, max lead radians) for the eval track pose; overridable for tuning flights."""
+def x1_track_preview(environ=None, *, fw_leg=False):
+    """Eval track lead and cap: FW loiter turns need less lead than MC yaw sweeps."""
     import os
     env = os.environ if environ is None else environ
-    lead = float(env.get("MULTIDETECT_X1_TRACK_PREVIEW_S", X1_TRACK_PREVIEW_S))
-    cap = float(env.get("MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG", X1_TRACK_PREVIEW_MAX_DEG))
+    lead = float(env.get("MULTIDETECT_X1_TRACK_PREVIEW_S", 0.20 if fw_leg else X1_TRACK_PREVIEW_S))
+    cap = float(env.get("MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG", 12.0 if fw_leg else X1_TRACK_PREVIEW_MAX_DEG))
     if not (math.isfinite(lead) and 0.0 <= lead <= 1.0 and math.isfinite(cap) and 0.0 < cap <= 90.0):
         raise ValueError("invalid X1 track preview override")
     return lead, math.radians(cap)

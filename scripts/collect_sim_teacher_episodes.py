@@ -7186,6 +7186,9 @@ def run_episode(
                     bounds["pitch"] = (max(bounds["pitch"][0], -89.9), min(bounds["pitch"][1], 89.9))
                     bounds["yaw"] = (max(bounds["yaw"][0], -179.9), min(bounds["yaw"][1], 179.9))
                 stabilizer_cls = BridgeHorizonTarget if plan.gimbal_bridge_stabilize else HorizonStabilizer
+                if plan.gimbal_bridge_stabilize:
+                    hover_preview = x1_track_preview()
+                    initial_preview = x1_track_preview(fw_leg=True) if plan.gimbal_eval_fw_legs else hover_preview
                 horizon_stabilizer = stabilizer_cls(
                     target,
                     mode=stabilization_mode,
@@ -7193,9 +7196,9 @@ def run_episode(
                     limits_deg=bounds,
                     track_targets=track_targets,
                     **({"status_sender": session.target,
-                        "track_preview_s": (x1_track_preview()[0] if plan.gimbal_eval_track_step is not None
+                        "track_preview_s": (initial_preview[0] if plan.gimbal_eval_track_step is not None
                                             else 0.0),
-                        "track_preview_max_rad": x1_track_preview()[1]}
+                        "track_preview_max_rad": initial_preview[1]}
                        if plan.gimbal_bridge_stabilize else {}),
                 )
 
@@ -8586,6 +8589,7 @@ def run_episode(
                 if fw_leg and index == plan.gimbal_eval_fw_legs - 1:
                     # Hand back to lock so the back-transition and hover pre-aim run exactly as before.
                     horizon_stabilizer.set_mode("lock")
+                    horizon_stabilizer.track_preview_s, horizon_stabilizer.track_preview_max_rad = hover_preview
                     horizon_stabilizer.select_track_target(plan.track_targets[0])
                     recorder.record_mavlink({"message_type": "collector_gimbal_eval_fw_mode",
                                              "step_index": index, "mode": "lock",

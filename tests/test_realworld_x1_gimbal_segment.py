@@ -278,6 +278,9 @@ def test_track_preview_cap_and_override_plumbing():
     from multidetect.sim_teacher.horizon_stabilization import (
         BRIDGE_MAX_PREVIEW_RAD, BridgeHorizonTarget, preview_body_rotation)
     assert x1_track_preview({}) == (0.3, math.radians(30.0))
+    assert x1_track_preview({}, fw_leg=True) == (0.2, math.radians(12.0))
+    assert x1_track_preview({"MULTIDETECT_X1_TRACK_PREVIEW_S": "0.35",
+                             "MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG": "30"}, fw_leg=True) == (0.35, math.radians(30))
     assert x1_track_preview({"MULTIDETECT_X1_TRACK_PREVIEW_S": "0.35",
                              "MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG": "30"}) == (0.35, math.radians(30))
     for bad in ({"MULTIDETECT_X1_TRACK_PREVIEW_S": "2"}, {"MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG": "0"},

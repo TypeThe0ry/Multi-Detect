@@ -17,7 +17,7 @@ from collections.abc import Mapping
 
 from multidetect.camera_mount import _mat_mul, _mat_transpose, rpy_rotation
 from .target_tracking import (
-    WorldTarget, level_target_rotation, pointing_error_deg, solve_track_target, track_horizon_error_deg,
+    WorldTarget, pointing_error_deg, solve_track_target, track_horizon_error_deg,
     unit, world_offset_ned, world_target_direction,
 )
 
@@ -700,7 +700,7 @@ class HorizonStabilizer:
 
 
 class BridgeHorizonTarget(HorizonStabilizer):
-    """Send poses on the C11 bridge contract; solve joints only for frame analysis."""
+    """Send poses on the C11 bridge contract; track sends a bounded pointing pose."""
 
     source = "bridge"
 
@@ -744,26 +744,38 @@ class BridgeHorizonTarget(HorizonStabilizer):
     def transport_flags(self):
         return self._transport_flags(self.mode)
 
-    def _previewed_track_angles(self, mode, angles, body_deg, desired, rates):
-        """Lead the track pose by the body rotation over ``track_preview_s``.
+    def _track_pose(self, body, direction, rates, now_s):
+        # Solve in the anticipated body frame, but encode joints in the *current*
+        # body frame: the earth-yaw bridge applies B^T, without its own preview.
+        # Leading a pose *after* solving can push it back through a joint stop.
+        solve_body = body
+        if (self.track_preview_s > 0 and rates is not None and len(rates) == 3
+                and all(math.isfinite(v) for v in rates)):
+            solve_body = preview_body_rotation(body, rates, self.track_preview_s,
+                                               self.track_preview_max_rad)
 
-        The bridge solves joints from the current body attitude; the C11 joints lag a fast
-        multirotor yaw sweep. Commanding the pose that the *previewed* body attitude would
-        need, ``body P^T body^T desired``, yields the same joint target as the bridge's own
-        preview in lock mode (relative = (body P)^T desired).
-        """
-        if (mode != "track" or self.track_preview_s <= 0.0 or rates is None
-                or len(rates) != 3 or not all(math.isfinite(v) for v in rates)):
-            return angles
-        body = rotation_deg(body_deg)
-        step = preview_body_rotation(_IDENTITY, tuple(rates), self.track_preview_s,
-                                     self.track_preview_max_rad)
-        if step == _IDENTITY:
-            return angles
-        transpose = lambda m: (m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8])
-        led = _mat_mul(_mat_mul(body, transpose(step)), _mat_mul(transpose(body), desired))
-        led_angles = earth_angles_deg(led)
-        return led_angles if abs(led_angles["pitch"]) < 85.0 else angles
+        def solve(attitude):
+            joint, level, _ = solve_track_target(attitude, direction, self.last_joint, self.limits_deg)
+            command = _mat_mul(body, c11_rotation_deg(joint))
+            angles = earth_angles_deg(command)
+            if math.hypot(command[0], command[3]) < 1e-10:
+                # At an earth pitch pole only the combined yaw/roll is observable.
+                angles.update(roll=0., yaw=math.degrees(math.atan2(-command[1], command[4])))
+            return joint, level, angles
+
+        joint, level, angles = solve(solve_body)
+        if solve_body is not body and abs(angles["pitch"]) >= 85.0:
+            joint, level, angles = solve(body)  # existing near-vertical preview guard
+
+        # The bridge slews to the endpoint. Slewing the transmitted pose too would
+        # lose exact feasible pointing. Only advance the host's winding reference.
+        dt = 0.0 if self.last_time is None else min(self.max_age_s, now_s - self.last_time)
+        for axis in AXES:
+            previous = self.last_joint[axis]
+            step = self.rates[axis] * dt
+            self.last_joint[axis] = min(previous + step, max(previous - step, joint[axis]))
+        self.last_time = now_s
+        return level, angles
 
     def _transport_flags(self, mode):
         # PX4's pinned manager uses legacy YAW_LOCK internally, then adds
@@ -784,8 +796,9 @@ class BridgeHorizonTarget(HorizonStabilizer):
         # when the collector switches modes on the action thread.
         mode = self.mode
         track_targets = self.track_targets
-        desired = self.desired_rotation(body_deg, heading=heading, mode=mode)
         if mode == "track":
+            if self.last_time is not None and now_s < self.last_time:
+                return None
             try:
                 if track_direction_ned is not None:
                     direction = unit(track_direction_ned)
@@ -796,23 +809,16 @@ class BridgeHorizonTarget(HorizonStabilizer):
                     target_ref = active.reference()
                 else:
                     return None
-                desired = level_target_rotation(direction)
+                desired, angles = self._track_pose(rotation_deg(body_deg), direction, body_rates_rad_s, now_s)
             except (ValueError, TypeError):
                 return None
-            x, y, z = direction
-            # A vertical ray has no horizon: pick the level_target_rotation
-            # reference heading instead of decomposing a singular matrix.
-            angles = {"roll": 0., "pitch": math.degrees(math.atan2(-z, math.hypot(x, y))),
-                      "yaw": math.degrees(math.atan2(y, x)) if math.hypot(x, y) > 1e-10 else 0.}
-        elif mode == "follow":
-            # Encode the C11 relative pose itself, not a ZYX joint carrier.
-            angles = earth_angles_deg(c11_rotation_deg(self.target_deg))
         else:
-            angles = self.target_deg
+            desired = self.desired_rotation(body_deg, heading=heading, mode=mode)
+            # Follow encodes the C11 relative pose itself, not a ZYX joint carrier.
+            angles = earth_angles_deg(c11_rotation_deg(self.target_deg)) if mode == "follow" else self.target_deg
         result = {
             "source": self.source, "mode": mode, "yaw_mode": self.yaw_mode,
-            "quaternion": _attitude_quaternion(
-                self._previewed_track_angles(mode, angles, body_deg, desired, body_rates_rad_s)),
+            "quaternion": _attitude_quaternion(angles),
             "transport_flags": self._transport_flags(mode),
             "desired_earth_deg": earth_angles_deg(desired), "target_ref": target_ref, "time_s": now_s,
         }
