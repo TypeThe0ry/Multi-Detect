@@ -23,7 +23,15 @@ from multidetect.sim_teacher.target_tracking import (  # noqa: E402
     unit,
     world_target_direction,
 )
-from multidetect.sim_teacher.gimbal_recording import X1_TRACK_MIN_LOCK_RATE, X1_TRACK_TRANSIENT_SIM_S  # noqa: E402
+from multidetect.sim_teacher.gimbal_recording import (  # noqa: E402
+    X1_FW_CRUISE_MAX_P95_DEG,
+    X1_FW_MAX_UNWIND_FRACTION,
+    X1_FW_MIN_LOCK_RATE,
+    X1_FW_MIN_SAMPLES,
+    X1_FW_TURN_MAX_P95_DEG,
+    X1_TRACK_MIN_LOCK_RATE,
+    X1_TRACK_TRANSIENT_SIM_S,
+)
 
 from scripts.realworld.horizon_report import finite_number, percentile, summarize  # noqa: E402
 from scripts.realworld.x1_scenario_class import WIDE_AREA, WIDE_DISTANCE_M  # noqa: E402
@@ -299,11 +307,14 @@ def frame_samples(path, meta):
     pointing, roll, lock_errors = [], [], []
     max_age_s = mapping(meta.get("horizon_stabilization")).get("max_age_s", 0.2)
     max_age_ms = 1000 * max_age_s if finite_number(max_age_s) and max_age_s > 0 else 200.0
+    fw_legs = mapping(meta.get("horizon_stabilization")).get("eval_fw_legs")
     for _, row in jsonl(path):
         state = mapping(row.get("gimbal_state"))
         st = mapping(state.get("stabilization"))
         if row.get("event") is not None:
             continue
+        if type(fw_legs) is int and type(row.get("action_index")) is int and row["action_index"] < fw_legs:
+            continue  # FW-leg frames are scored by fw_legs(), keeping the hover caliber unmixed
         horizon = st.get("horizon_error_deg")
         if st.get("mode") != "track":
             # Same sample set as horizon_report's horizon_acceptance.feasible_error.
@@ -338,7 +349,8 @@ TRACK_SAMPLE = "collector_gimbal_eval_sample"
 TRACK_MODE = "collector_gimbal_eval_mode"
 TRACK_STEADY = "collector_gimbal_eval_steady"
 TRACK_END = "collector_gimbal_eval_end"
-TRACK_EVENTS = {TRACK_SAMPLE, TRACK_MODE, TRACK_STEADY, TRACK_END}
+TRACK_FW_MODE = "collector_gimbal_eval_fw_mode"
+TRACK_EVENTS = {TRACK_SAMPLE, TRACK_MODE, TRACK_STEADY, TRACK_END, TRACK_FW_MODE}
 NS_PER_S = 10**9
 
 
@@ -495,10 +507,73 @@ def track_hold(meta, mavlink, events):
     return report
 
 
+FW_PHASES = ("cruise", "turn")
+FW_GATES = {"cruise": {"max_p95_deg": X1_FW_CRUISE_MAX_P95_DEG, "min_samples": X1_FW_MIN_SAMPLES["cruise"]},
+            "turn": {"max_p95_deg": X1_FW_TURN_MAX_P95_DEG, "min_samples": X1_FW_MIN_SAMPLES["turn"]}}
+
+
+def fw_legs(meta, events):
+    """Cruise/turn tracking of the eval point on the FW legs (opt-in; ``None`` when not requested).
+
+    Phase labels come from the collector (MAVLink bank angle + VTOL state). Samples taken while the yaw
+    unwind had dropped track mode are counted but not scored; unlabelled samples (transition) are ignored.
+    """
+    config = mapping(meta.get("horizon_stabilization"))
+    legs = config.get("eval_fw_legs")
+    if type(legs) is not int or legs <= 0:
+        return None
+    max_age_s = config.get("max_age_s", 0.2)
+    max_age_ms = 1000 * max_age_s if finite_number(max_age_s) and max_age_s > 0 else 200.0
+    in_legs = [r for r in events if type(r.get("step_index")) is int and 0 <= r["step_index"] < legs]
+    refs = [r["target_ref"] for r in in_legs if r["message_type"] == TRACK_FW_MODE
+            and r.get("mode") == "track" and isinstance(r.get("target_ref"), dict)]
+    report = {"legs": legs, "gate": {"min_lock_rate": X1_FW_MIN_LOCK_RATE,
+                                     "max_unwind_fraction": X1_FW_MAX_UNWIND_FRACTION, **FW_GATES}}
+    if not refs or any(ref != refs[0] for ref in refs):
+        return {**report, "status": "target_ref_unavailable", "passed": False}
+    samples, unlabeled = {}, 0
+    for row in in_legs:
+        ns = stamp(row, "sim_stamp_ns")
+        if row["message_type"] == TRACK_SAMPLE and ns is not None:
+            if row.get("fw_phase") in FW_PHASES:
+                samples.setdefault(ns, row)
+            else:
+                unlabeled += 1
+    scored = {phase: [] for phase in FW_PHASES}
+    unwound = 0
+    for row in samples.values():
+        if row.get("track_mode") == "track":
+            scored[row["fw_phase"]].append(row)
+        else:
+            unwound += 1
+    labeled = len(samples)
+    unwind_fraction = unwound / labeled if labeled else None
+    report.update(status="scored", labeled_samples=labeled, unlabeled_samples=unlabeled,
+                  unwind_samples=unwound, unwind_fraction=unwind_fraction)
+    reasons = []
+    for phase in FW_PHASES:
+        summary = hold_phase(scored[phase], refs[0], max_age_ms)
+        gate, p95, lock = FW_GATES[phase], summary["pointing_error_deg"]["p95"], summary["lock_rate"]
+        checks = {"samples": len(scored[phase]) >= gate["min_samples"],
+                  "p95": bool(finite_number(p95) and p95 <= gate["max_p95_deg"]),
+                  "lock_rate": bool(finite_number(lock) and lock >= X1_FW_MIN_LOCK_RATE)}
+        reasons += [f"{phase}_{name}" for name, ok in checks.items() if not ok]
+        report[phase] = {**summary, "sample_count": len(scored[phase]), "checks": checks,
+                         "passed": all(checks.values())}
+    if unwind_fraction is None or unwind_fraction > X1_FW_MAX_UNWIND_FRACTION:
+        reasons.append("unwind_fraction")
+    report.update(passed=not reasons, failed_checks=reasons)
+    return report
+
+
 def read_track_hold(directory, meta, issues):
     events = []
     mavlink = ack_evidence(artifact(directory, "mavlink.jsonl"), issues, track_events=events)
-    return mavlink, track_hold(meta, mavlink, events)
+    hold = track_hold(meta, mavlink, events)
+    fw = fw_legs(meta, events)
+    if fw is not None and hold is not None:
+        hold = {**hold, "fw": fw}
+    return mavlink, hold
 
 
 def flight_metrics(episode, meta, receipt, issues):
@@ -568,7 +643,8 @@ def evaluate_episode(episode, entry, receipts):
     pointing, roll, lock_errors = [], [], []
     if path:
         try:
-            horizon = summarize(path)
+            legs = mapping(meta.get("horizon_stabilization")).get("eval_fw_legs")
+            horizon = summarize(path, exclude_action_below=legs if type(legs) is int and legs > 0 else None)
             counts, pointing, roll, lock_errors = frame_samples(path, meta)
             track = tracking_summary(counts, pointing, roll)
         except ARTIFACT_ERRORS as exc:
@@ -670,6 +746,9 @@ def evaluate(episode_dirs=(), *, accepted_roots=(), evidence_files=()):
             "lock_gate_failures": [r.get("episode_dir") or r.get("episode") for r in episodes
                                    if ((r.get("track_diagnostics") or {}).get("hold") or {})
                                    .get("lock_gate", {}).get("passed") is False],
+            "fw_gate_failures": [r.get("episode_dir") for r in episodes
+                                 if ((r.get("track_diagnostics") or {}).get("hold") or {})
+                                 .get("fw", {}).get("passed") is False],
             "conditions": conditions, "episodes": episodes, "issues": issues}
 
 
@@ -794,6 +873,27 @@ def markdown(report):
                     rejects = f"≥{rejects}"
                 lines.append(cells(episode, name, phase["duration_sim_s"], *track_cells(phase),
                                    fraction(phase["lock_rate"]), rejects))
+    fws = [(e["episode_id"], e["track_diagnostics"]["hold"]["fw"]) for e in report["episodes"]
+           if "fw" in ((e.get("track_diagnostics") or {}).get("hold") or {})]
+    if fws:
+        headers = ("Episode", "Phase", "Samples", "Pointing P50/P95/max (deg)", "Lock rate (resolved)",
+                   "Gate", "Failed checks")
+        lines += ["", "## Fixed-wing cruise/turn tracking", "",
+                  "Same virtual point as the hover hold. Phase comes from the collector (MAVLink bank angle "
+                  "with hysteresis, VTOL state = FW). Samples taken while the yaw unwind had dropped track "
+                  "mode are excluded from the percentiles and capped by the unwind fraction.", "",
+                  cells(*headers), cells(*(["---"] * len(headers)))]
+        for episode, fw in fws:
+            if fw["status"] != "scored":
+                lines.append(cells(episode, fw["status"], *([None] * (len(headers) - 2))))
+                continue
+            for phase in FW_PHASES:
+                p = fw[phase]
+                lines.append(cells(episode, phase, p["sample_count"],
+                                   angles(mapping(p["pointing_error_deg"])), fraction(p["lock_rate"]),
+                                   p["passed"], ", ".join(c for c, ok in p["checks"].items() if not ok) or None))
+            lines.append(cells(episode, "all", fw["labeled_samples"], None, None, fw["passed"],
+                               f"unwind {fraction(fw['unwind_fraction'])}"))
     issues = [*report["issues"], *(f"{e['episode_dir']}: {issue}"
                                   for e in report["episodes"] for issue in e["issues"])]
     if issues:
@@ -830,6 +930,10 @@ def main(argv=None):
         print(f"x1-gimbal-eval: {len(report['lock_gate_failures'])} tracking hold(s) below the "
               f"{X1_TRACK_MIN_LOCK_RATE} lock-rate gate", file=sys.stderr)
         return 3
+    if report["fw_gate_failures"]:
+        print(f"x1-gimbal-eval: {len(report['fw_gate_failures'])} fixed-wing cruise/turn tracking "
+              "run(s) failed the FW gate", file=sys.stderr)
+        return 4
     return 0
 
 

@@ -63,7 +63,7 @@ def finite_number(value):
 
 
 def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverage=False,
-              expected_mode=None, track_action_index=None):
+              expected_mode=None, track_action_index=None, exclude_action_below=None):
     if not 0 <= threshold_deg <= HORIZON_P95_DEG:
         raise ValueError(f"P95 threshold must be in [0, {HORIZON_P95_DEG}] degrees")
     if expected_mode not in (None, "lock", "track"):
@@ -73,7 +73,7 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
     groups = {mode: [] for mode in ("lock", "follow", "track")}
     mode_counts = dict.fromkeys(groups, 0)
     track_missing = track_stale = track_reachable = track_unreachable = track_unknown = 0
-    track_action_frames = 0
+    track_action_frames = excluded_frames = 0
     track_horizon_feasible = track_horizon_infeasible = track_horizon_unknown = 0
     track_errors, track_unreachable_errors = [], []
     track_coverage = dict.fromkeys(IOWA_MIN_FRAMES, 0)
@@ -102,6 +102,11 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
             row = json.loads(line)
             if row.get("event") is not None:
                 truncated |= row["event"] == "truncated"
+                continue
+            if (exclude_action_below is not None and type(row.get("action_index")) is int
+                    and row["action_index"] < exclude_action_below):
+                # FW-leg frames of an X1 cruise/turn tracking eval are scored by x1_gimbal_eval, not here.
+                excluded_frames += 1
                 continue
             frames += 1
             state = row.get("gimbal_state") or {}
@@ -335,6 +340,7 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
                      "horizon_is_diagnostic_only": True, "require_iowa_coverage": require_iowa_coverage},
         "frame_count": mode_counts["track"],
         **({"eval_action_frames": track_action_frames} if track_action_index is not None else {}),
+        **({"excluded_fw_leg_frames": excluded_frames} if exclude_action_below is not None else {}),
         "reachable_frames": track_reachable,
         "unreachable_frames": track_unreachable,
         "unknown_frames": track_unknown,

@@ -30,6 +30,13 @@ def runtime_options(spec, airframe, field):
         if enabled and not options.get("gimbal_bridge_stabilize"):
             raise ValueError(f"{field}.gimbal_eval requires X1 bridge stabilization")
         options["gimbal_eval"] = enabled
+    if "gimbal_eval_fw" in spec:
+        enabled = spec["gimbal_eval_fw"]
+        if type(enabled) is not bool:
+            raise ValueError(f"{field}.gimbal_eval_fw must be a JSON boolean")
+        if enabled and not options.get("gimbal_eval"):
+            raise ValueError(f"{field}.gimbal_eval_fw requires gimbal_eval")
+        options["gimbal_eval_fw"] = enabled
     return options
 
 

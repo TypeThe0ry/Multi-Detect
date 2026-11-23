@@ -162,6 +162,7 @@ def expand(spec):
             raise ValueError(f"jobs[{index}] must be an object")
         unknown = job.keys() - {"site", "scenario", "altitude_m", "time_of_day", "weather", "seed",
                                 "airframe", "max_artifact_bytes", "image", "gimbal_bridge_stabilize", "gimbal_eval",
+                                "gimbal_eval_fw",
                                 "scenario_class", "minimum_max_distance_m", *ROOT_FIELDS}
         if unknown:
             raise ValueError(f"jobs[{index}] unknown fields: {', '.join(sorted(unknown))}")
@@ -438,8 +439,9 @@ def evaluate(attempt, job, batch, rc):
                 mixed = job["inputs"].get("gimbal_eval") is True
                 stabilization = episode.get("horizon_stabilization") or {}
                 track_step = stabilization.get("eval_track_step") if mixed else None
-                summary = summarize_horizon(manifest, expected_mode=None if mixed else "lock",
-                                            track_action_index=track_step)
+                summary = summarize_horizon(
+                    manifest, expected_mode=None if mixed else "lock", track_action_index=track_step,
+                    exclude_action_below=(stabilization.get("eval_fw_legs") or None) if mixed else None)
                 horizon = summary["horizon_acceptance"]
                 if mixed:
                     from scripts.realworld.long_range_flight import GIMBAL_EVAL_MIN_TRACK_FRAMES
@@ -454,6 +456,9 @@ def evaluate(attempt, job, batch, rc):
                     _, hold = read_track_hold(episode_dirs[0].parent, episode, diagnostics_issues)
                     if hold is not None:
                         track["hold"] = hold
+                    if stabilization.get("eval_fw_legs") and (
+                            hold is None or (hold.get("fw") or {}).get("status") != "scored"):
+                        errors.append("gimbal_eval_fw_segment_missing")
                     if diagnostics_issues:
                         track["hold_issues"] = diagnostics_issues
             except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:

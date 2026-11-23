@@ -58,7 +58,8 @@ def verified_asset(asset, world_name, *, variant_dir=None):
 
 
 def site_plan(asset_root, site, index, image_id, spec=None, *,
-              conditions=("noon", "clear"), asset_dir=None, gimbal_eval=False, slot=None, eval_tag=None):
+              conditions=("noon", "clear"), asset_dir=None, gimbal_eval=False, slot=None, eval_tag=None,
+              gimbal_eval_fw=False):
     preset = batch.WEATHER[conditions]
     asset = asset_root / f"{site}_w6km" / "v1" if asset_dir is None else asset_dir
     variant_dir = None if preset == "clear_noon" else asset / "x1-variants" / preset
@@ -76,7 +77,8 @@ def site_plan(asset_root, site, index, image_id, spec=None, *,
     if variant_dir is not None and sidecar.get("minimum_max_distance_m") != threshold:
         raise ValueError(f"{name}: variant sidecar does not certify {threshold} m")
     # Keep records for older versions. A rebuilt route or new image cannot qualify this run.
-    eval_options = {"gimbal_eval": True} if gimbal_eval else {}
+    eval_options = ({"gimbal_eval": True, **({"gimbal_eval_fw": True} if gimbal_eval_fw else {})}
+                    if gimbal_eval else {})
     eval_identity = ({**eval_options, "eval_capture_revision": EVAL_CAPTURE_REVISION,
                       **({"eval_tag": eval_tag} if eval_tag else {})} if gimbal_eval else {})
     suffix = batch.digest({"route": receipt, "image_id": image_id, "bridge": BRIDGE_STABILIZE,
@@ -208,6 +210,8 @@ def eval_config(*, require_enabled):
         raise ValueError("invalid X1 gimbal evaluation image override")
     if "only" in spec and (type(spec["only"]) is not list or not all(type(x) is str for x in spec["only"])):
         raise ValueError("invalid X1 gimbal evaluation condition filter")
+    if "fw_legs" in spec and type(spec["fw_legs"]) is not bool:
+        raise ValueError("invalid X1 gimbal evaluation fw_legs")
     if "tag" in spec and (type(spec["tag"]) is not str or not spec["tag"]):
         raise ValueError("invalid X1 gimbal evaluation tag")
     for key, high in (("track_preview_s", 1.0), ("track_preview_max_deg", 90.0)):
@@ -247,14 +251,16 @@ def eval_plans(spec, iowa_spec, image_id, config, *, lane=None):
                     raise ValueError("Iowa base world does not match its pinned SHA-256")
                 suffix = batch.digest({"iowa": iowa_spec, "image_id": image_id, "gimbal_eval": True,
                                        "eval_capture_revision": EVAL_CAPTURE_REVISION,
-                                       **({"eval_tag": config["tag"]} if config.get("tag") else {})})[:20]
+                                       **({"eval_tag": config["tag"]} if config.get("tag") else {}),
+                                       **({"gimbal_eval_fw": True} if config.get("fw_legs") else {})})[:20]
                 stage = ROOT / ".tmp" / "x1-worlds" / f"{label}-{suffix}"
                 plan = batch.expand({**iowa_spec["batch"], "gpu": 0, "slots": [slot],
                                      "variant_world_root": str(stage),
                                      "batch_id": f"x1-gimbal-eval-{label}-{suffix}",
                                      "output_root": str(EVAL_OUTPUT / "collection" / label / suffix),
                                      "jobs": [dict(iowa_spec["job"], seed=401 + index, image=image_id,
-                                                   gimbal_bridge_stabilize=True, gimbal_eval=True)]})
+                                                   gimbal_bridge_stabilize=True, gimbal_eval=True,
+                                                   **({"gimbal_eval_fw": True} if config.get("fw_legs") else {}))]})
                 assets = [(source, stage, iowa_spec["world_sha256"])]
             else:
                 override = variants.get("asset_dirs", {}).get(site) if offset else None
@@ -264,6 +270,7 @@ def eval_plans(spec, iowa_spec, image_id, config, *, lane=None):
                 plan, assets = site_plan(asset_root, site, index, image_id, spec, conditions=pair,
                                          asset_dir=asset_root / relative if relative is not None else None,
                                          gimbal_eval=config["gimbal_eval"], slot=slot,
+                                         **({"gimbal_eval_fw": True} if config.get("fw_legs") else {}),
                                          **({"eval_tag": config["tag"]} if config.get("tag") else {}))
             yield label, plan, assets
 
@@ -297,13 +304,15 @@ def eval_cpu_preflight(spec, iowa_spec, image_id, config):
             mission = load_mission(staged, dem_path=Path(evidence["dem"]["path"]))
             collector = gimbal_eval_plan(replace(collection_plan(staged, scratch / "no-flight",
                                                                   job["slot"], mission),
-                                                gimbal_mode="lock", gimbal_bridge_stabilize=True), mission)
+                                                gimbal_mode="lock", gimbal_bridge_stabilize=True), mission,
+                                    fw_legs=bool(config.get("fw_legs")))
             rows.append({"condition": label, "job_id": job["job_id"], "route_assets": evidence,
                          "slot": job["slot"],
                          "planned_max_distance_m": mission["planned_max_distance_m"],
                          "minimum_max_distance_m": mission["minimum_max_distance_m"],
                          "video_hz": collector.video_hz, "steps_per_episode": collector.steps_per_episode,
                          "track_step": collector.gimbal_eval_track_step,
+                         "fw_legs": collector.gimbal_eval_fw_legs,
                          "hover_sim_s": GIMBAL_EVAL_HOLD_SIM_S,
                          "tracking_sample_hz": X1_TRACK_SAMPLE_HZ,
                          "tracking_transient_sim_s": X1_TRACK_TRANSIENT_SIM_S,
