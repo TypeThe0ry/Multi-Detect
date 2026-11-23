@@ -23,7 +23,7 @@ from multidetect.sim_teacher.target_tracking import (  # noqa: E402
     unit,
     world_target_direction,
 )
-from multidetect.sim_teacher.gimbal_recording import X1_TRACK_TRANSIENT_SIM_S  # noqa: E402
+from multidetect.sim_teacher.gimbal_recording import X1_TRACK_MIN_LOCK_RATE, X1_TRACK_TRANSIENT_SIM_S  # noqa: E402
 
 from scripts.realworld.horizon_report import finite_number, percentile, summarize  # noqa: E402
 from scripts.realworld.x1_scenario_class import WIDE_AREA, WIDE_DISTANCE_M  # noqa: E402
@@ -472,6 +472,9 @@ def track_hold(meta, mavlink, events):
                   rejected_ack_rows_without_receive_stamp=unlocated)
     target_ref = mapping(begin.get("target_ref"))
     report["overall"] = hold_phase(samples.values(), target_ref, max_age_ms)
+    lock = report["overall"]["lock_rate"]
+    report["lock_gate"] = {"threshold": X1_TRACK_MIN_LOCK_RATE, "lock_rate": lock,
+                           "passed": bool(finite_number(lock) and lock >= X1_TRACK_MIN_LOCK_RATE)}
     for name, sim_lo, sim_hi, wall_lo, wall_hi in (
         ("transient", start_ns, min(split_ns, end_ns), lo, mid),
         ("steady", split_ns, end_ns, mid, hi),
@@ -664,6 +667,9 @@ def evaluate(episode_dirs=(), *, accepted_roots=(), evidence_files=()):
     return {"schema_version": 1, "condition_count": len(grid),
             "covered_condition_count": sum(bool(v) for v in grid.values()),
             "accepted_grid_episode_count": sum(len(v) for v in grid.values()),
+            "lock_gate_failures": [r.get("episode_dir") or r.get("episode") for r in episodes
+                                   if ((r.get("track_diagnostics") or {}).get("hold") or {})
+                                   .get("lock_gate", {}).get("passed") is False],
             "conditions": conditions, "episodes": episodes, "issues": issues}
 
 
@@ -820,6 +826,10 @@ def main(argv=None):
             args.markdown_out.write_text(markdown(report), encoding="utf-8")
     except ARTIFACT_ERRORS as exc:
         parser.exit(2, f"x1-gimbal-eval: {exc}\n")
+    if report["lock_gate_failures"]:
+        print(f"x1-gimbal-eval: {len(report['lock_gate_failures'])} tracking hold(s) below the "
+              f"{X1_TRACK_MIN_LOCK_RATE} lock-rate gate", file=sys.stderr)
+        return 3
     return 0
 
 
