@@ -65,7 +65,8 @@ from multidetect.sim_teacher import (  # noqa: E402
     primitive_to_ned,
 )
 from multidetect.sim_teacher.gimbal_recording import (
-    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_PREVIEW_S, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    x1_track_preview,
     x1_track_preaim,
     collector_camera_mount,
 )
@@ -7179,8 +7180,9 @@ def run_episode(
                     limits_deg=bounds,
                     track_targets=track_targets,
                     **({"status_sender": session.target,
-                        "track_preview_s": (X1_TRACK_PREVIEW_S if plan.gimbal_eval_track_step is not None
-                                            else 0.0)}
+                        "track_preview_s": (x1_track_preview()[0] if plan.gimbal_eval_track_step is not None
+                                            else 0.0),
+                        "track_preview_max_rad": x1_track_preview()[1]}
                        if plan.gimbal_bridge_stabilize else {}),
                 )
 

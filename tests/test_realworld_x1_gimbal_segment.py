@@ -244,3 +244,26 @@ def test_x1_track_preaim_only_on_the_hover_return_step_before_the_hold():
     assert not x1_track_preaim(7, 6, SimpleNamespace(reason="back_transition"))
     assert not x1_track_preaim(None, 6, ret)
     assert not x1_track_preaim(7, 6, SimpleNamespace())
+
+
+def test_track_preview_cap_and_override_plumbing():
+    import math
+    from multidetect.sim_teacher.gimbal_recording import x1_track_preview
+    from multidetect.sim_teacher.horizon_stabilization import (
+        BRIDGE_MAX_PREVIEW_RAD, BridgeHorizonTarget, preview_body_rotation)
+    assert x1_track_preview({}) == (0.2, math.radians(12.0))
+    assert x1_track_preview({"MULTIDETECT_X1_TRACK_PREVIEW_S": "0.35",
+                             "MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG": "30"}) == (0.35, math.radians(30))
+    for bad in ({"MULTIDETECT_X1_TRACK_PREVIEW_S": "2"}, {"MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG": "0"},
+                {"MULTIDETECT_X1_TRACK_PREVIEW_S": "nan"}):
+        with pytest.raises(ValueError):
+            x1_track_preview(bad)
+    ident = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
+    rates = (0., 0., math.radians(100.))  # 100 deg/s yaw sweep
+    capped = preview_body_rotation(ident, rates, 0.3)
+    wider = preview_body_rotation(ident, rates, 0.3, math.radians(40))
+    angle = lambda m: math.degrees(math.acos((m[0] + m[4] + m[8] - 1) / 2))
+    assert angle(capped) == pytest.approx(12.0, abs=1e-6) and angle(wider) == pytest.approx(30.0, abs=1e-6)
+    with pytest.raises(ValueError):
+        BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}, track_preview_max_rad=0.0)
+    assert BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}).track_preview_max_rad == BRIDGE_MAX_PREVIEW_RAD

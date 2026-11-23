@@ -41,12 +41,12 @@ BRIDGE_PREVIEW_S = 0.20
 BRIDGE_MAX_PREVIEW_RAD = math.radians(12.0)
 
 
-def preview_body_rotation(body_rotation, omega_body_rad_s, preview_s):
+def preview_body_rotation(body_rotation, omega_body_rad_s, preview_s, max_rad=BRIDGE_MAX_PREVIEW_RAD):
     """Right-integrate FRD body rates on SO(3), including near vertical pitch."""
     speed = math.hypot(*omega_body_rad_s)
     if not math.isfinite(speed) or speed <= 1e-6 or preview_s <= 0:
         return body_rotation
-    angle = min(speed * preview_s, BRIDGE_MAX_PREVIEW_RAD)
+    angle = min(speed * preview_s, max_rad)
     x, y, z = (value / speed for value in omega_body_rad_s)
     c, s = math.cos(angle), math.sin(angle)
     one_minus_c = 1.0 - c
@@ -700,9 +700,13 @@ class BridgeHorizonTarget(HorizonStabilizer):
 
     source = "bridge"
 
-    def __init__(self, *args, status_sender=None, track_preview_s=0.0, **kwargs):
+    def __init__(self, *args, status_sender=None, track_preview_s=0.0,
+                 track_preview_max_rad=BRIDGE_MAX_PREVIEW_RAD, **kwargs):
         super().__init__(*args, **kwargs)
         self.status_sender = status_sender
+        if not (math.isfinite(track_preview_max_rad) and 0.0 < track_preview_max_rad <= math.radians(90.0)):
+            raise ValueError("track_preview_max_rad must be within (0, 90 deg]")
+        self.track_preview_max_rad = float(track_preview_max_rad)
         if not (math.isfinite(track_preview_s) and 0.0 <= track_preview_s <= 1.0):
             raise ValueError("track_preview_s must be within [0, 1] seconds")
         self.track_preview_s = float(track_preview_s)
@@ -748,7 +752,8 @@ class BridgeHorizonTarget(HorizonStabilizer):
                 or len(rates) != 3 or not all(math.isfinite(v) for v in rates)):
             return angles
         body = rotation_deg(body_deg)
-        step = preview_body_rotation(_IDENTITY, tuple(rates), self.track_preview_s)
+        step = preview_body_rotation(_IDENTITY, tuple(rates), self.track_preview_s,
+                                     self.track_preview_max_rad)
         if step == _IDENTITY:
             return angles
         transpose = lambda m: (m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8])
