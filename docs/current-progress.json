@@ -20661,5 +20661,23 @@
       ],
       "remaining_reflights": "still running; no aggregate conclusion"
     }
+  },
+  "x1_gimbal_bridge_winding_and_preaim_20261123": {
+    "status": "sim_only_no_hardware_no_flight_no_production_claim",
+    "pre_aim": "track mode engaged during hover_return_to_home",
+    "median_overall_max_pointing_error_deg": {
+      "before": 17.2,
+      "after": 7.7
+    },
+    "bridge_fix": "nearestTurnWithin keeps yaw winding inside the +-2pi joint stops; rebuild image with scripts/build_px4_gimbal_horizon_image.sh (tag gz-rendering-830-r1-gimbal-horizon3)",
+    "evaluator": "lock_gate: overall geometric lock rate >= 0.9 else exit 3",
+    "validated": [
+      "rw_farm_iowa clear_noon: lock 1.0, max 8.8 deg",
+      "rw_canal_amsterdam clear_noon: lock 1.0, max 7.6 deg"
+    ],
+    "pending": [
+      "rw_city_berlin clear_noon",
+      "rw_city_shenzhen clear_noon"
+    ]
   }
 }

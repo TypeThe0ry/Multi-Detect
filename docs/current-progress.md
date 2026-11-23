@@ -13,6 +13,8 @@ expert teacher ??? obstacle top + 4m ????? segment-vs-obstacle ???forward-facing
 21 个条件的云台跟踪基线：几何锁定率 100%，观察到 0 次 ACK 拒绝，稳态（t>=20 s）指向误差 P95 <= 0.67 度；最初 5 s 窗口过短，实际稳定需 9-11 s，因此瞬态窗口现为 20 s。评测飞行新增可选的 200 ms 机体角速度预览（桥接跟踪位姿，`BridgeHorizonTarget`，常量 `X1_TRACK_*`，默认关闭）：首次复飞 1 s 后偏移峰值由 16.7 度降至 7.9 度，最后一个 >2 度样本由 9.2 s 提前到 6.7 s；其余复飞仍在进行，尚无汇总结论。机载侧候选模型状态、QGC 人工目视验收与 E7 阻断项不受本条影响。
 
 
+云台跟踪后续（2026-11-23，仅 SIM）：评测在 MC 返航阶段预置对准，整段最大指向误差中位数 17.2→7.7 度；修复 bridge 偏航圈数缺陷（偏航关节累计转满一圈后固定在 -360 度，Iowa 基础条件曾丢目标），补丁新增 `nearestTurnWithin`，需重建镜像（`gz-rendering-830-r1-gimbal-horizon3`）；评估器新增整段几何锁定率 <0.9 判不合格。Iowa、Amsterdam 基础条件验证通过，Berlin、Shenzhen 待空闲 GPU。
+
 ## SIM 教师数据图像对齐说明（2026-10-10）
 
 在 commit `29d893e` 之前，Gazebo image frames 是 FIFO backlog，和 pose 时间错位；因此 `urban-explore-r12`、`urban-expert-r1..r5` 以及更早的 Codex Gazebo image evidence（包括 8/8 STOP shadow 结果）都不能支持结论。latest-wins frame server 加入 sim-time 对齐后修复该问题；`aligned-explore-r1` 的最大 `|sim skew|` 为 44 ms。
