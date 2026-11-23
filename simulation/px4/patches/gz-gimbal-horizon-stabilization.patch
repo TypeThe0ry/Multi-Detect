@@ -252,7 +252,7 @@ index f5bc488..eeb8d20 100644
  				    dt);
  		publishJointCommand(_gimbal_yaw_cmd_publisher, _yaw_stp, _yaw_rate_stp, _last_yaw_stp, _yaw_min, _yaw_max, dt);
  	}
-@@ -93,6 +311,117 @@ void GZGimbal::Run()
+@@ -93,6 +311,132 @@ void GZGimbal::Run()
  	pthread_mutex_unlock(&_node_mutex);
  }
  
@@ -326,10 +326,25 @@ index f5bc488..eeb8d20 100644
 +	const float yaw_max = PX4_ISFINITE(_yaw_max) ? _yaw_max : 2.f * M_PI_F;
 +	bool exact = false;
 +	auto joint = boundedJoints(relative, previous, _roll_min, _roll_max, pitch_min, pitch_max, yaw_min, yaw_max, exact);
++	const bool lock_follow = (flags & RollLock) && (flags & PitchLock) && !earthYaw(flags);
++	const auto turn_jump = [&previous](const matrix::Vector3f &candidate) {
++		return fabsf(candidate(2) - nearestTurn(candidate(2), previous(2))) > 1e-3f;
++	};
 +
-+	if (!exact && (flags & RollLock) && (flags & PitchLock) && !earthYaw(flags)) {
++	if (!exact && lock_follow) {
 +		horizonJoints(solve_body, desired, previous, _roll_min, _roll_max, pitch_min, pitch_max, yaw_min, yaw_max,
 +			      joint);
++
++	} else if (lock_follow && turn_jump(joint)) {
++		// The exact pose is only reachable by a full yaw turn through the +-2*pi stop window.
++		// Off vertical (FW->MC back-transition after wound FW tracking) that turn sweeps the
++		// camera through the horizon, so keep a continuous horizon solution while one exists.
++		matrix::Vector3f continuous = joint;
++
++		if (horizonJoints(solve_body, desired, previous, _roll_min, _roll_max, pitch_min, pitch_max, yaw_min, yaw_max,
++				  continuous) && !turn_jump(continuous)) {
++			joint = continuous;
++		}
 +	}
 +	const float step = M_PI_F * dt;
 +	const auto slew = [step](float value, float last_value) {
@@ -370,7 +385,7 @@ index f5bc488..eeb8d20 100644
  void GZGimbal::stop()
  {
  	ScheduleClear();
-@@ -140,6 +469,45 @@ bool GZGimbal::pollSetpoint()
+@@ -140,6 +484,45 @@ bool GZGimbal::pollSetpoint()
  		gimbal_device_set_attitude_s msg;
  
  		if (_gimbal_device_set_attitude_sub.copy(&msg)) {
@@ -416,7 +431,7 @@ index f5bc488..eeb8d20 100644
  			const matrix::Eulerf gimbal_att_stp(matrix::Quatf(msg.q));
  			_roll_stp = gimbal_att_stp.phi();
  			_pitch_stp = gimbal_att_stp.theta();
-@@ -156,6 +524,7 @@ bool GZGimbal::pollSetpoint()
+@@ -156,6 +539,7 @@ bool GZGimbal::pollSetpoint()
  		gimbal_controls_s msg;
  
  		if (_gimbal_controls_sub.copy(&msg)) {
@@ -424,7 +439,7 @@ index f5bc488..eeb8d20 100644
  			// map control inputs from [-1;1] to [min_angle; max_angle]
  			_roll_stp = math::constrain(math::radians(msg.control[msg.INDEX_ROLL] * _mnt_range_roll / 2), _roll_min, _roll_max);
  			_pitch_stp = math::radians(math::constrain(_mnt_min_pitch + 0.5f * (msg.control[msg.INDEX_PITCH] + 1.f) *
-@@ -221,6 +590,7 @@ void GZGimbal::publishDeviceAttitude()
+@@ -221,6 +605,7 @@ void GZGimbal::publishDeviceAttitude()
  
  	gimbal_att.target_system = 0; // Broadcast
  	gimbal_att.target_component = 0; // Broadcast

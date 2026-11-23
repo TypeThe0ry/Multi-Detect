@@ -323,8 +323,8 @@ def frame_samples(path, meta):
         st = mapping(state.get("stabilization"))
         if row.get("event") is not None:
             continue
-        if type(fw_legs) is int and type(row.get("action_index")) is int and row["action_index"] < fw_legs:
-            continue  # FW-leg frames are scored by fw_legs(), keeping the hover caliber unmixed
+        if type(fw_legs) is int and type(row.get("action_index")) is int and 0 <= row["action_index"] < fw_legs:
+            continue  # FW-leg frames are scored by fw_legs(), keeping the hover caliber unmixed (pre-route -1 stays)
         horizon = st.get("horizon_error_deg")
         if st.get("mode") != "track":
             # Same sample set as horizon_report's horizon_acceptance.feasible_error.
