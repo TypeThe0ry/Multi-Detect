@@ -25,9 +25,21 @@ BUSY_MEMORY_MIB = 2048
 SUNSHINE_COMPUTE_MARKER = Path("/data/scratch/x1-allow-sunshine-compute")
 
 
+# Temporary opt-in (coordinator decision 2026-11-23): while this marker exists, X1 may share a GPU with
+# f1-aero's FluidX3D compute job when enough device memory is left for X1; acceptance still requires
+# RTF >= 0.9 on the shared card, so an unsuitable pairing is rejected afterwards, not trusted here.
+FLUIDX3D_MARKER = Path("/data/scratch/x1-allow-fluidx3d-share")
+FLUIDX3D_MIN_FREE_MIB = 10500
+
+
+def is_fluidx3d(name):
+    return name.lower() == "fluidx3d"
+
+
 def shareable(kind, name):
     return ((kind in {"G", "C+G"} and name.lower() in DISPLAY_PROCESSES)
-            or (kind == "C" and name.lower() == "sunshine" and SUNSHINE_COMPUTE_MARKER.exists()))
+            or (kind == "C" and name.lower() == "sunshine" and SUNSHINE_COMPUTE_MARKER.exists())
+            or (kind == "C" and is_fluidx3d(name) and FLUIDX3D_MARKER.exists()))
 
 UNAVAILABLE = "x1_gpu_unavailable"
 
@@ -139,6 +151,7 @@ def live_gpu(index):
     if not UUID.fullmatch(uuid):
         raise ValueError("invalid GPU UUID")
     memory = int(device.findtext("./fb_memory_usage/used", "").removesuffix(" MiB"))
+    total = int(device.findtext("./fb_memory_usage/total", "0").removesuffix(" MiB") or 0)
     util = int(device.findtext("./utilization/gpu_util", "").removesuffix(" %"))
     processes = device.find("processes")
     if (processes is None or (processes.text or "").strip() not in {"", "None"}
@@ -154,8 +167,14 @@ def live_gpu(index):
             reasons.append(f"gpu_process:{pid or 'unknown'}:{kind}:{name}")
             continue
         used = int(item.findtext("used_memory", "").removesuffix(" MiB"))
-        reasons += metric(used, SHARED_MEMORY_MIB, f"gpu_process_memory_mib:{pid}")
+        if not is_fluidx3d(name):
+            reasons += metric(used, SHARED_MEMORY_MIB, f"gpu_process_memory_mib:{pid}")
         shared.append({"pid": int(pid), "type": kind, "name": name, "used_mib": used})
+    if any(is_fluidx3d(p["name"]) for p in shared):
+        # Sharing with a compute job: the rule is device-memory headroom for X1, not idleness.
+        if total <= 0 or total - memory < FLUIDX3D_MIN_FREE_MIB:
+            reasons.append(f"gpu_free_memory_mib:{max(total - memory, 0)}<{FLUIDX3D_MIN_FREE_MIB}")
+        return uuid, memory, util, shared, reasons
     reasons += metric(memory, SHARED_MEMORY_MIB if shared else BUSY_MEMORY_MIB, "gpu_memory_mib")
     reasons += metric(util, SHARED_UTIL_PCT if shared else 5, "gpu_util_pct")
     return uuid, memory, util, shared, reasons

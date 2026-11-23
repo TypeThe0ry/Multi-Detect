@@ -45,6 +45,7 @@ def host(tmp_path, monkeypatch):
         ET.SubElement(gpu, "uuid").text = card["uuid"]
         fb = ET.SubElement(gpu, "fb_memory_usage")
         ET.SubElement(fb, "used").text = f"{card['used_mib']} MiB"
+        ET.SubElement(fb, "total").text = "20480 MiB"
         util = ET.SubElement(gpu, "utilization")
         ET.SubElement(util, "gpu_util").text = f"{card['util_pct']} %"
         if card["processes"] is None:
@@ -347,3 +348,23 @@ def test_busy_flight_launch_defers_and_writes_preflight_status(host, monkeypatch
     assert module.main(["launch"]) == 75
     report = json.loads((module.OUTPUT / "GPU-PREFLIGHT.json").read_text())
     assert report["state"] == "WAITING" and set(report["blocked_gpus"]) == set("0123")
+
+
+def test_fluidx3d_share_needs_marker_and_memory_headroom(host, tmp_path, monkeypatch):
+    for i in (1, 2, 3):
+        host.live[i]["processes"] = [(900 + i, "C", "/opt/f1/FluidX3D/bin/FluidX3D", 9700)]
+        host.live[i]["used_mib"], host.live[i]["util_pct"] = 9700, 100
+    host.live[0]["processes"] = [(77, "C", "/usr/bin/python3", 9000)]
+    host.live[0]["used_mib"] = 9000
+    marker = tmp_path / "x1-allow-fluidx3d-share"
+    monkeypatch.setattr(x1_gpu, "FLUIDX3D_MARKER", marker)
+    with pytest.raises(x1_gpu.GPUUnavailable):  # no marker: compute job blocks every card
+        x1_gpu.select(host.status)
+    marker.write_text("")
+    chosen = x1_gpu.select(host.status)
+    assert chosen["gpu_index"] == 1 and chosen["gpu_reason"] == "shared_graphics_only"
+    assert chosen["gpu_shared_processes"][0]["name"] == "FluidX3D"
+    for i in (1, 2, 3):  # too little memory left for X1 (20480 - 12000 < 10500)
+        host.live[i]["used_mib"] = 12000
+    with pytest.raises(x1_gpu.GPUUnavailable):
+        x1_gpu.select(host.status)
