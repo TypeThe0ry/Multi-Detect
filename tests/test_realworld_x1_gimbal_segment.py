@@ -244,3 +244,30 @@ def test_x1_track_preaim_only_on_the_hover_return_step_before_the_hold():
     assert not x1_track_preaim(7, 6, SimpleNamespace(reason="back_transition"))
     assert not x1_track_preaim(None, 6, ret)
     assert not x1_track_preaim(7, 6, SimpleNamespace())
+
+
+def test_x1_gimbal_capture_spans_the_hold_with_a_slow_frame_server():
+    """A request/response server answering in ~0.33 s wall must not make the capture lag the hold."""
+    start = 100_000_000_000
+    capture = X1TrackCapture(start)
+    asked = []
+    reader = SimpleNamespace(latest=None, request=asked.append)
+    samples, pending = [], None  # (arrival_wall_s, stamp)
+    for i in range(3000):  # 60 sim seconds at 50 Hz action ticks
+        now = start + i * 20_000_000
+        wall = i / 50.0
+        if pending is not None and wall >= pending[0]:
+            reader.latest = SimpleNamespace(sensor_stamp_ns=pending[1])
+            pending = None
+        before = len(asked)
+        sample = capture.tick(reader, sim_ns=now, wall_s=wall)
+        if len(asked) > before and pending is None:
+            # strictly-after semantics: first 10 Hz frame stamped > asked-for stamp, 0.33 s later
+            frame = ((asked[-1] // 100_000_000) + 1) * 100_000_000
+            pending = (wall + 0.33, max(frame, asked[-1] + 1))
+        if sample is not None:
+            samples.append(sample.sensor_stamp_ns)
+    spans = (samples[-1] - samples[0]) / 1e9
+    assert len(samples) >= 120 and spans >= 55, (len(samples), spans)
+    gaps = [(b - a) / 1e9 for a, b in zip(samples, samples[1:])]
+    assert max(gaps) < 1.0 and all(g >= 0.1 - 1e-9 for g in gaps)

@@ -44,11 +44,15 @@ class X1TrackCapture:
             return None
         sample = reader.latest
         if sample is not None and self.due_ns <= sample.sensor_stamp_ns <= sim_ns:
-            self.due_ns = sample.sensor_stamp_ns + self.period_ns
+            # A request/response server delivers ~3 frames/s, below the 10 Hz source. Do not chase
+            # the backlog frame by frame: skip ahead to "now" so the samples span the whole hold.
+            self.due_ns = max(sample.sensor_stamp_ns + self.period_ns, sim_ns)
             return sample
         if wall_s >= self.next_request_wall_s:
             self.next_request_wall_s = wall_s + self.period_ns / 1e9
-            reader.request(self.due_ns)
+            # The frame server returns the first frame strictly after its argument, so ask for
+            # due - 1 to get the frame stamped exactly at due (the old request skipped every other one).
+            reader.request(max(self.due_ns - 1, 0))
         return None
 
 
