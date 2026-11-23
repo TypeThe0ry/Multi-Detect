@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import requires_artifact
 
 from scripts.evaluate_shared_policy_external_repeats import _metric, evaluate
 from scripts.make_task_order_campaign import make_variant
@@ -131,6 +132,10 @@ def test_repeat_gate_requires_distinct_report_contents(tmp_path: Path, duplicate
 
 
 def test_current_two_runs_stay_fail_closed() -> None:
+    requires_artifact(
+        ROOT / "artifacts/evaluation/vtol-two-task-parent-run-20260919-g.json",
+        ROOT / "artifacts/evaluation/vtol-two-task-candidate-run-20260919-c.json",
+    )
     config = json.loads(
         (ROOT / "configs/evaluation/shared-policy-external-repeat-v1.json").read_text()
     )
@@ -150,6 +155,7 @@ def test_current_two_runs_stay_fail_closed() -> None:
 
 
 def test_missing_metric_is_not_promotion_evidence(tmp_path: Path) -> None:
+    requires_artifact(ROOT / "artifacts/evaluation/vtol-two-task-parent-run-20260919-g.json")
     config = json.loads(
         (ROOT / "configs/evaluation/shared-policy-external-repeat-v1.json").read_text()
     )
@@ -167,6 +173,10 @@ def test_missing_metric_is_not_promotion_evidence(tmp_path: Path) -> None:
 
 
 def test_sim_energy_metric_is_recomputed_from_bound_mission_evidence() -> None:
+    requires_artifact(
+        ROOT / "artifacts/evaluation/vtol-two-task-parent-run-20260919-g.json",
+        ROOT / "artifacts/evaluation/vtol-two-task-candidate-run-20260919-c.json",
+    )
     config = json.loads(
         (ROOT / "configs/evaluation/shared-policy-external-repeat-v2-sim-energy.json").read_text()
     )
@@ -188,6 +198,7 @@ def test_sim_energy_metric_is_recomputed_from_bound_mission_evidence() -> None:
 
 
 def test_order_variant_preserves_ranker_and_changes_only_priorities() -> None:
+    requires_artifact(ROOT / "artifacts/evaluation/vtol-two-task-parent-campaign-pre.8.json")
     source = json.loads(
         (ROOT / "artifacts/evaluation/vtol-two-task-parent-campaign-pre.8.json").read_text()
     )

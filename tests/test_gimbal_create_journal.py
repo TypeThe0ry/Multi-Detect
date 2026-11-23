@@ -6,6 +6,7 @@ from unittest import TestCase
 from unittest.mock import patch
 from tempfile import TemporaryDirectory
 
+from conftest import requires_path
 from scripts import gimbal_create_journal as j
 
 
@@ -60,6 +61,8 @@ class JournalTests(TestCase):
     def test_actual_builder_through_collector(self):
         from scripts import collect_sim_teacher_episodes as c
         from scripts import run_simulator_docker as b
+        from scripts.gimbal_gz_resources import FUEL
+        requires_path(FUEL, reason='gimbal Gazebo fuel root')
         plan = SimpleNamespace(container_prefix='md-sim-teacher-slot-0', scenario=str(b.DEFAULT_SCENARIO), out=self.tmp.name, control_port=14560, telemetry_port=14561, image='sha256:'+'3'*64, sim_network='bridge', sim_instance=0, gpu_render=True, gpu_device=0, gpu_devices='0', worker_index=0, airframe=None, segmentation=False, camera_noise_overlay=False, wind_vehicle_overlay=False)
         with patch.object(b, '_docker_binary', return_value=None), patch.object(c, '_effective_px4_logger_mode', return_value='default'):
             command=c.docker_command(plan, name='md-sim-teacher-slot-0-test')

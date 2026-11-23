@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from conftest import requires_artifact
 from scripts.check_onboard_climb_px4_evidence import (
     MISSING,
     ONBOARD,
@@ -22,6 +23,7 @@ def _classes(report):
 
 
 def test_real_sitl3_artifact_preserves_px4_onboard_boundary():
+    requires_artifact(ARTIFACT)
     report = check_climb_fault_evidence(ARTIFACT)
     classes = _classes(report)
 
@@ -129,6 +131,7 @@ def test_campaign_attaches_checker_only_when_climb_injection_is_enabled(tmp_path
 
 
 def test_real_sitl3_evidence_can_render_in_offline_suite_report():
+    requires_artifact(ARTIFACT)
     evidence = check_climb_fault_evidence(ARTIFACT)
     mission = {
         "id": "operator-abort",

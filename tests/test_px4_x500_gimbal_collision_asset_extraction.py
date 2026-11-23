@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import requires_path
 
 from scripts.extract_px4_x500_gimbal_collision_assets import CONTRACT, FILES, extract_assets
 from scripts.run_simulator_docker import PINNED_IMAGE
@@ -26,6 +27,10 @@ def test_extracts_full_gimbal_navigation_and_collision_closure(tmp_path: Path) -
 
 
 def test_rejects_non_pinned_image_and_existing_output(tmp_path: Path) -> None:
+    requires_path(
+        EXPORT / "share/gz/models/x500_base/model.sdf",
+        reason="pinned PX4 gimbal image export",
+    )
     with pytest.raises(ValueError, match="exact pinned PX4 image ref"):
         extract_assets(EXPORT, tmp_path / "out", "latest")
     with pytest.raises(FileExistsError, match="overwrite"):

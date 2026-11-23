@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from conftest import requires_artifact
+
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / "docs/evidence/onboard-vlm-execution-admission-20261007-r1.json"
 
@@ -82,6 +84,7 @@ def test_progress_points_to_new_exact_receipt_without_rewriting_old_native_proof
 def test_recovered_cluster_collector_success_is_not_gazebo_runtime_success():
     receipt = _json(RECEIPT)
     cluster = _json(ROOT / receipt["cluster_diagnostic_receipt"]["path"])
+    requires_artifact(*(ROOT / cluster[name]["local_path"] for name in ("artifact", "stdout")))
     for name in ("artifact", "stdout"):
         record = cluster[name]
         path = ROOT / record["local_path"]

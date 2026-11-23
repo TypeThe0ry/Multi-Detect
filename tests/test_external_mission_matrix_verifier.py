@@ -4,12 +4,14 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import requires_artifact
 
 from scripts.verify_external_mission_matrix_receipt import verify_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 PROGRESS = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
 RECEIPT = ROOT / PROGRESS["external_mission_matrix_20260927_r6"]["evidence"]
+requires_artifact(RECEIPT, module_level=True)
 
 
 def test_external_mission_matrix_verifier_rebuilds_current_evidence() -> None:

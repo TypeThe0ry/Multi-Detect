@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from conftest import requires_artifact
+
 ROOT = Path(__file__).resolve().parents[1]
 STAGE = ROOT / "docs/evidence/onboard-teacher-sortie-foundation-20261008-r1.json"
 INDEX_KEY = "onboard_teacher_sortie_foundation_20261008_r1"
@@ -24,8 +26,10 @@ def check_binding(binding):
 
 def test_stage_sources_artifacts_and_living_index_match_actual_bytes():
     stage = read(STAGE)
+    bindings = (*stage["sources"], *stage["retained_artifact_bindings"], *stage["protected"])
+    requires_artifact(*(ROOT / binding["path"] for binding in bindings))
     paths = set()
-    for binding in (*stage["sources"], *stage["retained_artifact_bindings"], *stage["protected"]):
+    for binding in bindings:
         path = check_binding(binding)
         assert path not in paths
         paths.add(path)
@@ -45,6 +49,17 @@ def test_five_original_refusals_and_original_source_copies_remain_refusals():
         "HOME/reference changed",
         "stabilization wait exhausted",
         "checkpoint expired/future",
+    )
+    requires_artifact(
+        *(
+            ROOT / binding["path"]
+            for trial in trials
+            for binding in (
+                trial["report"],
+                trial["supervisor"],
+                *trial["source_snapshots"],
+            )
+        )
     )
     for trial, fragment in zip(trials, expected, strict=True):
         worker = read(check_binding(trial["report"]))

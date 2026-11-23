@@ -3,6 +3,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from conftest import requires_artifact
+
 ROOT = Path(__file__).resolve().parents[1]
 STAGE = ROOT / "docs/evidence/sim-teacher-first-real-episode-20261010-r1.json"
 INDEX_KEY = "sim_teacher_first_real_episode_20261010_r1"
@@ -39,8 +41,10 @@ def test_run_code_is_bound_to_git_commit_blobs():
 
 def test_episode_artifacts_and_index_match_actual_bytes():
     stage = read(STAGE)
+    bindings = (*stage["retained_artifact_bindings"], *stage["protected"])
+    requires_artifact(*(ROOT / binding["path"] for binding in bindings))
     paths = set()
-    for binding in (*stage["retained_artifact_bindings"], *stage["protected"]):
+    for binding in bindings:
         path = check_binding(binding)
         assert path not in paths
         paths.add(path)

@@ -9,6 +9,7 @@ the ``pythonpath`` configuration option.
 from __future__ import annotations
 
 import errno
+import importlib.util
 import json
 import socket
 import sys
@@ -35,6 +36,70 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from onboard_gate_files import files as _onboard_gate_files  # noqa: E402
 
 _ONBOARD_NAMES = frozenset(p.name for p in _onboard_gate_files())
+
+
+def _checkout_path(raw: object) -> Path:
+    path = Path(raw)
+    if not path.is_absolute():
+        path = _ROOT / path
+    return path
+
+
+def requires_path(
+    path: object,
+    *,
+    reason: str = "external resource",
+    module_level: bool = False,
+) -> None:
+    """Skip a test when an external file or directory is not available.
+
+    ``artifacts/`` is a shared, read-only directory that is absent from a plain
+    git checkout.  Evidence tests must not fail merely because those generated
+    files were never committed; they run in full whenever the path is present.
+
+    ``module_level`` is for artifacts read while a test module is imported, so
+    collection skips instead of raising ``FileNotFoundError``.
+    """
+
+    target = _checkout_path(path)
+    if not target.exists():
+        pytest.skip(
+            f"{reason} is not available in this checkout: {target}",
+            allow_module_level=module_level,
+        )
+
+
+def requires_artifact(*paths: object, module_level: bool = False) -> None:
+    """Skip when a shared evidence artifact is missing or outside the checkout.
+
+    Worktrees usually expose the shared artifacts directory as a symlink to the
+    primary checkout.  Evidence verifiers bind paths to the checkout root, so an
+    artifact that resolves outside this worktree is not usable here even though
+    it exists on disk.  In the primary checkout the same artifact resolves
+    inside the root and every test runs in full.
+    """
+
+    for raw in paths:
+        target = _checkout_path(raw)
+        requires_path(target, reason="evidence artifact", module_level=module_level)
+        try:
+            target.resolve().relative_to(_ROOT.resolve())
+        except ValueError:
+            pytest.skip(
+                "evidence artifact resolves outside this checkout; run in the "
+                f"primary checkout that owns the shared artifacts: {target}",
+                allow_module_level=module_level,
+            )
+
+
+def requires_module(name: str, *, module_level: bool = False) -> None:
+    """Skip when an optional runtime dependency (torch, ultralytics, ...) is absent."""
+
+    if importlib.util.find_spec(name) is None:
+        pytest.skip(
+            f"requires optional dependency not installed in this environment: {name}",
+            allow_module_level=module_level,
+        )
 
 
 @pytest.fixture(scope="session")

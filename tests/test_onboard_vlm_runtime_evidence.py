@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import requires_artifact, requires_module
 
 from multidetect.autonomy.onboard_vlm_runtime_contract import (
     OnboardVlmRuntimeRequest,
@@ -23,6 +24,7 @@ def _json(path):
 
 def _report():
     receipt = _json(RECEIPT)
+    requires_artifact(ROOT / receipt["native_report"]["path"])
     return receipt, _json(ROOT / receipt["native_report"]["path"])
 
 
@@ -108,6 +110,8 @@ def test_current_progress_points_to_exact_runtime_receipt_without_broadening_cla
 
 @pytest.mark.parametrize("index", [0, 1])
 def test_native_raw_binding_processor_tensors_and_generated_tokens_reproduce_on_cpu(index):
+    requires_module("torch")
+    requires_module("transformers")
     import torch
     from transformers import AutoProcessor
 
@@ -135,6 +139,7 @@ def test_native_raw_binding_processor_tensors_and_generated_tokens_reproduce_on_
         "artifacts/cache/huggingface-vlm/models--Qwen--Qwen3-VL-2B-Instruct/snapshots/"
         + receipt["native_inference"]["model_revision"]
     )
+    requires_artifact(snapshot)
     processor = AutoProcessor.from_pretrained(
         str(snapshot), local_files_only=True, trust_remote_code=False
     )

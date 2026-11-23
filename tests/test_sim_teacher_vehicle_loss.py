@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from conftest import requires_artifact
 from multidetect.sim_teacher.vehicle_loss import VehicleLossDetector, replay_vehicle_loss
 
 
@@ -41,5 +42,6 @@ def test_replays_operator_abort_fall_from_read_only_artifact():
         "artifacts/benchmarks/nightly-linux-r21idr3-r24plan-28-head/main/operator-abort/"
         "campaign/gen_cnt2_w0003/episodes/episode-0000-06a1a47d/steps.jsonl"
     )
+    requires_artifact(episode)
     steps = [json.loads(line) for line in episode.read_text(encoding="utf-8").splitlines()]
     assert replay_vehicle_loss(steps) == 38

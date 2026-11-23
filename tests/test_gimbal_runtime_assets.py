@@ -2,6 +2,7 @@ import hashlib,os,tempfile,unittest
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
+from conftest import requires_module
 from scripts.run_mission_suite import merge_config
 from multidetect.autonomy.onboard_policy_parts import runtime_assets
 
@@ -39,6 +40,7 @@ class Tests(unittest.TestCase):
    YoloeProposer(Path('/tmp/weights'),confidence=.1,imgsz=640,device='cpu')
   self.assertEqual(events,['offline_guard','model'])
  def test_real_ultralytics_yoloe_load_reaches_local_torch_load(self):
+  requires_module('ultralytics')
   from ultralytics import YOLOE
   from ultralytics.nn import tasks
   from ultralytics.utils import downloads

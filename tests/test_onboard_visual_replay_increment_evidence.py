@@ -17,7 +17,15 @@ def _json(path: Path) -> dict:
 
 def _bound(reference: dict, *, required: bool = False) -> Path | None:
     path = (ROOT / reference["path"]).resolve()
-    path.relative_to(ROOT.resolve())
+    try:
+        path.relative_to(ROOT.resolve())
+    except ValueError:
+        if path.is_file() or Path(reference["path"]).parts[0] == "artifacts":
+            pytest.skip(
+                "evidence artifact resolves outside this checkout; run in the "
+                f"primary checkout that owns the shared artifacts: {path}"
+            )
+        raise
     if not path.is_file():
         assert not required, path
         return None

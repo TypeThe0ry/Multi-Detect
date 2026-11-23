@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from xml.etree import ElementTree
 
+from conftest import requires_artifact
+
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / "docs/evidence/onboard-continuation-development-20261007-r1.json"
 
@@ -66,6 +68,7 @@ def test_continuation_compile_and_receive_admission_are_not_actual_transport_or_
 
 def test_software_test_count_matches_original_native_junit_artifact():
     validation = _json(RECEIPT)["software_validation"]
+    requires_artifact(ROOT / validation["junit_artifact"]["path"])
     _assert_record(validation["junit_artifact"])
     report = ElementTree.parse(ROOT / validation["junit_artifact"]["path"])
     suite = report.getroot().find("testsuite")
@@ -78,6 +81,7 @@ def test_software_test_count_matches_original_native_junit_artifact():
 def test_cluster_success_only_collected_a_failed_launch_diagnostic():
     receipt = _json(RECEIPT)
     cluster = receipt["cluster_diagnostic"]
+    requires_artifact(*(ROOT / record["path"] for record in cluster["artifacts"]))
     for record in cluster["artifacts"]:
         _assert_record(record)
         assert record["controller_hash_and_bytes_verified"] is True
@@ -104,6 +108,7 @@ def test_cluster_success_only_collected_a_failed_launch_diagnostic():
 def test_local_docker_client_success_does_not_upgrade_timed_out_daemon():
     receipt = _json(RECEIPT)
     local = receipt["local_diagnostic"]
+    requires_artifact(ROOT / local["artifact"]["path"])
     _assert_record(local["artifact"])
     assert local["probe_native_exit_code"] == 2
     assert local["collector_native_exit_code"] == 0

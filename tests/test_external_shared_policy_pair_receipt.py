@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import requires_artifact
 
 from scripts.create_external_shared_policy_pair_receipt import create_receipt
 
@@ -17,6 +18,7 @@ MULTI = ROOT / (
     "artifacts/evaluation/external-multirotor-mission-20260927-r6-"
     "shared-policy-parity-20261001-depth-r6.json"
 )
+requires_artifact(FIXED, MULTI, module_level=True)
 
 
 def _current_parity_bound_copy(root: Path, source: Path, name: str) -> Path:

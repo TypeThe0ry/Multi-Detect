@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from conftest import requires_path
 from scripts.analyze_px4_clock_stall_timeline import analyze_episode, main
 
 REAL_EPISODE = Path(
@@ -15,6 +16,7 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 def test_real_episode_reports_climb_rtf_and_cross_clock_boundary():
+    requires_path(REAL_EPISODE, reason="retained SITL4 clock-stall episode")
     report = analyze_episode(REAL_EPISODE)
     climb = report["climb_primitives"]
 

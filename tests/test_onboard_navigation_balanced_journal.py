@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from conftest import requires_artifact
 
 from scripts import build_onboard_navigation_balanced_schedule as builder
 from scripts import onboard_navigation_balanced_journal as journal
@@ -119,6 +120,7 @@ def test_actual_frozen_schedule_static_admission_is_not_training_evidence():
     path = Path(journal.__file__).resolve().parents[1] / (
         "artifacts/training/onboard-navigation-balanced-schedule-20261007-r2/schedule.json"
     )
+    requires_artifact(path)
     document = json.loads(path.read_bytes())
     assert type(document["original_optimizer_budget"]["gradient_clip_norm"]) is int
     journal.validate_balanced_schedule(document)

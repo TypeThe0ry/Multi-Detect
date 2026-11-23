@@ -1,6 +1,7 @@
 import hashlib,json,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
+from conftest import requires_path
 from scripts import gimbal_gz_resources as g
 from scripts import run_simulator_docker as docker
 
@@ -29,6 +30,7 @@ class Tests(unittest.TestCase):
   outside=self.root/'outside.png';outside.write_bytes(b'texture');self.texture.unlink();self.texture.symlink_to(outside)
   with self.assertRaises(ValueError):self.check()
  def test_actual_builder_adds_readonly_fuel_mount_and_env_before_create(self):
+  requires_path(g.FUEL,reason='gimbal Gazebo fuel root')
   scenario=Path(docker.ROOT)/'configs/scenarios/river_rescue_vtol_001.scenario.json'
   env={'MD_GIMBAL_INVOCATION':'a'*32,'MD_GIMBAL_FUEL_ROOT':str(g.FUEL)}
   with patch.dict(os.environ,env),patch.object(g,'preflight',return_value={}) as preflight:
@@ -40,6 +42,7 @@ class Tests(unittest.TestCase):
   with patch.dict(os.environ,{'MD_GIMBAL_INVOCATION':'a'*32,'MD_GIMBAL_FUEL_ROOT':'/missing'}),self.assertRaises(docker.DockerSimulatorPlanError):
    docker.build_docker_simulator_plan(scenario,repository_root=docker.ROOT,job_dir=self.root/'job')
  def test_actual_eight_frozen_worlds_resource_closures(self):
+  requires_path(g.FUEL,reason='gimbal Gazebo fuel root')
   data=json.loads(g.MANIFEST.read_text())
   self.assertEqual(len(data['worlds']),8)
   for name in data['worlds']:
