@@ -1,5 +1,6 @@
 ## [Unreleased]
 ### X1 广域 SIM 采集与云台跟踪评测（2026-11-22，仅 SIM）
+- 2026-11-24：X1 固定翼模式云台验收（Iowa clear_noon，镜像 gimbal-horizon4）通过：巡航指向误差 P95 0.30 度、转弯 5.28 度（门限 5/10 度），锁定率 >=0.998，可达覆盖 100%，地平线验收 13 帧最大 1.68 度。修复链：每段可达地面点与 FW 段不触发偏航回中（#34）、桥端指向优先目标（#35/#36）、桥锁定模式不再整圈偏航回绕（#37，桥补丁变化，需 horizon4 镜像）；R1 为巡航 P95 113.9 度。仅 SIM，单站单次，其余 6 站未复飞。
 - 2026-11-24：测试：依赖仓库外证据产物（artifacts/ 评估收据、模型权重）的测试在产物缺失时带原因 skip，不再以 FileNotFoundError 失败或阻断收集；产物存在时仍完整运行，断言未放宽。全量 pytest 失败数 147→103，余下为真实失败或环境相关项。
 - 2026-11-22：X1 广域 SIM 采集接纳 29 个 `wide_area` 与 1 个 `mountain_short`（Grindelwald，>=2250 m 例外）episode，覆盖 Amsterdam、Rotterdam、Berlin、Singapore、Shenzhen、Zurich、Iowa，含 overcast 与 dusk 变体；新增航线余量模型（FLY-FIX-2/3/5）、切线交点航点推进、持续统计 RTF 采样器、实时 GPU 准入（优先 0、1，备用 2、3）和双车道云台评测队列。均为 SIM 结果，不代表硬件、飞行或生产验收（[`docs/realworld-wide-collect.md`](docs/realworld-wide-collect.md)）。
 - 2026-11-22：21 条件云台跟踪基线：几何锁定率 100%，观察到 0 次 ACK 拒绝，稳态（t>=20 s）指向误差 P95 <= 0.67 度；原 5 s 窗口过短（稳定需 9-11 s），瞬态窗口改为 20 s。评测飞行新增可选 200 ms 机体角速度预览（默认关闭）：首次复飞 1 s 后偏移峰值 16.7→7.9 度，最后一个 >2 度样本 9.2→6.7 s，其余复飞仍在运行（[`docs/gimbal-sitl-run.md`](docs/gimbal-sitl-run.md)）。
