@@ -18,7 +18,19 @@ DEFAULT_MAX_AGE_MS = 2_000.0
 X1_TRACK_SAMPLE_HZ = 10
 X1_TRACK_TRANSIENT_SIM_S = 20  # measured settling: error < 2 deg by ~9-11 s (ROOTCAUSE.md)
 X1_TRACK_MIN_LOCK_RATE = 0.9  # a tracking hold below this geometric lock rate is an unacceptable eval run
-X1_TRACK_PREVIEW_S = 0.20  # body-rate lead for the bridge track pose (bridge lock mode uses the same 200 ms)
+X1_TRACK_PREVIEW_S = 0.30  # body-rate lead for the host-side track preview (GETMETA tuning: 0.3 s / 30 deg beat 0.2 and 0.4)
+X1_TRACK_PREVIEW_MAX_DEG = 30.0  # cap for the track preview lead
+
+
+def x1_track_preview(environ=None):
+    """(lead seconds, max lead radians) for the eval track pose; overridable for tuning flights."""
+    import os
+    env = os.environ if environ is None else environ
+    lead = float(env.get("MULTIDETECT_X1_TRACK_PREVIEW_S", X1_TRACK_PREVIEW_S))
+    cap = float(env.get("MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG", X1_TRACK_PREVIEW_MAX_DEG))
+    if not (math.isfinite(lead) and 0.0 <= lead <= 1.0 and math.isfinite(cap) and 0.0 < cap <= 90.0):
+        raise ValueError("invalid X1 track preview override")
+    return lead, math.radians(cap)
 
 
 def x1_track_preaim(track_step, index, action) -> bool:
@@ -31,25 +43,87 @@ def x1_track_preaim(track_step, index, action) -> bool:
             and getattr(action, "reason", None) == "hover_return_to_home")
 
 
+class X1YawUnwind:
+    """Unwind an accumulated gimbal yaw winding while the pre-aimed hover return is still under way.
+
+    Tracking a target through a turning return can wind the C11 yaw joint to its +-2pi stop (the bridge
+    then has to jump up to ~257 deg at the hold start). Between ``ENTER_RAD`` and the stop, drop to
+    lock/follow (relative yaw 0) until the joint is back near zero, then resume tracking; bounded in time.
+    """
+
+    ENTER_RAD = math.radians(150.0)
+    EXIT_RAD = math.radians(20.0)
+    MAX_S = 6.0
+
+    def __init__(self):
+        self.active = False
+        self.started_s = None
+
+    def step(self, yaw_rad, now_s):
+        """Return "lock" to start unwinding, "track" to resume tracking, or None."""
+        if yaw_rad is None or not math.isfinite(yaw_rad):
+            return None
+        if not self.active:
+            if abs(yaw_rad) >= self.ENTER_RAD:
+                self.active, self.started_s = True, now_s
+                return "lock"
+            return None
+        if abs(yaw_rad) <= self.EXIT_RAD or now_s - self.started_s > self.MAX_S:
+            self.active, self.started_s = False, None
+            return "track"
+        return None
+
+
 class X1TrackCapture:
-    """Collect distinct, simulation-timed samples using the existing sensor pipe."""
+    """Collect distinct, simulation-timed samples using the existing sensor pipe.
+
+    When the reader advertises ``meta_supported`` the samples come from the pixel-free
+    ``GETMETA`` path (``request_meta`` / ``latest_meta``, a few ms per round trip, one
+    request kept in flight); otherwise the legacy pixel path (``request`` / ``latest``)
+    is used unchanged. Both paths skip ahead instead of chasing a backlog.
+    """
+
+    META_RETRY_S = 1.0  # re-ask if a metadata answer has not arrived this long after the request
 
     def __init__(self, start_sim_ns: int | None):
         self.period_ns = 1_000_000_000 // X1_TRACK_SAMPLE_HZ
         self.due_ns = start_sim_ns
         self.next_request_wall_s = 0.0
+        self._meta_asked: tuple[int, float] | None = None  # (due_ns asked for, wall_s)
 
     def tick(self, reader, *, sim_ns, wall_s):
         if self.due_ns is None or sim_ns is None or sim_ns < self.due_ns:
             return None
+        if getattr(reader, "meta_supported", False) and hasattr(reader, "request_meta"):
+            return self._tick_meta(reader, sim_ns, wall_s)
         sample = reader.latest
         if sample is not None and self.due_ns <= sample.sensor_stamp_ns <= sim_ns:
-            self.due_ns = sample.sensor_stamp_ns + self.period_ns
+            # A request/response server delivers ~3 frames/s, below the 10 Hz source. Do not chase
+            # the backlog frame by frame: skip ahead to "now" so the samples span the whole hold.
+            self.due_ns = max(sample.sensor_stamp_ns + self.period_ns, sim_ns)
             return sample
         if wall_s >= self.next_request_wall_s:
             self.next_request_wall_s = wall_s + self.period_ns / 1e9
-            reader.request(self.due_ns)
+            # The frame server returns the first frame strictly after its argument, so ask for
+            # due - 1 to get the frame stamped exactly at due (the old request skipped every other one).
+            reader.request(max(self.due_ns - 1, 0))
         return None
+
+    def _tick_meta(self, reader, sim_ns, wall_s):
+        sample = getattr(reader, "latest_meta", None)
+        if sample is not None and self.due_ns <= sample.sensor_stamp_ns <= sim_ns:
+            self.due_ns = max(sample.sensor_stamp_ns + self.period_ns, sim_ns)
+            self._ask_meta(reader, wall_s)  # pipeline: next request leaves before the next tick
+            return sample
+        asked = self._meta_asked
+        if asked is None or asked[0] != self.due_ns or wall_s - asked[1] >= self.META_RETRY_S:
+            self._ask_meta(reader, wall_s)
+        return None
+
+    def _ask_meta(self, reader, wall_s):
+        # Strictly-after server semantics: ask for due - 1 to receive the frame stamped at due.
+        self._meta_asked = (self.due_ns, wall_s)
+        reader.request_meta(max(self.due_ns - 1, 0))
 
 
 def collector_camera_mount(profile: Any) -> CameraMount | None:

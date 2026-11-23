@@ -50,3 +50,8 @@ docker run --rm --pull=never --network none --entrypoint sh \
 ## X1 云台跟踪评测说明（2026-11-22，仅 SIM）
 
 X1 评测飞行的稳态指向统计取 t>=20 s：初版 5 s 瞬态窗口过短，实测稳定需 9-11 s。21 条件基线几何锁定率 100%，观察到 0 次 ACK 拒绝，稳态指向 P95 <= 0.67 度。评测飞行可选打开 200 ms 机体角速度预览（桥接跟踪位姿），默认关闭；首次复飞 1 s 后偏移峰值 16.7→7.9 度、最后一个 >2 度样本 9.2→6.7 s，其余复飞尚在运行，不能据此宣称整体改进。以上均为 SIM 结果，不是硬件、飞行或生产验收。
+
+### 仅元数据请求 `GETMETA`（仅 SIM）
+
+collector 的 frame server（`scripts/sim_teacher_frame_server.py`）除原 `GET <ns>`（返回 MDGZSIM3 + MDGZDEP1，字节不变）外，新增 `GETMETA <ns>`：语义同样是“时间戳严格大于参数之前的第一帧”，但只回一条无像素的 `MDGZMET1` 记录（小端：8 字节魔数、u32 JSON 正文长度、JSON 正文、32 字节 SHA-256；正文含 stamp、相机信息 stamp、位姿、速度和实测 `joint_state`，实现见 `scripts/gazebo_meta_wire.py`）。`GETMETA` 由独立线程应答并自带序号，不会被正在编码的像素请求拖慢，两种记录整条写入、可交错。读端 `SensorStreamReader.request_meta()` 把结果放到独立的 `latest_meta`，不覆盖像素 `latest`；`X1TrackCapture` 在 `meta_supported` 时走该路径并保持一个请求在途，否则回落到原像素路径。
+兼容规则：新 server 不改变旧 `GET`；旧 server 不认识 `GETMETA` 并会退出，所以读端默认不发送，只有 collector 在使用本仓库同版本的 bind-mount `scripts/` 时才开启（`MULTIDETECT_SIM_META_REQUESTS=0` 可强制回到像素路径）。容器内 `scripts/` 必须同时有 `sim_teacher_frame_server.py` 和 `gazebo_meta_wire.py`。仅 CPU 测试验证，未做实机或实飞验证。

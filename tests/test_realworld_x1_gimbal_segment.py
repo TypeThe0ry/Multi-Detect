@@ -244,3 +244,66 @@ def test_x1_track_preaim_only_on_the_hover_return_step_before_the_hold():
     assert not x1_track_preaim(7, 6, SimpleNamespace(reason="back_transition"))
     assert not x1_track_preaim(None, 6, ret)
     assert not x1_track_preaim(7, 6, SimpleNamespace())
+
+
+def test_x1_gimbal_capture_spans_the_hold_with_a_slow_frame_server():
+    """A request/response server answering in ~0.33 s wall must not make the capture lag the hold."""
+    start = 100_000_000_000
+    capture = X1TrackCapture(start)
+    asked = []
+    reader = SimpleNamespace(latest=None, request=asked.append)
+    samples, pending = [], None  # (arrival_wall_s, stamp)
+    for i in range(3000):  # 60 sim seconds at 50 Hz action ticks
+        now = start + i * 20_000_000
+        wall = i / 50.0
+        if pending is not None and wall >= pending[0]:
+            reader.latest = SimpleNamespace(sensor_stamp_ns=pending[1])
+            pending = None
+        before = len(asked)
+        sample = capture.tick(reader, sim_ns=now, wall_s=wall)
+        if len(asked) > before and pending is None:
+            # strictly-after semantics: first 10 Hz frame stamped > asked-for stamp, 0.33 s later
+            frame = ((asked[-1] // 100_000_000) + 1) * 100_000_000
+            pending = (wall + 0.33, max(frame, asked[-1] + 1))
+        if sample is not None:
+            samples.append(sample.sensor_stamp_ns)
+    spans = (samples[-1] - samples[0]) / 1e9
+    assert len(samples) >= 120 and spans >= 55, (len(samples), spans)
+    gaps = [(b - a) / 1e9 for a, b in zip(samples, samples[1:])]
+    assert max(gaps) < 1.0 and all(g >= 0.1 - 1e-9 for g in gaps)
+
+def test_track_preview_cap_and_override_plumbing():
+    import math
+    from multidetect.sim_teacher.gimbal_recording import x1_track_preview
+    from multidetect.sim_teacher.horizon_stabilization import (
+        BRIDGE_MAX_PREVIEW_RAD, BridgeHorizonTarget, preview_body_rotation)
+    assert x1_track_preview({}) == (0.3, math.radians(30.0))
+    assert x1_track_preview({"MULTIDETECT_X1_TRACK_PREVIEW_S": "0.35",
+                             "MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG": "30"}) == (0.35, math.radians(30))
+    for bad in ({"MULTIDETECT_X1_TRACK_PREVIEW_S": "2"}, {"MULTIDETECT_X1_TRACK_PREVIEW_MAX_DEG": "0"},
+                {"MULTIDETECT_X1_TRACK_PREVIEW_S": "nan"}):
+        with pytest.raises(ValueError):
+            x1_track_preview(bad)
+    ident = (1., 0., 0., 0., 1., 0., 0., 0., 1.)
+    rates = (0., 0., math.radians(100.))  # 100 deg/s yaw sweep
+    capped = preview_body_rotation(ident, rates, 0.3)
+    wider = preview_body_rotation(ident, rates, 0.3, math.radians(40))
+    angle = lambda m: math.degrees(math.acos((m[0] + m[4] + m[8] - 1) / 2))
+    assert angle(capped) == pytest.approx(12.0, abs=1e-6) and angle(wider) == pytest.approx(30.0, abs=1e-6)
+    with pytest.raises(ValueError):
+        BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}, track_preview_max_rad=0.0)
+    assert BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}).track_preview_max_rad == BRIDGE_MAX_PREVIEW_RAD
+
+
+def test_x1_yaw_unwind_hysteresis_and_time_bound():
+    import math
+    from multidetect.sim_teacher.gimbal_recording import X1YawUnwind
+    u = X1YawUnwind()
+    assert u.step(None, 0.0) is None and u.step(math.nan, 0.0) is None
+    assert u.step(math.radians(100), 0.0) is None  # below the entry threshold
+    assert u.step(math.radians(-200), 1.0) == "lock"  # winding accumulated: unwind
+    assert u.step(math.radians(-90), 1.5) is None  # still unwinding
+    assert u.step(math.radians(-10), 2.0) == "track"  # near zero: resume tracking
+    assert u.step(math.radians(-10), 2.1) is None
+    assert u.step(math.radians(170), 3.0) == "lock"
+    assert u.step(math.radians(160), 3.0 + X1YawUnwind.MAX_S + 0.1) == "track"  # time bound

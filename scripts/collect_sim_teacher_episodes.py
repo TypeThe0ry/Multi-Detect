@@ -65,8 +65,9 @@ from multidetect.sim_teacher import (  # noqa: E402
     primitive_to_ned,
 )
 from multidetect.sim_teacher.gimbal_recording import (
-    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_PREVIEW_S, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
-    x1_track_preaim,
+    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    x1_track_preview,
+    X1YawUnwind, x1_track_preaim,
     collector_camera_mount,
 )
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
@@ -6960,6 +6961,9 @@ def run_episode(
                     segmentation_topic="/multidetect/teacher/segmentation/labels_map"
                     if plan.segmentation
                     else None,
+                    # The server above is this checkout's scripts/ copy (bind-mounted), which
+                    # understands GETMETA; MULTIDETECT_SIM_META_REQUESTS=0 forces the pixel path.
+                    meta_requests=os.environ.get("MULTIDETECT_SIM_META_REQUESTS", "1") != "0",
                 ).start()
 
             sensor_reader = _start_sensor_reader(sensor_process)
@@ -7179,8 +7183,9 @@ def run_episode(
                     limits_deg=bounds,
                     track_targets=track_targets,
                     **({"status_sender": session.target,
-                        "track_preview_s": (X1_TRACK_PREVIEW_S if plan.gimbal_eval_track_step is not None
-                                            else 0.0)}
+                        "track_preview_s": (x1_track_preview()[0] if plan.gimbal_eval_track_step is not None
+                                            else 0.0),
+                        "track_preview_max_rad": x1_track_preview()[1]}
                        if plan.gimbal_bridge_stabilize else {}),
                 )
 
@@ -8280,10 +8285,13 @@ def run_episode(
                     timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 track_capture = None
                 track_steady_ns = None
+                x1_unwind = None
+                next_unwind_request_s = 0.0
                 if (horizon_stabilizer is not None and horizon_stabilizer.mode != "track"
                         and x1_track_preaim(plan.gimbal_eval_track_step, index, action)):
                     # Aim at the eval target during the hover return so the hold starts on target.
                     horizon_stabilizer.set_mode("track")
+                    x1_unwind = X1YawUnwind()
                     recorder.record_mavlink({"message_type": "collector_gimbal_eval_preaim",
                                              "step_index": index, "mode": "track",
                                              "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
@@ -8447,13 +8455,29 @@ def run_episode(
                                                   daemon=managed_gimbal_action is not None)
                 execute_thread.start()
                 def _action_tick() -> None:
-                    nonlocal next_video_s, track_steady_ns
+                    nonlocal next_video_s, track_steady_ns, next_unwind_request_s
                     resource_guard.check()
                     episode_watchdog.check()
                     if horizon_loop is not None:
                         horizon_loop.check()
                     if long_range_gimbal_hold is not None and not landing_started:
                         long_range_gimbal_hold.tick()
+                    if x1_unwind is not None and sensor_reader.meta_supported:
+                        # Needs the 10 Hz metadata path to read the measured yaw joint during the return.
+                        now_wall = time.monotonic()
+                        if now_wall >= next_unwind_request_s:
+                            next_unwind_request_s = now_wall + 0.25
+                            sensor_reader.request_meta(max((_pose_sim_stamp_ns(mav_reader.state) or 0) - 1, 0))
+                        meta = sensor_reader.latest_meta
+                        joints = ((getattr(meta, "joint_state", None) or {}).get("gimbal_joint_state") or {})
+                        yaw = (joints.get("position_rad") or {}).get("yaw") if joints.get("fresh") is True else None
+                        decision = x1_unwind.step(yaw, now_wall)
+                        if decision is not None and horizon_stabilizer is not None:
+                            horizon_stabilizer.set_mode(decision)
+                            recorder.record_mavlink({"message_type": "collector_gimbal_eval_unwind",
+                                                     "step_index": index, "mode": decision, "yaw_rad": yaw,
+                                                     "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                                                     "marker_monotonic_ns": time.monotonic_ns()})
                     if track_steady_ns is not None:
                         sim_ns = _pose_sim_stamp_ns(mav_reader.state)
                         if sim_ns is not None and sim_ns >= track_steady_ns:

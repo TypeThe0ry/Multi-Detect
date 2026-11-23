@@ -4,8 +4,12 @@
 
 stdin accepts ``GET <minimum Gazebo simulation nanoseconds>`` per line.
 Each request produces one MDGZSIM3 record and its MDGZDEP1 companion on
-stdout. Gazebo callbacks only replace one complete synchronized candidate;
-they never write to stdout or wait for the host pipe. Diagnostics use stderr.
+stdout. ``GETMETA <ns>`` has the same strictly-after semantics but answers with
+one pixel-free MDGZMET1 record (see ``gazebo_meta_wire``); it is served by its
+own worker so a slow pixel encode never delays it, and records are written
+whole under one lock. Gazebo callbacks only replace one complete synchronized
+candidate; they never write to stdout or wait for the host pipe. Diagnostics
+use stderr.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import queue
 import sys
 import threading
 import time
@@ -20,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from gazebo_depth_wire import ROTOR_VELOCITY_SLOWDOWN, build_depth_wire_record
+from gazebo_meta_wire import build_meta_wire_record
 from gazebo_segmentation_wire import build_segmentation_wire_record, normalize_labels_map
 from gazebo_sensor_stream import (
     DEPTH_MAX_SOURCE_SKEW_NS,
@@ -322,6 +328,119 @@ def encode_candidate(
             segmentation_payload,
         )
     return output
+
+
+def encode_meta_candidate(candidate: Candidate, sequence: int) -> bytes:
+    """One pixel-free MDGZMET1 record carrying the candidate's telemetry and joint sidecar."""
+    navsat = candidate.navsat
+    odometry = candidate.odometry
+    return build_meta_wire_record({
+        "sequence": sequence,
+        "sensor_stamp_ns": candidate.stamp_ns,
+        "width": candidate.width,
+        "height": candidate.height,
+        "camera_info_stamp_ns": candidate.camera_stamp_ns,
+        "navsat_stamp_ns": int(navsat["stamp_ns"]),
+        "odometry_stamp_ns": int(odometry["stamp_ns"]),
+        "latitude_deg": float(navsat["latitude_deg"]),
+        "longitude_deg": float(navsat["longitude_deg"]),
+        "altitude_m": float(navsat["altitude_m"]),
+        "position_east_m": float(odometry["position_east_m"]),
+        "position_north_m": float(odometry["position_north_m"]),
+        "position_up_m": float(odometry["position_up_m"]),
+        "orientation_x": float(odometry["orientation_x"]),
+        "orientation_y": float(odometry["orientation_y"]),
+        "orientation_z": float(odometry["orientation_z"]),
+        "orientation_w": float(odometry["orientation_w"]),
+        "velocity_forward_mps": float(odometry["velocity_forward_mps"]),
+        "velocity_left_mps": float(odometry["velocity_left_mps"]),
+        "velocity_up_mps": float(odometry["velocity_up_mps"]),
+        "joint_state": candidate.joint_state,
+    })
+
+
+def parse_request_line(line: bytes) -> tuple[str, int]:
+    parts = line.decode("ascii").strip().split()
+    if len(parts) != 2 or parts[0] not in ("GET", "GETMETA") or not parts[1].isdecimal():
+        raise ValueError("expected GET|GETMETA <non-negative simulation nanoseconds>")
+    return parts[0], int(parts[1])
+
+
+def serve_requests(
+    stdin: Any,
+    stdout: Any,
+    latest: LatestCandidate,
+    encode_pixels: Any,
+    *,
+    request_timeout_s: float,
+    first_frame_timeout_s: float | None = None,
+) -> dict[str, int]:
+    """Serve request lines until EOF or the first error (which fails ``latest``).
+
+    ``GET`` is handled exactly as before (strictly after both the argument and the
+    previous GET reply; own sequence counter). ``GETMETA`` has its own worker and
+    sequence/last-stamp state so pixel and metadata streams never perturb each
+    other. Each reply is written and flushed whole under ``write_lock``.
+    """
+    write_lock = threading.Lock()
+    queues: dict[str, queue.Queue] = {"GET": queue.Queue(), "GETMETA": queue.Queue()}
+    counts = {"GET": 0, "GETMETA": 0}
+    finished = threading.Event()
+
+    def fail(exc: BaseException) -> None:
+        latest.fail(str(exc))
+        finished.set()
+
+    def worker(kind: str) -> None:
+        last_emitted = -1
+        try:
+            while True:
+                requested = queues[kind].get()
+                if requested is None:
+                    return
+                timeout = (
+                    first_frame_timeout_s
+                    if kind == "GET" and first_frame_timeout_s and last_emitted < 0
+                    else request_timeout_s
+                )
+                candidate = latest.wait_after(max(last_emitted, requested - 1), timeout)
+                sequence = counts[kind]
+                packet = (
+                    encode_pixels(candidate, sequence) if kind == "GET"
+                    else encode_meta_candidate(candidate, sequence)
+                )
+                with write_lock:
+                    stdout.write(packet)
+                    stdout.flush()
+                last_emitted = candidate.stamp_ns
+                counts[kind] += 1
+        except (BrokenPipeError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
+            fail(exc)
+
+    def reader() -> None:
+        try:
+            for line in stdin:
+                kind, stamp = parse_request_line(line)
+                queues[kind].put(stamp)
+        except (BrokenPipeError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
+            fail(exc)
+            return
+        for q in queues.values():
+            q.put(None)  # EOF: drain accepted requests, then stop
+
+    workers = [threading.Thread(target=worker, args=(kind,), daemon=True) for kind in queues]
+    for thread in workers:
+        thread.start()
+    threading.Thread(target=reader, daemon=True).start()
+
+    def all_done() -> None:
+        for thread in workers:
+            thread.join()
+        finished.set()
+
+    threading.Thread(target=all_done, daemon=True).start()
+    finished.wait()
+    return dict(counts)
 
 
 def _joint_sample_from_message(message: Any) -> dict[str, Any]:
@@ -752,34 +871,26 @@ def main() -> int:
         depth_size=args.depth_size,
         depth_encoding=args.depth_encoding,
     )
-    sequence = 0
-    last_emitted_stamp = -1
+    counts = {"GET": 0, "GETMETA": 0}
     try:
-        for line in sys.stdin.buffer:
-            parts = line.decode("ascii").strip().split()
-            if len(parts) != 2 or parts[0] != "GET" or not parts[1].isdecimal():
-                raise ValueError("expected GET <non-negative simulation nanoseconds>")
-            requested_stamp = int(parts[1])
-            candidate = latest.wait_after(
-                max(last_emitted_stamp, requested_stamp - 1),
-                args.first_frame_timeout_s
-                if args.first_frame_timeout_s and last_emitted_stamp < 0
-                else args.request_timeout_s,
-            )
-            packet = encode_candidate(
+        counts = serve_requests(
+            sys.stdin.buffer,
+            sys.stdout.buffer,
+            latest,
+            lambda candidate, sequence: encode_candidate(
                 candidate, sequence, contract, args.rgb_size, args.depth_size, args.depth_encoding
-            )
-            sys.stdout.buffer.write(packet)
-            sys.stdout.buffer.flush()
-            last_emitted_stamp = candidate.stamp_ns
-            sequence += 1
+            ),
+            request_timeout_s=args.request_timeout_s,
+            first_frame_timeout_s=args.first_frame_timeout_s,
+        )
     except (BrokenPipeError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
         latest.fail(str(exc))
     finally:
         teardown = _shutdown_transport_node(node, topics, drain_lock=image_lock)
         _diagnostic(
             "sim_teacher_frame_server_finished",
-            emitted=sequence,
+            emitted=counts["GET"],
+            emitted_meta=counts["GETMETA"],
             synchronized=latest.received,
             dropped=latest.dropped,
             rejected=stats,
