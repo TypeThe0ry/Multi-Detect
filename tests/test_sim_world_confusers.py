@@ -7,12 +7,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import requires_artifact
 from multidetect.simulator.world_gen import generate_fuel_worlds
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_confusers_are_placed_and_flagged(tmp_path: Path) -> None:
+    requires_artifact(ROOT / "artifacts/cache/gz-fuel/resolved")
     generate_fuel_worlds(
         count=1,
         seed=20261016,

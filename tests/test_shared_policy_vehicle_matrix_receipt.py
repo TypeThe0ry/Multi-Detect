@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import requires_artifact
 
 from scripts.create_shared_policy_vehicle_matrix_receipt import (
     create_shared_policy_vehicle_receipt,
@@ -19,6 +20,7 @@ FIXED = ROOT / PROGRESS["external_fixed_wing_shared_policy_depth_mission_2026093
 MULTIROTOR = ROOT / PROGRESS[
     "external_multirotor_shared_policy_depth_mission_20260930"
 ]["evidence"]
+requires_artifact(RECEIPT, VTOL, FIXED, MULTIROTOR, module_level=True)
 
 
 def test_shared_policy_vehicle_matrix_proves_one_ranker_with_profile_bound_artifacts() -> None:

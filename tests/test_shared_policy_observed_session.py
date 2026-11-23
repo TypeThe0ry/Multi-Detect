@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import requires_artifact
 
 from scripts.run_shared_policy_observed_session import (
     DEFAULT_ARTIFACT,
@@ -10,6 +11,8 @@ from scripts.run_shared_policy_observed_session import (
     DEFAULT_PARITY,
     run_evidence,
 )
+
+requires_artifact(DEFAULT_ARTIFACT, DEFAULT_CAMPAIGN, DEFAULT_PARITY, module_level=True)
 
 
 def test_observed_policy_session_replans_and_repeats_deterministically() -> None:

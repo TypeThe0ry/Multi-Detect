@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from conftest import requires_module
 
 from scripts import onboard_navigation_live_loader as live
 
@@ -659,6 +660,8 @@ def test_import_is_stdlib_only_and_no_training_or_cache_entry():
 
 
 def test_small_head_bundle_does_not_reopen_historical_gold_sources(config):
+    requires_module("torch")
+    requires_module("safetensors")
     import torch
     from safetensors.torch import save
 

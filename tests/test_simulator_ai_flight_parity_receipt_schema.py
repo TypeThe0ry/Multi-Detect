@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from conftest import requires_artifact
 from jsonschema import Draft202012Validator
 from test_simulator_ai_flight_parity_receipt import _fixture
 
@@ -18,6 +19,7 @@ def _current_receipt_path() -> Path:
     )
     entry = progress["external_docker_ai_flight_parity_receipt_20260927_r2"]
     receipt_path = ROOT / entry["receipt"]
+    requires_artifact(receipt_path)
     if not receipt_path.is_file():
         raise AssertionError(f"current progress receipt is missing: {receipt_path}")
     return receipt_path

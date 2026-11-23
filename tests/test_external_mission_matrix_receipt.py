@@ -4,11 +4,16 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import requires_artifact
 
 from scripts.create_external_mission_matrix_receipt import create_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 PROGRESS = json.loads((ROOT / "docs/current-progress.json").read_text(encoding="utf-8"))
+requires_artifact(
+    ROOT / PROGRESS["external_mission_matrix_20260927_r6"]["evidence"],
+    module_level=True,
+)
 MATRIX = json.loads(
     (ROOT / PROGRESS["external_mission_matrix_20260927_r6"]["evidence"]).read_text(
         encoding="utf-8"

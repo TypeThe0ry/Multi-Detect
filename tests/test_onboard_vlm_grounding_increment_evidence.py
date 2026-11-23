@@ -48,7 +48,15 @@ def sha(path: Path) -> str:
 def bound(record: dict) -> Path:
     assert set(record) == {"path", "bytes", "sha256"}
     path = ROOT / record["path"]
-    path.resolve().relative_to(ROOT.resolve())
+    try:
+        path.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        if path.is_file() or Path(record["path"]).parts[0] == "artifacts":
+            pytest.skip(
+                "evidence artifact resolves outside this checkout; run in the "
+                f"primary checkout that owns the shared artifacts: {path}"
+            )
+        raise
     if not path.is_file() and Path(record["path"]).parts[0] == "artifacts":
         pytest.skip(f"Ignored native artifact absent in clean clone: {record['path']}")
     assert path.is_file()

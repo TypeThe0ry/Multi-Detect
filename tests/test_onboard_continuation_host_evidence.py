@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from xml.etree import ElementTree
 
+from conftest import requires_artifact, requires_path
+
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / "docs/evidence/onboard-continuation-host-development-20261007-r1.json"
 
@@ -70,6 +72,7 @@ def test_host_test_counts_match_original_native_reports_without_counting_frames_
     receipt = _json(RECEIPT)
     for name in ("software_validation", "kernel_udp_validation"):
         validation = receipt[name]
+        requires_artifact(ROOT / validation["junit_artifact"]["path"])
         suite = ElementTree.parse(_record(validation["junit_artifact"])).getroot().find("testsuite")
         assert suite is not None
         assert int(suite.attrib["tests"]) == validation["tests_passed"]
@@ -80,6 +83,7 @@ def test_host_test_counts_match_original_native_reports_without_counting_frames_
 
 def test_kernel_udp_transcripts_reopen_exact_raw_bytes_but_do_not_prove_flight():
     receipt = _json(RECEIPT)
+    requires_artifact(ROOT / receipt["kernel_udp_validation"]["junit_artifact"]["path"])
     root = ElementTree.parse(_record(receipt["kernel_udp_validation"]["junit_artifact"])).getroot()
     properties = root.findall(".//property")
     mappings = [
@@ -110,6 +114,9 @@ def test_kernel_udp_transcripts_reopen_exact_raw_bytes_but_do_not_prove_flight()
 def test_latest_runtime_probe_remains_unknown_and_previous_native_failure_is_retained():
     receipt = _json(RECEIPT)
     diagnostic = receipt["local_runtime_diagnostic"]
+    requires_artifact(ROOT / diagnostic["artifact"]["path"])
+    profile = receipt["retained_pre_fix_profile"]
+    requires_path(profile["absolute_path"], reason="retained host probe profile")
     report = _json(_record(diagnostic["artifact"]))
     assert diagnostic["probe_native_exit_code"] == 2
     assert report["client_version"]["exit_code"] == 0

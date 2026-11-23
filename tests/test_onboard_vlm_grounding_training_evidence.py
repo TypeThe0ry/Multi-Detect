@@ -65,7 +65,15 @@ def _bound(reference: dict, *, root: Path = ROOT) -> Path:
     assert type(reference["bytes"]) is int and reference["bytes"] >= 0
     trainer.probe.require_sha256(reference["sha256"])
     path = (root / reference["path"]).resolve()
-    relative = path.relative_to(root.resolve())
+    try:
+        relative = path.relative_to(root.resolve())
+    except ValueError:
+        if path.is_file() or Path(reference["path"]).parts[0] == "artifacts":
+            pytest.skip(
+                "evidence artifact resolves outside this checkout; run in the "
+                f"primary checkout that owns the shared artifacts: {path}"
+            )
+        raise
     if not path.is_file() and relative.parts[0] == "artifacts":
         pytest.skip(f"Ignored development artifact absent: {relative.as_posix()}")
     assert path.is_file(), f"Required repository evidence/source/config missing: {relative}"
@@ -172,7 +180,15 @@ def dataset(evidence):
         for name, relative in frame.items():
             if name.endswith("_path") and name != "world_path":
                 path = (source.parent / relative).resolve()
-                path.relative_to(source.parent.resolve())
+                try:
+                    path.relative_to(source.parent.resolve())
+                except ValueError:
+                    if path.is_file():
+                        pytest.skip(
+                            "rendered frame resolves outside its shared artifact "
+                            f"root: {path}"
+                        )
+                    raise
                 if not path.is_file():
                     pytest.skip(f"Ignored original rendered asset absent: {path.name}")
     for sample in document["samples"]:

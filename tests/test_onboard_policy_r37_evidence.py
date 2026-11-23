@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from conftest import requires_artifact
+
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "docs/evidence/onboard-policy-r37-3d-model-teacher-20261006.json"
 
@@ -24,6 +26,7 @@ def test_r37_evidence_binds_candidate_and_reports_real_training_boundary() -> No
     report = ROOT / training["training_report"]
     holdout = ROOT / sources["structured_holdout"]
     generalization = ROOT / sources["generalization_report"]
+    requires_artifact(model, config, report, holdout, generalization)
 
     assert document["status"] == "candidate_not_promoted"
     assert training["parent_model_sha256"] == (

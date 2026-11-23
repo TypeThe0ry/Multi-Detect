@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from conftest import requires_artifact
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "capture_qgc_native_style.ps1"
 SCHEMA = ROOT / "configs" / "schemas" / "qgc-native-style-capture.schema.json"
@@ -87,6 +89,7 @@ def test_current_qgc_machine_capture_entry_is_hash_bound_and_not_human_acceptanc
             ("machine_observation", "machine_observation_bytes", "machine_observation_sha256"),
         ):
             path = ROOT / entry[path_key]
+            requires_artifact(path)
             payload = path.read_bytes()
             assert len(payload) == entry[bytes_key]
             assert hashlib.sha256(payload).hexdigest() == entry[sha_key]

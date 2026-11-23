@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import requires_artifact
 
 from scripts.rebind_combined_target_evidence_cards import rebind
 
@@ -18,6 +19,7 @@ AUDIO = (
     / "artifacts/evaluation/combined-sim-qgc-20260905T175019Z-64536/integrated-sim-qgc.audit.jsonl"
 )
 PARITY = ROOT / "configs/release-parity.json"
+requires_artifact(SOURCE, AUDIO, module_level=True)
 
 
 def _sha256(path: Path) -> str:
