@@ -32,16 +32,27 @@ def x1_track_preaim(track_step, index, action) -> bool:
 
 
 class X1TrackCapture:
-    """Collect distinct, simulation-timed samples using the existing sensor pipe."""
+    """Collect distinct, simulation-timed samples using the existing sensor pipe.
+
+    When the reader advertises ``meta_supported`` the samples come from the pixel-free
+    ``GETMETA`` path (``request_meta`` / ``latest_meta``, a few ms per round trip, one
+    request kept in flight); otherwise the legacy pixel path (``request`` / ``latest``)
+    is used unchanged. Both paths skip ahead instead of chasing a backlog.
+    """
+
+    META_RETRY_S = 1.0  # re-ask if a metadata answer has not arrived this long after the request
 
     def __init__(self, start_sim_ns: int | None):
         self.period_ns = 1_000_000_000 // X1_TRACK_SAMPLE_HZ
         self.due_ns = start_sim_ns
         self.next_request_wall_s = 0.0
+        self._meta_asked: tuple[int, float] | None = None  # (due_ns asked for, wall_s)
 
     def tick(self, reader, *, sim_ns, wall_s):
         if self.due_ns is None or sim_ns is None or sim_ns < self.due_ns:
             return None
+        if getattr(reader, "meta_supported", False) and hasattr(reader, "request_meta"):
+            return self._tick_meta(reader, sim_ns, wall_s)
         sample = reader.latest
         if sample is not None and self.due_ns <= sample.sensor_stamp_ns <= sim_ns:
             # A request/response server delivers ~3 frames/s, below the 10 Hz source. Do not chase
@@ -54,6 +65,22 @@ class X1TrackCapture:
             # due - 1 to get the frame stamped exactly at due (the old request skipped every other one).
             reader.request(max(self.due_ns - 1, 0))
         return None
+
+    def _tick_meta(self, reader, sim_ns, wall_s):
+        sample = getattr(reader, "latest_meta", None)
+        if sample is not None and self.due_ns <= sample.sensor_stamp_ns <= sim_ns:
+            self.due_ns = max(sample.sensor_stamp_ns + self.period_ns, sim_ns)
+            self._ask_meta(reader, wall_s)  # pipeline: next request leaves before the next tick
+            return sample
+        asked = self._meta_asked
+        if asked is None or asked[0] != self.due_ns or wall_s - asked[1] >= self.META_RETRY_S:
+            self._ask_meta(reader, wall_s)
+        return None
+
+    def _ask_meta(self, reader, wall_s):
+        # Strictly-after server semantics: ask for due - 1 to receive the frame stamped at due.
+        self._meta_asked = (self.due_ns, wall_s)
+        reader.request_meta(max(self.due_ns - 1, 0))
 
 
 def collector_camera_mount(profile: Any) -> CameraMount | None:

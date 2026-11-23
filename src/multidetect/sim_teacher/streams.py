@@ -143,6 +143,28 @@ def _import_wire_helpers() -> tuple[Any, Any, Any]:
     return read_wire_frame, read_depth_wire_frame, np
 
 
+def _import_meta_wire() -> tuple[bytes, Any]:
+    try:
+        from scripts.gazebo_meta_wire import META_WIRE_MAGIC, read_meta_wire_frame
+    except ModuleNotFoundError:
+        from gazebo_meta_wire import META_WIRE_MAGIC, read_meta_wire_frame  # type: ignore
+    return META_WIRE_MAGIC, read_meta_wire_frame
+
+
+class _PrefixedStream:
+    """Replay already-consumed leading bytes, then continue with the real stream."""
+
+    def __init__(self, prefix: bytes, stream: BinaryIO) -> None:
+        self._prefix = prefix
+        self._stream = stream
+
+    def read(self, size: int = -1) -> bytes:
+        if self._prefix:
+            head, self._prefix = self._prefix[:size], self._prefix[size:]
+            return head
+        return self._stream.read(size)
+
+
 def _header_camera_info(header: Any) -> dict[str, Any]:
     return {
         "width": int(header.width),
@@ -165,8 +187,16 @@ class SensorStreamReader:
         clock: Callable[[], int] = time.monotonic_ns,
         require_depth: bool = True,
         segmentation_topic: str | None = None,
+        meta_requests: bool = False,
     ) -> None:
         self.stream = stream
+        # True only when the peer is known to be the matching frame server that
+        # understands ``GETMETA`` (the collector launches its own repo copy, so it
+        # sets this). An older server would exit on the unknown verb, so the
+        # default stays False and ``request_meta`` falls back to ``request``.
+        self.meta_supported = bool(meta_requests) and request_stream is not None
+        self.latest_meta: SensorSample | None = None
+        self.meta_received = 0
         self.request_stream = request_stream
         self._request_lock = threading.Lock()
         self.depth_binding = dict(depth_binding) if depth_binding else None
@@ -230,6 +260,56 @@ class SensorStreamReader:
             if callable(flush):
                 flush()
 
+    def request_meta(self, min_sensor_stamp_ns: int = 0) -> bool:
+        """Ask for a pixel-free metadata record for the first frame after the argument.
+
+        Returns True when a ``GETMETA`` line was sent (the answer lands in
+        ``latest_meta``, never ``latest``). Without ``meta_supported`` it behaves
+        exactly like ``request`` (pixel path) and returns False.
+        """
+        if not self.meta_supported:
+            self.request(min_sensor_stamp_ns)
+            return False
+        stamp = int(min_sensor_stamp_ns)
+        if stamp < 0:
+            raise ValueError("min_sensor_stamp_ns must be non-negative")
+        payload = f"GETMETA {stamp}\n".encode("ascii")
+        with self._request_lock:
+            self.request_stream.write(payload)
+            flush = getattr(self.request_stream, "flush", None)
+            if callable(flush):
+                flush()
+        return True
+
+    def _meta_sample(self, body: Mapping[str, Any]) -> SensorSample:
+        joint_state = body.get("joint_state")
+        return SensorSample(
+            rgb=b"",
+            width=0,
+            height=0,
+            depth=None,
+            camera_info={
+                "width": int(body.get("width", 0)),
+                "height": int(body.get("height", 0)),
+                "camera_info_stamp_ns": int(body["camera_info_stamp_ns"]),
+                **self.camera_info,
+            },
+            pose={
+                "local_enu_m": [float(body["position_east_m"]), float(body["position_north_m"]),
+                                float(body["position_up_m"])],
+                "lat_deg": float(body["latitude_deg"]),
+                "lon_deg": float(body["longitude_deg"]),
+                "alt_m": float(body["altitude_m"]),
+                "orientation_quaternion": [float(body[f"orientation_{axis}"]) for axis in "xyzw"],
+            },
+            velocity=[float(body["velocity_forward_mps"]), float(body["velocity_left_mps"]),
+                      float(body["velocity_up_mps"])],
+            sensor_stamp_ns=int(body["sensor_stamp_ns"]),
+            received_monotonic_ns=self.clock(),
+            received_wall_time=time.time(),
+            joint_state=dict(joint_state) if isinstance(joint_state, Mapping) else None,
+        )
+
     def wait_first_frame(self, timeout_s: float) -> SensorSample:
         if not self.first_frame.wait(timeout=max(0.0, timeout_s)):
             if self.error is not None:
@@ -261,6 +341,7 @@ class SensorStreamReader:
 
     def _run(self) -> None:
         read_wire_frame, read_depth_wire_frame, np = _import_wire_helpers()
+        meta_magic, read_meta_wire_frame = _import_meta_wire()
         try:
             order = None
             try:
@@ -272,7 +353,21 @@ class SensorStreamReader:
             while not self._stop.is_set() and (
                 self.max_frames is None or self.frames_received < self.max_frames
             ):
-                header, payload = read_wire_frame(self.stream, order=order)
+                lead = b""
+                while len(lead) < len(meta_magic):
+                    more = self.stream.read(len(meta_magic) - len(lead))
+                    if not more:
+                        break
+                    lead += more
+                if lead == meta_magic:
+                    # Metadata-only record (reply to GETMETA): own slot, never touches ``latest``.
+                    self.latest_meta = self._meta_sample(
+                        read_meta_wire_frame(self.stream, magic_consumed=True)
+                    )
+                    self.meta_received += 1
+                    continue
+                source = _PrefixedStream(lead, self.stream) if lead else self.stream
+                header, payload = read_wire_frame(source, order=order)
                 depth_frame = depth = None
                 if self.depth_binding is not None:
                     depth_frame = read_depth_wire_frame(

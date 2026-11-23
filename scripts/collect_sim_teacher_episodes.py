@@ -6960,6 +6960,9 @@ def run_episode(
                     segmentation_topic="/multidetect/teacher/segmentation/labels_map"
                     if plan.segmentation
                     else None,
+                    # The server above is this checkout's scripts/ copy (bind-mounted), which
+                    # understands GETMETA; MULTIDETECT_SIM_META_REQUESTS=0 forces the pixel path.
+                    meta_requests=os.environ.get("MULTIDETECT_SIM_META_REQUESTS", "1") != "0",
                 ).start()
 
             sensor_reader = _start_sensor_reader(sensor_process)
