@@ -16,8 +16,10 @@ ROOT = Path(__file__).resolve().parents[2]
 if __name__ == "__main__":
     sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
+from multidetect.sim_teacher.horizon_stabilization import rotation_deg  # noqa: E402
 from multidetect.sim_teacher.target_tracking import (  # noqa: E402
     WorldTarget,
+    c11_optical_axis_reachable,
     pointing_error_deg,
     track_horizon_error_deg,
     unit,
@@ -27,8 +29,10 @@ from multidetect.sim_teacher.gimbal_recording import (  # noqa: E402
     X1_FW_CRUISE_MAX_P95_DEG,
     X1_FW_MAX_UNWIND_FRACTION,
     X1_FW_MIN_LOCK_RATE,
+    X1_FW_MIN_REACHABLE_COVERAGE,
     X1_FW_MIN_SAMPLES,
     X1_FW_TURN_MAX_P95_DEG,
+    X1_FW_VTOL_STATE,
     X1_TRACK_MIN_LOCK_RATE,
     X1_TRACK_TRANSIENT_SIM_S,
 )
@@ -253,13 +257,14 @@ def measured_rotation(camera, max_age_ms):
     return rotation, columns
 
 
-def measured_ray(row, stabilization, max_age_ms):
+def target_direction(row, ref, max_age_ms, *, body_rotation=None):
     camera = mapping(row.get("camera_pose"))
-    rotation, columns = measured_rotation(camera, max_age_ms)
-    ref = mapping(stabilization.get("target_ref"))
     if ref.get("kind") == "direction_ned":
-        direction = unit(vector(ref.get("vector"), 3))
+        return unit(vector(ref.get("vector"), 3))
     elif ref.get("kind") == "world_point" and ref.get("altitude_reference", "AMSL") == "AMSL":
+        age = camera.get("age_ms")
+        if not finite_number(age) or not 0 <= age <= max_age_ms:
+            raise ValueError("camera center unavailable or stale")
         pose = mapping(row.get("pose"))
         skew = pose.get("global_position_skew_ms")
         if not finite_number(skew) or abs(skew) > max_age_ms:
@@ -268,9 +273,14 @@ def measured_ray(row, stabilization, max_age_ms):
                                              vector(pose.get("local_ned_m"), 3), strict=True))
         origin = WorldTarget(pose["lat_deg"], pose["lon_deg"], pose["alt_amsl_m"])
         target = WorldTarget(ref["lat_deg"], ref["lon_deg"], ref["alt_m"])
-        direction = world_target_direction(origin, target, camera_offset_ned=offset)
+        return world_target_direction(origin, target, body_rotation, camera_offset_ned=offset)
     else:
         raise ValueError("no frame-aligned target")
+
+
+def measured_ray(row, stabilization, max_age_ms):
+    rotation, columns = measured_rotation(mapping(row.get("camera_pose")), max_age_ms)
+    direction = target_direction(row, mapping(stabilization.get("target_ref")), max_age_ms)
     ray = tuple(sum(a*b for a, b in zip(direction, col, strict=True)) for col in columns)
     return ray, pointing_error_deg(direction, rotation)
 
@@ -409,9 +419,13 @@ def stamp(row, key):
 
 
 def hold_phase(rows, target_ref, max_age_ms):
+    return tracking_phase(((row, target_ref) for row in rows), max_age_ms)
+
+
+def tracking_phase(samples, max_age_ms):
     counts = dict.fromkeys(TRACK_COUNTS, 0)
     pointing, roll = [], []
-    for row in rows:
+    for row, target_ref in samples:
         counts["active_frames"] += 1
         visible = None
         state = mapping(row.get("gimbal_state"))
@@ -513,7 +527,7 @@ FW_GATES = {"cruise": {"max_p95_deg": X1_FW_CRUISE_MAX_P95_DEG, "min_samples": X
 
 
 def fw_legs(meta, events):
-    """Cruise/turn tracking of the eval point on the FW legs (opt-in; ``None`` when not requested).
+    """Opt-in FW acceptance; preserve the original scorer for archived R1 ledgers.
 
     Phase labels come from the collector (MAVLink bank angle + VTOL state). Samples taken while the yaw
     unwind had dropped track mode are counted but not scored; unlabelled samples (transition) are ignored.
@@ -525,6 +539,8 @@ def fw_legs(meta, events):
     max_age_s = config.get("max_age_s", 0.2)
     max_age_ms = 1000 * max_age_s if finite_number(max_age_s) and max_age_s > 0 else 200.0
     in_legs = [r for r in events if type(r.get("step_index")) is int and 0 <= r["step_index"] < legs]
+    if "eval_fw_target_refs" in config:
+        return fw_reachable_legs(in_legs, legs, config["eval_fw_target_refs"], max_age_ms)
     refs = [r["target_ref"] for r in in_legs if r["message_type"] == TRACK_FW_MODE
             and r.get("mode") == "track" and isinstance(r.get("target_ref"), dict)]
     report = {"legs": legs, "gate": {"min_lock_rate": X1_FW_MIN_LOCK_RATE,
@@ -564,6 +580,97 @@ def fw_legs(meta, events):
         reasons.append("unwind_fraction")
     report.update(passed=not reasons, failed_checks=reasons)
     return report
+
+
+def fw_reachable_legs(events, legs, refs, max_age_ms):
+    """Score each reachable FW sample against its predeclared point, including non-track frames."""
+    gate = {"min_lock_rate": X1_FW_MIN_LOCK_RATE, "max_unwind_fraction": X1_FW_MAX_UNWIND_FRACTION,
+            "min_reachable_coverage": X1_FW_MIN_REACHABLE_COVERAGE, **FW_GATES}
+    report = {"legs": legs, "gate": gate}
+    invalid = {**report, "status": "target_ref_unavailable", "passed": False}
+    if not isinstance(refs, list) or len(refs) != legs:
+        return invalid
+    for ref in refs:
+        if (mapping(ref).get("kind") != "world_point" or ref.get("altitude_reference") != "AMSL"
+                or not all(finite_number(ref.get(key)) for key in ("lat_deg", "lon_deg", "alt_m"))):
+            return invalid
+        try:
+            WorldTarget(ref["lat_deg"], ref["lon_deg"], ref["alt_m"])
+        except ValueError:
+            return invalid
+    marked, samples, unlabeled = set(), {}, 0
+    for row in events:
+        index = row["step_index"]
+        if row["message_type"] == TRACK_FW_MODE and row.get("mode") == "track":
+            if row.get("target_ref") != refs[index]:
+                return invalid
+            marked.add(index)
+        if row["message_type"] == TRACK_SAMPLE and (ns := stamp(row, "sim_stamp_ns")) is not None:
+            if row.get("fw_phase") in FW_PHASES or row.get("vtol_state") == X1_FW_VTOL_STATE:
+                samples.setdefault(ns, row)
+            else:
+                unlabeled += 1
+    if len(marked) != legs:
+        return invalid
+
+    coverage_keys = ("reachable_samples", "unreachable_samples", "reachability_unknown_samples")
+    by_leg = [dict.fromkeys(coverage_keys, 0) for _ in refs]
+    scored = {phase: [] for phase in FW_PHASES}
+    unwound = 0
+    for row in samples.values():
+        index = row["step_index"]
+        ref = refs[index]
+        unwound += row.get("track_mode") != "track"
+        phase = row.get("fw_phase")
+        if phase not in FW_PHASES:
+            by_leg[index]["reachability_unknown_samples"] += 1
+            continue
+        try:
+            att = mapping(row.get("attitude"))
+            angles = {axis: att.get(axis + "_deg") for axis in ("roll", "pitch", "yaw")}
+            if not all(finite_number(a) for a in angles.values()) or not all(
+                finite_number(row.get(k)) and abs(row[k]) <= max_age_ms for k in ("attitude_skew_ms", "sim_skew_ms")
+            ):
+                raise ValueError("FW body attitude unavailable or stale")
+            direction = target_direction(row, ref, max_age_ms, body_rotation=rotation_deg(angles))
+        except (KeyError, ValueError, TypeError, OverflowError):
+            by_leg[index]["reachability_unknown_samples"] += 1
+            continue
+        if c11_optical_axis_reachable(direction):
+            by_leg[index]["reachable_samples"] += 1
+            scored[phase].append((row, ref))
+        else:
+            by_leg[index]["unreachable_samples"] += 1
+
+    def coverage(counts):
+        total = sum(counts.values())
+        return {**counts, "labeled_samples": total,
+                "reachable_coverage": counts["reachable_samples"] / total if total else None}
+
+    totals = coverage({key: sum(counts[key] for counts in by_leg) for key in coverage_keys})
+    unwind_fraction = unwound / len(samples) if samples else None
+    report.update(totals, status="scored", unlabeled_samples=unlabeled, unwind_samples=unwound,
+                  unwind_fraction=unwind_fraction, by_leg=[{"step_index": i, "target_ref": ref, **coverage(counts)}
+                                                        for i, (ref, counts) in enumerate(zip(refs, by_leg, strict=True))])
+    reasons = []
+    for phase, entries in scored.items():
+        summary = tracking_phase(entries, max_age_ms)
+        bounds = summary["lock_rate_bounds"]
+        # Count unresolved reachable frames as not locked, not as out-of-envelope geometry.
+        lock = bounds["lower"] if bounds else None
+        p95 = summary["pointing_error_deg"]["p95"]
+        track_count = sum(row.get("track_mode") == "track" for row, _ in entries)
+        checks = {"samples": track_count >= FW_GATES[phase]["min_samples"],
+                  "p95": bool(finite_number(p95) and p95 <= FW_GATES[phase]["max_p95_deg"]),
+                  "lock_rate": bool(finite_number(lock) and lock >= X1_FW_MIN_LOCK_RATE)}
+        reasons.extend(f"{phase}_{name}" for name, ok in checks.items() if not ok)
+        report[phase] = {**summary, "lock_rate": lock, "sample_count": len(entries), "checks": checks,
+                         "track_sample_count": track_count, "passed": all(checks.values())}
+    if unwind_fraction is None or unwind_fraction > X1_FW_MAX_UNWIND_FRACTION:
+        reasons.append("unwind_fraction")
+    if totals["reachable_coverage"] is None or totals["reachable_coverage"] < X1_FW_MIN_REACHABLE_COVERAGE:
+        reasons.append("reachable_coverage")
+    return {**report, "passed": not reasons, "failed_checks": reasons}
 
 
 def read_track_hold(directory, meta, issues):
@@ -876,12 +983,13 @@ def markdown(report):
     fws = [(e["episode_id"], e["track_diagnostics"]["hold"]["fw"]) for e in report["episodes"]
            if "fw" in ((e.get("track_diagnostics") or {}).get("hold") or {})]
     if fws:
-        headers = ("Episode", "Phase", "Samples", "Pointing P50/P95/max (deg)", "Lock rate (resolved)",
+        headers = ("Episode", "Phase", "Samples", "Pointing P50/P95/max (deg)", "Lock rate",
                    "Gate", "Failed checks")
         lines += ["", "## Fixed-wing cruise/turn tracking", "",
-                  "Same virtual point as the hover hold. Phase comes from the collector (MAVLink bank angle "
-                  "with hysteresis, VTOL state = FW). Samples taken while the yaw unwind had dropped track "
-                  "mode are excluded from the percentiles and capped by the unwind fraction.", "",
+                  "Phase comes from the collector (MAVLink bank angle with hysteresis, VTOL state = FW). "
+                  f"With per-leg targets, at least {X1_FW_MIN_REACHABLE_COVERAGE:.0%} of recorded FW samples "
+                  "must be geometrically reachable. Reachable misses count against lock; non-track samples "
+                  "also count toward the unwind fraction. Legacy runs used one point and scored track samples only.", "",
                   cells(*headers), cells(*(["---"] * len(headers)))]
         for episode, fw in fws:
             if fw["status"] != "scored":
@@ -892,8 +1000,12 @@ def markdown(report):
                 lines.append(cells(episode, phase, p["sample_count"],
                                    angles(mapping(p["pointing_error_deg"])), fraction(p["lock_rate"]),
                                    p["passed"], ", ".join(c for c, ok in p["checks"].items() if not ok) or None))
-            lines.append(cells(episode, "all", fw["labeled_samples"], None, None, fw["passed"],
-                               f"unwind {fraction(fw['unwind_fraction'])}"))
+            detail = f"unwind {fraction(fw['unwind_fraction'])}"
+            if "reachable_coverage" in fw:
+                detail += (f"; reachable {fraction(fw['reachable_coverage'])}"
+                           f"; unreachable {fw['unreachable_samples']}; unknown {fw['reachability_unknown_samples']}"
+                           f"; failed: {', '.join(fw['failed_checks']) or 'none'}")
+            lines.append(cells(episode, "all", fw["labeled_samples"], None, None, fw["passed"], detail))
     issues = [*report["issues"], *(f"{e['episode_dir']}: {issue}"
                                   for e in report["episodes"] for issue in e["issues"])]
     if issues:
