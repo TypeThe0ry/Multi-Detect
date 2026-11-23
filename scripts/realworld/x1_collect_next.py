@@ -203,7 +203,16 @@ def eval_config(*, require_enabled):
         raise ValueError("invalid X1 gimbal evaluation queue schema")
     if require_enabled and not spec["enabled"]:
         raise ValueError("X1 gimbal evaluation queue is disabled")
+    if "image" in spec and (type(spec["image"]) is not str or not spec["image"]):
+        raise ValueError("invalid X1 gimbal evaluation image override")
+    if "only" in spec and (type(spec["only"]) is not list or not all(type(x) is str for x in spec["only"])):
+        raise ValueError("invalid X1 gimbal evaluation condition filter")
     return spec
+
+
+def queue_image(iowa_spec, config):
+    """Optional local image tag for the eval queue (e.g. a rebuilt bridge); defaults to the pinned Iowa image."""
+    return (config or {}).get("image") or iowa_spec["image"]
 
 
 def eval_plans(spec, iowa_spec, image_id, config, *, lane=None):
@@ -224,6 +233,8 @@ def eval_plans(spec, iowa_spec, image_id, config, *, lane=None):
                 continue
             slot = EVAL_LANES[job_lane]
             label = f"{site}__{batch.WEATHER[pair]}"
+            if config.get("only") and label not in config["only"]:
+                continue
             if site == IOWA_SITE and offset == 0:
                 source = Path(iowa_spec["world_source_root"]) / resume.IOWA_WORLD
                 if batch.file_hash(source) != iowa_spec["world_sha256"]:
@@ -312,7 +323,7 @@ def selected_queue(spec, image_id, iowa_spec, config, *, lane=None):
 def preflight(spec, iowa_spec, *, config=None, lane=None):
     output = OUTPUT if config is None else EVAL_OUTPUT
     resume.mount_check(output=output)
-    image_id = resume.image_check(iowa_spec["image"])
+    image_id = resume.image_check(queue_image(iowa_spec, config))
     pending, done, unavailable = selected_queue(spec, image_id, iowa_spec, config, lane=lane)
     if not pending:
         raise ValueError(f"no pending offline-qualified worlds ({len(done)} accepted): {unavailable}")
@@ -368,7 +379,7 @@ def main(argv=None):
         output = EVAL_OUTPUT if args.gimbal_eval else OUTPUT
         if args.action == "complete":
             resume.mount_check(output=output)
-            image_id = resume.image_check(iowa_spec["image"])
+            image_id = resume.image_check(queue_image(iowa_spec, config))
             pending, _, unavailable = selected_queue(spec, image_id, iowa_spec, config, lane=lane)
             return 0 if not pending and not unavailable else 1
         if args.action == "run":

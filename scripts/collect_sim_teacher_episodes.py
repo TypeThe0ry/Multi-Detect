@@ -66,6 +66,7 @@ from multidetect.sim_teacher import (  # noqa: E402
 )
 from multidetect.sim_teacher.gimbal_recording import (
     DeltaCameraGeometry, X1TrackCapture, X1_TRACK_PREVIEW_S, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    x1_track_preaim,
     collector_camera_mount,
 )
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
@@ -8279,6 +8280,14 @@ def run_episode(
                     timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 track_capture = None
                 track_steady_ns = None
+                if (horizon_stabilizer is not None and horizon_stabilizer.mode != "track"
+                        and x1_track_preaim(plan.gimbal_eval_track_step, index, action)):
+                    # Aim at the eval target during the hover return so the hold starts on target.
+                    horizon_stabilizer.set_mode("track")
+                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_preaim",
+                                             "step_index": index, "mode": "track",
+                                             "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                                             "marker_monotonic_ns": time.monotonic_ns()})
                 if plan.gimbal_eval_track_step is not None and index in (
                     plan.gimbal_eval_track_step, plan.gimbal_eval_track_step + 1
                 ):

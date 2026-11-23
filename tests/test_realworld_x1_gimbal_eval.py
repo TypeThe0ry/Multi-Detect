@@ -256,6 +256,9 @@ def test_tracking_hold_splits_frames_and_negative_ack_observations(tmp_path, mon
     assert hold["overall"]["track_horizon_error_deg"] == {
         "count": 4, "p50": 0, "p95": pytest.approx(12.75), "max": pytest.approx(15),
     }
+    # The fixture's overall in-view fraction is far below the 0.9 gate: the run must be flagged.
+    assert hold["lock_gate"]["threshold"] == 0.9 and hold["lock_gate"]["passed"] is False
+    assert report["lock_gate_failures"] == [row["episode_dir"]]
     assert transient["lock_rate"] == 0.5
     assert transient["lock_rate_bounds"] == {"lower": 1 / 3, "upper": 2 / 3}
     assert steady["lock_rate"] == 1.0

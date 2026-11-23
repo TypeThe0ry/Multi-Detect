@@ -17,7 +17,18 @@ from multidetect.camera_mount import (
 DEFAULT_MAX_AGE_MS = 2_000.0
 X1_TRACK_SAMPLE_HZ = 10
 X1_TRACK_TRANSIENT_SIM_S = 20  # measured settling: error < 2 deg by ~9-11 s (ROOTCAUSE.md)
+X1_TRACK_MIN_LOCK_RATE = 0.9  # a tracking hold below this geometric lock rate is an unacceptable eval run
 X1_TRACK_PREVIEW_S = 0.20  # body-rate lead for the bridge track pose (bridge lock mode uses the same 200 ms)
+
+
+def x1_track_preaim(track_step, index, action) -> bool:
+    """True on the MC return step just before the eval hold: aim the gimbal at the target early.
+
+    Engaging track mode only at the hold start meant a 17-19 deg slew inside the measured window
+    (ROOTCAUSE.md). Entering track mode during the hover return lets the gimbal settle first.
+    """
+    return (type(track_step) is int and index == track_step - 1
+            and getattr(action, "reason", None) == "hover_return_to_home")
 
 
 class X1TrackCapture:

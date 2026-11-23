@@ -233,3 +233,14 @@ def test_track_pose_preview_matches_bridge_lock_preview_and_is_off_by_default():
     with pytest.raises(ValueError):
         BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}, mode="track", track_targets=(target,),
                             track_preview_s=2.0)
+
+
+def test_x1_track_preaim_only_on_the_hover_return_step_before_the_hold():
+    from types import SimpleNamespace
+    from multidetect.sim_teacher.gimbal_recording import x1_track_preaim
+    ret = SimpleNamespace(reason="hover_return_to_home")
+    assert x1_track_preaim(7, 6, ret)
+    assert not x1_track_preaim(7, 7, ret) and not x1_track_preaim(7, 5, ret)
+    assert not x1_track_preaim(7, 6, SimpleNamespace(reason="back_transition"))
+    assert not x1_track_preaim(None, 6, ret)
+    assert not x1_track_preaim(7, 6, SimpleNamespace())

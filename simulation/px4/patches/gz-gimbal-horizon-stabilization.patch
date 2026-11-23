@@ -1,8 +1,8 @@
 diff --git a/src/modules/simulation/gz_bridge/GZGimbal.cpp b/src/modules/simulation/gz_bridge/GZGimbal.cpp
-index f5bc4881..011e562e 100644
+index f5bc488..eeb8d20 100644
 --- a/src/modules/simulation/gz_bridge/GZGimbal.cpp
 +++ b/src/modules/simulation/gz_bridge/GZGimbal.cpp
-@@ -1,6 +1,191 @@
+@@ -1,6 +1,209 @@
  // #define DEBUG_BUILD
  #include "GZGimbal.hpp"
  
@@ -52,6 +52,23 @@ index f5bc4881..011e562e 100644
 +	return previous + remainderf(angle - previous, 2.f * M_PI_F);
 +}
 +
++// Nearest 2*pi-congruent winding of angle to previous that also lies inside [lo, hi].
++// The window is only enforced when it spans a full turn; otherwise this is nearestTurn().
++// Without it the nearest winding can fall outside a +-2*pi joint stop (previous at the
++// stop, target on the other side of the turn) and be clipped back to the stop forever.
++float nearestTurnWithin(float angle, float previous, float lo, float hi)
++{
++	float y = nearestTurn(angle, previous);
++
++	if (hi - lo >= 2.f * M_PI_F) {
++		while (y > hi) { y -= 2.f * M_PI_F; }
++
++		while (y < lo) { y += 2.f * M_PI_F; }
++	}
++
++	return y;
++}
++
 +matrix::Dcmf zxy(float roll, float pitch, float yaw)
 +{
 +	return matrix::Dcmf(matrix::Eulerf(0.f, 0.f, yaw))
@@ -60,7 +77,8 @@ index f5bc4881..011e562e 100644
 +}
 +
 +matrix::Vector3f boundedJoints(const matrix::Dcmf &relative, const matrix::Vector3f &previous,
-+			      float roll_min, float roll_max, float pitch_min, float pitch_max, bool &exact_pose)
++			      float roll_min, float roll_max, float pitch_min, float pitch_max,
++			      float yaw_min, float yaw_max, bool &exact_pose)
 +{
 +	const float roll = asinf(math::constrain(relative(2, 1), -1.f, 1.f));
 +	const bool singular = fabsf(cosf(roll)) < 1e-6f;
@@ -81,7 +99,7 @@ index f5bc4881..011e562e 100644
 +		const float r = nearestTurn(branch ? M_PI_F - roll : roll, previous(0));
 +		const float branch_offset = branch ? M_PI_F : 0.f;
 +		const float p = nearestTurn(pitch + branch_offset, previous(1));
-+		const float y = nearestTurn(yaw + branch_offset, previous(2));
++		const float y = nearestTurnWithin(yaw + branch_offset, previous(2), yaw_min, yaw_max);
 +		const matrix::Vector3f bounded{math::constrain(r, roll_min, roll_max),
 +					      math::constrain(p, pitch_min, pitch_max), y};
 +		const bool exact = fabsf(bounded(0) - r) < 1e-6f && fabsf(bounded(1) - p) < 1e-6f;
@@ -100,7 +118,7 @@ index f5bc4881..011e562e 100644
 +
 +bool horizonJoints(const matrix::Dcmf &body, const matrix::Dcmf &desired,
 +		   const matrix::Vector3f &previous, float roll_min, float roll_max,
-+		   float pitch_min, float pitch_max, matrix::Vector3f &joint)
++		   float pitch_min, float pitch_max, float yaw_min, float yaw_max, matrix::Vector3f &joint)
 +{
 +	// As earth yaw varies, each entry of B^T Rz(yaw) D is
 +	// a*cos(yaw) + b*sin(yaw) + c. Roll stops exclude the other
@@ -155,7 +173,7 @@ index f5bc4881..011e562e 100644
 +		}
 +
 +		const auto relative = body.transpose() * zxy(0.f, 0.f, heading) * desired;
-+		const float y = nearestTurn(atan2f(-relative(0, 1), relative(1, 1)), previous(2));
++		const float y = nearestTurnWithin(atan2f(-relative(0, 1), relative(1, 1)), previous(2), yaw_min, yaw_max);
 +		const matrix::Vector3f candidate(math::constrain(r, roll_min, roll_max),
 +						 math::constrain(p, pitch_min, pitch_max), y);
 +		const float travel = (candidate - previous).norm_squared();
@@ -194,7 +212,7 @@ index f5bc4881..011e562e 100644
  bool GZGimbal::init(const std::string &world_name, const std::string &model_name)
  {
  	// Gazebo communication
-@@ -55,7 +240,14 @@ bool GZGimbal::init(const std::string &world_name, const std::string &model_name
+@@ -55,7 +258,14 @@ bool GZGimbal::init(const std::string &world_name, const std::string &model_name
  
  	updateParameters();
  
@@ -210,7 +228,7 @@ index f5bc4881..011e562e 100644
  
  	// Schedule on vehicle command messages
  	if (!_vehicle_command_sub.registerCallback()) {
-@@ -75,11 +267,19 @@ void GZGimbal::Run()
+@@ -75,11 +285,19 @@ void GZGimbal::Run()
  
  	updateParameters();
  
@@ -234,7 +252,7 @@ index f5bc4881..011e562e 100644
  				    dt);
  		publishJointCommand(_gimbal_yaw_cmd_publisher, _yaw_stp, _yaw_rate_stp, _last_yaw_stp, _yaw_min, _yaw_max, dt);
  	}
-@@ -93,6 +293,113 @@ void GZGimbal::Run()
+@@ -93,6 +311,117 @@ void GZGimbal::Run()
  	pthread_mutex_unlock(&_node_mutex);
  }
  
@@ -303,17 +321,21 @@ index f5bc4881..011e562e 100644
 +	const float pitch_min = math::radians(_mnt_min_pitch);
 +	const float pitch_max = math::radians(_mnt_max_pitch);
 +	const matrix::Vector3f previous(_last_roll_stp, _last_pitch_stp, _last_yaw_stp);
++	// _yaw_min/_yaw_max are NAN (infinite yaw) in the bridge, but the C11 Gazebo yaw joint stops at +-2*pi.
++	const float yaw_min = PX4_ISFINITE(_yaw_min) ? _yaw_min : -2.f * M_PI_F;
++	const float yaw_max = PX4_ISFINITE(_yaw_max) ? _yaw_max : 2.f * M_PI_F;
 +	bool exact = false;
-+	auto joint = boundedJoints(relative, previous, _roll_min, _roll_max, pitch_min, pitch_max, exact);
++	auto joint = boundedJoints(relative, previous, _roll_min, _roll_max, pitch_min, pitch_max, yaw_min, yaw_max, exact);
 +
 +	if (!exact && (flags & RollLock) && (flags & PitchLock) && !earthYaw(flags)) {
-+		horizonJoints(solve_body, desired, previous, _roll_min, _roll_max, pitch_min, pitch_max, joint);
++		horizonJoints(solve_body, desired, previous, _roll_min, _roll_max, pitch_min, pitch_max, yaw_min, yaw_max,
++			      joint);
 +	}
 +	const float step = M_PI_F * dt;
 +	const auto slew = [step](float value, float last_value) {
 +		return math::constrain(value, last_value - step, last_value + step);
 +	};
-+	// Gazebo yaw is unbounded; retain the nearest winding.
++	// Retain the nearest yaw winding that stays inside the joint's +-2*pi stops.
 +	publishJointCommand(_gimbal_roll_cmd_publisher, slew(joint(0), _last_roll_stp), NAN,
 +			    _last_roll_stp, _roll_min, _roll_max, dt);
 +	publishJointCommand(_gimbal_pitch_cmd_publisher, slew(joint(1), _last_pitch_stp), NAN,
@@ -348,7 +370,7 @@ index f5bc4881..011e562e 100644
  void GZGimbal::stop()
  {
  	ScheduleClear();
-@@ -140,6 +447,45 @@ bool GZGimbal::pollSetpoint()
+@@ -140,6 +469,45 @@ bool GZGimbal::pollSetpoint()
  		gimbal_device_set_attitude_s msg;
  
  		if (_gimbal_device_set_attitude_sub.copy(&msg)) {
@@ -394,7 +416,7 @@ index f5bc4881..011e562e 100644
  			const matrix::Eulerf gimbal_att_stp(matrix::Quatf(msg.q));
  			_roll_stp = gimbal_att_stp.phi();
  			_pitch_stp = gimbal_att_stp.theta();
-@@ -156,6 +502,7 @@ bool GZGimbal::pollSetpoint()
+@@ -156,6 +524,7 @@ bool GZGimbal::pollSetpoint()
  		gimbal_controls_s msg;
  
  		if (_gimbal_controls_sub.copy(&msg)) {
@@ -402,7 +424,7 @@ index f5bc4881..011e562e 100644
  			// map control inputs from [-1;1] to [min_angle; max_angle]
  			_roll_stp = math::constrain(math::radians(msg.control[msg.INDEX_ROLL] * _mnt_range_roll / 2), _roll_min, _roll_max);
  			_pitch_stp = math::radians(math::constrain(_mnt_min_pitch + 0.5f * (msg.control[msg.INDEX_PITCH] + 1.f) *
-@@ -221,6 +568,7 @@ void GZGimbal::publishDeviceAttitude()
+@@ -221,6 +590,7 @@ void GZGimbal::publishDeviceAttitude()
  
  	gimbal_att.target_system = 0; // Broadcast
  	gimbal_att.target_component = 0; // Broadcast
@@ -411,7 +433,7 @@ index f5bc4881..011e562e 100644
  	_q_gimbal.copyTo(gimbal_att.q);
  	gimbal_att.angular_velocity_x = _gimbal_rate[0];
 diff --git a/src/modules/simulation/gz_bridge/GZGimbal.hpp b/src/modules/simulation/gz_bridge/GZGimbal.hpp
-index a2a79650..12b46e9c 100644
+index a2a7965..d5c47fd 100644
 --- a/src/modules/simulation/gz_bridge/GZGimbal.hpp
 +++ b/src/modules/simulation/gz_bridge/GZGimbal.hpp
 @@ -10,6 +10,9 @@
