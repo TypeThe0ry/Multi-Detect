@@ -8589,7 +8589,7 @@ def run_episode(
                 if fw_leg and index == plan.gimbal_eval_fw_legs - 1:
                     # Hand back to lock so the back-transition and hover pre-aim run exactly as before.
                     horizon_stabilizer.set_mode("lock")
-                    horizon_stabilizer.track_preview_s, horizon_stabilizer.track_preview_max_rad = hover_preview
+                    horizon_stabilizer.track_preview_s, horizon_stabilizer.track_preview_max_rad = x1_track_preview()[:2]
                     horizon_stabilizer.select_track_target(plan.track_targets[0])
                     recorder.record_mavlink({"message_type": "collector_gimbal_eval_fw_mode",
                                              "step_index": index, "mode": "lock",
