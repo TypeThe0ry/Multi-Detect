@@ -18,8 +18,8 @@ DEFAULT_MAX_AGE_MS = 2_000.0
 X1_TRACK_SAMPLE_HZ = 10
 X1_TRACK_TRANSIENT_SIM_S = 20  # measured settling: error < 2 deg by ~9-11 s (ROOTCAUSE.md)
 X1_TRACK_MIN_LOCK_RATE = 0.9  # a tracking hold below this geometric lock rate is an unacceptable eval run
-X1_TRACK_PREVIEW_S = 0.20  # body-rate lead for the bridge track pose (bridge lock mode uses the same 200 ms)
-X1_TRACK_PREVIEW_MAX_DEG = 12.0  # same cap as the bridge's own lock-mode preview
+X1_TRACK_PREVIEW_S = 0.30  # body-rate lead for the host-side track preview (GETMETA tuning: 0.3 s / 30 deg beat 0.2 and 0.4)
+X1_TRACK_PREVIEW_MAX_DEG = 30.0  # cap for the track preview lead
 
 
 def x1_track_preview(environ=None):
