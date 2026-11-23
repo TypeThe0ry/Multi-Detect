@@ -22,6 +22,36 @@ X1_TRACK_PREVIEW_S = 0.30  # body-rate lead for the host-side track preview (GET
 X1_TRACK_PREVIEW_MAX_DEG = 30.0  # cap for the track preview lead
 
 
+# Fixed-wing (cruise / turn) tracking caliber, opt-in beside the MC hover hold. Thresholds are provisional
+# starting points for the first flight (hover steady state converges to < 2 deg; FW adds ~18 m/s body motion):
+X1_FW_TURN_ENTER_ROLL_DEG = 15.0  # |roll| at or above this is a turn leg (PX4 bank limit is 35 deg)
+X1_FW_TURN_EXIT_ROLL_DEG = 8.0  # hysteresis: back to cruise only below this
+X1_FW_VTOL_STATE = 4  # MAV_VTOL_STATE_FW
+X1_FW_CRUISE_MAX_P95_DEG = 5.0  # cruise pointing error P95
+X1_FW_TURN_MAX_P95_DEG = 10.0  # turn pointing error P95 (yaw rate ~18 deg/s at 35 deg bank, 18 m/s)
+X1_FW_MIN_LOCK_RATE = X1_TRACK_MIN_LOCK_RATE  # geometric in-view rate, both phases
+X1_FW_MIN_SAMPLES = {"cruise": 100, "turn": 20}  # scored samples at 10 Hz (10 s / 2 s of flight)
+X1_FW_MAX_UNWIND_FRACTION = 0.10  # samples taken while the yaw-unwind had dropped track mode
+
+
+class X1FwPhase:
+    """Label fixed-wing samples ``cruise`` / ``turn`` from the MAVLink bank angle and VTOL state.
+
+    ``None`` outside fixed-wing flight (transition, MC) or without a finite roll; ``turn`` uses hysteresis.
+    """
+
+    def __init__(self):
+        self.turning = False
+
+    def update(self, roll_deg, vtol_state):
+        if vtol_state != X1_FW_VTOL_STATE or type(roll_deg) not in (int, float) or not math.isfinite(roll_deg):
+            self.turning = False
+            return None
+        bank = abs(roll_deg)
+        self.turning = bank >= (X1_FW_TURN_EXIT_ROLL_DEG if self.turning else X1_FW_TURN_ENTER_ROLL_DEG)
+        return "turn" if self.turning else "cruise"
+
+
 def x1_track_preview(environ=None):
     """(lead seconds, max lead radians) for the eval track pose; overridable for tuning flights."""
     import os

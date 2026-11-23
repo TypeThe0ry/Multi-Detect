@@ -644,10 +644,12 @@ def gimbal_eval_target(mission):
                        home.longitude_deg, target_alt)
 
 
-def gimbal_eval_plan(plan, mission):
+def gimbal_eval_plan(plan, mission, *, fw_legs=False):
+    """Hover eval step; ``fw_legs`` additionally scores tracking of the same point during the FW route legs."""
     return replace(plan, steps_per_episode=plan.steps_per_episode + 1,
                    track_targets=(gimbal_eval_target(mission),),
-                   gimbal_eval_track_step=len(mission["targets"]) + 2)
+                   gimbal_eval_track_step=len(mission["targets"]) + 2,
+                   gimbal_eval_fw_legs=len(mission["targets"]) if fw_legs else 0)
 
 
 class LongRangePolicy:
@@ -1009,6 +1011,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="send C11 pose targets to the horizon-enabled PX4 image")
     parser.add_argument("--gimbal-eval", action="store_true",
                         help="add a diagnostic target-tracking hover after the X1 MC return")
+    parser.add_argument("--gimbal-eval-fw", action="store_true",
+                        help="with --gimbal-eval: also score tracking of the eval point on the FW cruise/turn legs")
     parser.add_argument("--image", help="local PX4/Gazebo runtime image")
     parser.add_argument("--track-target", type=WorldTarget.parse, action="append", default=[],
                         metavar="LAT,LON,ALT_M", help="world target, altitude AMSL metres (repeatable)")
@@ -1022,6 +1026,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.gimbal_eval and (not args.gimbal_bridge_stabilize or args.gimbal_mode != "lock"
                             or args.track_target or args.horizon_video_hz is not None):
         parser.error("--gimbal-eval requires bridge lock mode and the standard X1 target and capture rate")
+    if args.gimbal_eval_fw and not args.gimbal_eval:
+        parser.error("--gimbal-eval-fw requires --gimbal-eval")
     if args.gimbal_mode == "track" and not args.track_target:
         logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
         args.gimbal_mode = "lock"
@@ -1067,7 +1073,7 @@ def main(argv: list[str] | None = None) -> int:
                        gimbal_bridge_stabilize=args.gimbal_bridge_stabilize)
     if args.gimbal_eval:
         try:
-            plan = gimbal_eval_plan(plan, mission)
+            plan = gimbal_eval_plan(plan, mission, fw_legs=args.gimbal_eval_fw)
         except ValueError as exc:
             parser.error(str(exc))
     if args.horizon_video_hz is not None:
@@ -1102,7 +1108,8 @@ def main(argv: list[str] | None = None) -> int:
                           "compiled_mission_uploaded": False,
                           "compiled_mission": mission["compiled"].to_mapping(),
                           **({"gimbal_eval": {"track_step": plan.gimbal_eval_track_step,
-                                              "hover_sim_s": GIMBAL_EVAL_HOLD_SIM_S}}
+                                              "hover_sim_s": GIMBAL_EVAL_HOLD_SIM_S,
+                                              "fw_legs": plan.gimbal_eval_fw_legs}}
                              if args.gimbal_eval else {}),
                           "collector_plan": collector_plan},
                          ensure_ascii=False, indent=2))

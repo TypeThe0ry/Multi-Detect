@@ -182,6 +182,8 @@ if row.get('gimbal_bridge_stabilize') is True:
     print('--gimbal-bridge-stabilize')
 if row.get('gimbal_eval') is True:
     print('--gimbal-eval')
+if row.get('gimbal_eval_fw') is True:
+    print('--gimbal-eval-fw')
 PY
     ) || return 2
     if [[ -n "$runtime_argv" ]]; then

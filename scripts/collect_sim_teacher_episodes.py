@@ -65,7 +65,7 @@ from multidetect.sim_teacher import (  # noqa: E402
     primitive_to_ned,
 )
 from multidetect.sim_teacher.gimbal_recording import (
-    DeltaCameraGeometry, X1TrackCapture, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    DeltaCameraGeometry, X1FwPhase, X1TrackCapture, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
     x1_track_preview,
     X1YawUnwind, x1_track_preaim,
     collector_camera_mount,
@@ -947,6 +947,8 @@ class CollectionPlan:
     gimbal_bridge_stabilize: bool = False
     track_targets: tuple[WorldTarget, ...] = ()
     gimbal_eval_track_step: int | None = None
+    # Opt-in: also track the eval target during the first N fixed-wing reposition legs (cruise/turn caliber).
+    gimbal_eval_fw_legs: int = 0
     max_episode_sim_s: float | None = None
     px4_profile: str | None = None
 
@@ -965,6 +967,11 @@ class CollectionPlan:
             or self.airframe != "delta_tailsitter_gimbal_cam" or not self.video_use_sim_time
         ):
             raise ValueError("gimbal evaluation requires a bounded X1 bridge tracking step")
+        if type(self.gimbal_eval_fw_legs) is not int or self.gimbal_eval_fw_legs < 0 or (
+            self.gimbal_eval_fw_legs and (self.gimbal_eval_track_step is None
+                                          or self.gimbal_eval_fw_legs >= self.gimbal_eval_track_step)
+        ):
+            raise ValueError("fixed-wing gimbal evaluation needs the hover evaluation and legs before it")
         if self.gimbal_mode == "track" and not self.track_targets:
             logging.getLogger(__name__).warning("track mode has no target; falling back to lock")
             object.__setattr__(self, "gimbal_mode", "lock")
@@ -3700,7 +3707,7 @@ def _pose_sim_stamp_ns(state: Any) -> int | None:
     return int(value * 1_000_000)
 
 
-def _x1_track_sample(reader, sample, *, camera_mount, camera_geometry):
+def _x1_track_sample(reader, sample, *, camera_mount, camera_geometry, extra_keys=()):
     aligned = reader.aligned_state(sample.sensor_stamp_ns, timeout_s=0.)
     # Retain calibrated pose and measured joints without converting or storing RGB.
     row = {"message_type": "collector_gimbal_eval_sample", "sim_stamp_ns": sample.sensor_stamp_ns}
@@ -3717,7 +3724,7 @@ def _x1_track_sample(reader, sample, *, camera_mount, camera_geometry):
             "attitude_skew_ms": (sample.sensor_stamp_ns / 1e6 - att_ms
                                  if type(att_ms) in (int, float) else None),
             **{key: obs.get(key) for key in (
-                "gimbal_state", "camera_pose", "camera_info", "pose", "sim_skew_ms",
+                "gimbal_state", "camera_pose", "camera_info", "pose", "sim_skew_ms", *extra_keys,
             )}}
 
 
@@ -7250,6 +7257,7 @@ def run_episode(
                     **({"eval_track_step": plan.gimbal_eval_track_step,
                         "eval_tracking_sample_hz": X1_TRACK_SAMPLE_HZ}
                        if plan.gimbal_eval_track_step is not None else {}),
+                    **({"eval_fw_legs": plan.gimbal_eval_fw_legs} if plan.gimbal_eval_fw_legs else {}),
                     "host_hz": 50.0,
                     "requested_attitude_interval_us": attitude_interval_us,
                     "max_age_s": 0.2,
@@ -8188,6 +8196,7 @@ def run_episode(
                                                "refresh_interval_sim_s": 1.0,
                                                "readback_max_age_ms": 2000.0,
                                                "initial_readback": initial.ack}
+            fw_phase = X1FwPhase()
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
@@ -8287,6 +8296,23 @@ def run_episode(
                 track_steady_ns = None
                 x1_unwind = None
                 next_unwind_request_s = 0.0
+                fw_leg = bool(
+                    plan.gimbal_eval_fw_legs and index < plan.gimbal_eval_fw_legs
+                    and horizon_stabilizer is not None and _is_motion_command(action)
+                    and action.kind == "reposition" and action.mode == "FW"
+                )
+                if fw_leg:
+                    # Track the eval point through this FW leg; legs share one mode, capture restarts per leg.
+                    fw_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                    if horizon_stabilizer.mode != "track":
+                        horizon_stabilizer.set_mode("track")
+                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_fw_mode",
+                                             "step_index": index, "mode": "track",
+                                             "sim_stamp_ns": fw_sim_ns,
+                                             "marker_monotonic_ns": time.monotonic_ns(),
+                                             "target_ref": plan.track_targets[0].reference()})
+                    track_capture = X1TrackCapture(fw_sim_ns)
+                    x1_unwind = X1YawUnwind()
                 if (horizon_stabilizer is not None and horizon_stabilizer.mode != "track"
                         and x1_track_preaim(plan.gimbal_eval_track_step, index, action)):
                     # Aim at the eval target during the hover return so the hold starts on target.
@@ -8504,10 +8530,24 @@ def run_episode(
                             wall_s=time.monotonic(),
                         )
                         if sample is not None:
-                            recorder.record_mavlink({**_x1_track_sample(
-                                mav_reader, sample, camera_mount=camera_mount,
-                                camera_geometry=camera_geometry,
-                            ), "step_index": index})
+                            fw_fields = {}
+                            if fw_leg:
+                                state = _flight_state_snapshot(mav_reader.state)
+                                row = _x1_track_sample(
+                                    mav_reader, sample, camera_mount=camera_mount,
+                                    camera_geometry=camera_geometry, extra_keys=("attitude",),
+                                )
+                                fw_fields = {
+                                    "fw_phase": fw_phase.update(
+                                        (row.get("attitude") or {}).get("roll_deg"), state.get("vtol_state")),
+                                    "track_mode": horizon_stabilizer.mode,
+                                }
+                            else:
+                                row = _x1_track_sample(
+                                    mav_reader, sample, camera_mount=camera_mount,
+                                    camera_geometry=camera_geometry,
+                                )
+                            recorder.record_mavlink({**row, **fw_fields, "step_index": index})
 
                 try:
                     poll_session = (
@@ -8536,6 +8576,13 @@ def run_episode(
                         "marker_monotonic_ns": time.monotonic_ns(),
                         "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
                     })
+                if fw_leg and index == plan.gimbal_eval_fw_legs - 1:
+                    # Hand back to lock so the back-transition and hover pre-aim run exactly as before.
+                    horizon_stabilizer.set_mode("lock")
+                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_fw_mode",
+                                             "step_index": index, "mode": "lock",
+                                             "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                                             "marker_monotonic_ns": time.monotonic_ns()})
                 result = result_box[0]
                 if getattr(action, "kind", None) == "land" and result.status == "success":
                     landing_started = True
