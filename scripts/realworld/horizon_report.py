@@ -104,8 +104,9 @@ def summarize(path: Path, *, threshold_deg=HORIZON_P95_DEG, require_iowa_coverag
                 truncated |= row["event"] == "truncated"
                 continue
             if (exclude_action_below is not None and type(row.get("action_index")) is int
-                    and row["action_index"] < exclude_action_below):
+                    and 0 <= row["action_index"] < exclude_action_below):
                 # FW-leg frames of an X1 cruise/turn tracking eval are scored by x1_gimbal_eval, not here.
+                # Pre-route frames (action_index -1: MC hover, transition to FW) stay in the lock caliber.
                 excluded_frames += 1
                 continue
             frames += 1
