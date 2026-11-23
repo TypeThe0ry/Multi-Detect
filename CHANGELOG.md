@@ -6,6 +6,7 @@
 - 2026-11-23：X1 GPU 准入新增可选的 FluidX3D 共存（标记文件 `/data/scratch/x1-allow-fluidx3d-share` 存在才生效，默认关闭）：判据为设备显存余量 >=10.5 GB 而非卡空闲，RTF>=0.9 仍由验收把关；Amsterdam 在与 FluidX3D 同卡时 RTF 1.0。仅 SIM。
 - 2026-11-23：frame server 新增仅元数据请求 `GETMETA <ns>`（无像素的 `MDGZMET1` 记录，由独立线程应答；`GET` 字节不变），`SensorStreamReader.request_meta`/`latest_meta` 与 `X1TrackCapture` 据此以约 10 Hz 取跟踪样本，不支持时回落到像素路径；容器内需有 `scripts/sim_teacher_frame_server.py` 与 `scripts/gazebo_meta_wire.py`。仅 SIM，仅 CPU 测试验证（[`docs/gimbal-sitl-run.md`](docs/gimbal-sitl-run.md)）。
 - 2026-11-23：X1 云台评测新增偏航圈数回正（`X1YawUnwind`，返航预置对准期间进入锁定模式回收累计偏航，需元数据路径）；轨迹预览默认值由 0.2 s/12° 调为 0.3 s/30°（Iowa/Amsterdam 调参：0.3 s 整体 P95 0.92–0.99 度，0.2 s 为 2.5–3.0，0.4 s 为 1.2–1.3；锁定率均≥0.92，调参表见 NAS `TUNING-GETMETA-PREVIEW.md`），仍可由 `MULTIDETECT_X1_TRACK_PREVIEW_S/_MAX_DEG` 覆盖；仅 SIM。
+- 2026-11-23：X1 默认候选镜像固定为 `gz-rendering-830-r1-gimbal-horizon3`（含 bridge 偏航圈数修复）；Iowa 恢复流水线输出改到 `x1-resume-h3`（horizon2 的回执与训练引用的 episode 路径保持在 `x1-resume/`）。Iowa 基线回归（2 条 A/B + 3 条最终）全部通过，RTF 1.0、最远 4160 m，地平线可行帧误差 P95/最大 0.85–1.55/2.19–2.94 度（horizon2 为 2.52–3.74/5.64–6.56 度）。仅 SIM。
 ### Linux SITL、身份模型与路线图（2026-11-01—03）
 - 2026-11-02：采集器的 OFFBOARD 确认预算由 10 s 调整为 30 s，适应慢速 lockstep 启动；LAND 等待按遥测与下降进度延长，但仍受硬墙钟上限约束，低高度停稳后才走 disarm 收尾（`c073bb8e`、`3bf070d8`；前序停稳与 episode 硬上限修复 `344e6ed1`）。
 - 2026-11-01—02：nightly 向子采集器传递 `MULTIDETECT_SITL_LOCK_HELD`，随后将嵌套锁处理统一到共享 helper，各 SITL 入口尊重父进程持锁标记，避免父子重复抢锁导致自死锁（`0b4788c6`、`2414a992`）。
