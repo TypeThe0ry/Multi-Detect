@@ -43,6 +43,37 @@ def x1_track_preaim(track_step, index, action) -> bool:
             and getattr(action, "reason", None) == "hover_return_to_home")
 
 
+class X1YawUnwind:
+    """Unwind an accumulated gimbal yaw winding while the pre-aimed hover return is still under way.
+
+    Tracking a target through a turning return can wind the C11 yaw joint to its +-2pi stop (the bridge
+    then has to jump up to ~257 deg at the hold start). Between ``ENTER_RAD`` and the stop, drop to
+    lock/follow (relative yaw 0) until the joint is back near zero, then resume tracking; bounded in time.
+    """
+
+    ENTER_RAD = math.radians(150.0)
+    EXIT_RAD = math.radians(20.0)
+    MAX_S = 6.0
+
+    def __init__(self):
+        self.active = False
+        self.started_s = None
+
+    def step(self, yaw_rad, now_s):
+        """Return "lock" to start unwinding, "track" to resume tracking, or None."""
+        if yaw_rad is None or not math.isfinite(yaw_rad):
+            return None
+        if not self.active:
+            if abs(yaw_rad) >= self.ENTER_RAD:
+                self.active, self.started_s = True, now_s
+                return "lock"
+            return None
+        if abs(yaw_rad) <= self.EXIT_RAD or now_s - self.started_s > self.MAX_S:
+            self.active, self.started_s = False, None
+            return "track"
+        return None
+
+
 class X1TrackCapture:
     """Collect distinct, simulation-timed samples using the existing sensor pipe.
 

@@ -293,3 +293,17 @@ def test_track_preview_cap_and_override_plumbing():
     with pytest.raises(ValueError):
         BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}, track_preview_max_rad=0.0)
     assert BridgeHorizonTarget({"pitch": -45., "yaw": 0., "roll": 0.}).track_preview_max_rad == BRIDGE_MAX_PREVIEW_RAD
+
+
+def test_x1_yaw_unwind_hysteresis_and_time_bound():
+    import math
+    from multidetect.sim_teacher.gimbal_recording import X1YawUnwind
+    u = X1YawUnwind()
+    assert u.step(None, 0.0) is None and u.step(math.nan, 0.0) is None
+    assert u.step(math.radians(100), 0.0) is None  # below the entry threshold
+    assert u.step(math.radians(-200), 1.0) == "lock"  # winding accumulated: unwind
+    assert u.step(math.radians(-90), 1.5) is None  # still unwinding
+    assert u.step(math.radians(-10), 2.0) == "track"  # near zero: resume tracking
+    assert u.step(math.radians(-10), 2.1) is None
+    assert u.step(math.radians(170), 3.0) == "lock"
+    assert u.step(math.radians(160), 3.0 + X1YawUnwind.MAX_S + 0.1) == "track"  # time bound
