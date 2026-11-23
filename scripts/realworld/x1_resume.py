@@ -25,7 +25,7 @@ from scripts.realworld.x1_lock import LOCK, flight_lock  # noqa: E402
 MANIFEST = ROOT / "configs/simulation/x1-resume.json"
 NAS_SHARE = Path("/mnt/nas/AdminHome")
 NAS = NAS_SHARE / "volatic"
-OUTPUT = NAS / "x1-resume"
+OUTPUT = NAS / "x1-resume-h3"  # horizon3 (bridge yaw-winding fix); horizon2 receipts stay under x1-resume/
 UNIT = "md-x1-resume.service"
 MATRIX = ROOT / "scripts/realworld/rtf_matrix.sh"
 SITL_PYTHON = "/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python"
@@ -36,7 +36,7 @@ IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 THRESHOLD_ERRORS = {"horizon_feasible_p95_exceeded", "horizon_feasible_max_exceeded"}
 IOWA_WORLD = "rw_farm_iowa_w6km__clear_noon.sdf"
 LEGACY_MANIFEST = "12a64b594e948e802a824ab754d252d2a3c173f5ebee952070919739b9245394"
-STAGING_MANIFEST = "dbe469f74e7c20ca1c213e2885e5f1a4bdc20d990fdc6a0d6be2cf476a385a9f"
+STAGING_MANIFEST = "5d932c0acd0b763aa7a07eabd22ac02a0c69ba60417d4f1ab29447151b510914"
 
 
 def read_cmd(args):

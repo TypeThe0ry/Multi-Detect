@@ -30,7 +30,7 @@ def test_plans_preserve_baseline_and_use_one_immutable_candidate(spec):
     ab = resume.make_plan(spec, "ab", IMAGE)
     final = resume.make_plan(spec, "final", IMAGE, False)
     smoke = resume.make_plan(spec, "smoke", IMAGE)
-    assert spec["image"].endswith(":gz-rendering-830-r1-gimbal-horizon2")
+    assert spec["image"].endswith(":gz-rendering-830-r1-gimbal-horizon3")
     assert [(r["inputs"]["seed"], r["inputs"]["gimbal_bridge_stabilize"]) for r in ab["jobs"]] == [
         (201, True), (202, False), (203, True), (204, False)]
     assert [r["inputs"]["seed"] for r in final["jobs"]] == [301, 302, 303]
@@ -99,7 +99,7 @@ def test_phase_order_selection_resume_and_completion(spec, monkeypatch):
 
 def test_missing_candidate_never_reaches_dispatch(monkeypatch):
     def unavailable(reference):
-        assert reference.endswith(":gz-rendering-830-r1-gimbal-horizon2")
+        assert reference.endswith(":gz-rendering-830-r1-gimbal-horizon3")
         raise ValueError("candidate absent")
 
     monkeypatch.setattr(resume, "image_check", unavailable)
@@ -115,7 +115,7 @@ def test_mount_check_accepts_host_cifs_and_refuses_local_or_read_only(tmp_path, 
     volatic.mkdir(parents=True)
     monkeypatch.setattr(resume, "NAS_SHARE", share)
     monkeypatch.setattr(resume, "NAS", volatic)
-    monkeypatch.setattr(resume, "OUTPUT", volatic / "x1-resume")
+    monkeypatch.setattr(resume, "OUTPUT", volatic / "x1-resume-h3")
     mount = {"target": str(share), "source": "//192.168.1.1/AdminHome", "fstype": "cifs", "options": "rw"}
     monkeypatch.setattr(resume, "read_cmd", lambda _: json.dumps({"filesystems": [mount]}))
     resume.mount_check(write=True)
