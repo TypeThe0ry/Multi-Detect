@@ -426,6 +426,10 @@ class HorizonStabilizer:
             raise ValueError("unknown gimbal mode")
         self.mode = mode
 
+    def select_track_target(self, target):
+        """Select one route target without changing mode, history or winding."""
+        self.track_targets = (target,)
+
     def update(self, body_deg, *, now_s, attitude_time_s, position=None,
                track_direction_ned=None, target_ref=None, body_rotation_for_solve=None):
         reasons = []
@@ -779,14 +783,15 @@ class BridgeHorizonTarget(HorizonStabilizer):
         # One mode snapshot keeps target, flags and queued frame evidence consistent
         # when the collector switches modes on the action thread.
         mode = self.mode
+        track_targets = self.track_targets
         desired = self.desired_rotation(body_deg, heading=heading, mode=mode)
         if mode == "track":
             try:
                 if track_direction_ned is not None:
                     direction = unit(track_direction_ned)
                     target_ref = target_ref or {"kind": "direction_ned", "vector": list(direction)}
-                elif position is not None and self.track_targets:
-                    active = min(self.track_targets, key=lambda t: math.hypot(*world_offset_ned(position, t)))
+                elif position is not None and track_targets:
+                    active = min(track_targets, key=lambda t: math.hypot(*world_offset_ned(position, t)))
                     direction = world_target_direction(position, active)
                     target_ref = active.reference()
                 else:

@@ -138,6 +138,22 @@ def world_target_direction(
     return _mat_vec(_mat_transpose(body_rotation), ray) if body_rotation is not None else ray
 
 
+def c11_optical_axis_reachable(body_ray, *, margin_deg=0.0):
+    """Static X1 C11 pointing feasibility, independent of current joints and image lock.
+
+    With ZXY joints, body Down = -cos(roll)*sin(pitch). Roll=0 realizes every
+    elevation from -90 to the positive pitch stop; the negative pitch stop
+    is -135, and the +/-360 yaw stops always admit a principal azimuth.
+    This remains true with the 5-degree planning inset. No horizon, slew,
+    winding continuity or occlusion claim is made.
+    """
+    from .horizon_stabilization import C11_LIMITS
+
+    north, east, down = body_ray
+    elevation = math.degrees(math.atan2(-down, math.hypot(north, east)))
+    return elevation <= C11_LIMITS["pitch"][1] - margin_deg
+
+
 def pixel_roi_ray(intrinsics, *, pixel=None, roi_xyxy=None):
     """Reserved ROI adapter: calibrated pinhole pixel -> unit +X FRD ray.
 

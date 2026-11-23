@@ -32,6 +32,8 @@ X1_FW_TURN_MAX_P95_DEG = 10.0  # turn pointing error P95 (yaw rate ~18 deg/s at 
 X1_FW_MIN_LOCK_RATE = X1_TRACK_MIN_LOCK_RATE  # geometric in-view rate, both phases
 X1_FW_MIN_SAMPLES = {"cruise": 100, "turn": 20}  # scored samples at 10 Hz (10 s / 2 s of flight)
 X1_FW_MAX_UNWIND_FRACTION = 0.10  # samples taken while the yaw-unwind had dropped track mode
+X1_FW_MIN_REACHABLE_COVERAGE = 0.80
+X1_FW_PLANNING_MARGIN_DEG = 5.0
 
 
 class X1FwPhase:
@@ -102,6 +104,13 @@ class X1YawUnwind:
             self.active, self.started_s = False, None
             return "track"
         return None
+
+
+def x1_eval_yaw_unwind(track_step, index, action, *, fw_leg):
+    """Use the MC pre-aim policy only; the FW bridge retains its own feasible winding."""
+    if not fw_leg and x1_track_preaim(track_step, index, action):
+        return X1YawUnwind()
+    return None
 
 
 class X1TrackCapture:

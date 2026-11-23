@@ -177,6 +177,9 @@ def test_cpu_plan_with_fw_legs_keeps_route_and_hover(monkeypatch, capsys):
     assert hover["gimbal_eval"]["fw_legs"] == 0
     for key in ("steps_per_episode", "gimbal_eval_track_step", "track_targets", "video_hz"):
         assert fw["collector_plan"][key] == hover["collector_plan"][key]
+    assert "gimbal_eval_fw_targets" not in hover["collector_plan"]
+    assert len(fw["collector_plan"]["gimbal_eval_fw_targets"]) == legs
+    assert len(plans[-1].gimbal_eval_fw_targets) == len(set(plans[-1].gimbal_eval_fw_targets))
     assert fw["gimbal_eval"]["track_step"] == legs + 2
     plan = plans[-1]
     assert replace(plan, gimbal_eval_fw_legs=legs).gimbal_eval_fw_legs == legs

@@ -23,13 +23,18 @@ sys.path.insert(0, str(ROOT / "src"))
 from multidetect.autonomy import ContextSnapshot, GeoPoint, ResolvedTaskSpec, TaskGeometry, TaskType, TaskConstraints, PlanAction  # noqa: E402
 from multidetect.autonomy.motion_intent import MotionCommand  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256, require_real  # noqa: E402
+from multidetect.camera_mount import _mat_mul, _mat_transpose, _mat_vec  # noqa: E402
 from multidetect.mission_planning import compile_planned_task_mission_from_runtime  # noqa: E402
 from multidetect.px4_mission import (  # noqa: E402
     FixedWingMissionGeometry, Px4FixedWingSafetyPolicy, Px4MissionSafetyPolicy, VtolMissionGeometry,
 )
 from multidetect.sim_teacher.executor import ExecutionResult  # noqa: E402
+from multidetect.sim_teacher.gimbal_recording import X1_FW_PLANNING_MARGIN_DEG  # noqa: E402
+from multidetect.sim_teacher.horizon_stabilization import C11_LIMITS, rotation_deg, solve_joint_target  # noqa: E402
 from multidetect.sim_teacher.primitives import ActionPrimitive  # noqa: E402
-from multidetect.sim_teacher.target_tracking import WorldTarget, track_cli_argv  # noqa: E402
+from multidetect.sim_teacher.target_tracking import (  # noqa: E402
+    WorldTarget, c11_optical_axis_reachable, level_target_rotation, track_cli_argv, world_target_direction,
+)
 from multidetect.simulation.turn_envelope import coordinated_turn_envelope  # noqa: E402
 from multidetect.terrain_dem import load_local_dem_grid  # noqa: E402
 from scripts.realworld.leased_flight import SITL_PYTHON  # noqa: E402
@@ -644,12 +649,81 @@ def gimbal_eval_target(mission):
                        home.longitude_deg, target_alt)
 
 
+def gimbal_eval_fw_targets(mission):
+    """从航线预选每段一个 DEM 地面点，不根据云台实测表现换点。
+
+    沿航段采样位置，用航段方位、R1 的 X1 安装俯仰（中位 -83 度）及
+    -90/-65 度、零/双侧最大坡度组成规划包络。机体前方的近水平视线在该
+    姿态下接近 +83 度仰角；侧方或后方的下视线则通常在 C11 包络内。
+    对每个沿航/横航候选点，在所有采样姿态上要求光轴可达且各轴留 5 度，
+    优先选能保持水平的姿态最多的点，再比较最差机体仰角和距离。
+    这是静态离散规划，不保证转向瞬态、连续圈数、速率或无遮挡。
+    """
+    dem = mission["terrain"]
+    home = mission["geometry"].home
+    radius = 6_378_137.0  # invert offset_ned on the planned route
+    east_radius = radius * math.cos(math.radians(home.latitude_deg))
+    bank = mission["source"]["sim_params"]["FW_R_LIM"]
+    margin = X1_FW_PLANNING_MARGIN_DEG
+    inset = {axis: (lo + margin, hi - margin) for axis, (lo, hi) in C11_LIMITS.items()}
+    zero = dict.fromkeys(C11_LIMITS, 0.0)
+
+    def geo(north, east, altitude):
+        return WorldTarget(home.latitude_deg + math.degrees(north / radius),
+                           (home.longitude_deg + math.degrees(east / east_radius) + 180) % 360 - 180,
+                           altitude)
+
+    result = []
+    start = (0., 0., -mission["geometry"].takeoff_altitude_m)
+    for index, end in enumerate(mission["targets"]):
+        dn, de, dd = (b - a for a, b in zip(start, end, strict=True))
+        length = math.hypot(dn, de)
+        if length == 0:
+            raise ValueError(f"X1 FW eval leg {index} has no horizontal direction")
+        heading = math.degrees(math.atan2(de, dn))
+        body_from_ned = [
+            _mat_transpose(rotation_deg(dict(roll=roll, pitch=pitch, yaw=heading)))
+            for pitch in (-90., -83., -65.) for roll in (0., -bank, bank)
+        ]
+        positions = [geo(start[0] + f*dn, start[1] + f*de, dem.origin_elevation_m - start[2] - f*dd)
+                     for f in (0., .125, .25, .375, .5, .625, .75, .875, 1.)]
+        best = None
+        for along in (-1., -.5, -.25, 0., .25, .5, .75, 1., 1.25):
+            for across in (0., -.125, .125, -.25, .25, -.5, .5, -1., 1.):
+                north = start[0] + along*dn - across*de
+                east = start[1] + along*de + across*dn
+                point = geo(north, east, 0.)
+                dem_ne = dem.local_from_wgs84(point.lat_deg, point.lon_deg)
+                if not dem.contains_local(*dem_ne):
+                    continue
+                point = replace(point, alt_m=dem.sample_local(*dem_ne).elevation_m)
+                if any(p.alt_m <= point.alt_m for p in positions):
+                    continue
+                rays = [world_target_direction(position, point) for position in positions]
+                body_rays = [_mat_vec(body, ray) for ray in rays for body in body_from_ned]
+                if not all(c11_optical_axis_reachable(ray, margin_deg=margin) for ray in body_rays):
+                    continue
+                levels = [level_target_rotation(ray) for ray in rays]
+                level_count = sum(solve_joint_target(_mat_mul(body, level), zero, inset)[2]
+                                  for level in levels for body in body_from_ned)
+                key = (-level_count, max(-ray[2] for ray in body_rays), math.hypot(along - .5, across))
+                if best is None or key < best[0]:
+                    best = (key, point)
+        if best is None:
+            raise ValueError(f"X1 FW eval leg {index} has no terrain target with {margin:g} deg C11 margin")
+        result.append(best[1])
+        start = end
+    return tuple(result)
+
+
 def gimbal_eval_plan(plan, mission, *, fw_legs=False):
-    """Hover eval step; ``fw_legs`` additionally scores tracking of the same point during the FW route legs."""
+    """保留悬停目标；仅在 FW 验收开启时另外预选每段的地面点。"""
+    hover = gimbal_eval_target(mission)
     return replace(plan, steps_per_episode=plan.steps_per_episode + 1,
-                   track_targets=(gimbal_eval_target(mission),),
+                   track_targets=(hover,),
                    gimbal_eval_track_step=len(mission["targets"]) + 2,
-                   gimbal_eval_fw_legs=len(mission["targets"]) if fw_legs else 0)
+                   gimbal_eval_fw_legs=len(mission["targets"]) if fw_legs else 0,
+                   gimbal_eval_fw_targets=gimbal_eval_fw_targets(mission) if fw_legs else ())
 
 
 class LongRangePolicy:
@@ -1012,7 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gimbal-eval", action="store_true",
                         help="add a diagnostic target-tracking hover after the X1 MC return")
     parser.add_argument("--gimbal-eval-fw", action="store_true",
-                        help="with --gimbal-eval: also score tracking of the eval point on the FW cruise/turn legs")
+                        help="with --gimbal-eval: also score tracking of planned per-leg FW ground points")
     parser.add_argument("--image", help="local PX4/Gazebo runtime image")
     parser.add_argument("--track-target", type=WorldTarget.parse, action="append", default=[],
                         metavar="LAT,LON,ALT_M", help="world target, altitude AMSL metres (repeatable)")
