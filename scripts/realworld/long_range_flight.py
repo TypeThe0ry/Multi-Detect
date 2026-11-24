@@ -37,6 +37,7 @@ from multidetect.sim_teacher.target_tracking import (  # noqa: E402
 )
 from multidetect.simulation.turn_envelope import coordinated_turn_envelope  # noqa: E402
 from multidetect.terrain_dem import load_local_dem_grid  # noqa: E402
+from scripts.realworld.x1_fw_loiter import waypoint_turn  # noqa: E402
 from scripts.realworld.leased_flight import SITL_PYTHON  # noqa: E402
 from scripts.realworld import x1_scenario_class as scenario_policy  # noqa: E402
 from scripts.sitl_lock import SitlLock, sitl_lock_context  # noqa: E402
@@ -649,81 +650,151 @@ def gimbal_eval_target(mission):
                        home.longitude_deg, target_alt)
 
 
-def gimbal_eval_fw_targets(mission):
-    """从航线预选每段一个 DEM 地面点，不根据云台实测表现换点。
+X1_FW_SWITCH_LIMIT_DEG = 30.
 
-    沿航段采样位置，用航段方位、R1 的 X1 安装俯仰（中位 -83 度）及
-    -90/-65 度、零/双侧最大坡度组成规划包络。机体前方的近水平视线在该
-    姿态下接近 +83 度仰角；侧方或后方的下视线则通常在 C11 包络内。
-    对每个沿航/横航候选点，在所有采样姿态上要求光轴可达且各轴留 5 度，
-    优先选能保持水平的姿态最多的点，再比较最差机体仰角和距离。
-    这是静态离散规划，不保证转向瞬态、连续圈数、速率或无遮挡。
-    """
+
+def _fw_los_angle(a, b):
+    # Chord length is well conditioned for nearly identical unit directions.
+    return math.degrees(2 * math.asin(min(1., math.dist(a, b) / 2)))
+
+
+def _fw_ground_offsets(length, radius):
+    for along in (-1., -.5, -.25, 0., .25, .5, .75, 1., 1.25):
+        for across in (0., -.125, .125, -.25, .25, -.5, .5, -1., 1.):
+            yield along * length, across * length
+    # Preserve a physical search scale when a short turn leg adjoins a long
+    # straight. All candidates are anchored to this leg, including these rings.
+    for scale in (.5, 1., 2., 4., 8.):
+        for bearing in range(0, 360, 15):
+            radians = math.radians(bearing)
+            along = scale * radius * math.cos(radians)
+            across = scale * radius * math.sin(radians)
+            yield .5 * length + along, across
+            yield along, across
+
+
+def _fw_static_quality(point, poses, margin, inset):
+    """Return the main planner's quality key, or None if any sampled pose misses."""
+    zero = dict.fromkeys(C11_LIMITS, 0.)
+    rays = [(world_target_direction(pos, point), attitudes) for pos, attitudes in poses]
+    worst = -1.
+    for ray, attitudes in rays:
+        for body in attitudes:
+            body_ray = _mat_vec(body, ray)
+            if not c11_optical_axis_reachable(body_ray, margin_deg=margin):
+                return None
+            worst = max(worst, -body_ray[2])
+    levels = [(level_target_rotation(ray), attitudes) for ray, attitudes in rays]
+    level_count = sum(solve_joint_target(_mat_mul(body, level), zero, inset)[2]
+                      for level, attitudes in levels for body in attitudes)
+    return -level_count, worst
+
+
+def gimbal_eval_fw_targets(mission, *, diagnostics=None):
+    """每段独立选 DEM 点，先满足直线及转弯姿态余量，再最小化相邻视线夹角。"""
     dem = mission["terrain"]
-    home = mission["geometry"].home
-    radius = 6_378_137.0  # invert offset_ned on the planned route
-    east_radius = radius * math.cos(math.radians(home.latitude_deg))
+    geometry = mission["geometry"]
+    home = geometry.home
+    earth = 6_378_137.0  # inverse of offset_ned
+    east_radius = earth * math.cos(math.radians(home.latitude_deg))
     bank = mission["source"]["sim_params"]["FW_R_LIM"]
     margin = X1_FW_PLANNING_MARGIN_DEG
     inset = {axis: (lo + margin, hi - margin) for axis, (lo, hi) in C11_LIMITS.items()}
-    zero = dict.fromkeys(C11_LIMITS, 0.0)
 
-    def geo(north, east, altitude):
-        return WorldTarget(home.latitude_deg + math.degrees(north / radius),
+    def geo(north, east, down):
+        return WorldTarget(home.latitude_deg + math.degrees(north / earth),
                            (home.longitude_deg + math.degrees(east / east_radius) + 180) % 360 - 180,
-                           altitude)
+                           dem.origin_elevation_m - down)
 
-    result = []
-    start = (0., 0., -mission["geometry"].takeoff_altitude_m)
-    for index, end in enumerate(mission["targets"]):
-        dn, de, dd = (b - a for a, b in zip(start, end, strict=True))
+    waypoints = [(0., 0., -geometry.takeoff_altitude_m), *mission["targets"]]
+    legs = list(zip(waypoints[:-1], waypoints[1:], strict=True))
+    if not legs:
+        return ()
+    headings, lengths = [], []
+    for index, (start, end) in enumerate(legs):
+        dn, de = end[0] - start[0], end[1] - start[1]
         length = math.hypot(dn, de)
         if length == 0:
             raise ValueError(f"X1 FW eval leg {index} has no horizontal direction")
-        heading = math.degrees(math.atan2(de, dn))
-        body_from_ned = [
-            _mat_transpose(rotation_deg(dict(roll=roll, pitch=pitch, yaw=heading)))
-            for pitch in (-90., -83., -65.) for roll in (0., -bank, bank)
-        ]
-        positions = [geo(start[0] + f*dn, start[1] + f*de, dem.origin_elevation_m - start[2] - f*dd)
-                     for f in (0., .125, .25, .375, .5, .625, .75, .875, 1.)]
+        lengths.append(length)
+        headings.append(math.degrees(math.atan2(de, dn)))
+    radius = getattr(geometry, "loiter_radius_m", 80.)
+    preflight = mission.get("route_preflight") or {}
+    capture = preflight.get("fly_through_radius_m")
+    plane_pass = preflight.get("metrics", {}).get("flight_margin_revision") in scenario_policy.FW_PASS_REVISIONS
+    captures = capture if isinstance(capture, list) else [capture] * len(legs)
+    turns = [waypoint_turn(end, headings[i], headings[min(i + 1, len(legs) - 1)], radius, cap,
+                           plane_pass=plane_pass, short_approach=lengths[i] < radius)
+             for i, ((_, end), cap) in enumerate(zip(legs, captures, strict=True))]
+    result = []
+    used = set()
+    for index, (start, end) in enumerate(legs):
+        dn, de, dd = (b - a for a, b in zip(start, end, strict=True))
+        length, heading = lengths[index], headings[index]
+        bodies = tuple(_mat_transpose(rotation_deg(dict(roll=roll, pitch=pitch, yaw=heading)))
+                       for pitch in (-90., -83., -65.) for roll in (0., -bank, bank))
+        poses = [(geo(start[0] + f*dn/8, start[1] + f*de/8, start[2] + f*dd/8), bodies)
+                 for f in range(9)]
+        entry = turns[index-1].departing if index else ()
+        poses.extend((geo(*pos), attitudes) for pos, attitudes in (*entry, *turns[index].arriving))
+        switch = geo(*turns[index-1].switch_ned) if index else None
+        previous_ray = world_target_direction(switch, result[-1]) if index else None
+        lowest_alt = min(pos.alt_m for pos, _ in poses)
+        candidates = []
+        seen = set()
+        for along, across in _fw_ground_offsets(length, radius):
+            north = start[0] + (along * dn - across * de) / length
+            east = start[1] + (along * de + across * dn) / length
+            # Ignore coincident grid points even when roundoff differs between legs.
+            location = round(north, 2), round(east, 2)
+            if location in used or location in seen:
+                continue
+            seen.add(location)
+            point = geo(north, east, 0.)
+            dem_ne = dem.local_from_wgs84(point.lat_deg, point.lon_deg)
+            if not dem.contains_local(*dem_ne):
+                continue
+            point = replace(point, alt_m=dem.sample_local(*dem_ne).elevation_m)
+            if point.alt_m < lowest_alt:
+                angle = _fw_los_angle(previous_ray, world_target_direction(switch, point)) if index else 0.
+                candidates.append((angle, point, location, math.hypot(along / length - .5, across / length)))
+
+        # Check in slew order. Once a reachable point is found, only ties can
+        # improve its static quality. Never relax reachability to meet the cap.
         best = None
-        for along in (-1., -.5, -.25, 0., .25, .5, .75, 1., 1.25):
-            for across in (0., -.125, .125, -.25, .25, -.5, .5, -1., 1.):
-                north = start[0] + along*dn - across*de
-                east = start[1] + along*de + across*dn
-                point = geo(north, east, 0.)
-                dem_ne = dem.local_from_wgs84(point.lat_deg, point.lon_deg)
-                if not dem.contains_local(*dem_ne):
-                    continue
-                point = replace(point, alt_m=dem.sample_local(*dem_ne).elevation_m)
-                if any(p.alt_m <= point.alt_m for p in positions):
-                    continue
-                rays = [world_target_direction(position, point) for position in positions]
-                body_rays = [_mat_vec(body, ray) for ray in rays for body in body_from_ned]
-                if not all(c11_optical_axis_reachable(ray, margin_deg=margin) for ray in body_rays):
-                    continue
-                levels = [level_target_rotation(ray) for ray in rays]
-                level_count = sum(solve_joint_target(_mat_mul(body, level), zero, inset)[2]
-                                  for level in levels for body in body_from_ned)
-                key = (-level_count, max(-ray[2] for ray in body_rays), math.hypot(along - .5, across))
+        for angle, point, location, distance in sorted(candidates, key=lambda item: item[0]):
+            if best is not None and angle > best[0][0]:
+                break
+            quality = _fw_static_quality(point, poses, margin, inset)
+            if quality is not None:
+                key = angle, *quality, distance
                 if best is None or key < best[0]:
-                    best = (key, point)
+                    best = key, point, location
         if best is None:
-            raise ValueError(f"X1 FW eval leg {index} has no terrain target with {margin:g} deg C11 margin")
-        result.append(best[1])
-        start = end
+            raise ValueError(f"X1 FW eval leg {index} has no fresh terrain target with {margin:g} deg "
+                             "C11 margin through cruise and waypoint turn")
+        key, point, location = best
+        result.append(point)
+        used.add(location)
+        slew = key[0] if index else None
+        if index and slew > X1_FW_SWITCH_LIMIT_DEG:
+            logging.getLogger(__name__).warning("X1 FW leg %d: best attainable switch %.2f exceeds %.1f deg",
+                                                index, slew, X1_FW_SWITCH_LIMIT_DEG)
+        if diagnostics is not None:
+            diagnostics.append({"leg": index, "switch_los_deg": slew,
+                                "switch_ned_m": turns[index-1].switch_ned if index else None,
+                                "over_limit": bool(index and slew > X1_FW_SWITCH_LIMIT_DEG)})
     return tuple(result)
 
 
-def gimbal_eval_plan(plan, mission, *, fw_legs=False):
+def gimbal_eval_plan(plan, mission, *, fw_legs=False, fw_diagnostics=None):
     """保留悬停目标；仅在 FW 验收开启时另外预选每段的地面点。"""
     hover = gimbal_eval_target(mission)
     return replace(plan, steps_per_episode=plan.steps_per_episode + 1,
                    track_targets=(hover,),
                    gimbal_eval_track_step=len(mission["targets"]) + 2,
                    gimbal_eval_fw_legs=len(mission["targets"]) if fw_legs else 0,
-                   gimbal_eval_fw_targets=gimbal_eval_fw_targets(mission) if fw_legs else ())
+                   gimbal_eval_fw_targets=gimbal_eval_fw_targets(mission, diagnostics=fw_diagnostics) if fw_legs else ())
 
 
 class LongRangePolicy:
@@ -1145,9 +1216,10 @@ def main(argv: list[str] | None = None) -> int:
     if is_vtol:
         plan = replace(plan, gimbal_mode=args.gimbal_mode, track_targets=tuple(args.track_target),
                        gimbal_bridge_stabilize=args.gimbal_bridge_stabilize)
+    fw_diagnostics = []
     if args.gimbal_eval:
         try:
-            plan = gimbal_eval_plan(plan, mission, fw_legs=args.gimbal_eval_fw)
+            plan = gimbal_eval_plan(plan, mission, fw_legs=args.gimbal_eval_fw, fw_diagnostics=fw_diagnostics)
         except ValueError as exc:
             parser.error(str(exc))
     if args.horizon_video_hz is not None:
@@ -1183,7 +1255,9 @@ def main(argv: list[str] | None = None) -> int:
                           "compiled_mission": mission["compiled"].to_mapping(),
                           **({"gimbal_eval": {"track_step": plan.gimbal_eval_track_step,
                                               "hover_sim_s": GIMBAL_EVAL_HOLD_SIM_S,
-                                              "fw_legs": plan.gimbal_eval_fw_legs}}
+                                              "fw_legs": plan.gimbal_eval_fw_legs,
+                                              **({"switch_limit_deg": X1_FW_SWITCH_LIMIT_DEG,
+                                                  "fw_switches": fw_diagnostics} if args.gimbal_eval_fw else {})}}
                              if args.gimbal_eval else {}),
                           "collector_plan": collector_plan},
                          ensure_ascii=False, indent=2))
