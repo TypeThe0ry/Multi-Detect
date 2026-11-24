@@ -277,3 +277,24 @@ def test_tracking_hold_splits_frames_and_negative_ack_observations(tmp_path, mon
     assert not hold_partial_ack["steady"]["reject_ack_evidence_complete"]
     assert hold_partial_ack["steady"]["rejected_ack_rows_observed"] == 1
     assert hold_partial_ack["rejected_ack_rows_without_receive_stamp"] == 1
+
+
+def test_hover_preaim_not_ready_marker_fails_offline_evaluation(tmp_path, capsys):
+    ep, _ = episode(tmp_path, "preaim-timeout", [lock(1)])
+    failure = {
+        "message_type": "collector_gimbal_eval_hover_not_ready",
+        "step_index": 7,
+        "consecutive_samples": 2,
+        "required_consecutive_samples": 5,
+        "last_yaw_deg": -359.5,
+        "last_failure_reasons": ["joint_yaw_outside_margin"],
+    }
+    write(ep / "mavlink.jsonl", failure)
+
+    report = evaluate([ep])
+    assert report["hover_preaim_failures"] == [{"episode_dir": str(ep), "markers": [failure]}]
+    assert report["episodes"][0]["track_diagnostics"]["hold"]["status"] == (
+        "hover_preaim_not_ready"
+    )
+    assert main([str(ep)]) == 5
+    assert "hover pre-aim readiness check(s) failed" in capsys.readouterr().err
