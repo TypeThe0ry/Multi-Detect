@@ -175,6 +175,15 @@ def test_cpu_plan_with_fw_legs_keeps_route_and_hover(monkeypatch, capsys):
     legs = len(fw["fw_waypoints_home_ned_m"])
     assert fw["gimbal_eval"]["fw_legs"] == legs == fw["collector_plan"]["gimbal_eval_fw_legs"]
     assert hover["gimbal_eval"]["fw_legs"] == 0
+    assert {"fw_switches", "switch_limit_deg"}.isdisjoint(hover["gimbal_eval"])
+    assert fw["gimbal_eval"]["switch_limit_deg"] == 30.
+    switches = fw["gimbal_eval"]["fw_switches"]
+    assert [row["leg"] for row in switches] == list(range(legs))
+    assert switches[0]["switch_los_deg"] is switches[0]["switch_ned_m"] is None
+    for switch in switches[1:]:
+        assert len(switch["switch_ned_m"]) == 3
+        assert 0. <= switch["switch_los_deg"] <= 180.
+        assert switch["over_limit"] == (switch["switch_los_deg"] > 30.)
     for key in ("steps_per_episode", "gimbal_eval_track_step", "track_targets", "video_hz"):
         assert fw["collector_plan"][key] == hover["collector_plan"][key]
     assert "gimbal_eval_fw_targets" not in hover["collector_plan"]

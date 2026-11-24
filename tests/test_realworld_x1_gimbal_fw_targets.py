@@ -11,6 +11,7 @@ from multidetect.sim_teacher.target_tracking import (
     WorldTarget, c11_optical_axis_reachable, level_target_rotation, world_target_direction,
 )
 from multidetect.terrain_dem import LocalDemGrid
+from scripts.realworld import long_range_flight as flight
 from scripts.realworld.long_range_flight import gimbal_eval_fw_targets
 from scripts.realworld.x1_gimbal_eval import TRACK_FW_MODE, TRACK_SAMPLE, fw_legs
 
@@ -67,6 +68,98 @@ def test_ground_targets_remain_in_envelope_at_r1_return_pitch():
     old_point = WorldTarget(42.0009, -93., 325.)
     returning = rotation_deg(dict(roll=0., pitch=-83., yaw=180.))
     assert not c11_optical_axis_reachable(world_target_direction(WorldTarget(42.03, -93., 405.), old_point, returning))
+
+
+def _mission(legs, *, takeoff=85., sloped=False):
+    heights = ((312., 314.), (326., 328.)) if sloped else ((320., 320.), (320., 320.))
+    dem = LocalDemGrid("fixture", 42., -93., 320., -3000., -3000., 6000., 6000.,
+                       heights, 1., 0., "b" * 64)
+    home = SimpleNamespace(latitude_deg=42., longitude_deg=-93.)
+    return {"terrain": dem, "geometry": SimpleNamespace(home=home, takeoff_altitude_m=takeoff),
+            "source": {"sim_params": {"FW_R_LIM": 35.}}, "targets": legs}
+
+
+def _world_point(dem, north, east, down):
+    return WorldTarget(42. + math.degrees(north / 6378137.),
+                       -93. + math.degrees(east / (6378137. * math.cos(math.radians(42.)))),
+                       dem.origin_elevation_m - down)
+
+
+@pytest.mark.parametrize("closest,over_limit", [(-1., False), (-90., True)])
+def test_fw_minimizes_switch_angle_before_static_quality(monkeypatch, caplog, closest, over_limit):
+    mission = _mission([(20., 0., -85.), (60., 0., -85.)], sloped=True)
+    dem = mission["terrain"]
+    # Keep the measured-origin, candidate filtering and ranking paths real. Fix the
+    # switch location to isolate angular ranking from updates to the pose model.
+    monkeypatch.setattr(flight, "waypoint_turn", lambda end, *_args, **_kw: SimpleNamespace(
+        switch_ned=(end[0]+5., end[1], end[2]), arriving=(), departing=()))
+    # First leg has one choice. Second leg offers the static winner, an exact
+    # repeat of the first anchor, then the closest fresh reachable point.
+    def offsets(length, radius):
+        return [(20., 0.)] if length == 20. else [(-300., 0.), (0., 0.), (closest, 0.)]
+    monkeypatch.setattr(flight, "_fw_ground_offsets", offsets)
+    static_only, = gimbal_eval_fw_targets({**mission, "targets": [(40., 0., -85.)]})
+    assert dem.local_from_wgs84(static_only.lat_deg, static_only.lon_deg)[0] == pytest.approx(-300., abs=1.)
+    diag = []
+    prev, target = gimbal_eval_fw_targets(mission, diagnostics=diag)
+    for point, north in ((prev, 20.), (target, 20.+closest)):
+        # A sampled height from a nonflat DEM must be preserved in the AMSL ref.
+        ne = dem.local_from_wgs84(point.lat_deg, point.lon_deg)
+        assert ne == pytest.approx((north, 0.), abs=.5)
+        assert point.reference()["altitude_reference"] == "AMSL"
+        assert point.alt_m == pytest.approx(dem.sample_local(*ne).elevation_m)
+    assert target != prev
+    assert diag[0]["switch_los_deg"] is None
+    assert diag[1]["switch_ned_m"] == pytest.approx((25., 0., -85.))
+    origin = _world_point(dem, *diag[1]["switch_ned_m"])
+    u, v = (world_target_direction(origin, p) for p in (prev, target))
+    angle = math.degrees(math.acos(max(-1., min(1., sum(a*b for a, b in zip(u, v))))))
+    assert diag[1]["switch_los_deg"] == pytest.approx(angle, abs=1e-6)
+    assert diag[1]["over_limit"] is over_limit and (angle > 30.) is over_limit
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("30" in msg and "1" in msg for msg in warnings) is over_limit
+
+
+def test_iowa_switch_pose_matches_recorded_wing_direction_and_body_attitude():
+    # First guided loiter handoff in Iowa 04caae4291f6e47848bd. This compares
+    # full MC-FRD rotations. Matching Euler yaw to the wing course fails here.
+    waypoint = (850., -850., -82.11)
+    turn = flight.waypoint_turn(waypoint, -45., -40.156, 80., None,
+                                plane_pass=False, short_approach=False)
+    observation = (912.411, -894.243, -82.513)
+    assert math.dist(turn.switch_ned, observation) < 20.
+    actual = rotation_deg(dict(roll=69.898, pitch=-71.033, yaw=-14.486))
+    # The trace of A^T B is the elementwise inner product of two rotations.
+    # Planning stores world-to-body matrices, while rotation_deg returns body-to-world.
+    expected = [actual[3*j+i] for i in range(3) for j in range(3)]
+    for poses in (turn.arriving, turn.departing):
+        alignments = [sum(a*b for a, b in zip(expected, body)) for pos, bodies in poses
+                      if math.dist(pos, observation) < 20. for body in bodies]
+        assert alignments and max(alignments) >= 1. + 2.*math.cos(math.radians(15.))
+
+
+def test_iowa_waypoint_rejects_only_candidate_at_measured_loiter_pose(monkeypatch):
+    # Iowa 04caae4291f6e47848bd, episode-0000-88387bae, track switch into step 1.
+    # Local NED and MC-FRD ATTITUDE share the simulation clock. The wing heading
+    # was +56.42 deg at this instant while MC Euler yaw was -14.49 deg.
+    end = (850., -850., -82.11)
+    mission = _mission([end], takeoff=65.)
+    dem = mission["terrain"]
+    # 1.5 km to the right of the inbound leg. The old straight envelope admits it.
+    target = _world_point(dem, 1500./math.sqrt(2), 1500./math.sqrt(2), 0.)
+    for j in range(9):
+        f = j/8
+        pos = _world_point(dem, f*end[0], f*end[1], -65. + f*(end[2]+65.))
+        for pitch in (-90., -83., -65.):
+            for roll in (-35., 0., 35.):
+                body = rotation_deg(dict(roll=roll, pitch=pitch, yaw=-45.))
+                assert c11_optical_axis_reachable(world_target_direction(pos, target, body), margin_deg=5.)
+    observed = _world_point(dem, 912.411, -894.243, -82.513)
+    actual = rotation_deg(dict(roll=69.898, pitch=-71.033, yaw=-14.486))
+    assert not c11_optical_axis_reachable(world_target_direction(observed, target, actual), margin_deg=5.)
+    monkeypatch.setattr(flight, "_fw_ground_offsets", lambda *_: [(0., 1500.)])
+    with pytest.raises(ValueError, match="leg 0"):
+        gimbal_eval_fw_targets(mission)
 
 
 ORIGIN = WorldTarget(42., -93., 400.)
@@ -129,3 +222,18 @@ def test_reachable_misses_and_unresolved_optics_do_not_leave_lock_denominator():
     assert report["cruise"]["sample_count"] == 120
     assert report["cruise"]["lock_rate"] == pytest.approx(107 / 120)
     assert report["failed_checks"] == ["cruise_p95", "cruise_lock_rate"]
+
+
+def test_turn_gate_scores_immediate_post_switch_samples():
+    # Three misses in the first 0.3 s exceed the full-turn P95 budget.
+    modes = [{**MODES[0], "sim_stamp_ns": 0}, {**MODES[1], "sim_stamp_ns": 12_000_000_000}]
+    rows = [sample(i, 0, "cruise") for i in range(120)]
+    away = rotation_deg(dict(roll=0., pitch=0., yaw=0.))
+    rows += [sample(120+i, 1, "turn", optical=away if i < 3 else None) for i in range(40)]
+    report = fw_legs(META, [*modes, *rows])
+    assert report["gate"]["turn"] == {"max_p95_deg": 10., "min_samples": 20}
+    assert report["gate"]["cruise"] == {"max_p95_deg": 5., "min_samples": 100}
+    assert report["gate"]["min_lock_rate"] == .9 and report["gate"]["min_reachable_coverage"] == .8
+    assert report["turn"]["sample_count"] == 40
+    assert report["turn"]["lock_rate"] == pytest.approx(37/40)
+    assert report["failed_checks"] == ["turn_p95"]
