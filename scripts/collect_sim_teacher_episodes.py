@@ -65,8 +65,10 @@ from multidetect.sim_teacher import (  # noqa: E402
     primitive_to_ned,
 )
 from multidetect.sim_teacher.gimbal_recording import (
-    DeltaCameraGeometry, X1FwPhase, X1TrackCapture, X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
-    collector_camera_mount, x1_eval_yaw_unwind, x1_track_preview,
+    DeltaCameraGeometry, X1FwPhase, X1HoverPreAimReadiness, X1TrackCapture,
+    X1_TRACK_SAMPLE_HZ, X1_TRACK_TRANSIENT_SIM_S,
+    collector_camera_mount, x1_eval_yaw_unwind, x1_fw_track_preaim,
+    x1_meta_yaw_for_step, x1_track_preview,
 )
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
 from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
@@ -74,7 +76,8 @@ from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
     HorizonStabilizer, HostHorizonLoop, bridge_pose_readback,
 )
 from multidetect.sim_teacher.target_tracking import (  # noqa: E402
-    WorldTarget, track_cli_argv, world_target_from_mavlink,
+    WorldTarget, pointing_error_deg, track_cli_argv, unit, world_target_direction,
+    world_target_from_mavlink,
 )
 from multidetect.sim_teacher.continuous_video import ContinuousVideoWriter  # noqa: E402
 from multidetect.sim_teacher.executor import (  # noqa: E402
@@ -3729,6 +3732,50 @@ def _x1_track_sample(reader, sample, *, camera_mount, camera_geometry, extra_key
             **{key: obs.get(key) for key in (
                 "gimbal_state", "camera_pose", "camera_info", "pose", "sim_skew_ms", *extra_keys,
             )}}
+
+
+def _x1_hover_preaim_measurements(row, target_ref):
+    """Measure frame-aligned target visibility and pointing error."""
+    in_view, error_deg = None, None
+    try:
+        camera = row["camera_pose"]
+        pose = row["pose"]
+        rotation = tuple(float(value) for value in camera["optical_to_world"])
+        if len(rotation) != 9 or not all(math.isfinite(value) for value in rotation):
+            raise ValueError("camera rotation unavailable")
+        camera_age = camera.get("age_ms")
+        position_skew = pose.get("global_position_skew_ms")
+        if (type(camera_age) not in (int, float) or not math.isfinite(float(camera_age))
+                or not 0 <= camera_age <= 200.0
+                or type(position_skew) not in (int, float)
+                or not math.isfinite(float(position_skew)) or abs(position_skew) > 200.0):
+            raise ValueError("frame-aligned camera pose or position is stale")
+        if target_ref.get("kind") == "direction_ned":
+            direction = unit(tuple(float(value) for value in target_ref["vector"]))
+        elif target_ref.get("kind") == "world_point":
+            origin = WorldTarget(float(pose["lat_deg"]), float(pose["lon_deg"]),
+                                 float(pose["alt_amsl_m"]))
+            target = WorldTarget(float(target_ref["lat_deg"]), float(target_ref["lon_deg"]),
+                                 float(target_ref["alt_m"]))
+            offset = tuple(float(camera["center_ned"][i]) - float(pose["local_ned_m"][i])
+                           for i in range(3))
+            direction = world_target_direction(origin, target, camera_offset_ned=offset)
+        else:
+            raise ValueError("unsupported X1 hover target reference")
+        error_deg = pointing_error_deg(direction, rotation)
+        ray = tuple(sum(rotation[3 * row_index + axis] * direction[row_index]
+                        for row_index in range(3)) for axis in range(3))
+        intrinsics = row.get("camera_info") or {}
+        fx, fy, cx, cy, width, height = (intrinsics.get(key) for key in
+                                        ("fx", "fy", "cx", "cy", "width", "height"))
+        if all(isinstance(value, (int, float)) and math.isfinite(float(value))
+               for value in (fx, fy, cx, cy, width, height)) and min(fx, fy, width, height) > 0:
+            forward, right, down = ray
+            in_view = (forward > 0 and 0 <= fx * right / forward + cx < width
+                       and 0 <= fy * down / forward + cy < height)
+    except (KeyError, TypeError, ValueError, OverflowError, IndexError):
+        pass
+    return in_view, error_deg
 
 
 class MavlinkTelemetrySilenceWatchdog:
@@ -8223,6 +8270,7 @@ def run_episode(
                     horizon_loop.check()
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
+                step_started_sim_ns = pose_sim_stamp_ns
                 t = time.perf_counter_ns()
                 before_sample = wait_for_observation_frame(
                     "obs_before",
@@ -8309,6 +8357,21 @@ def run_episode(
                     and horizon_stabilizer is not None and _is_motion_command(action)
                     and action.kind == "reposition" and action.mode == "FW"
                 )
+                fw_hover_preaim = x1_fw_track_preaim(
+                    plan.gimbal_eval_fw_legs, plan.gimbal_eval_track_step, index, action
+                )
+                preaim_readiness = None
+                preaim_target_ref = None
+                if fw_hover_preaim:
+                    previous_meta = getattr(sensor_reader, "latest_meta", None)
+                    previous_meta_stamp_ns = getattr(previous_meta, "sensor_stamp_ns", None)
+                    preaim_readiness = X1HoverPreAimReadiness(
+                        step_started_sim_ns, previous_meta_stamp_ns
+                    )
+                    if not sensor_reader.meta_supported:
+                        preaim_readiness.last_failure_reasons = ["getmeta_unsupported"]
+                    preaim_target_ref = plan.track_targets[0].reference()
+                    track_capture = X1TrackCapture(step_started_sim_ns)
                 if fw_leg:
                     # Keep the bridge in track across legs; only the point and capture window change.
                     fw_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
@@ -8322,7 +8385,18 @@ def run_episode(
                                              "marker_monotonic_ns": time.monotonic_ns(),
                                              "target_ref": fw_target.reference()})
                     track_capture = X1TrackCapture(fw_sim_ns)
-                if horizon_stabilizer is not None and horizon_stabilizer.mode != "track":
+                if fw_hover_preaim:
+                    # A FW bridge preserves continuous lock winding, so unwind by remaining in
+                    # track through this unscored MC return instead of toggling lock/follow.
+                    horizon_stabilizer.select_track_target(plan.track_targets[0])
+                    if horizon_stabilizer.mode != "track":
+                        horizon_stabilizer.set_mode("track")
+                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_preaim",
+                                             "step_index": index, "mode": "track",
+                                             "fw_handback": True,
+                                             "sim_stamp_ns": step_started_sim_ns,
+                                             "marker_monotonic_ns": time.monotonic_ns()})
+                elif horizon_stabilizer is not None and horizon_stabilizer.mode != "track":
                     x1_unwind = x1_eval_yaw_unwind(plan.gimbal_eval_track_step, index, action, fw_leg=fw_leg)
                 if x1_unwind is not None:
                     # Aim at the eval target during the hover return so the hold starts on target.
@@ -8489,6 +8563,40 @@ def run_episode(
                 execute_thread = threading.Thread(target=_execute, name="sim-teacher-action",
                                                   daemon=managed_gimbal_action is not None)
                 execute_thread.start()
+
+                def _track_sample_row(sample):
+                    fw_fields = {}
+                    if fw_leg:
+                        state = _flight_state_snapshot(mav_reader.state)
+                        row = _x1_track_sample(
+                            mav_reader, sample, camera_mount=camera_mount,
+                            camera_geometry=camera_geometry, extra_keys=("attitude",),
+                        )
+                        fw_fields = {
+                            "fw_phase": fw_phase.update(
+                                (row.get("attitude") or {}).get("roll_deg"),
+                                state.get("vtol_state"),
+                            ),
+                            "vtol_state": state.get("vtol_state"),
+                            "track_mode": horizon_stabilizer.mode,
+                        }
+                    else:
+                        row = _x1_track_sample(
+                            mav_reader, sample, camera_mount=camera_mount,
+                            camera_geometry=camera_geometry,
+                        )
+                    if fw_hover_preaim:
+                        if sensor_reader.meta_supported:
+                            in_view, error_deg = _x1_hover_preaim_measurements(
+                                row, preaim_target_ref
+                            )
+                            preaim_readiness.observe(
+                                sample, in_view=in_view,
+                                pointing_error_deg=error_deg,
+                            )
+                        row["target_ref"] = preaim_target_ref
+                    return {**row, **fw_fields, "step_index": index}
+
                 def _action_tick() -> None:
                     nonlocal next_video_s, track_steady_ns, next_unwind_request_s
                     resource_guard.check()
@@ -8504,8 +8612,7 @@ def run_episode(
                             next_unwind_request_s = now_wall + 0.25
                             sensor_reader.request_meta(max((_pose_sim_stamp_ns(mav_reader.state) or 0) - 1, 0))
                         meta = sensor_reader.latest_meta
-                        joints = ((getattr(meta, "joint_state", None) or {}).get("gimbal_joint_state") or {})
-                        yaw = (joints.get("position_rad") or {}).get("yaw") if joints.get("fresh") is True else None
+                        yaw = x1_meta_yaw_for_step(meta, step_started_sim_ns)
                         decision = x1_unwind.step(yaw, now_wall)
                         if decision is not None and horizon_stabilizer is not None:
                             horizon_stabilizer.set_mode(decision)
@@ -8539,25 +8646,7 @@ def run_episode(
                             wall_s=time.monotonic(),
                         )
                         if sample is not None:
-                            fw_fields = {}
-                            if fw_leg:
-                                state = _flight_state_snapshot(mav_reader.state)
-                                row = _x1_track_sample(
-                                    mav_reader, sample, camera_mount=camera_mount,
-                                    camera_geometry=camera_geometry, extra_keys=("attitude",),
-                                )
-                                fw_fields = {
-                                    "fw_phase": fw_phase.update(
-                                        (row.get("attitude") or {}).get("roll_deg"), state.get("vtol_state")),
-                                    "vtol_state": state.get("vtol_state"),
-                                    "track_mode": horizon_stabilizer.mode,
-                                }
-                            else:
-                                row = _x1_track_sample(
-                                    mav_reader, sample, camera_mount=camera_mount,
-                                    camera_geometry=camera_geometry,
-                                )
-                            recorder.record_mavlink({**row, **fw_fields, "step_index": index})
+                            recorder.record_mavlink(_track_sample_row(sample))
 
                 try:
                     poll_session = (
@@ -8580,6 +8669,50 @@ def run_episode(
                     raise
                 if execute_error:
                     raise execute_error[0]
+                if fw_hover_preaim:
+                    preaim_readiness.restart_confirmation()
+                    while not preaim_readiness.ready and not preaim_readiness.timed_out():
+                        resource_guard.check()
+                        episode_watchdog.check()
+                        if horizon_loop is not None:
+                            horizon_loop.check()
+                        mav_reader.raise_if_failed()
+                        sensor_reader.raise_if_failed()
+                        sample = track_capture.tick(
+                            sensor_reader, sim_ns=_pose_sim_stamp_ns(mav_reader.state),
+                            wall_s=time.monotonic(),
+                        )
+                        if sample is not None:
+                            recorder.record_mavlink(_track_sample_row(sample))
+                        if not preaim_readiness.ready:
+                            time.sleep(0.01)
+                    readiness = preaim_readiness.diagnostics()
+                    if readiness["ready"]:
+                        recorder.record_mavlink({
+                            "message_type": "collector_gimbal_eval_hover_ready",
+                            "step_index": index,
+                            "mode": horizon_stabilizer.mode,
+                            "target_ref": preaim_target_ref,
+                            "sim_stamp_ns": readiness["last_meta_stamp_ns"],
+                            "marker_monotonic_ns": time.monotonic_ns(),
+                            "preaim_settle_wall_s": readiness["settle_wall_s"],
+                            **readiness,
+                        })
+                    else:
+                        failure = {
+                            "message_type": "collector_gimbal_eval_hover_not_ready",
+                            "step_index": index,
+                            "mode": horizon_stabilizer.mode,
+                            "target_ref": preaim_target_ref,
+                            "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                            "marker_monotonic_ns": time.monotonic_ns(),
+                            **readiness,
+                        }
+                        recorder.record_mavlink(failure)
+                        raise RuntimeError(
+                            "FW-to-MC X1 hover pre-aim did not settle before the scored hold: "
+                            f"{json.dumps(failure, sort_keys=True)}"
+                        )
                 if track_capture is not None:
                     recorder.record_mavlink({
                         "message_type": "collector_gimbal_eval_end", "step_index": index,

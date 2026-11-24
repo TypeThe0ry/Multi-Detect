@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,12 +76,20 @@ def x1_track_preaim(track_step, index, action) -> bool:
             and getattr(action, "reason", None) == "hover_return_to_home")
 
 
+def x1_fw_track_preaim(gimbal_eval_fw_legs, track_step, index, action) -> bool:
+    """Use continuous track for the pre-aim only when this eval has an FW hand-back."""
+    return (type(gimbal_eval_fw_legs) is int and gimbal_eval_fw_legs > 0
+            and x1_track_preaim(track_step, index, action))
+
+
 class X1YawUnwind:
     """Unwind an accumulated gimbal yaw winding while the pre-aimed hover return is still under way.
 
     Tracking a target through a turning return can wind the C11 yaw joint to its +-2pi stop (the bridge
     then has to jump up to ~257 deg at the hold start). Between ``ENTER_RAD`` and the stop, drop to
     lock/follow (relative yaw 0) until the joint is back near zero, then resume tracking; bounded in time.
+    The FW-to-MC pre-aim intentionally does not use this policy because bridge lock preserves its
+    continuous horizon solution instead of unwinding the joint.
     """
 
     ENTER_RAD = math.radians(150.0)
@@ -111,6 +120,163 @@ def x1_eval_yaw_unwind(track_step, index, action, *, fw_leg):
     if not fw_leg and x1_track_preaim(track_step, index, action):
         return X1YawUnwind()
     return None
+
+
+def x1_meta_yaw_for_step(meta, step_start_sim_ns):
+    """Return fresh joint yaw only from a GETMETA epoch at/after this step began."""
+    stamp = _meta_value(meta, "sensor_stamp_ns")
+    if (type(step_start_sim_ns) is not int or type(stamp) is not int
+            or stamp < step_start_sim_ns):
+        return None
+    joint_state = _meta_value(meta, "joint_state")
+    gimbal = _meta_value(joint_state, "gimbal_joint_state")
+    if _meta_value(gimbal, "fresh") is not True:
+        return None
+    positions = _meta_value(gimbal, "position_rad")
+    yaw = _meta_value(positions, "yaw")
+    return float(yaw) if _finite_real(yaw) else None
+
+
+class X1HoverPreAimReadiness:
+    """Require a fresh, settled five-frame run before an FW-eval hover hold is scored."""
+
+    REQUIRED_SAMPLES = 5
+    SAMPLE_PERIOD_NS = 1_000_000_000 // X1_TRACK_SAMPLE_HZ
+    MIN_SAMPLE_GAP_NS = SAMPLE_PERIOD_NS // 2
+    MAX_SAMPLE_GAP_NS = SAMPLE_PERIOD_NS + SAMPLE_PERIOD_NS // 2
+    MAX_ABS_YAW_DEG = 150.0
+    MAX_POINTING_ERROR_DEG = 3.0
+    WAIT_TIMEOUT_S = 10.0
+
+    def __init__(self, start_sim_ns, previous_meta_stamp_ns=None, *, clock=time.monotonic):
+        self.start_sim_ns = start_sim_ns
+        self.previous_meta_stamp_ns = previous_meta_stamp_ns
+        self.clock = clock
+        self.started_s = clock()
+        self.wait_started_s = None
+        self.ready_at_s = None
+        self.consecutive_samples = 0
+        self.last_seen_stamp_ns = previous_meta_stamp_ns
+        self.last_good_stamp_ns = None
+        self.last_yaw_deg = None
+        self.last_in_view = None
+        self.last_pointing_error_deg = None
+        self.last_joint_fresh = False
+        self.last_failure_reasons = ["no_fresh_meta"]
+
+    @property
+    def ready(self):
+        return self.consecutive_samples >= self.REQUIRED_SAMPLES
+
+    def observe(self, meta, *, in_view, pointing_error_deg, now_s=None):
+        """Consume one metadata epoch and its frame-aligned geometric measurements."""
+        stamp = _meta_value(meta, "sensor_stamp_ns")
+        if type(stamp) is not int or stamp < 0:
+            return self.diagnostics(now_s=now_s)
+        if (self.start_sim_ns is None or stamp <= self.start_sim_ns
+                or (self.last_seen_stamp_ns is not None and stamp <= self.last_seen_stamp_ns)):
+            return self.diagnostics(now_s=now_s)
+
+        self.last_seen_stamp_ns = stamp
+        joint_state = _meta_value(meta, "joint_state")
+        gimbal = _meta_value(joint_state, "gimbal_joint_state")
+        positions = _meta_value(gimbal, "position_rad")
+        yaw_rad = _meta_value(positions, "yaw")
+        self.last_joint_fresh = _meta_value(gimbal, "fresh") is True
+        self.last_yaw_deg = (
+            math.degrees(float(yaw_rad))
+            if self.last_joint_fresh and _finite_real(yaw_rad) else None
+        )
+        self.last_in_view = in_view if type(in_view) is bool else None
+        self.last_pointing_error_deg = (
+            float(pointing_error_deg) if _finite_real(pointing_error_deg) else None
+        )
+        reasons = []
+        if not self.last_joint_fresh or self.last_yaw_deg is None:
+            reasons.append("joint_state_not_fresh")
+        elif abs(self.last_yaw_deg) >= self.MAX_ABS_YAW_DEG:
+            reasons.append("joint_yaw_outside_margin")
+        if self.last_in_view is not True:
+            reasons.append("target_not_in_view")
+        if (self.last_pointing_error_deg is None
+                or self.last_pointing_error_deg >= self.MAX_POINTING_ERROR_DEG):
+            reasons.append("pointing_error_not_below_threshold")
+        self.last_failure_reasons = reasons
+        if reasons:
+            self.consecutive_samples = 0
+            self.last_good_stamp_ns = None
+            self.ready_at_s = None
+            return self.diagnostics(now_s=now_s)
+
+        if (self.last_good_stamp_ns is not None
+                and not self.MIN_SAMPLE_GAP_NS <= stamp - self.last_good_stamp_ns
+                <= self.MAX_SAMPLE_GAP_NS):
+            self.consecutive_samples = 0
+            self.ready_at_s = None
+        self.consecutive_samples += 1
+        self.last_good_stamp_ns = stamp
+        if self.consecutive_samples == self.REQUIRED_SAMPLES:
+            self.ready_at_s = self.clock() if now_s is None else now_s
+        return self.diagnostics(now_s=now_s)
+
+    def diagnostics(self, *, now_s=None):
+        now = self.clock() if now_s is None else now_s
+        elapsed_s = max(0.0, now - self.started_s)
+        failure_reasons = list(self.last_failure_reasons)
+        if not self.ready and not failure_reasons:
+            failure_reasons.append("insufficient_consecutive_samples")
+        return {
+            "ready": self.ready,
+            "start_sim_ns": self.start_sim_ns,
+            "previous_meta_stamp_ns": self.previous_meta_stamp_ns,
+            "last_meta_stamp_ns": self.last_seen_stamp_ns,
+            "last_good_stamp_ns": self.last_good_stamp_ns,
+            "consecutive_samples": self.consecutive_samples,
+            "required_consecutive_samples": self.REQUIRED_SAMPLES,
+            "last_joint_fresh": self.last_joint_fresh,
+            "last_yaw_deg": self.last_yaw_deg,
+            "max_abs_yaw_deg": self.MAX_ABS_YAW_DEG,
+            "last_in_view": self.last_in_view,
+            "last_pointing_error_deg": self.last_pointing_error_deg,
+            "max_pointing_error_deg": self.MAX_POINTING_ERROR_DEG,
+            "last_failure_reasons": failure_reasons,
+            "elapsed_wall_s": elapsed_s,
+            "readiness_wait_elapsed_s": (
+                max(0.0, now - self.wait_started_s) if self.wait_started_s is not None else 0.0
+            ),
+            "settle_wall_s": (
+                max(0.0, self.ready_at_s - self.started_s) if self.ready_at_s is not None else None
+            ),
+            "wait_timeout_s": self.WAIT_TIMEOUT_S,
+        }
+
+    def begin_wait(self, *, now_s=None):
+        if self.wait_started_s is None and not self.ready:
+            self.wait_started_s = self.clock() if now_s is None else now_s
+
+    def restart_confirmation(self, *, now_s=None):
+        """Require a new five-sample run at the unscored/scored step boundary."""
+        self.consecutive_samples = 0
+        self.last_good_stamp_ns = None
+        self.ready_at_s = None
+        self.last_failure_reasons = ["awaiting_boundary_confirmation"]
+        self.begin_wait(now_s=now_s)
+
+    def timed_out(self, *, now_s=None):
+        if self.ready or self.wait_started_s is None:
+            return False
+        now = self.clock() if now_s is None else now_s
+        return now - self.wait_started_s >= self.WAIT_TIMEOUT_S
+
+
+def _meta_value(value, key):
+    if isinstance(value, Mapping):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _finite_real(value):
+    return (type(value) in (int, float) and math.isfinite(float(value)))
 
 
 class X1TrackCapture:

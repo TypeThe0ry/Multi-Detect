@@ -360,7 +360,9 @@ TRACK_MODE = "collector_gimbal_eval_mode"
 TRACK_STEADY = "collector_gimbal_eval_steady"
 TRACK_END = "collector_gimbal_eval_end"
 TRACK_FW_MODE = "collector_gimbal_eval_fw_mode"
-TRACK_EVENTS = {TRACK_SAMPLE, TRACK_MODE, TRACK_STEADY, TRACK_END, TRACK_FW_MODE}
+TRACK_HOVER_NOT_READY = "collector_gimbal_eval_hover_not_ready"
+TRACK_EVENTS = {TRACK_SAMPLE, TRACK_MODE, TRACK_STEADY, TRACK_END, TRACK_FW_MODE,
+                TRACK_HOVER_NOT_READY}
 NS_PER_S = 10**9
 
 
@@ -677,6 +679,10 @@ def read_track_hold(directory, meta, issues):
     events = []
     mavlink = ack_evidence(artifact(directory, "mavlink.jsonl"), issues, track_events=events)
     hold = track_hold(meta, mavlink, events)
+    not_ready = [row for row in events if row["message_type"] == TRACK_HOVER_NOT_READY]
+    if not_ready:
+        hold = hold or {"status": "hover_preaim_not_ready"}
+        hold = {**hold, "preaim_readiness": {"passed": False, "failures": not_ready}}
     fw = fw_legs(meta, events)
     if fw is not None and hold is not None:
         hold = {**hold, "fw": fw}
@@ -856,6 +862,14 @@ def evaluate(episode_dirs=(), *, accepted_roots=(), evidence_files=()):
             "fw_gate_failures": [r.get("episode_dir") for r in episodes
                                  if ((r.get("track_diagnostics") or {}).get("hold") or {})
                                  .get("fw", {}).get("passed") is False],
+            "hover_preaim_failures": [
+                {"episode_dir": r["episode_dir"],
+                 "markers": ((r.get("track_diagnostics") or {}).get("hold") or {})
+                 .get("preaim_readiness", {}).get("failures", [])}
+                for r in episodes
+                if ((r.get("track_diagnostics") or {}).get("hold") or {})
+                .get("preaim_readiness", {}).get("passed") is False
+            ],
             "conditions": conditions, "episodes": episodes, "issues": issues}
 
 
@@ -980,6 +994,11 @@ def markdown(report):
                     rejects = f"≥{rejects}"
                 lines.append(cells(episode, name, phase["duration_sim_s"], *track_cells(phase),
                                    fraction(phase["lock_rate"]), rejects))
+    if report.get("hover_preaim_failures"):
+        lines += ["", "## Hover pre-aim readiness failures", ""]
+        for failure in report["hover_preaim_failures"]:
+            details = json.dumps(failure["markers"], sort_keys=True)
+            lines.append(f"- {failure['episode_dir']}: {details}")
     fws = [(e["episode_id"], e["track_diagnostics"]["hold"]["fw"]) for e in report["episodes"]
            if "fw" in ((e.get("track_diagnostics") or {}).get("hold") or {})]
     if fws:
@@ -1038,6 +1057,10 @@ def main(argv=None):
             args.markdown_out.write_text(markdown(report), encoding="utf-8")
     except ARTIFACT_ERRORS as exc:
         parser.exit(2, f"x1-gimbal-eval: {exc}\n")
+    if report["hover_preaim_failures"]:
+        print(f"x1-gimbal-eval: {len(report['hover_preaim_failures'])} FW-to-MC hover pre-aim "
+              "readiness check(s) failed", file=sys.stderr)
+        return 5
     if report["lock_gate_failures"]:
         print(f"x1-gimbal-eval: {len(report['lock_gate_failures'])} tracking hold(s) below the "
               f"{X1_TRACK_MIN_LOCK_RATE} lock-rate gate", file=sys.stderr)
