@@ -70,6 +70,7 @@ from multidetect.sim_teacher.gimbal_recording import (
     collector_camera_mount, x1_eval_yaw_unwind, x1_fw_track_preaim,
     x1_meta_yaw_for_step, x1_track_preview,
 )
+from multidetect.sim_teacher.fw_ingress_horizon import FwIngressCaptureGuard
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
 from multidetect.sim_teacher.fw_gimbal_control import (
     X1FwPassMidpoint,
@@ -3991,6 +3992,79 @@ def _fresh_track_position(state: MavlinkState, *, now_ns: int, max_age_s: float 
     return world_target_from_mavlink(message)
 
 
+def _x1_fw_ingress_skip_reason(plan, bridge, session, state, now_ns):
+    """Fail closed at the single FW-confirmation opportunity; never poll or wait."""
+    if not (plan.gimbal_bridge_stabilize and isinstance(bridge, BridgeHorizonTarget)
+            and bridge.mode == "lock" and session is not None and session.owned):
+        return "lock_bridge_not_ready"
+    if not plan.gimbal_eval_fw_targets:
+        return "no_fw_target"
+    extended = state.get("EXTENDED_SYS_STATE")
+    if (_field(extended, "landed_state") != 2 or _field(extended, "vtol_state") != 4):
+        return "not_airborne_fw"
+    # EXTENDED_SYS_STATE has no boot stamp: use the vehicle clock at receipt.
+    attitude = state.get("ATTITUDE")
+    for name, stamp in (("EXTENDED_SYS_STATE", state.received_vehicle_ms.get("EXTENDED_SYS_STATE")),
+                        ("ATTITUDE", _field(attitude, "time_boot_ms"))):
+        received = state.received_monotonic_ns.get(name)
+        if (None in (received, stamp, state.vehicle_time_boot_ms)
+                or not 0 <= now_ns - received <= bridge.max_age_s * 1e9
+                or not 0 <= state.vehicle_time_boot_ms - stamp <= bridge.max_age_s * 1000):
+            return "stale_" + name.lower()
+    if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in
+               (_field(attitude, axis) for axis in ("roll", "pitch", "yaw"))):
+        return "invalid_attitude"
+    position = _fresh_track_position(state, now_ns=now_ns, max_age_s=bridge.max_age_s)
+    if position is None:
+        return "no_fresh_position"
+    try:
+        world_target_direction(position, plan.gimbal_eval_fw_targets[0])
+    except ValueError:  # coincident with the optical reference
+        return "undefined_line_of_sight"
+    feedback, received = session.latest_attitude or (None, None)
+    # Session feedback is already filtered by owner/device; bound its age on
+    # both clocks, including when the simulated vehicle runs faster than wall time.
+    feedback_ms = _field(feedback, "time_boot_ms")
+    if (received is None or feedback_ms is None or not 0 <= now_ns - received <= 500_000_000
+            or not 0 <= state.vehicle_time_boot_ms - feedback_ms <= 500
+            or _field(feedback, "failure_flags") != 0):
+        return "no_healthy_gimbal_feedback"
+    return None
+
+
+def _x1_fw_transition_complete(plan, reader, bridge, session, record, *, capture_guard, next_video_sim_ns):
+    # Non-FW evaluation keeps the original event and performs no ingress work.
+    state = reader.latest_control_state() if plan.gimbal_eval_fw_legs else reader.state
+    record({"message_type": "gimbal_measurement_fw_transition_complete",
+            "flight_state": _flight_state_snapshot(state)})
+    if not plan.gimbal_eval_fw_legs:
+        return
+    video = (capture_guard.evidence(next_video_sim_ns=next_video_sim_ns, vehicle_time_ms=state.vehicle_time_boot_ms)
+             if capture_guard is not None else {"skip_reason": "pre_route_video_unverified"})
+    reason = _x1_fw_ingress_skip_reason(plan, bridge, session, state, time.monotonic_ns()) or video["skip_reason"]
+    if reason is None:
+        bridge.select_track_target(plan.gimbal_eval_fw_targets[0], fw_ingress_slew=True)
+        bridge.set_mode("track")
+    # Diagnostic, not a scoring marker or acknowledgement of a wire dispatch.
+    record({"message_type": "collector_gimbal_fw_ingress", "requested": reason is None,
+            "skip_reason": reason, "capture": video, "vehicle_time_boot_ms": state.vehicle_time_boot_ms,
+            "target_ref": plan.gimbal_eval_fw_targets[0].reference() if reason is None else None})
+
+
+def _x1_enter_fw_leg(bridge, target, midpoint, index, sim_ns, record):
+    # C may already be following this *same* point. Attach B only if eligible;
+    # neither operation resets the bridge's winding or slew history.
+    if (index != 0 or bridge.mode != "track" or bridge.track_targets != (target,)
+            or (midpoint is not None and midpoint.enabled)):
+        bridge.select_track_target(target, pass_midpoint=midpoint)
+    if bridge.mode != "track":
+        bridge.set_mode("track")
+    record({"message_type": "collector_gimbal_eval_fw_mode", "step_index": index, "mode": "track",
+            "sim_stamp_ns": sim_ns, "marker_monotonic_ns": time.monotonic_ns(),
+            "target_ref": target.reference()})
+    return X1TrackCapture(sim_ns)
+
+
 def _x1_terminal_eta(state, path, now_ns):
     """Use only this action's acknowledged Offboard line and a fresh PX4 pose/twist."""
     local = state.get("LOCAL_POSITION_NED")
@@ -6729,6 +6803,10 @@ def run_episode(
     long_range_gimbal_hold = None
     horizon_loop = None
     horizon_stabilizer = None
+    # Only this fixed survey producer finishes its final synchronous -1 writer
+    # before the transition-complete callback. An unknown policy keeps old entry.
+    ingress_capture = (FwIngressCaptureGuard() if plan.gimbal_eval_fw_legs and
+                       getattr(policy, "fw_gimbal_survey_legs", 0) == plan.gimbal_eval_fw_legs else None)
     last_video_stamp_ns: list[int] = [-1]
     next_video_sim_ns: int | None = None
     next_video_request_s = 0.0
@@ -7471,6 +7549,8 @@ def run_episode(
                     if not _new_video_sample(sample, last_video_stamp_ns[0], due_ns=next_video_sim_ns):
                         if video_stamp >= next_video_sim_ns and now >= next_video_request_s:
                             next_video_request_s = now + min(1.0, 1.0 / plan.video_hz)
+                            if action_index == -1 and ingress_capture is not None:
+                                ingress_capture.note_request(next_video_sim_ns)
                             sensor_reader.request(next_video_sim_ns)
                         return
                 elif wall_due_s is not None and now >= wall_due_s:
@@ -7514,7 +7594,9 @@ def run_episode(
                     video_obs["flight_stage"] = flight_stage
                     if not plan.capture_depth:
                         video_obs["depth"] = None
-                    video_writer.write(video_obs, action_index=action_index)
+                    committed = video_writer.write(video_obs, action_index=action_index)
+                    if committed and action_index == -1 and ingress_capture is not None:
+                        ingress_capture.note_commit(sample.sensor_stamp_ns)
                 except Exception as exc:
                     recorder.record_mavlink({"message_type": "video_capture_error", "error": str(exc)})
                     if camera_mount is not None and camera_mount.kind == "gimbal":
@@ -8266,11 +8348,11 @@ def run_episode(
                                 "timed out transitioning to FW after gimbal measurement"
                             )
                         executor.mode = "FW"
-                        recorder.record_mavlink(
-                            {
-                                "message_type": "gimbal_measurement_fw_transition_complete",
-                                "flight_state": _flight_state_snapshot(mav_reader.state),
-                            }
+                        _x1_fw_transition_complete(
+                            plan, mav_reader, horizon_stabilizer, gimbal_session, recorder.record_mavlink,
+                            capture_guard=(ingress_capture if ingress_capture is not None and video_writer is not None and
+                                           not video_writer.truncated and not video_writer.capture_errors else None),
+                            next_video_sim_ns=next_video_sim_ns,
                         )
             vehicle_loss_detector = VehicleLossDetector()
             # PX4 releases gimbal manager control once a land primitive starts.
@@ -8482,15 +8564,10 @@ def run_episode(
                     # Keep the bridge in track across legs; only the point and capture window change.
                     fw_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
                     fw_target = plan.gimbal_eval_fw_targets[index]
-                    horizon_stabilizer.select_track_target(fw_target, pass_midpoint=fw_pass_midpoint)
-                    if horizon_stabilizer.mode != "track":
-                        horizon_stabilizer.set_mode("track")
-                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_fw_mode",
-                                             "step_index": index, "mode": "track",
-                                             "sim_stamp_ns": fw_sim_ns,
-                                             "marker_monotonic_ns": time.monotonic_ns(),
-                                             "target_ref": fw_target.reference()})
-                    track_capture = X1TrackCapture(fw_sim_ns)
+                    track_capture = _x1_enter_fw_leg(
+                        horizon_stabilizer, fw_target, fw_pass_midpoint, index, fw_sim_ns,
+                        recorder.record_mavlink,
+                    )
                 if fw_hover_preaim:
                     # A FW bridge preserves continuous lock winding, so unwind by remaining in
                     # track through this unscored MC return instead of toggling lock/follow.

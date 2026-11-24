@@ -17,7 +17,7 @@ from collections.abc import Mapping
 
 from multidetect.camera_mount import _mat_mul, _mat_transpose, rpy_rotation
 from .target_tracking import (
-    WorldTarget, pointing_error_deg, solve_track_target, track_horizon_error_deg,
+    WorldTarget, ingress_slew_joint, pointing_error_deg, solve_track_target, track_horizon_error_deg,
     unit, world_offset_ned, world_target_direction,
 )
 
@@ -722,13 +722,20 @@ class BridgeHorizonTarget(HorizonStabilizer):
 
     @track_targets.setter
     def track_targets(self, targets):
-        self._track_selection = (targets, None)
+        self._track_selection = (targets, None, False)
 
-    def select_track_target(self, target, *, pass_midpoint=None):
+    def select_track_target(self, target, *, pass_midpoint=None, fw_ingress_slew=False):
+        """Grant a slew-aware pose choice only for this explicitly selected FW ingress point."""
         if pass_midpoint is not None and pass_midpoint.old_target != target:
             raise ValueError("pass midpoint must belong to the selected old target")
         # Publish the scoring target and its control together to the bridge thread.
-        self._track_selection = ((target,), pass_midpoint)
+        self._track_selection = ((target,), pass_midpoint, fw_ingress_slew is True and pass_midpoint is None)
+
+    def set_mode(self, mode):
+        super().set_mode(mode)
+        if mode != "track" and self._track_selection[2]:
+            targets, midpoint, _ = self._track_selection
+            self._track_selection = (targets, midpoint, False)
 
     def record_bridge_status(self, row):
         if (row.get("message_type") != "NAMED_VALUE_FLOAT" or row.get("name") != "c11_hdeg"
@@ -762,7 +769,7 @@ class BridgeHorizonTarget(HorizonStabilizer):
     def transport_flags(self):
         return self._transport_flags(self.mode)
 
-    def _track_pose(self, body, direction, rates, now_s):
+    def _track_pose(self, body, direction, rates, now_s, *, fw_ingress_slew=False):
         # Solve in the anticipated body frame, but encode joints in the *current*
         # body frame: the earth-yaw bridge applies B^T, without its own preview.
         # Leading a pose *after* solving can push it back through a joint stop.
@@ -772,8 +779,15 @@ class BridgeHorizonTarget(HorizonStabilizer):
             solve_body = preview_body_rotation(body, rates, self.track_preview_s,
                                                self.track_preview_max_rad)
 
+        dt = 0.0 if self.last_time is None else min(self.max_age_s, now_s - self.last_time)
+        # GZGimbal caps each joint at pi rad/s. A slower host limit still wins.
+        steps = ({a: min(180.0, self.rates[a]) * dt for a in AXES}
+                 if fw_ingress_slew and dt > 0 else None)
+
         def solve(attitude):
-            joint, level, _ = solve_track_target(attitude, direction, self.last_joint, self.limits_deg)
+            joint, level, geometry = solve_track_target(attitude, direction, self.last_joint, self.limits_deg)
+            if steps is not None and geometry["target_reachable"]:
+                joint = ingress_slew_joint(attitude, direction, self.last_joint, self.limits_deg, joint, steps)
             command = _mat_mul(body, c11_rotation_deg(joint))
             angles = earth_angles_deg(command)
             if math.hypot(command[0], command[3]) < 1e-10:
@@ -787,7 +801,6 @@ class BridgeHorizonTarget(HorizonStabilizer):
 
         # The bridge slews to the endpoint. Slewing the transmitted pose too would
         # lose exact feasible pointing. Only advance the host's winding reference.
-        dt = 0.0 if self.last_time is None else min(self.max_age_s, now_s - self.last_time)
         for axis in AXES:
             previous = self.last_joint[axis]
             step = self.rates[axis] * dt
@@ -813,7 +826,7 @@ class BridgeHorizonTarget(HorizonStabilizer):
         # One mode snapshot keeps target, flags and queued frame evidence consistent
         # when the collector switches modes on the action thread.
         mode = self.mode
-        track_targets, midpoint = self._track_selection
+        track_targets, midpoint, ingress = self._track_selection
         if mode == "track":
             if self.last_time is not None and now_s < self.last_time:
                 return None
@@ -829,7 +842,8 @@ class BridgeHorizonTarget(HorizonStabilizer):
                     target_ref = active.reference()
                 else:
                     return None
-                desired, angles = self._track_pose(rotation_deg(body_deg), direction, body_rates_rad_s, now_s)
+                desired, angles = self._track_pose(rotation_deg(body_deg), direction, body_rates_rad_s, now_s,
+                                                   fw_ingress_slew=ingress and track_direction_ned is None)
             except (ValueError, TypeError):
                 return None
         else:
