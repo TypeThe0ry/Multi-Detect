@@ -649,15 +649,68 @@ def gimbal_eval_target(mission):
                        home.longitude_deg, target_alt)
 
 
-def gimbal_eval_fw_targets(mission):
-    """从航线预选每段一个 DEM 地面点，不根据云台实测表现换点。
+def _persist_fw_target_schedule(candidates_by_leg, quality_by_leg, is_reachable, switch_slew_deg):
+    """Keep a target while feasible; at forced switches minimize future changes then slew."""
+    if not candidates_by_leg:
+        return ()
+    suffix_cache = {}
 
-    沿航段采样位置，用航段方位、R1 的 X1 安装俯仰（中位 -83 度）及
-    -90/-65 度、零/双侧最大坡度组成规划包络。机体前方的近水平视线在该
-    姿态下接近 +83 度仰角；侧方或后方的下视线则通常在 C11 包络内。
-    对每个沿航/横航候选点，在所有采样姿态上要求光轴可达且各轴留 5 度，
-    优先选能保持水平的姿态最多的点，再比较最差机体仰角和距离。
-    这是静态离散规划，不保证转向瞬态、连续圈数、速率或无遮挡。
+    def suffix_cost(leg_index, point):
+        key = (leg_index, point)
+        if key in suffix_cache:
+            return suffix_cache[key]
+        next_index = leg_index + 1
+        if next_index >= len(candidates_by_leg):
+            result = (0, 0.)
+        elif is_reachable(next_index, point):
+            result = suffix_cost(next_index, point)
+        else:
+            result = min((1 + changes, switch_slew_deg(next_index, point, candidate) + slew)
+                         for candidate in candidates_by_leg[next_index]
+                         for changes, slew in (suffix_cost(next_index, candidate),))
+        suffix_cache[key] = result
+        return result
+
+    selected = [min(candidates_by_leg[0], key=lambda point: (
+        *suffix_cost(0, point), quality_by_leg[0][point]))]
+    for leg_index in range(1, len(candidates_by_leg)):
+        previous = selected[-1]
+        if is_reachable(leg_index, previous):
+            selected.append(previous)
+            continue
+        selected.append(min(candidates_by_leg[leg_index], key=lambda point: (
+            suffix_cost(leg_index, point)[0],
+            switch_slew_deg(leg_index, previous, point) + suffix_cost(leg_index, point)[1],
+            quality_by_leg[leg_index][point])))
+    return tuple(selected)
+
+
+def _gimbal_eval_fw_target_metrics(point, positions, body_by_position, *, margin_deg, zero, inset, score=False):
+    """Check one ground target over every planned position/attitude in a FW leg."""
+    level_count = 0
+    worst_body_elevation = -math.inf
+    for position, bodies in zip(positions, body_by_position, strict=True):
+        ray = world_target_direction(position, point)
+        level = level_target_rotation(ray) if score else None
+        for body in bodies:
+            body_ray = _mat_vec(body, ray)
+            if not c11_optical_axis_reachable(body_ray, margin_deg=margin_deg):
+                return None
+            if score:
+                worst_body_elevation = max(worst_body_elevation, -body_ray[2])
+                level_count += solve_joint_target(_mat_mul(body, level), zero, inset)[2]
+    return (level_count, worst_body_elevation) if score else True
+
+
+def gimbal_eval_fw_targets(mission):
+    """为固定翼各段选择可持续复用的 DEM 地面目标。
+
+    每段仍使用原来的 C11 关节包络和 5° 余量，对整段离散位置及规划
+    pitch/bank 姿态包络做可达性检查。航段端点位置会采样，但实际 loiter
+    入口/出口的转弯 yaw 姿态未由该静态模型显式重建。上一段目标只要
+    对当前段仍可达就继续复用；必须切换时，先最小化后续必需切换次数，
+    再最小化从切换点看见的总角位移，最后按原静态目标质量打破平局。
+    这是离散规划，不保证实际转弯瞬态、连续圈数、速率或无遮挡。
     """
     dem = mission["terrain"]
     home = mission["geometry"].home
@@ -673,47 +726,113 @@ def gimbal_eval_fw_targets(mission):
                            (home.longitude_deg + math.degrees(east / east_radius) + 180) % 360 - 180,
                            altitude)
 
-    result = []
-    start = (0., 0., -mission["geometry"].takeoff_altitude_m)
-    for index, end in enumerate(mission["targets"]):
-        dn, de, dd = (b - a for a, b in zip(start, end, strict=True))
-        length = math.hypot(dn, de)
-        if length == 0:
+    starts = [(0., 0., -mission["geometry"].takeoff_altitude_m), *mission["targets"][:-1]]
+    headings = []
+    for index, (start, end) in enumerate(zip(starts, mission["targets"], strict=True)):
+        dn, de = end[0] - start[0], end[1] - start[1]
+        if math.hypot(dn, de) == 0:
             raise ValueError(f"X1 FW eval leg {index} has no horizontal direction")
-        heading = math.degrees(math.atan2(de, dn))
+        headings.append(math.degrees(math.atan2(de, dn)))
+
+    legs = []
+    for index, (start, end) in enumerate(zip(starts, mission["targets"], strict=True)):
+        dn, de, dd = (b - a for a, b in zip(start, end, strict=True))
+        positions = [geo(start[0] + f * dn, start[1] + f * de,
+                         dem.origin_elevation_m - start[2] - f * dd)
+                     for f in (0., .125, .25, .375, .5, .625, .75, .875, 1.)]
         body_from_ned = [
-            _mat_transpose(rotation_deg(dict(roll=roll, pitch=pitch, yaw=heading)))
+            _mat_transpose(rotation_deg(dict(roll=roll, pitch=pitch, yaw=headings[index])))
             for pitch in (-90., -83., -65.) for roll in (0., -bank, bank)
         ]
-        positions = [geo(start[0] + f*dn, start[1] + f*de, dem.origin_elevation_m - start[2] - f*dd)
-                     for f in (0., .125, .25, .375, .5, .625, .75, .875, 1.)]
-        best = None
-        for along in (-1., -.5, -.25, 0., .25, .5, .75, 1., 1.25):
-            for across in (0., -.125, .125, -.25, .25, -.5, .5, -1., 1.):
-                north = start[0] + along*dn - across*de
-                east = start[1] + along*de + across*dn
-                point = geo(north, east, 0.)
-                dem_ne = dem.local_from_wgs84(point.lat_deg, point.lon_deg)
-                if not dem.contains_local(*dem_ne):
-                    continue
-                point = replace(point, alt_m=dem.sample_local(*dem_ne).elevation_m)
-                if any(p.alt_m <= point.alt_m for p in positions):
-                    continue
-                rays = [world_target_direction(position, point) for position in positions]
-                body_rays = [_mat_vec(body, ray) for ray in rays for body in body_from_ned]
-                if not all(c11_optical_axis_reachable(ray, margin_deg=margin) for ray in body_rays):
-                    continue
-                levels = [level_target_rotation(ray) for ray in rays]
-                level_count = sum(solve_joint_target(_mat_mul(body, level), zero, inset)[2]
-                                  for level in levels for body in body_from_ned)
-                key = (-level_count, max(-ray[2] for ray in body_rays), math.hypot(along - .5, across))
-                if best is None or key < best[0]:
-                    best = (key, point)
-        if best is None:
+        # Endpoints include loiter entry/exit attitudes in the same planned
+        # pitch/bank envelope used throughout the leg.
+        body_by_position = [body_from_ned for _position in positions]
+        legs.append({"start": start, "end": end, "positions": positions,
+                     "body_by_position": body_by_position})
+
+    def target_metrics(leg_index, point, *, score=False):
+        """Return whole-leg metrics, or None if the target fails the inset envelope."""
+        leg = legs[leg_index]
+        positions = leg["positions"]
+        if any(position.alt_m <= point.alt_m for position in positions):
+            return None
+        return _gimbal_eval_fw_target_metrics(
+            point, positions, leg["body_by_position"], margin_deg=margin,
+            zero=zero, inset=inset, score=score)
+
+    # Preserve the existing per-leg DEM candidate grid and static quality order.
+    candidates_by_leg = []
+    quality_by_leg = []
+    for index, (start, end) in enumerate(zip(starts, mission["targets"], strict=True)):
+        dn, de = end[0] - start[0], end[1] - start[1]
+        best_by_point = {}
+
+        def add_candidates(along_values, across_values):
+            for along in along_values:
+                for across in across_values:
+                    north = start[0] + along * dn - across * de
+                    east = start[1] + along * de + across * dn
+                    point = geo(north, east, 0.)
+                    dem_ne = dem.local_from_wgs84(point.lat_deg, point.lon_deg)
+                    if not dem.contains_local(*dem_ne):
+                        continue
+                    point = replace(point, alt_m=dem.sample_local(*dem_ne).elevation_m)
+                    metrics = target_metrics(index, point, score=True)
+                    if metrics is None:
+                        continue
+                    level_count, worst_body_elevation = metrics
+                    key = (-level_count, worst_body_elevation, math.hypot(along - .5, across))
+                    if point not in best_by_point or key < best_by_point[point]:
+                        best_by_point[point] = key
+
+        add_candidates((-1., -.5, -.25, 0., .25, .5, .75, 1., 1.25),
+                       (0., -.125, .125, -.25, .25, -.5, .5, -1., 1.))
+        if not best_by_point:
+            # A sharper course change can make the ordinary local lattice too
+            # narrow to contain a target reachable at both loiter handoffs.
+            add_candidates((-3., -2., -1.5, 1.5, 2., 2.5, 3.),
+                           (-3., -2., -1.5, 1.5, 2., 3.))
+        if not best_by_point:
+            # Last resort: search a coarse full-DEM grid. Switch selection still
+            # prefers the candidate with the smallest angular displacement.
+            for north in range(math.ceil(dem.north_origin_m / 400.) * 400,
+                               math.floor(dem.north_max_m / 400.) * 400 + 1, 400):
+                for east in range(math.ceil(dem.east_origin_m / 400.) * 400,
+                                  math.floor(dem.east_max_m / 400.) * 400 + 1, 400):
+                    point = geo(north, east, 0.)
+                    dem_ne = dem.local_from_wgs84(point.lat_deg, point.lon_deg)
+                    if not dem.contains_local(*dem_ne):
+                        continue
+                    point = replace(point, alt_m=dem.sample_local(*dem_ne).elevation_m)
+                    metrics = target_metrics(index, point, score=True)
+                    if metrics is None:
+                        continue
+                    level_count, worst_body_elevation = metrics
+                    best_by_point[point] = (-level_count, worst_body_elevation, math.inf)
+        if not best_by_point:
             raise ValueError(f"X1 FW eval leg {index} has no terrain target with {margin:g} deg C11 margin")
-        result.append(best[1])
-        start = end
-    return tuple(result)
+        candidates_by_leg.append(tuple(best_by_point))
+        quality_by_leg.append(best_by_point)
+
+    reachable_cache = {}
+
+    def reachable(leg_index, point):
+        key = (leg_index, point)
+        if key not in reachable_cache:
+            reachable_cache[key] = target_metrics(leg_index, point) is not None
+        return reachable_cache[key]
+
+    def switch_slew_deg(leg_index, old, new):
+        # Adjacent legs share this planned waypoint, the aircraft's switch location.
+        waypoint = geo(legs[leg_index]["start"][0], legs[leg_index]["start"][1],
+                       dem.origin_elevation_m - legs[leg_index]["start"][2])
+        old_ray = world_target_direction(waypoint, old)
+        new_ray = world_target_direction(waypoint, new)
+        dot = max(-1., min(1., sum(a * b for a, b in zip(old_ray, new_ray, strict=True))))
+        return math.degrees(math.acos(dot))
+
+    return _persist_fw_target_schedule(
+        candidates_by_leg, quality_by_leg, reachable, switch_slew_deg)
 
 
 def gimbal_eval_plan(plan, mission, *, fw_legs=False):
