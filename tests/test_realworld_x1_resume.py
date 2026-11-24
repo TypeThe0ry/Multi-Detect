@@ -30,7 +30,7 @@ def test_plans_preserve_baseline_and_use_one_immutable_candidate(spec):
     ab = resume.make_plan(spec, "ab", IMAGE)
     final = resume.make_plan(spec, "final", IMAGE, False)
     smoke = resume.make_plan(spec, "smoke", IMAGE)
-    assert spec["image"].endswith(":gz-rendering-830-r1-gimbal-horizon3")
+    assert spec["image"].endswith(":gz-rendering-830-r1-gimbal-horizon4")
     assert [(r["inputs"]["seed"], r["inputs"]["gimbal_bridge_stabilize"]) for r in ab["jobs"]] == [
         (201, True), (202, False), (203, True), (204, False)]
     assert [r["inputs"]["seed"] for r in final["jobs"]] == [301, 302, 303]
@@ -99,7 +99,7 @@ def test_phase_order_selection_resume_and_completion(spec, monkeypatch):
 
 def test_missing_candidate_never_reaches_dispatch(monkeypatch):
     def unavailable(reference):
-        assert reference.endswith(":gz-rendering-830-r1-gimbal-horizon3")
+        assert reference.endswith(":gz-rendering-830-r1-gimbal-horizon4")
         raise ValueError("candidate absent")
 
     monkeypatch.setattr(resume, "image_check", unavailable)

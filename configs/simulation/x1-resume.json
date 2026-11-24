@@ -1,5 +1,5 @@
 {
-  "image": "multidetect/px4-sitl-gazebo:gz-rendering-830-r1-gimbal-horizon3",
+  "image": "multidetect/px4-sitl-gazebo:gz-rendering-830-r1-gimbal-horizon4",
   "ab": [[201, true], [202, false], [203, true], [204, false]],
   "final_seeds": [301, 302, 303],
   "world_source_root": "/data/datasets/multidetect-sim-assets/wide-collect/assets/rw_farm_iowa_w6km/x1-baseline/worlds",
