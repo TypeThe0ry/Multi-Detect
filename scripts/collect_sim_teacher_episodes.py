@@ -75,6 +75,7 @@ from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude
 from multidetect.sim_teacher.fw_gimbal_control import (
     X1FwPassMidpoint,
     X1FwTerminalLockGate,
+    estimate_fw_guided_loiter_exit_eta_s,
     estimate_fw_terminal_eta_s,
     terminal_lock_fk_horizon_error_deg,
 )
@@ -4065,8 +4066,35 @@ def _x1_enter_fw_leg(bridge, target, midpoint, index, sim_ns, record):
     return X1TrackCapture(sim_ns)
 
 
+def _x1_guided_loiter_terminal_path(command, state):
+    """Bind the final guided-loiter leg's start and target from the live wait-entry state."""
+    if (command is None or getattr(command, "kind", None) != "reposition"
+            or getattr(command, "mode", None) != "FW"
+            or getattr(command, "fly_through_radius_m", None) is not None
+            or getattr(command, "target_ned", None) is None):
+        return None
+    try:
+        start = _state_position(state)
+        target = tuple(float(v) for v in command.target_ned)
+        if len(target) < 2:
+            return None
+        if (getattr(command, "metadata", None) or {}).get("long_range_home_relative"):
+            _, home_ned = _home_reference(state)
+            target = tuple(a + b for a, b in zip(target[:2], home_ned[:2], strict=True))
+        else:
+            target = (target[0], target[1])
+    except (RuntimeError, TypeError, ValueError):
+        return None
+    start_ne = (float(start[0]), float(start[1]))
+    target_ne = (float(target[0]), float(target[1]))
+    if (not all(math.isfinite(v) for v in (*start_ne, *target_ne))
+            or math.hypot(target_ne[0] - start_ne[0], target_ne[1] - start_ne[1]) <= 1e-6):
+        return None
+    return {"guidance": "guided_loiter", "start_ne_m": start_ne, "target_ne_m": target_ne}
+
+
 def _x1_terminal_eta(state, path, now_ns):
-    """Use only this action's acknowledged Offboard line and a fresh PX4 pose/twist."""
+    """Use only this action's acknowledged path and a fresh PX4 pose/twist."""
     local = state.get("LOCAL_POSITION_NED")
     stamp = _pose_sim_stamp_ns(state)
     received = state.received_monotonic_ns.get("LOCAL_POSITION_NED")
@@ -4077,10 +4105,27 @@ def _x1_terminal_eta(state, path, now_ns):
     if min(wall_age, sim_age) < 0:
         return None
     age = max(wall_age, sim_age)  # position and velocity share one wire sample
+    position_ned = tuple(_field(local, k, None) for k in ("x", "y", "z"))
+    velocity_ned = tuple(_field(local, k, None) for k in ("vx", "vy", "vz"))
+    if path.get("guidance") == "guided_loiter" or ("start_ne_m" in path and "tangent_ne" not in path):
+        return estimate_fw_guided_loiter_exit_eta_s(
+            enabled=True,
+            has_fly_through=bool(
+                path.get("fly_through_radius_m") is not None or path.get("tangent_ne") is not None
+            ),
+            position_ned_m=position_ned,
+            velocity_ned_mps=velocity_ned,
+            start_ne_m=path.get("start_ne_m"),
+            target_ne_m=path.get("target_ne_m"),
+            position_age_s=age,
+            velocity_age_s=age,
+            along_done_m=MOTION_ALONG_TRACK_DONE_M,
+            cross_done_m=MOTION_CROSS_TRACK_DONE_M,
+        )
     return estimate_fw_terminal_eta_s(
         enabled=True, has_end_tangent_plane=True,
-        position_ned_m=tuple(_field(local, k, None) for k in ("x", "y", "z")),
-        velocity_ned_mps=tuple(_field(local, k, None) for k in ("vx", "vy", "vz")),
+        position_ned_m=position_ned,
+        velocity_ned_mps=velocity_ned,
         endpoint_ned_m=path.get("target_ned_m"), tangent_ne=path.get("tangent_ne"),
         position_age_s=age, velocity_age_s=age,
     )
@@ -8524,13 +8569,21 @@ def run_episode(
                     and horizon_stabilizer is not None and _is_motion_command(action)
                     and action.kind == "reposition" and action.mode == "FW"
                 )
-                fw_terminal_leg = bool(
+                fw_terminal_offboard_leg = bool(
                     fw_leg and index == plan.gimbal_eval_fw_legs - 1
                     and action.fly_through_radius_m is not None
                     and getattr(executor, "has_fw_end_plane", False)
                     and horizon_stabilizer.yaw_mode == "follow"
                     and horizon_loop is not None
                 )
+                fw_terminal_loiter_leg = bool(
+                    fw_leg and index == plan.gimbal_eval_fw_legs - 1
+                    and action.fly_through_radius_m is None
+                    and action.target_ned is not None
+                    and horizon_stabilizer.yaw_mode == "follow"
+                    and horizon_loop is not None
+                )
+                fw_terminal_leg = fw_terminal_offboard_leg or fw_terminal_loiter_leg
                 fw_terminal_lock = X1FwTerminalLockGate(enabled=True) if fw_terminal_leg else None
                 fw_terminal_path = None
                 fw_terminal_meta = None
@@ -8720,8 +8773,12 @@ def run_episode(
                             else:
                                 executor.note_loiter_captured()
                         if motion is not None and executed.status == "success":  # noqa: B023
-                            if fw_terminal_leg:
+                            if fw_terminal_offboard_leg:  # noqa: B023
                                 fw_terminal_path = executed.ack.get("offboard_path")
+                            elif fw_terminal_loiter_leg:  # noqa: B023
+                                fw_terminal_path = _x1_guided_loiter_terminal_path(
+                                    motion, mav_reader.state  # noqa: B023
+                                )
                             motion_wait = _wait_motion_command(
                                 motion,  # noqa: B023
                                 mav_reader,

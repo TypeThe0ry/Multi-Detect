@@ -6,8 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 from multidetect.sim_teacher.fw_gimbal_control import (
+    FW_GUIDED_LOITER_ALONG_DONE_M,
+    FW_GUIDED_LOITER_CROSS_DONE_M,
+    FW_GUIDED_LOITER_MIN_CLOSING_MPS,
+    FW_TERMINAL_LOCK_ETA_S,
     X1FwPassMidpoint,
     X1FwTerminalLockGate,
+    estimate_fw_guided_loiter_exit_eta_s,
     estimate_fw_terminal_eta_s,
     spherical_bisector,
     terminal_lock_fk_horizon_error_deg,
@@ -334,3 +339,318 @@ def test_runner_wait_forwards_only_explicit_per_call_callbacks(monkeypatch):
                 assert "on_passage" not in forwarded
             else:
                 assert forwarded["on_passage"] is observer["on_passage"]
+
+
+def _loiter_eta(
+    enabled=True,
+    *,
+    has_fly_through=False,
+    pos=(110.0, 38.0, -80.0),
+    vel=(0.0, -15.0, 0.0),
+    start=(0.0, 0.0),
+    target=(100.0, 0.0),
+    age=0.05,
+):
+    return estimate_fw_guided_loiter_exit_eta_s(
+        enabled=enabled,
+        has_fly_through=has_fly_through,
+        position_ned_m=pos,
+        velocity_ned_mps=vel,
+        start_ne_m=start,
+        target_ne_m=target,
+        position_age_s=age,
+        velocity_age_s=age,
+    )
+
+
+def test_guided_loiter_exit_eta_requires_behind_target_closing_cross_and_fresh_state():
+    assert (
+        FW_GUIDED_LOITER_ALONG_DONE_M,
+        FW_GUIDED_LOITER_CROSS_DONE_M,
+        FW_GUIDED_LOITER_MIN_CLOSING_MPS,
+        FW_TERMINAL_LOCK_ETA_S,
+    ) == (5.0, 8.0, 1.0, 3.0)
+    eta, remaining_cross, closing = _loiter_eta()
+    assert (eta, remaining_cross, closing) == pytest.approx((2.0, 30.0, 15.0))
+    # Opposite side of track (signed_cross < 0) closing back toward track (+east velocity).
+    eta_neg, rem_neg, close_neg = _loiter_eta(pos=(110.0, -38.0, -80.0), vel=(0.0, 15.0, 0.0))
+    assert (eta_neg, rem_neg, close_neg) == pytest.approx((2.0, 30.0, 15.0))
+    assert _loiter_eta(enabled=False) is None
+    assert _loiter_eta(has_fly_through=True) is None
+    assert _loiter_eta(age=0.21) is None
+    assert _loiter_eta(age=-0.01) is None
+    # Still on the approach (along = +5.01 m > 5.0 m): never trigger early.
+    assert _loiter_eta(pos=(94.99, 38.0, -80.0)) is None
+    # Already within Branch-3 cross-track threshold (cross <= 8.0 m).
+    assert _loiter_eta(pos=(110.0, 8.0, -80.0)) is None
+    assert _loiter_eta(pos=(110.0, 7.5, -80.0)) is None
+    # Opening or closing rate <= 1.0 m/s.
+    assert _loiter_eta(vel=(0.0, 15.0, 0.0)) is None
+    assert _loiter_eta(vel=(0.0, -1.0, 0.0)) is None
+    assert _loiter_eta(vel=(0.0, -0.5, 0.0)) is None
+    assert _loiter_eta(start=(100.0, 0.0), target=(100.0, 0.0)) is None
+
+
+def test_guided_loiter_recorded_like_sequence_pitch_71_5_branch3_exit_and_one_shot_gate():
+    # Iowa step-6 geometry: start ~(685.46, -842.29) -> target (300.0, -360.0), R=80 m.
+    start_ne = (685.462158, -842.286560)
+    target_ne = (300.0, -360.0)
+    leg_n, leg_e = target_ne[0] - start_ne[0], target_ne[1] - start_ne[1]
+    leg = math.hypot(leg_n, leg_e)
+    un, ue = leg_n / leg, leg_e / leg
+    # Right-hand orthogonal unit vector (+cross direction).
+    pn, pe = -ue, un
+    radius = 80.0
+    omega = 17.8 / radius  # ~17.8 m/s ground speed on 80 m loiter ring
+
+    gate = X1FwTerminalLockGate(enabled=True, clock=lambda: 100.0)
+    path = {"guidance": "guided_loiter", "start_ne_m": start_ne, "target_ne_m": target_ne}
+    triggers = []
+    branch3_exit_t = None
+
+    # 1) 54 s approach from along = 617 m down to along = 5.2 m with cross offset ~80 m:
+    # must never trigger ETA, and never complete reposition.
+    for i in range(270):
+        t_s = 607.8 + i * 0.2
+        along_rem = 617.0 - (611.8 * i / 269.0)
+        cross_off = 25.0 + 55.0 * (i / 269.0)
+        n = target_ne[0] - along_rem * un + cross_off * pn
+        e = target_ne[1] - along_rem * ue + cross_off * pe
+        vn = 17.5 * un - 2.0 * pn
+        ve = 17.5 * ue - 2.0 * pe
+        ms = round(t_s * 1000)
+        lpn = dict(x=n, y=e, z=-82.7, vx=vn, vy=ve, vz=0.0, time_boot_ms=ms)
+        att = dict(roll=math.radians(5.0), pitch=math.radians(-71.5), yaw=0.0)
+        state = collector.MavlinkState(
+            messages={"LOCAL_POSITION_NED": lpn, "ATTITUDE": att},
+            vehicle_time_boot_ms=ms + 10,
+            received_monotonic_ns={"LOCAL_POSITION_NED": ms * 1_000_000},
+        )
+        assert collector._x1_terminal_eta(state, path, (ms + 20) * 1_000_000) is None
+
+    # 2) Loiter ring behind target (theta from -70 deg through 0 deg where cross -> 0):
+    # In tailsitter FW bank (roll ~ +68 deg, pitch ~ -71.5 deg), PX4 ATTITUDE.yaw lags the
+    # horizontal velocity heading by ~68 deg, so _fixed_wing_tangent_error_deg stays ~67.5 deg
+    # (> 35 deg) and the tangent branch never fires; exit occurs via Branch 3 (along<=5, cross<=8).
+    for step in range(800):
+        t_s = 656.0 + step * 0.02
+        theta = math.radians(-70.0) + omega * (step * 0.02)
+        # Position on the 80 m circle behind the target.
+        n = target_ne[0] + radius * math.cos(theta) * un - radius * math.sin(theta) * pn
+        e = target_ne[1] + radius * math.cos(theta) * ue - radius * math.sin(theta) * pe
+        vn = -radius * omega * math.sin(theta) * un - radius * omega * math.cos(theta) * pn
+        ve = -radius * omega * math.sin(theta) * ue - radius * omega * math.cos(theta) * pe
+        vel_heading_deg = math.degrees(math.atan2(ve, vn))
+        # Tailsitter at pitch = -71.5 deg, roll = +68.0 deg has Euler yaw offset ~67.5 deg.
+        tailsitter_pitch_deg = -71.5
+        assert tailsitter_pitch_deg == -71.5
+        euler_yaw_deg = ((vel_heading_deg - 67.5 + 180.0) % 360.0) - 180.0
+        dn, de = target_ne[0] - n, target_ne[1] - e
+        dist = math.hypot(dn, de)
+        terr = collector._fixed_wing_tangent_error_deg(dn, de, euler_yaw_deg)
+        assert terr > 35.0  # tangent branch never fires for banked tailsitter
+
+        ms = round(t_s * 1000)
+        lpn = dict(x=n, y=e, z=-82.7, vx=vn, vy=ve, vz=0.0, time_boot_ms=ms)
+        state = collector.MavlinkState(
+            messages={"LOCAL_POSITION_NED": lpn},
+            vehicle_time_boot_ms=ms + 8,
+            received_monotonic_ns={"LOCAL_POSITION_NED": ms * 1_000_000},
+        )
+        eta = collector._x1_terminal_eta(state, path, (ms + 15) * 1_000_000)
+        if eta is not None and gate.observe_eta(
+            eta[0], sim_stamp_ns=ms * 1_000_000, dispatch_sequence=100 + step
+        ):
+            triggers.append((t_s, eta[0], eta[1], eta[2]))
+
+        if collector._fixed_wing_reposition_complete(
+            dn=dn,
+            de=de,
+            leg_n=leg_n,
+            leg_e=leg_e,
+            distance_m=dist,
+            loiter_radius_m=radius,
+            yaw_deg=euler_yaw_deg,
+            centre_n=target_ne[0],
+            centre_e=target_ne[1],
+            angle_deg=180.0,
+            fly_through_radius_m=None,
+        ):
+            branch3_exit_t = t_s
+            break
+
+    assert branch3_exit_t is not None
+    assert len(triggers) == 1  # strictly one-shot
+    trig_t, trig_eta, trig_rem, trig_rate = triggers[0]
+    assert 0.0 <= trig_eta <= FW_TERMINAL_LOCK_ETA_S
+    assert 2.5 <= (branch3_exit_t - trig_t) <= 3.1
+    assert trig_rem > 0.0 and trig_rate > 1.0
+
+
+def test_guided_loiter_path_and_eta_keep_offboard_and_non_fw_unchanged():
+    from multidetect.autonomy.motion_intent import MotionCommand
+
+    msg = dict(x=60.0, y=10.0, z=-70.0, vx=20.0, vy=0.0, vz=0.0, time_boot_ms=900)
+    home = dict(latitude=0, longitude=0, altitude=0, x=5.0, y=-10.0, z=0.0)
+    state = collector.MavlinkState(
+        messages={"LOCAL_POSITION_NED": msg, "HOME_POSITION": home},
+        vehicle_time_boot_ms=1000,
+        received_monotonic_ns={"LOCAL_POSITION_NED": 1_000_000_000},
+    )
+
+    # 1) Offboard fly-through command & path are byte-for-byte unchanged.
+    offboard_cmd = MotionCommand(
+        "reposition", mode="FW", target_ned=(100.0, 0.0, -70.0), fly_through_radius_m=15.0
+    )
+    assert collector._x1_guided_loiter_terminal_path(offboard_cmd, state) is None
+    offboard_path = {"target_ned_m": (100.0, 0.0, -70.0), "tangent_ne": (1.0, 0.0)}
+    assert collector._x1_terminal_eta(state, offboard_path, 1_050_000_000) == (2.0, 40.0, 20.0)
+
+    # 2) Non-FW commands never produce a guided-loiter terminal path.
+    for non_fw in (
+        MotionCommand("mc_reposition", mode="MC", target_ned=(100.0, 0.0, -70.0)),
+        MotionCommand("reposition", mode="MC", target_ned=(100.0, 0.0, -70.0)),
+        MotionCommand("transition", mode="MC"),
+        MotionCommand("mc_hold", mode="MC", target_ned=(0.0, 0.0, -70.0), duration_s=10.0),
+    ):
+        assert collector._x1_guided_loiter_terminal_path(non_fw, state) is None
+
+    # 3) Guided-loiter FW command binds home-relative or local target and enforces 0.2 s freshness.
+    loiter_cmd = MotionCommand(
+        "reposition",
+        mode="FW",
+        target_ned=(100.0, 0.0, -70.0),
+        fly_through_radius_m=None,
+        metadata={"long_range_home_relative": True},
+    )
+    loiter_path = collector._x1_guided_loiter_terminal_path(loiter_cmd, state)
+    assert loiter_path == {
+        "guidance": "guided_loiter",
+        "start_ne_m": (60.0, 10.0),
+        "target_ne_m": (105.0, -10.0),
+    }
+
+    local_cmd = MotionCommand("reposition", mode="FW", target_ned=(100.0, 10.0, -70.0))
+    local_path = collector._x1_guided_loiter_terminal_path(local_cmd, state)
+    assert local_path == {
+        "guidance": "guided_loiter",
+        "start_ne_m": (60.0, 10.0),
+        "target_ne_m": (100.0, 10.0),
+    }
+    state.messages["LOCAL_POSITION_NED"] = dict(
+        x=110.0, y=48.0, z=-70.0, vx=0.0, vy=-15.0, vz=0.0, time_boot_ms=950
+    )
+    live_eta = collector._x1_terminal_eta(state, local_path, 1_050_000_000)
+    assert live_eta == pytest.approx((2.0, 30.0, 15.0))
+    # Stale wall clock (> 0.2 s) -> None.
+    assert collector._x1_terminal_eta(state, local_path, 1_210_000_000) is None
+    # Stale PX4 sim clock (> 0.2 s) -> None.
+    state.vehicle_time_boot_ms = 1160
+    assert collector._x1_terminal_eta(state, local_path, 1_050_000_000) is None
+
+
+def test_iowa_six_batch_recorded_eta_arrival_table():
+    """Verify the 6-batch Iowa clear_noon ETA table from recorded data when NAS is mounted."""
+    import glob
+    import json
+    import os
+    from pathlib import Path
+
+    base = Path("/mnt/nas/AdminHome/volatic/x1-gimbal-eval/collection/rw_farm_iowa__clear_noon")
+    expected = [
+        ("a502f02b6aae700eb4e6", 664.540, 664.524, -0.016, 662.264, 2.276, 661.880, 2.660),
+        ("3e6e4bf4386a71692f43", 666.252, 666.252, 0.000, 663.992, 2.260, 663.632, 2.620),
+        ("b8382268fd892e1c3e1e", 677.524, 677.484, -0.040, 675.220, 2.304, 674.844, 2.680),
+        ("487b2660e8915e43cfb6", 666.424, 666.160, -0.264, 663.904, 2.520, 663.544, 2.880),
+        ("8b877da15ad91535799a", 674.416, 674.376, -0.040, 672.112, 2.304, 671.736, 2.680),
+        ("04caae4291f6e47848bd", 669.984, 669.960, -0.024, 667.704, 2.280, 667.344, 2.640),
+    ]
+    if not base.is_dir():
+        pytest.skip("Iowa clear_noon NAS collection directory not mounted")
+
+    for bid, exp_lock, exp_arr, exp_err, exp_t25, exp_lead25, exp_t30, exp_lead30 in expected:
+        pattern = str(base / bid / "jobs" / "*" / "attempt-1" / "flight" / "episodes" / "episode-*")
+        matches = sorted(glob.glob(pattern))
+        assert matches, f"missing episode for {bid}"
+        mav_path = Path(matches[0]) / "mavlink.jsonl"
+        size = os.path.getsize(mav_path)
+        home_n = home_e = None
+        track_s = lock_s = None
+        pos = []
+        with open(mav_path, "rb") as handle:
+            head = handle.read(256 * 1024).decode("utf-8", errors="ignore")
+            for line in head.splitlines():
+                if '"LOCAL_POSITION_NED"' in line:
+                    row = json.loads(line)
+                    if row.get("message_type") == "LOCAL_POSITION_NED":
+                        home_n, home_e = float(row["x"]), float(row["y"])
+                        break
+            handle.seek(max(0, int(size * 0.62)))
+            chunk = handle.read(int(size * 0.22)).decode("utf-8", errors="ignore")
+        for line in chunk.splitlines()[1:]:
+            if '"collector_gimbal_eval_fw_mode"' in line:
+                row = json.loads(line)
+                if row.get("step_index") == 6 and row.get("mode") == "track":
+                    track_s = row["sim_stamp_ns"] / 1e9
+                elif row.get("mode") == "lock":
+                    lock_s = row["sim_stamp_ns"] / 1e9
+                    break
+            elif track_s is not None and '"LOCAL_POSITION_NED"' in line:
+                row = json.loads(line)
+                if row.get("message_type") == "LOCAL_POSITION_NED":
+                    t_s = row["time_boot_ms"] / 1e3
+                    if t_s >= track_s:
+                        pos.append((
+                            t_s,
+                            float(row["x"]),
+                            float(row["y"]),
+                            float(row["vx"]),
+                            float(row["vy"]),
+                        ))
+
+        assert home_n is not None and track_s is not None and lock_s is not None and pos
+        start_ne = (pos[0][1], pos[0][2])
+        target_ne = (300.0 + home_n, -360.0 + home_e)
+        leg_n, leg_e = target_ne[0] - start_ne[0], target_ne[1] - start_ne[1]
+        leg = math.hypot(leg_n, leg_e)
+        gate30 = X1FwTerminalLockGate(enabled=True, clock=lambda: 0.0)
+        gate25 = X1FwTerminalLockGate(enabled=True, clock=lambda: 0.0, trigger_eta_s=2.5)
+        trig30_s = trig25_s = pred_arr_s = None
+        false_approach_triggers = 0
+
+        for idx, (t_s, x, y, vx, vy) in enumerate(pos):
+            dn, de = target_ne[0] - x, target_ne[1] - y
+            along = (dn * leg_n + de * leg_e) / leg
+            cross = abs(leg_n * de - leg_e * dn) / leg
+            if (
+                along <= FW_GUIDED_LOITER_ALONG_DONE_M
+                and cross <= FW_GUIDED_LOITER_CROSS_DONE_M
+                and pred_arr_s is None
+            ):
+                pred_arr_s = t_s
+            eta = estimate_fw_guided_loiter_exit_eta_s(
+                enabled=True,
+                has_fly_through=False,
+                position_ned_m=(x, y, -80.0),
+                velocity_ned_mps=(vx, vy, 0.0),
+                start_ne_m=start_ne,
+                target_ne_m=target_ne,
+                position_age_s=0.0,
+                velocity_age_s=0.0,
+            )
+            if along > FW_GUIDED_LOITER_ALONG_DONE_M and eta is not None:
+                false_approach_triggers += 1
+            eta_val = eta[0] if eta is not None else None
+            if gate30.observe_eta(eta_val, sim_stamp_ns=round(t_s * 1e9), dispatch_sequence=idx):
+                trig30_s = t_s
+            if gate25.observe_eta(eta_val, sim_stamp_ns=round(t_s * 1e9), dispatch_sequence=idx):
+                trig25_s = t_s
+
+        assert false_approach_triggers == 0
+        assert lock_s == pytest.approx(exp_lock, abs=1e-3)
+        assert pred_arr_s == pytest.approx(exp_arr, abs=1e-3)
+        assert (pred_arr_s - lock_s) == pytest.approx(exp_err, abs=1e-3)
+        assert trig25_s == pytest.approx(exp_t25, abs=1e-3)
+        assert (lock_s - trig25_s) == pytest.approx(exp_lead25, abs=1e-3)
+        assert trig30_s == pytest.approx(exp_t30, abs=1e-3)
+        assert (lock_s - trig30_s) == pytest.approx(exp_lead30, abs=1e-3)

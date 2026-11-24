@@ -13,6 +13,9 @@ from .target_tracking import WorldTarget, unit, world_target_direction
 FW_TERMINAL_LOCK_ETA_S = 3.0
 FW_TERMINAL_LOCK_MAX_STATE_AGE_S = 0.2
 FW_HANDOFF_MAX_HORIZON_ERROR_DEG = 4.0
+FW_GUIDED_LOITER_ALONG_DONE_M = 5.0
+FW_GUIDED_LOITER_CROSS_DONE_M = 8.0
+FW_GUIDED_LOITER_MIN_CLOSING_MPS = 1.0
 FW_SHORT_LEG_MAX_M = 80.0
 FW_PASS_SWITCH_MIN_DEG = 8.0
 FW_PASS_MAX_OLD_LOS_DEFLECTION_DEG = 6.5
@@ -58,6 +61,64 @@ def estimate_fw_terminal_eta_s(
     if remaining < 0 or forward_speed <= 0:
         return None
     return remaining / forward_speed, remaining, forward_speed
+
+
+def estimate_fw_guided_loiter_exit_eta_s(
+    *,
+    enabled: bool = True,
+    has_fly_through: bool = False,
+    position_ned_m: tuple[float, ...] | None,
+    velocity_ned_mps: tuple[float, ...] | None,
+    start_ne_m: tuple[float, ...] | None,
+    target_ne_m: tuple[float, ...] | None,
+    position_age_s: float | None,
+    velocity_age_s: float | None,
+    along_done_m: float = FW_GUIDED_LOITER_ALONG_DONE_M,
+    cross_done_m: float = FW_GUIDED_LOITER_CROSS_DONE_M,
+    min_closing_mps: float = FW_GUIDED_LOITER_MIN_CLOSING_MPS,
+    max_age_s: float = FW_TERMINAL_LOCK_MAX_STATE_AGE_S,
+) -> tuple[float, float, float] | None:
+    """Return (ETA, remaining cross-track metres, closing speed) for Branch-3 loiter exit."""
+    if not enabled or has_fly_through:
+        return None
+    if (not all(math.isfinite(v) for v in (along_done_m, cross_done_m, min_closing_mps, max_age_s))
+            or cross_done_m < 0 or min_closing_mps < 0 or max_age_s < 0):
+        return None
+    vectors = (position_ned_m, velocity_ned_mps, start_ne_m, target_ne_m)
+    if any(value is None for value in vectors):
+        return None
+    if any(age is None or not math.isfinite(age) or age < 0 or age > max_age_s
+           for age in (position_age_s, velocity_age_s)):
+        return None
+    try:
+        position = tuple(float(v) for v in position_ned_m)
+        velocity = tuple(float(v) for v in velocity_ned_mps)
+        start = tuple(float(v) for v in start_ne_m)
+        target = tuple(float(v) for v in target_ne_m)
+    except (TypeError, ValueError):
+        return None
+    if (len(position) not in (2, 3) or len(velocity) not in (2, 3)
+            or len(start) not in (2, 3) or len(target) not in (2, 3)
+            or not all(math.isfinite(v) for v in (*position, *velocity, *start, *target))):
+        return None
+    leg_n = target[0] - start[0]
+    leg_e = target[1] - start[1]
+    leg = math.hypot(leg_n, leg_e)
+    if leg <= 1e-6:
+        return None
+    un, ue = leg_n / leg, leg_e / leg
+    dn, de = target[0] - position[0], target[1] - position[1]
+    along = dn * un + de * ue
+    signed_cross = un * de - ue * dn
+    cross = abs(signed_cross)
+    if along > along_done_m or cross <= cross_done_m:
+        return None
+    closing_rate = -math.copysign(1.0, signed_cross) * (ue * velocity[0] - un * velocity[1])
+    if closing_rate <= min_closing_mps:
+        return None
+    remaining_cross = max(0.0, cross - cross_done_m)
+    eta_s = max(0.0, remaining_cross / closing_rate)
+    return eta_s, remaining_cross, closing_rate
 
 
 class X1FwTerminalLockGate:
