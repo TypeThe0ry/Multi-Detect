@@ -71,6 +71,13 @@ from multidetect.sim_teacher.gimbal_recording import (
     x1_meta_yaw_for_step, x1_track_preview,
 )
 from multidetect.sim_teacher.gimbal_readback import GAZEBO_BODY_JOINTS, attitude_readback
+from multidetect.sim_teacher.fw_gimbal_control import (
+    X1FwPassMidpoint,
+    X1FwTerminalLockGate,
+    estimate_fw_terminal_eta_s,
+    terminal_lock_fk_horizon_error_deg,
+)
+
 from multidetect.sim_teacher.horizon_stabilization import (  # noqa: E402
     BRIDGE_STABILIZE_ENV, BRIDGE_STABILIZE_LABEL, BridgeHorizonTarget,
     HorizonStabilizer, HostHorizonLoop, bridge_pose_readback,
@@ -3006,13 +3013,27 @@ def _is_motion_command(action: Any) -> bool:
     return type(action).__name__ == "MotionCommand" and hasattr(action, "kind")
 
 
+def _x1_fw_pass_wait_options(control, step, record):
+    if control is None or not control.enabled:
+        return {}
+
+    def on_passage(evidence):
+        event = control.observe_crossing(sim_stamp_ns=evidence["sim_stamp_ns"])
+        if event is not None:
+            record({"message_type": "collector_gimbal_eval_fw_pass_bisector", "step_index": step,
+                    **evidence, **event, "marker_monotonic_ns": time.monotonic_ns()})
+
+    return {"on_passage": on_passage}
+
+
 def _wait_motion_command(
-    command: Any, reader: MavlinkReader, *, cruise_mps: float
+    command: Any, reader: MavlinkReader, *, cruise_mps: float, on_passage=None
 ) -> dict[str, Any]:
     """Block like a primitive would: until a reposition arrives or a timed loiter ends.
 
     Guided fixed-wing commands return on PX4's ACK; without this the onboard policy
     would issue a new command every frame while the aircraft is still turning.
+    Only the long-range plane waiter has evidence to invoke on_passage.
     """
     started = time.monotonic()
     kind = str(command.kind)
@@ -3968,6 +3989,70 @@ def _fresh_track_position(state: MavlinkState, *, now_ns: int, max_age_s: float 
             and 0 <= (now_ms - stamp) / 1000 <= max_age_s):
         return None
     return world_target_from_mavlink(message)
+
+
+def _x1_terminal_eta(state, path, now_ns):
+    """Use only this action's acknowledged Offboard line and a fresh PX4 pose/twist."""
+    local = state.get("LOCAL_POSITION_NED")
+    stamp = _pose_sim_stamp_ns(state)
+    received = state.received_monotonic_ns.get("LOCAL_POSITION_NED")
+    if None in (stamp, received, state.vehicle_time_boot_ms) or not path:
+        return None
+    sim_age = (state.vehicle_time_boot_ms * 1_000_000 - stamp) / 1e9
+    wall_age = (now_ns - received) / 1e9
+    if min(wall_age, sim_age) < 0:
+        return None
+    age = max(wall_age, sim_age)  # position and velocity share one wire sample
+    return estimate_fw_terminal_eta_s(
+        enabled=True, has_end_tangent_plane=True,
+        position_ned_m=tuple(_field(local, k, None) for k in ("x", "y", "z")),
+        velocity_ned_mps=tuple(_field(local, k, None) for k in ("vx", "vy", "vz")),
+        endpoint_ned_m=path.get("target_ned_m"), tangent_ne=path.get("tangent_ne"),
+        position_age_s=age, velocity_age_s=age,
+    )
+
+
+def _x1_terminal_handoff(gate, bridge, reader, meta, now_ns, *, now_ms, dispatch, pending_meta=None):
+    """Observe once at the planned boundary; no IO, extra capture or wait."""
+    sim_ns = now_ms * 1_000_000 if now_ms is not None else None
+    # Capture may have pipelined a newer reply since its last scored sample.
+    # Peek only; never ask for another frame or consume the capture's cursor.
+    pending_ns = getattr(pending_meta, "sensor_stamp_ns", None)
+    if (sim_ns is not None and type(pending_ns) is int
+            and getattr(meta, "sensor_stamp_ns", -1) < pending_ns <= sim_ns):
+        meta = pending_meta
+    if dispatch is not None:
+        gate.note_dispatch(*dispatch)
+    frame_ns = getattr(meta, "sensor_stamp_ns", None)
+    received = getattr(meta, "received_monotonic_ns", None)
+    state = getattr(meta, "joint_state", None)
+    state = state if isinstance(state, Mapping) else {}
+    joints = state.get("gimbal_joint_state")
+    joints = joints if isinstance(joints, Mapping) else {}
+    joint_ns = state.get("source_timestamp_ns")
+    actual = body = fk_error = None
+    if (type(joint_ns) is int and type(frame_ns) is int and 0 <= joint_ns <= frame_ns
+            and joints.get("source") == "gazebo_joint_state" and joints.get("fresh") is True):
+        attitude = reader.attitude_at(joint_ns / 1e6)
+        try:
+            actual = {a: math.degrees(joints["position_rad"][a]) for a in ("roll", "pitch", "yaw")}
+            body = {a: math.degrees(attitude[a]) for a in actual}
+            fk_error = terminal_lock_fk_horizon_error_deg(body, actual, bridge.target_deg)
+        except (TypeError, KeyError, ValueError, OverflowError):
+            pass  # partial metadata is a negative hand-off observation, never a flight exception
+    joint_ns = joint_ns if type(joint_ns) is int else None
+    status = bridge.bridge_status_at(joint_ns)
+    hdeg = (status[1] if status and gate.dispatch_vehicle_ms is not None
+            and status[0] >= gate.dispatch_vehicle_ms else None)
+    diag = gate.handoff_diagnostics(
+        joint_fk_horizon_error_deg=fk_error, hdeg=hdeg, meta_stamp_ns=joint_ns,
+        current_sim_stamp_ns=sim_ns,
+        meta_receive_age_s=(now_ns - received) / 1e9 if received is not None else None,
+    )
+    return {**diag, "sim_stamp_ns": sim_ns, "frame_stamp_ns": frame_ns,
+            "hdeg_vehicle_ms": status[0] if status else None,
+            "dispatch_flags": 44 if gate.dispatch_vehicle_ms is not None else None,
+            "joint_deg": actual, "body_deg": body}
 
 
 def _collection_gimbal_config(plan: CollectionPlan, policy, profile):
@@ -8357,6 +8442,27 @@ def run_episode(
                     and horizon_stabilizer is not None and _is_motion_command(action)
                     and action.kind == "reposition" and action.mode == "FW"
                 )
+                fw_terminal_leg = bool(
+                    fw_leg and index == plan.gimbal_eval_fw_legs - 1
+                    and action.fly_through_radius_m is not None
+                    and getattr(executor, "has_fw_end_plane", False)
+                    and horizon_stabilizer.yaw_mode == "follow"
+                    and horizon_loop is not None
+                )
+                fw_terminal_lock = X1FwTerminalLockGate(enabled=True) if fw_terminal_leg else None
+                fw_terminal_path = None
+                fw_terminal_meta = None
+                fw_pass_midpoint = None
+                if (fw_leg and action.fly_through_radius_m is not None
+                        and index + 1 < len(plan.gimbal_eval_fw_targets)):
+                    metadata = action.metadata or {}
+                    fw_pass_midpoint = X1FwPassMidpoint(
+                        enabled=True, has_fly_through=True,
+                        short_leg_m=metadata.get("long_range_leg_length_m"),
+                        planned_switch_angle_deg=metadata.get("fw_next_switch_angle_deg"),
+                        old_target=plan.gimbal_eval_fw_targets[index],
+                        new_target=plan.gimbal_eval_fw_targets[index + 1],
+                    )
                 fw_hover_preaim = x1_fw_track_preaim(
                     plan.gimbal_eval_fw_legs, plan.gimbal_eval_track_step, index, action
                 )
@@ -8376,7 +8482,7 @@ def run_episode(
                     # Keep the bridge in track across legs; only the point and capture window change.
                     fw_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
                     fw_target = plan.gimbal_eval_fw_targets[index]
-                    horizon_stabilizer.select_track_target(fw_target)
+                    horizon_stabilizer.select_track_target(fw_target, pass_midpoint=fw_pass_midpoint)
                     if horizon_stabilizer.mode != "track":
                         horizon_stabilizer.set_mode("track")
                     recorder.record_mavlink({"message_type": "collector_gimbal_eval_fw_mode",
@@ -8490,6 +8596,7 @@ def run_episode(
                 execute_error: list[BaseException] = []
 
                 def _execute() -> None:
+                    nonlocal fw_terminal_path
                     try:
                         if (
                             strict_delta_smoke
@@ -8536,12 +8643,15 @@ def run_episode(
                             else:
                                 executor.note_loiter_captured()
                         if motion is not None and executed.status == "success":  # noqa: B023
+                            if fw_terminal_leg:
+                                fw_terminal_path = executed.ack.get("offboard_path")
                             motion_wait = _wait_motion_command(
                                 motion,  # noqa: B023
                                 mav_reader,
                                 cruise_mps=getattr(
                                     _airframe_profile(plan.airframe), "cruise_airspeed_mps", 15.0
                                 ),
+                                **_x1_fw_pass_wait_options(fw_pass_midpoint, index, recorder.record_mavlink),
                             )
                             executed.ack["motion_wait"] = motion_wait
                             # COMMAND_ACK acceptance only proves that PX4 took
@@ -8565,6 +8675,9 @@ def run_episode(
                 execute_thread.start()
 
                 def _track_sample_row(sample):
+                    nonlocal fw_terminal_meta
+                    if fw_terminal_leg:
+                        fw_terminal_meta = sample
                     fw_fields = {}
                     if fw_leg:
                         state = _flight_state_snapshot(mav_reader.state)
@@ -8620,6 +8733,22 @@ def run_episode(
                                                      "step_index": index, "mode": decision, "yaw_rad": yaw,
                                                      "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
                                                      "marker_monotonic_ns": time.monotonic_ns()})
+                    if fw_terminal_path and not fw_terminal_lock.requested:
+                        state = _snapshot_mavlink_state(mav_reader.state)
+                        eta = _x1_terminal_eta(state, fw_terminal_path, time.monotonic_ns())
+                        if eta is not None and fw_terminal_lock.observe_eta(
+                                eta[0], sim_stamp_ns=_pose_sim_stamp_ns(state),
+                                dispatch_sequence=horizon_loop.sent_count):
+                            horizon_stabilizer.set_mode("lock")
+                            recorder.record_mavlink({
+                                "message_type": "collector_gimbal_eval_fw_terminal_lock",
+                                "step_index": index, "mode": "lock",
+                                "sim_stamp_ns": fw_terminal_lock.requested_sim_stamp_ns,
+                                "eta_s": eta[0], "remaining_along_m": eta[1],
+                                "forward_speed_mps": eta[2],
+                                "dispatch_floor_sequence": fw_terminal_lock.dispatch_floor,
+                                "marker_monotonic_ns": time.monotonic_ns(),
+                            })
                     if track_steady_ns is not None:
                         sim_ns = _pose_sim_stamp_ns(mav_reader.state)
                         if sim_ns is not None and sim_ns >= track_steady_ns:
@@ -8720,7 +8849,11 @@ def run_episode(
                         "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
                     })
                 if fw_leg and index == plan.gimbal_eval_fw_legs - 1:
-                    # Hand back to lock so the back-transition and hover pre-aim run exactly as before.
+                    # Hand back at the original boundary; never wait for convergence.
+                    if fw_terminal_path:
+                        boundary = dict(now_ms=mav_reader.state.vehicle_time_boot_ms,
+                                        dispatch=horizon_loop.lock_dispatch,
+                                        pending_meta=sensor_reader.latest_meta, now_ns=time.monotonic_ns())
                     horizon_stabilizer.set_mode("lock")
                     horizon_stabilizer.track_preview_s, horizon_stabilizer.track_preview_max_rad = x1_track_preview()[:2]
                     horizon_stabilizer.select_track_target(plan.track_targets[0])
@@ -8728,6 +8861,14 @@ def run_episode(
                                              "step_index": index, "mode": "lock",
                                              "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
                                              "marker_monotonic_ns": time.monotonic_ns()})
+                    if fw_terminal_path:
+                        handoff = _x1_terminal_handoff(
+                            fw_terminal_lock, horizon_stabilizer, mav_reader, fw_terminal_meta, **boundary,
+                        )
+                        marker = ("collector_gimbal_eval_fw_handoff_ready" if handoff["ready"]
+                                  else "collector_gimbal_eval_fw_handoff_not_ready")
+                        recorder.record_mavlink({"message_type": marker, "step_index": index,
+                                                 "marker_monotonic_ns": time.monotonic_ns(), **handoff})
                 result = result_box[0]
                 if getattr(action, "kind", None) == "land" and result.status == "success":
                     landing_started = True
