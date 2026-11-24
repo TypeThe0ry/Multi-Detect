@@ -179,7 +179,10 @@ def test_cpu_plan_with_fw_legs_keeps_route_and_hover(monkeypatch, capsys):
         assert fw["collector_plan"][key] == hover["collector_plan"][key]
     assert "gimbal_eval_fw_targets" not in hover["collector_plan"]
     assert len(fw["collector_plan"]["gimbal_eval_fw_targets"]) == legs
-    assert len(plans[-1].gimbal_eval_fw_targets) == len(set(plans[-1].gimbal_eval_fw_targets))
+    targets = plans[-1].gimbal_eval_fw_targets
+    assert len(targets) == legs
+    assert len(set(targets)) < len(targets)  # reachable targets persist across adjacent FW legs
+    assert any(left == right for left, right in zip(targets, targets[1:]))
     assert fw["gimbal_eval"]["track_step"] == legs + 2
     plan = plans[-1]
     assert replace(plan, gimbal_eval_fw_legs=legs).gimbal_eval_fw_legs == legs

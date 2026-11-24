@@ -11,6 +11,7 @@ from multidetect.sim_teacher.target_tracking import (
     WorldTarget, c11_optical_axis_reachable, level_target_rotation, world_target_direction,
 )
 from multidetect.terrain_dem import LocalDemGrid
+from scripts.realworld import long_range_flight
 from scripts.realworld.long_range_flight import gimbal_eval_fw_targets
 from scripts.realworld.x1_gimbal_eval import TRACK_FW_MODE, TRACK_SAMPLE, fw_legs
 
@@ -53,6 +54,7 @@ def test_ground_targets_remain_in_envelope_at_r1_return_pitch():
                "source": {"sim_params": {"FW_R_LIM": 35.}}, "targets": legs}
     targets = gimbal_eval_fw_targets(mission)
     assert len(set(targets)) == 2 and all(p.alt_m == 320 for p in targets)
+    assert targets[0] != targets[1]  # the first point fails the next leg's planned envelope
     radius = 6_378_137.
     for start, end, point in zip([(0., 0., -65.), legs[0]], legs, targets, strict=True):
         dn, de, dd = (b - a for a, b in zip(start, end, strict=True))
@@ -64,9 +66,67 @@ def test_ground_targets_remain_in_envelope_at_r1_return_pitch():
             for roll in (-35., 0., 35.):
                 body = rotation_deg(dict(roll=roll, pitch=-83., yaw=yaw))
                 assert c11_optical_axis_reachable(world_target_direction(pos, point, body), margin_deg=5.)
+    old_point = targets[0]
+    second_start, second_end = legs
+    dn, de, dd = (b - a for a, b in zip(second_start, second_end, strict=True))
+    yaw = math.degrees(math.atan2(de, dn))
+    positions = [WorldTarget(42 + math.degrees((second_start[0] + f*dn) / radius),
+                             -93 + math.degrees((second_start[1] + f*de) / (radius * math.cos(math.radians(42)))),
+                             320 - second_start[2] - f*dd)
+                 for f in (i / 8 for i in range(9))]
+    assert any(not c11_optical_axis_reachable(
+        world_target_direction(pos, old_point, rotation_deg(dict(roll=roll, pitch=pitch, yaw=yaw))),
+        margin_deg=5.)
+        for pos in positions for pitch in (-90., -83., -65.) for roll in (-35., 0., 35.))
+    for pos in positions:
+        for pitch in (-90., -83., -65.):
+            for roll in (-35., 0., 35.):
+                body = rotation_deg(dict(roll=roll, pitch=pitch, yaw=yaw))
+                assert c11_optical_axis_reachable(world_target_direction(pos, targets[1], body), margin_deg=5.)
     old_point = WorldTarget(42.0009, -93., 325.)
     returning = rotation_deg(dict(roll=0., pitch=-83., yaw=180.))
     assert not c11_optical_axis_reachable(world_target_direction(WorldTarget(42.03, -93., 405.), old_point, returning))
+
+
+def test_fw_target_persists_across_multiple_legs_when_reachable():
+    home = SimpleNamespace(latitude_deg=42., longitude_deg=-93.)
+    dem = LocalDemGrid("flat", 42., -93., 320., -3000., -3000., 6000., 6000.,
+                       ((320., 320.), (320., 320.)), 1., 0., "a" * 64)
+    mission = {"terrain": dem, "geometry": SimpleNamespace(home=home, takeoff_altitude_m=65.),
+               "source": {"sim_params": {"FW_R_LIM": 35.}},
+               "targets": [(1600., 0., -85.), (0., 600., -85.),
+                           (-1600., 0., -85.), (0., -600., -85.)]}
+    targets = gimbal_eval_fw_targets(mission)
+    switches = sum(left != right for left, right in zip(targets, targets[1:]))
+    assert switches == 2
+    assert targets[1] == targets[2]  # retain the second leg's point into the next reachable leg
+
+
+def test_forced_target_switch_minimizes_switch_count_before_slew():
+    a, b, c = "A", "B", "C"
+    candidates = [(a,), (b, c), (c,)]
+    quality = [{a: 0}, {b: 0, c: 1}, {c: 0}]
+    can_reach = {(1, a): False, (2, a): False, (2, b): False,
+                 (1, b): True, (1, c): True, (2, c): True}
+    slew = {(1, a, b): 1., (1, a, c): 20., (2, b, c): 1.}
+
+    selected = long_range_flight._persist_fw_target_schedule(
+        candidates, quality, lambda leg, target: can_reach.get((leg, target), False),
+        lambda leg, old, new: slew.get((leg, old, new), 0.))
+    assert selected == (a, c, c)  # one larger initial slew avoids a second switch
+
+
+def test_forced_switch_tie_breaks_on_smallest_angular_slew():
+    a, b, c = "A", "B", "C"
+    candidates = [(a,), (b, c)]
+    quality = [{a: 0}, {b: 0, c: 1}]
+    can_reach = {(1, a): False}
+    slew = {(1, a, b): 24., (1, a, c): 7.}
+
+    selected = long_range_flight._persist_fw_target_schedule(
+        candidates, quality, lambda leg, target: can_reach.get((leg, target), False),
+        lambda leg, old, new: slew.get((leg, old, new), 0.))
+    assert selected == (a, c)
 
 
 ORIGIN = WorldTarget(42., -93., 400.)
