@@ -1,5 +1,6 @@
 """Runtime options and collector evidence shared by wide collection entry points."""
 import json
+import math
 import re
 
 _NAME_PART = r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*"
@@ -37,6 +38,13 @@ def runtime_options(spec, airframe, field):
         if enabled and not options.get("gimbal_eval"):
             raise ValueError(f"{field}.gimbal_eval_fw requires gimbal_eval")
         options["gimbal_eval_fw"] = enabled
+    if "fw_min_leg_m" in spec:
+        min_leg = spec["fw_min_leg_m"]
+        if type(min_leg) not in (int, float) or not math.isfinite(min_leg) or min_leg <= 0:
+            raise ValueError(f"{field}.fw_min_leg_m must be a finite positive number")
+        if airframe != "delta_tailsitter_gimbal_cam":
+            raise ValueError(f"{field}.fw_min_leg_m requires delta_tailsitter_gimbal_cam")
+        options["fw_min_leg_m"] = float(min_leg)
     return options
 
 

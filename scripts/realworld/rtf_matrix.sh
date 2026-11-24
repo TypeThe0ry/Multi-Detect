@@ -184,6 +184,8 @@ if row.get('gimbal_eval') is True:
     print('--gimbal-eval')
 if row.get('gimbal_eval_fw') is True:
     print('--gimbal-eval-fw')
+if 'fw_min_leg_m' in row:
+    print('--fw-min-leg-m', str(row['fw_min_leg_m']), sep='\n')
 PY
     ) || return 2
     if [[ -n "$runtime_argv" ]]; then
