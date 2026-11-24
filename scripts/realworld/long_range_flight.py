@@ -63,6 +63,8 @@ MAX_CRUISE_AGL_M = 120.0
 DELTA_FW_BANK_LIMIT_DEG = 35.0
 DELTA_FW_PITCH_RANGE_DEG = (-10.0, 15.0)
 DELTA_LONG_RANGE_GIMBAL_PITCH_DEG = -56.0
+DEFAULT_FW_MIN_LEG_M = 50.0
+DEFAULT_FW_MIN_LEG_TIME_S = 3.0
 FW_OFFBOARD_MODE = (6, 0)
 AUTO_LOITER_MODE = (4, 3)
 HEARTBEAT_MAX_AGE_S = 30.0  # Allow a slow lockstep simulation.
@@ -347,7 +349,66 @@ def _verify_audited_route(data, geometry, targets, preflight):
             raise ValueError("X1 mission does not match the audited route waypoints")
 
 
-def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight=None):
+def recommended_fw_min_leg_m(cruise_mps: float) -> float:
+    """Minimum FW Offboard leg length: max(50 m, cruise_mps * 3.0 s)."""
+    if type(cruise_mps) not in (int, float) or not math.isfinite(cruise_mps) or cruise_mps <= 0:
+        raise ValueError("cruise_mps must be a finite positive number")
+    return max(DEFAULT_FW_MIN_LEG_M, float(cruise_mps) * DEFAULT_FW_MIN_LEG_TIME_S)
+
+
+def merge_short_fw_legs(
+    start_ned: tuple[float, float, float],
+    targets: list[tuple[float, float, float]] | tuple[tuple[float, float, float], ...],
+    min_leg_m: float,
+    *,
+    capture_radii: list[float | None] | None = None,
+) -> tuple[list[tuple[float, float, float]], list[float | None] | None, list[int]]:
+    """Merge FW legs shorter than min_leg_m by dropping intermediate waypoints.
+
+    Preserves start_ned (implicit origin), the terminal waypoint (back-transition
+    or landing approach), and—when a single farthest waypoint would otherwise be
+    dropped—prefers keeping that departure-witness waypoint if it still satisfies
+    min_leg_m from the preceding kept point.
+    """
+    if type(min_leg_m) not in (int, float) or not math.isfinite(min_leg_m) or min_leg_m < 0:
+        raise ValueError("min_leg_m must be a finite nonnegative number")
+    points = list(targets)
+    if capture_radii is not None and len(capture_radii) != len(points):
+        raise ValueError("capture_radii must match targets length")
+    if len(points) <= 1 or min_leg_m == 0:
+        return points, (list(capture_radii) if capture_radii is not None else None), list(range(len(points)))
+
+    far_index = max(range(len(points)), key=lambda idx: math.hypot(points[idx][0], points[idx][1]))
+    kept: list[tuple[float, float, float]] = []
+    kept_indices: list[int] = []
+    prev = start_ned
+    last_index = len(points) - 1
+    for i, point in enumerate(points):
+        dist = math.hypot(point[0] - prev[0], point[1] - prev[1])
+        if i == last_index:
+            while kept and math.hypot(point[0] - kept[-1][0], point[1] - kept[-1][1]) < min_leg_m:
+                kept.pop()
+                kept_indices.pop()
+            kept.append(point)
+            kept_indices.append(i)
+        elif dist >= min_leg_m:
+            kept.append(point)
+            kept_indices.append(i)
+            prev = point
+        elif i == far_index and kept:
+            # Protect a unique departure apex by replacing the previous kept
+            # point when the chord from its predecessor still meets min_leg_m.
+            anchor = kept[-2] if len(kept) >= 2 else start_ned
+            if math.hypot(point[0] - anchor[0], point[1] - anchor[1]) >= min_leg_m:
+                kept[-1] = point
+                kept_indices[-1] = i
+                prev = point
+    merged_caps = [capture_radii[i] for i in kept_indices] if capture_radii is not None else None
+    return kept, merged_caps, kept_indices
+
+
+def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight=None,
+                       allow_merged_course=False):
     start = (0.0, 0.0, -geometry.takeoff_altitude_m)
     capture = route_preflight["fly_through_radius_m"] if route_preflight else None
     capture_radii = capture if isinstance(capture, list) else [capture] * len(targets)
@@ -387,7 +448,8 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
         square_half = min(-boundary["north_min_m"], boundary["north_max_m"],
                           -boundary["east_min_m"], boundary["east_max_m"])
         points_ne = [start[:2], *(point[:2] for point in targets)]
-        if (revision == scenario_policy.FLIGHT_MARGIN_REVISION
+        if (not allow_merged_course
+                and revision == scenario_policy.FLIGHT_MARGIN_REVISION
                 and data.get("scenario_class", scenario_policy.WIDE_AREA) == scenario_policy.WIDE_AREA
                 and not scenario_policy.has_wide_course_margin(points_ne)):
             raise ValueError("FW course change exceeds 22.5 degrees")
@@ -426,7 +488,10 @@ def _audit_delta_route(geometry, targets, data, dem, minimum, *, route_preflight
 
 
 def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
-                 dem_path: Path | None = None) -> dict[str, Any]:
+                 dem_path: Path | None = None, fw_min_leg_m: float | None = None) -> dict[str, Any]:
+    if fw_min_leg_m is not None and (
+            type(fw_min_leg_m) not in (int, float) or not math.isfinite(fw_min_leg_m) or fw_min_leg_m <= 0):
+        raise ValueError("fw_min_leg_m must be a finite positive number")
     manifest, runtime_input = _scenario_document(scenario)
     data = json.loads(sidecar_path(scenario).read_text(encoding="utf-8"))
     if data.get("schema_version") != 1:
@@ -503,12 +568,43 @@ def load_mission(scenario: Path, *, minimum_rtf: float | None = None,
             raise ValueError("VTOL mission home does not match the DEM origin")
         agl_envelope = _audit_delta_route(geometry, targets, data, terrain, minimum,
                                           route_preflight=route_preflight)
+    fw_short_leg_merge = None
+    if fw_min_leg_m is not None:
+        start_ned = (0.0, 0.0, -geometry.takeoff_altitude_m)
+        raw_capture = route_preflight["fly_through_radius_m"] if route_preflight else None
+        capture_list = raw_capture if isinstance(raw_capture, list) else None
+        original_count = len(targets)
+        merged_targets, merged_caps, kept_indices = merge_short_fw_legs(
+            start_ned, targets, float(fw_min_leg_m), capture_radii=capture_list
+        )
+        fw_short_leg_merge = {
+            "min_leg_m": float(fw_min_leg_m),
+            "original_legs": original_count,
+            "merged_legs": len(merged_targets),
+            "dropped_waypoints": original_count - len(merged_targets),
+            "kept_indices": kept_indices,
+        }
+        if len(merged_targets) != original_count:
+            targets = merged_targets
+            maximum = max(math.hypot(p[0], p[1]) for p in targets)
+            if maximum < minimum:
+                raise ValueError(
+                    f"long-range mission after merging short legs must reach at least {minimum:g} m from spawn"
+                )
+            if route_preflight is not None and merged_caps is not None:
+                route_preflight = {**route_preflight, "fly_through_radius_m": merged_caps}
+            if airframe == DELTA:
+                agl_envelope = _audit_delta_route(
+                    geometry, targets, data, terrain, minimum,
+                    route_preflight=route_preflight, allow_merged_course=True,
+                )
     return {"source": data, "geometry": geometry, "compiled": compiled, "airframe": airframe,
             "gimbal_pitch_deg": gimbal_pitch_deg, "fw_turn_envelope": fw_turn_envelope,
             "terrain": terrain, "planned_agl_envelope_m": agl_envelope,
             "targets": targets, "route_preflight": route_preflight, "minimum_max_distance_m": minimum,
             "scenario_class": scenario_class,
             "planned_max_distance_m": maximum, "minimum_rtf": required_rtf,
+            **({"fw_short_leg_merge": fw_short_leg_merge} if fw_short_leg_merge is not None else {}),
             "profile": str(manifest["scenario_id"]), "seed": runtime_input.get("seed", 91000)}
 
 
@@ -1192,6 +1288,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gimbal-yaw-mode", choices=("lock", "follow"), default="follow")
     parser.add_argument("--horizon-video-hz", type=float,
                         help="override X1 video sampling rate in simulation seconds")
+    parser.add_argument("--fw-min-leg-m", type=float, default=None,
+                        help="opt-in minimum FW leg length in metres; merges shorter legs with adjacent waypoints")
     parser.add_argument("--write-mission", action="store_true", help="为已有独立 scenario 生成可复现长航程 sidecar")
     parser.add_argument("--extent-m", type=float, default=6000.0)
     parser.add_argument("--min-rtf", type=float, default=None)
@@ -1226,7 +1324,7 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("--airframe does not match the scenario runtime model")
             write_mission_sidecar(scenario, args.extent_m)
             return 0
-        mission = load_mission(scenario, minimum_rtf=minimum_rtf)
+        mission = load_mission(scenario, minimum_rtf=minimum_rtf, fw_min_leg_m=args.fw_min_leg_m)
         if mission["route_preflight"] is not None:
             _verify_route_stack(scenario, mission["route_preflight"], plan_only=args.plan_only)
         if args.airframe and args.airframe != mission["airframe"]:
@@ -1271,6 +1369,8 @@ def main(argv: list[str] | None = None) -> int:
                           "planned_agl_envelope_m": mission["planned_agl_envelope_m"],
                           "fw_waypoints_home_ned_m": mission["targets"] if is_vtol else None,
                           "fw_turn_envelope": mission["fw_turn_envelope"],
+                          **({"fw_short_leg_merge": mission["fw_short_leg_merge"]}
+                             if "fw_short_leg_merge" in mission else {}),
                           **({"route_preflight": mission["route_preflight"],
                               "fw_guidance": "offboard_path"} if mission["route_preflight"] else {}),
                           "gimbal_stabilization": ({"mode": args.gimbal_mode,

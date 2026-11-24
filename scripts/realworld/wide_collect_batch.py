@@ -162,7 +162,7 @@ def expand(spec):
             raise ValueError(f"jobs[{index}] must be an object")
         unknown = job.keys() - {"site", "scenario", "altitude_m", "time_of_day", "weather", "seed",
                                 "airframe", "max_artifact_bytes", "image", "gimbal_bridge_stabilize", "gimbal_eval",
-                                "gimbal_eval_fw",
+                                "gimbal_eval_fw", "fw_min_leg_m",
                                 "scenario_class", "minimum_max_distance_m", *ROOT_FIELDS}
         if unknown:
             raise ValueError(f"jobs[{index}] unknown fields: {', '.join(sorted(unknown))}")

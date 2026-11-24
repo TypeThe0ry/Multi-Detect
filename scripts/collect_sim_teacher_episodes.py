@@ -5206,6 +5206,13 @@ def _command_and_wait_gimbal(
         raise RuntimeError("MAVLink connection cannot send gimbal command")
     target_system = int(getattr(connection, "target_system", 1) or 1)
     target_component = int(getattr(connection, "target_component", 1) or 1)
+    def _wait_ack(ack_link: _ReaderAckLink, command: int, wait_s: float, after_ns: int) -> Any:
+        try:
+            return ack_link.wait_command_ack(command, wait_s, after_ns=after_ns)
+        except TypeError:
+            return ack_link.wait_command_ack(command, wait_s)
+
+    ack_link = _ReaderAckLink(connection, reader)
     # On a saturated host PX4 can answer the configure command later than one 5 s wall window; resend with a
     # growing window (5, 10, 20 s) before giving up, instead of failing the whole episode.
     configure_ack = None
@@ -5216,8 +5223,11 @@ def _command_and_wait_gimbal(
             float(GCS_SOURCE_SYSTEM), float(GCS_SOURCE_COMPONENT),
             -1.0, -1.0, 0.0, 0.0, float(GIMBAL_MANAGER_DEVICE_ID),
         )
-        configure_ack = _ReaderAckLink(connection, reader).wait_command_ack(
-            MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, min(max(timeout_s, attempt_timeout_s), attempt_timeout_s)
+        configure_ack = _wait_ack(
+            ack_link,
+            MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+            min(max(timeout_s, attempt_timeout_s), attempt_timeout_s),
+            command_started_ns,
         )
         if configure_ack is not None:
             break
@@ -5253,16 +5263,45 @@ def _command_and_wait_gimbal(
             "primary_control_compid": primary_component,
             "tolerance_deg": tolerance_deg,
         }
-    command_started_ns = time.monotonic_ns()
-    sender(
-        target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, 0,
-        float(target["pitch"]), float(target["yaw"]), math.nan, math.nan,
-        float(_gimbal_readback_command_flags(gazebo_body_joints)),
-        0.0, float(GIMBAL_MANAGER_DEVICE_ID),
-    )
-    ack = _ReaderAckLink(connection, reader).wait_command_ack(
-        MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, min(timeout_s, 5.0)
-    )
+    def _send_pitchyaw() -> int:
+        started_ns = time.monotonic_ns()
+        sender(
+            target_system, target_component, MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, 0,
+            float(target["pitch"]), float(target["yaw"]), math.nan, math.nan,
+            float(_gimbal_readback_command_flags(gazebo_body_joints)),
+            0.0, float(GIMBAL_MANAGER_DEVICE_ID),
+        )
+        return started_ns
+
+    command_started_ns = _send_pitchyaw()
+    ack = _wait_ack(ack_link, MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, min(timeout_s, 5.0), command_started_ns)
+    if ack is None:
+        status = reader.state.get("GIMBAL_DEVICE_ATTITUDE_STATUS")
+        received = (
+            reader.state.get("received_monotonic_ns", {})
+            if isinstance(reader.state, dict)
+            else getattr(reader.state, "received_monotonic_ns", {})
+        )
+        if status is not None or received.get("GIMBAL_DEVICE_ATTITUDE_STATUS", -1) >= command_started_ns:
+            readback = _gimbal_readback(
+                reader, status, target, yaw_correction_deg=yaw_correction_deg,
+                gazebo_body_joints=gazebo_body_joints,
+            )
+            error = readback.get("error_deg")
+            if error is not None and max(error.values()) <= tolerance_deg:
+                return {
+                    "status": "reached",
+                    **readback,
+                    "command_flags": _gimbal_readback_command_flags(gazebo_body_joints),
+                    "tolerance_deg": tolerance_deg,
+                    "collector_gimbal_ack_missing_but_reached": {
+                        "target_deg": dict(target),
+                        "error_deg": dict(error),
+                        "tolerance_deg": tolerance_deg,
+                    },
+                }
+        command_started_ns = _send_pitchyaw()
+        ack = _wait_ack(ack_link, MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW, min(timeout_s, 5.0), command_started_ns)
     if ack is None or int(ack.get("result", -1)) != 0:
         return {
             "status": "command_rejected" if ack is not None else "command_ack_timeout",
@@ -5455,8 +5494,8 @@ class _ReaderAckLink:
             raise AttributeError(name)
         return getattr(self._connection, name)
 
-    def wait_command_ack(self, command: int, timeout_s: float) -> Any:
-        started_ns = time.monotonic_ns()
+    def wait_command_ack(self, command: int, timeout_s: float, after_ns: int | None = None) -> Any:
+        started_ns = int(after_ns) if after_ns is not None else time.monotonic_ns()
         started_wall = time.monotonic()
         last_clock_progress_wall = started_wall
         started_sim_stamp_ns = _pose_sim_stamp_ns(self._reader.state)

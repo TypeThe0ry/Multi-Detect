@@ -59,7 +59,7 @@ def verified_asset(asset, world_name, *, variant_dir=None):
 
 def site_plan(asset_root, site, index, image_id, spec=None, *,
               conditions=("noon", "clear"), asset_dir=None, gimbal_eval=False, slot=None, eval_tag=None,
-              gimbal_eval_fw=False):
+              gimbal_eval_fw=False, fw_min_leg_m=None):
     preset = batch.WEATHER[conditions]
     asset = asset_root / f"{site}_w6km" / "v1" if asset_dir is None else asset_dir
     variant_dir = None if preset == "clear_noon" else asset / "x1-variants" / preset
@@ -77,7 +77,8 @@ def site_plan(asset_root, site, index, image_id, spec=None, *,
     if variant_dir is not None and sidecar.get("minimum_max_distance_m") != threshold:
         raise ValueError(f"{name}: variant sidecar does not certify {threshold} m")
     # Keep records for older versions. A rebuilt route or new image cannot qualify this run.
-    eval_options = ({"gimbal_eval": True, **({"gimbal_eval_fw": True} if gimbal_eval_fw else {})}
+    eval_options = ({"gimbal_eval": True, **({"gimbal_eval_fw": True} if gimbal_eval_fw else {}),
+                     **({"fw_min_leg_m": fw_min_leg_m} if fw_min_leg_m is not None else {})}
                     if gimbal_eval else {})
     eval_identity = ({**eval_options, "eval_capture_revision": EVAL_CAPTURE_REVISION,
                       **({"eval_tag": eval_tag} if eval_tag else {})} if gimbal_eval else {})
@@ -212,6 +213,10 @@ def eval_config(*, require_enabled):
         raise ValueError("invalid X1 gimbal evaluation condition filter")
     if "fw_legs" in spec and type(spec["fw_legs"]) is not bool:
         raise ValueError("invalid X1 gimbal evaluation fw_legs")
+    if "fw_min_leg_m" in spec and (type(spec["fw_min_leg_m"]) not in (int, float)
+                                   or isinstance(spec["fw_min_leg_m"], bool)
+                                   or not 0 < spec["fw_min_leg_m"] <= 500):
+        raise ValueError("invalid X1 gimbal evaluation fw_min_leg_m")
     if "tag" in spec and (type(spec["tag"]) is not str or not spec["tag"]):
         raise ValueError("invalid X1 gimbal evaluation tag")
     for key, high in (("track_preview_s", 1.0), ("track_preview_max_deg", 90.0)):
@@ -271,6 +276,8 @@ def eval_plans(spec, iowa_spec, image_id, config, *, lane=None):
                                          asset_dir=asset_root / relative if relative is not None else None,
                                          gimbal_eval=config["gimbal_eval"], slot=slot,
                                          **({"gimbal_eval_fw": True} if config.get("fw_legs") else {}),
+                                         **({"fw_min_leg_m": config["fw_min_leg_m"]}
+                                            if config.get("fw_min_leg_m") is not None else {}),
                                          **({"eval_tag": config["tag"]} if config.get("tag") else {}))
             yield label, plan, assets
 
@@ -301,7 +308,8 @@ def eval_cpu_preflight(spec, iowa_spec, image_id, config):
                 deploy.append({"source": str(source), "destination": str(stage / source.name),
                                "sha256": digest})
             staged, evidence = batch.prepare(job, scratch / label)
-            mission = load_mission(staged, dem_path=Path(evidence["dem"]["path"]))
+            mission = load_mission(staged, dem_path=Path(evidence["dem"]["path"]),
+                                   **({"fw_min_leg_m": job["fw_min_leg_m"]} if job.get("fw_min_leg_m") else {}))
             collector = gimbal_eval_plan(replace(collection_plan(staged, scratch / "no-flight",
                                                                   job["slot"], mission),
                                                 gimbal_mode="lock", gimbal_bridge_stabilize=True), mission,

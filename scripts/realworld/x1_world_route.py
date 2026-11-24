@@ -623,18 +623,17 @@ def corner_route(signs, direction, offset=0):
     return np.array([(0, 0), *out, *arc, *back, (0, 0)], dtype=float)
 
 
-def margin_corner_route(signs, direction, *, segments=12, offset=0):
+def margin_corner_route(signs, direction, *, segments=12, offset=0, radius=120.1, nose_distance=4032.0):
     """Use a 4,032 m nose and split the 180-degree turn into 15° or 22.5° changes."""
     diagonal = np.asarray(signs) / math.sqrt(2)
     lateral = direction * np.array([-diagonal[1], diagonal[0]])
-    radius = 120.1
     half_turn = math.pi / (2 * segments)
     angles = np.linspace(half_turn, math.pi - half_turn, segments)
     turn = radius / math.cos(half_turn) * (np.sin(angles)[:, None] * diagonal
                                           - np.cos(angles)[:, None] * lateral)
     nose = turn[len(turn) // 2]
     # Reserve the full arrival-plane offset and at least 5 m past the gate.
-    centre = math.sqrt(4032.0**2 - (nose @ lateral)**2) - nose @ diagonal
+    centre = math.sqrt(nose_distance**2 - (nose @ lateral)**2) - nose @ diagonal
     along = tuple(zip((550, 1300, 2100, 2900, centre - 240), (0.5, 1, 1, 0.5, 0)))
     out = [distance * diagonal + (-radius + weight * offset) * lateral for distance, weight in along]
     back = [distance * diagonal + (radius + weight * offset) * lateral for distance, weight in reversed(along)]
@@ -728,17 +727,34 @@ def corner_candidates():
         yield f"{name}/{direction:+d}/{offset:+d}m", corner_route(signs, direction, offset)
 
 
-def survey_margin_corners(layers, world_id, threshold_m, mission_radius):
-    for offset, segments, (name, signs), direction in itertools.product(
-            (0, 160, -160, 220, -220), (12, 8), QUADRANTS.items(), (1, -1)):
-        points = margin_corner_route(signs, direction, segments=segments, offset=offset)
+def survey_margin_corners(layers, world_id, threshold_m, mission_radius, *, min_leg_m=None):
+    if min_leg_m is not None and (
+            type(min_leg_m) not in (int, float) or not math.isfinite(min_leg_m) or min_leg_m <= 0):
+        raise ValueError("min_leg_m must be a finite positive number")
+    segment_choices = (8, 12) if min_leg_m is not None else (12, 8)
+    nose_choices = (4032.0, 4030.5) if min_leg_m is not None else (4032.0,)
+    for offset, segments, nose_distance, (name, signs), direction in itertools.product(
+            (0, 160, -160, 220, -220), segment_choices, nose_choices, QUADRANTS.items(), (1, -1)):
+        radius = 120.1
+        if min_leg_m is not None:
+            half_turn = math.pi / (2 * segments)
+            radius = max(120.1, float(min_leg_m) / (2.0 * math.tan(half_turn)) + 0.1)
+        points = margin_corner_route(
+            signs, direction, segments=segments, offset=offset, radius=radius, nose_distance=nose_distance
+        )
         candidate = f"{name}/{direction:+d}/{offset:+d}m/{segments}-turn"
-        if world_id == policy.AMSTERDAM_WORLD and candidate == "NW/+1/+0m/12-turn":
+        if min_leg_m is not None:
+            candidate += f"/minleg{int(round(min_leg_m))}m"
+        elif world_id == policy.AMSTERDAM_WORLD and candidate == "NW/+1/+0m/12-turn":
             # Keep the already accepted route's bundle identity when rebuilt.
             candidate = "NW/+1/bounded-pass"
         points_ne = points[:-1, ::-1]
         runout = policy.fw_runout(points_ne, mission_radius, HALF, revision=policy.FLIGHT_MARGIN_REVISION)
         failures = []
+        if min_leg_m is not None:
+            min_actual = float(np.linalg.norm(np.diff(points[:-1], axis=0), axis=1).min())
+            if min_actual < float(min_leg_m):
+                failures.append(f"min FW leg {min_actual:.1f} m < {min_leg_m:g} m")
         if not policy.has_runout_margin(runout):
             failures.append("mission radius or world boundary runout")
         if not policy.has_wide_course_margin(points_ne):
@@ -750,7 +766,10 @@ def survey_margin_corners(layers, world_id, threshold_m, mission_radius):
                "candidate": candidate, "fw_runout": runout}
 
 
-def survey_valley(layers, *, threshold_m=DEPARTURE, candidate=None, flight_margin=False):
+def survey_valley(layers, *, threshold_m=DEPARTURE, candidate=None, flight_margin=False, min_leg_m=None):
+    if min_leg_m is not None and (
+            type(min_leg_m) not in (int, float) or not math.isfinite(min_leg_m) or min_leg_m <= 0):
+        raise ValueError("min_leg_m must be a finite positive number")
     profile = read_json(ROOT / "configs/airframes/delta_tailsitter_gimbal.json")
     rates = tuple(min(2.5, profile[f"max_{direction}_rate_mps"]) for direction in ("climb", "descent"))
     options = {}
@@ -761,6 +780,12 @@ def survey_valley(layers, *, threshold_m=DEPARTURE, candidate=None, flight_margi
     for name, points in valley_candidates(bounded_pass=flight_margin):
         if candidate is not None and name != candidate:
             continue
+        if min_leg_m is not None:
+            min_actual = float(np.linalg.norm(np.diff(points[:-1], axis=0), axis=1).min())
+            if min_actual < float(min_leg_m):
+                yield {"candidate": name, "passed": False,
+                       "failures": [f"min FW leg {min_actual:.1f} m < {min_leg_m:g} m"]}
+                continue
         try:
             yield {**evaluate(points, layers, terrain_rates=rates, threshold_m=threshold_m, **options), "candidate": name}
         except ValueError as exc:
@@ -974,7 +999,10 @@ def publish(asset, scenario, sidecar, receipt):
     return destination / "preflight.json"
 
 
-def preflight(asset, world, *, bundle_root=None):
+def preflight(asset, world, *, bundle_root=None, min_leg_m=None):
+    if min_leg_m is not None and (
+            type(min_leg_m) not in (int, float) or not math.isfinite(min_leg_m) or min_leg_m <= 0):
+        raise ValueError("min_leg_m must be a finite positive number")
     asset = asset.resolve(strict=True)
     if bundle_root is not None:
         bundle_root = bundle_root.resolve(strict=True)
@@ -1020,11 +1048,13 @@ def preflight(asset, world, *, bundle_root=None):
         audited_layers = include_runtime_dem(layers, read_json(stage / f"{world_id}.dem.json"))
         if mountain_short:
             candidates = survey_valley(audited_layers, threshold_m=threshold,
-                                       candidate=policy.ALPINE_CANDIDATE, flight_margin=True)
+                                       candidate=policy.ALPINE_CANDIDATE, flight_margin=True,
+                                       min_leg_m=min_leg_m)
         else:
             mission_radius = read_json(TEMPLATE_DIR / f"{TEMPLATE}.long_range.json")[
                 "mission_compile_runtime"]["safety_policy"]["maximum_mission_radius_m"]
-            candidates = survey_margin_corners(audited_layers, world_id, threshold, mission_radius)
+            candidates = survey_margin_corners(audited_layers, world_id, threshold, mission_radius,
+                                               min_leg_m=min_leg_m)
         for metrics in candidates:
             candidate = metrics["candidate"]
             if not metrics["passed"]:
@@ -1064,10 +1094,12 @@ def main(argv=None):
                          help="write x1/ to an existing staging directory instead of the asset")
     outputs.add_argument("--diagnostics", type=Path, metavar="JSON",
                         help="write a geometry-only survey, without staging or publishing a route")
+    parser.add_argument("--min-leg-m", type=float, default=None,
+                        help="opt-in minimum FW leg length in metres for generated routes (e.g. 50)")
     args = parser.parse_args(argv)
     try:
         if args.diagnostics is None:
-            print(preflight(args.asset, args.world, bundle_root=args.bundle_root))
+            print(preflight(args.asset, args.world, bundle_root=args.bundle_root, min_leg_m=args.min_leg_m))
         else:
             report = route_diagnostics(args.asset.resolve(strict=True), args.world.absolute())
             with args.diagnostics.open("x", encoding="utf-8") as stream:
