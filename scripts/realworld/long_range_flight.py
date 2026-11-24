@@ -808,6 +808,8 @@ class LongRangePolicy:
         radii = (fly_through_radius_m if isinstance(fly_through_radius_m, list)
                  else [fly_through_radius_m] * len(targets))
         self.targets = iter(zip(targets, radii, strict=True))
+        # Declarative route contract: the first N actions are FW repositions; no later FW transition.
+        self.fw_gimbal_survey_legs = len(fw_eval_switch_angles_deg or ())
         self._next_switch_angles = None
         if fw_eval_switch_angles_deg is not None:
             if not vtol or not gimbal_eval or len(fw_eval_switch_angles_deg) != len(targets):

@@ -599,6 +599,14 @@ class MavlinkReader:
             name: [] for name in self.POSE_TYPES
         }
 
+    def latest_control_state(self) -> MavlinkState:
+        """Freeze messages and their receive clocks together, without waiting for new IO."""
+        with self._pose_condition:
+            return MavlinkState(messages=dict(self.state.messages),
+                                received_monotonic_ns=dict(self.state.received_monotonic_ns),
+                                received_vehicle_ms=dict(self.state.received_vehicle_ms),
+                                vehicle_time_boot_ms=self.state.vehicle_time_boot_ms)
+
     def gimbal_events_cursor(self) -> int:
         with self._pose_condition:
             return self._gimbal_event_sequence

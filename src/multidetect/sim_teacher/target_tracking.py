@@ -328,6 +328,23 @@ def _nearest_pointing(body_direction, previous, limits):
     return [c for c in candidates if c[0] >= score - 1e-12]
 
 
+def ingress_slew_joint(body_rotation, direction, previous, limits, endpoint, steps):
+    """At a roll stop, prefer an exact same-ray twist within one joint update.
+
+    `previous` is the continuous host setpoint, not feedback. A failed local
+    solve must leave the ordinary full-range endpoint (and its winding) alone.
+    """
+    if (min(abs(endpoint["roll"] - stop) for stop in limits["roll"]) > 1e-6
+            or all(abs(endpoint[a] - previous[a]) <= steps[a] + 1e-8 for a in AXES)):
+        return endpoint
+    bounds = {a: (max(lo, previous[a] - steps[a]), min(hi, previous[a] + steps[a]))
+              for a, (lo, hi) in limits.items()}
+    # Searching the same optical-axis twist family also preserves the normal
+    # horizon objective inside the feasible interval; never clip a quaternion.
+    local, _ = _exact_pointing(body_rotation, direction, previous, bounds)
+    return endpoint if local is None else local
+
+
 def solve_track_target(body_rotation, direction, previous, limits):
     """Lexicographic pointing, horizon, then joint travel; rates are separate."""
     from .horizon_stabilization import c11_rotation_deg
