@@ -716,6 +716,20 @@ class BridgeHorizonTarget(HorizonStabilizer):
         self.track_preview_s = float(track_preview_s)
         self._bridge_history = deque(maxlen=512)
 
+    @property
+    def track_targets(self):
+        return self._track_selection[0]
+
+    @track_targets.setter
+    def track_targets(self, targets):
+        self._track_selection = (targets, None)
+
+    def select_track_target(self, target, *, pass_midpoint=None):
+        if pass_midpoint is not None and pass_midpoint.old_target != target:
+            raise ValueError("pass midpoint must belong to the selected old target")
+        # Publish the scoring target and its control together to the bridge thread.
+        self._track_selection = ((target,), pass_midpoint)
+
     def record_bridge_status(self, row):
         if (row.get("message_type") != "NAMED_VALUE_FLOAT" or row.get("name") != "c11_hdeg"
                 or (row.get("_source_system"), row.get("_source_component")) != self.status_sender):
@@ -729,13 +743,17 @@ class BridgeHorizonTarget(HorizonStabilizer):
                 self._bridge_history.append((stamp, bool(value)))
 
     def frame_horizon_degraded(self, frame_stamp_ns, command):
+        status = self.bridge_status_at(frame_stamp_ns)
+        return status[1] if status is not None else None
+
+    def bridge_status_at(self, frame_stamp_ns):
         if frame_stamp_ns is None:
             return None
         frame_ms = frame_stamp_ns / 1e6
         with self._command_history_lock:
             for stamp, degraded in reversed(self._bridge_history):
                 if 0 <= frame_ms - stamp <= self.max_age_s * 1000:
-                    return degraded
+                    return stamp, degraded
                 if frame_ms - stamp > self.max_age_s * 1000:
                     break
         return None
@@ -795,7 +813,7 @@ class BridgeHorizonTarget(HorizonStabilizer):
         # One mode snapshot keeps target, flags and queued frame evidence consistent
         # when the collector switches modes on the action thread.
         mode = self.mode
-        track_targets = self.track_targets
+        track_targets, midpoint = self._track_selection
         if mode == "track":
             if self.last_time is not None and now_s < self.last_time:
                 return None
@@ -805,7 +823,9 @@ class BridgeHorizonTarget(HorizonStabilizer):
                     target_ref = target_ref or {"kind": "direction_ned", "vector": list(direction)}
                 elif position is not None and track_targets:
                     active = min(track_targets, key=lambda t: math.hypot(*world_offset_ned(position, t)))
-                    direction = world_target_direction(position, active)
+                    direction = midpoint.direction_at(position) if midpoint is not None else None
+                    if direction is None:
+                        direction = world_target_direction(position, active)
                     target_ref = active.reference()
                 else:
                     return None
@@ -869,6 +889,9 @@ class HostHorizonLoop:
         self.sent_count = 0
         self.ticket = None
         self._dispatch_sequence = None
+        self._pending_flags = None
+        # First confirmed host send in the current uninterrupted lock/follow run.
+        self.lock_dispatch = None
 
     def step(self):
         if self.session is not None:
@@ -881,11 +904,17 @@ class HostHorizonLoop:
             if self.ticket.error is not None:
                 raise RuntimeError("horizon transport failed") from self.ticket.error
             started_ns = getattr(self.ticket, "started_ns", None)
+            started_vehicle_ms = getattr(self.ticket, "started_vehicle_ms", None)
+            if self._pending_flags != 44:
+                self.lock_dispatch = None
+            elif (self.lock_dispatch is None and started_ns is not None
+                  and started_vehicle_ms is not None):
+                self.lock_dispatch = (self._dispatch_sequence, started_vehicle_ms)
             if self.record is not None and started_ns is not None and self._dispatch_sequence is not None:
                 self.record({
                     "message_type": "host_horizon_dispatch", "sequence": self._dispatch_sequence,
                     "send_started_monotonic_ns": started_ns,
-                    "send_started_vehicle_ms": self.ticket.started_vehicle_ms,
+                    "send_started_vehicle_ms": started_vehicle_ms,
                 })
             self._dispatch_sequence = None
         body, timestamp, *source = self.sample()
@@ -903,6 +932,7 @@ class HostHorizonLoop:
             self.stabilizer.record_command(result, source[0])
         self.sent_count += 1
         self._dispatch_sequence = self.sent_count
+        self._pending_flags = result.get("transport_flags")
         if self.record is not None and self.sent_count % 10 == 1:
             self.record({
                 "message_type": "host_horizon_command",

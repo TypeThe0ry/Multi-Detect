@@ -803,10 +803,18 @@ class LongRangePolicy:
                  gimbal_yaw_mode: str = "follow", fw_speed_mps: float | None = None,
                  track_targets: tuple[WorldTarget, ...] = (),
                  gimbal_eval: bool = False,
+                 fw_eval_switch_angles_deg: tuple[float | None, ...] | None = None,
                  fly_through_radius_m: float | list[float | None] | None = None) -> None:
         radii = (fly_through_radius_m if isinstance(fly_through_radius_m, list)
                  else [fly_through_radius_m] * len(targets))
         self.targets = iter(zip(targets, radii, strict=True))
+        self._next_switch_angles = None
+        if fw_eval_switch_angles_deg is not None:
+            if not vtol or not gimbal_eval or len(fw_eval_switch_angles_deg) != len(targets):
+                raise ValueError("FW eval needs a planned switch angle for each leg")
+            # Planner diagnostics describe entry to each leg; B runs on the outgoing leg.
+            self._next_switch_angles = iter((*fw_eval_switch_angles_deg[1:], None))
+            self._previous_ne = (0., 0.)
         self.radius = radius
         self.vtol = vtol
         self.fw_speed_mps = fw_speed_mps
@@ -832,10 +840,17 @@ class LongRangePolicy:
         if waypoint is None:
             return next(self.return_actions, None) or ActionPrimitive.stop()
         target, capture_radius = waypoint
+        metadata = {"long_range_home_relative": True}
+        if self._next_switch_angles is not None:
+            angle = next(self._next_switch_angles)
+            if capture_radius is not None and angle is not None:
+                metadata.update(long_range_leg_length_m=math.dist(self._previous_ne, target[:2]),
+                                fw_next_switch_angle_deg=angle)
+            self._previous_ne = target[:2]
         return MotionCommand("reposition", target_ned=target, radius_m=self.radius, speed_mps=self.fw_speed_mps,
                              action=ActionPrimitive.hold(1.0),
                              mode="FW" if self.vtol else None,
-                             metadata={"long_range_home_relative": True},
+                             metadata=metadata,
                              fly_through_radius_m=capture_radius)
 
     def close(self) -> None:
@@ -896,7 +911,8 @@ def _fw_plane_passage(previous, current, tangent, target_ne):
 
 
 def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
-                 offboard_streamer=None, fw_pass_tangent=None, wall=time.monotonic, sleep=time.sleep) -> dict[str, Any]:
+                 offboard_streamer=None, fw_pass_tangent=None, on_passage=None,
+                 wall=time.monotonic, sleep=time.sleep) -> dict[str, Any]:
     """按 PX4 仿真时间等待；另设墙钟与时钟停滞上限，实时检查任务围栏。"""
     _, home_ned = collector._home_reference(reader.state)
     command = bind_target(command, home_ned)
@@ -1018,6 +1034,13 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
                 collector._progress("long_range_waypoint_pass", sim_stamp_ns=stamp,
                                     position_home_ned_m=relative, along_past_target_m=along, cross_track_m=cross,
                                     **passage)
+                # Sampled/radius-only arrivals need not have observed the plane crossing.
+                if on_passage is not None and plane_pass:
+                    on_passage({
+                        **passage, "sim_stamp_ns": stamp,
+                        "position_home_ned_m": relative,
+                        "along_past_target_m": along, "cross_track_m": cross,
+                    })
             return {"waited": "arrived", "distance_m": distance, "leg_m": leg,
                     "elapsed_s": wall() - started, "sim_elapsed_s": (stamp - first_stamp) / 1e9,
                     "sim_budget_s": sim_budget, "wall_budget_s": wall_budget,
@@ -1042,6 +1065,8 @@ def collector_overrides(collector, mission):
         "flight_margin_revision") in scenario_policy.FW_PASS_REVISIONS
 
     class LongRangeExecutor(original_executor):
+        has_fw_end_plane = bounded_pass
+
         def __init__(self, *args, **kwargs):
             nonlocal offboard_streamer
             super().__init__(*args, **kwargs)
@@ -1112,11 +1137,12 @@ def collector_overrides(collector, mission):
             return ExecutionResult("success", self._clock() - started,
                                    ack={"offboard_path": {"target_ned_m": target, "tangent_ne": tangent}})
 
-    def wait(command, reader, cruise_mps):
+    def wait(command, reader, cruise_mps, *, on_passage=None):
         if command.kind == "reposition":
             return wait_for_leg(command, reader, collector=collector, mission=mission, cruise_mps=cruise_mps,
                                 offboard_streamer=offboard_streamer if offboard_active else None,
-                                fw_pass_tangent=fw_pass_tangent if command.fly_through_radius_m is not None else None)
+                                fw_pass_tangent=fw_pass_tangent if command.fly_through_radius_m is not None else None,
+                                **({"on_passage": on_passage} if on_passage is not None else {}))
         if command.kind in {"mc_reposition", "mc_hold"}:
             command = bind_target(command, collector._home_reference(reader.state)[1])
         result = original_wait(command, reader, cruise_mps=cruise_mps)
@@ -1275,6 +1301,8 @@ def main(argv: list[str] | None = None) -> int:
                     gimbal_pitch_deg=mission["gimbal_pitch_deg"],
                     gimbal_mode=args.gimbal_mode, gimbal_yaw_mode=args.gimbal_yaw_mode,
                     track_targets=plan.track_targets, gimbal_eval=args.gimbal_eval,
+                    fw_eval_switch_angles_deg=(tuple(row["switch_los_deg"] for row in fw_diagnostics)
+                                               if plan.gimbal_eval_fw_legs else None),
                     fly_through_radius_m=(mission["route_preflight"] or {}).get("fly_through_radius_m"),
                 )
                 episode = collector.run_episode(plan, Path(plan.truth), 0,
