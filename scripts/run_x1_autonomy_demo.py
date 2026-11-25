@@ -299,16 +299,23 @@ def make_scenario(args, mission, steps, record):
         return None
     make_decision = None
     if args.decision_port is not None:
+        from multidetect.autonomy.x1_motion_proof import X1MotionProofBuilder
+
         backend = llama_decisions(args.decision_port, args.sentence)
         profile = load_airframe_profile(PROFILE)
+        package = mission["scenario_package"]
+        builder = X1MotionProofBuilder(
+            package, profile, mission["terrain"], steps,
+            mission_radius_m=package.document["x1_planning"]["max_distance_from_home_m"],
+        )
 
         def make_decision(gimbal, emit, episode_id, peer):
-            return DecisionTick(mission["scenario_package"], profile, backend, gimbal, emit,
+            return DecisionTick(package, profile, backend, gimbal, emit,
                                 run_id=episode_id, plan_digest=record["compiled_mission_sha256"],
-                                revision=mission["scenario_revision"], peer=peer)
+                                revision=mission["scenario_revision"], peer=peer, build_proof=builder)
 
     return CollectorScenario(faults, clearance=forward_clearance(steps, mission["terrain"]),
-                             make_decision=make_decision)
+                             make_decision=make_decision, terrain=mission["terrain"])
 
 
 def _restore_env(name, previous):

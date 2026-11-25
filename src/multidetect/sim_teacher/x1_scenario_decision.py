@@ -8,7 +8,11 @@ from dataclasses import asdict, replace
 from urllib.request import Request, urlopen
 
 from multidetect.autonomy.x1_contingency_executor import (
-    DECISION_SCHEMA, MAX_DECISION_BYTES, X1AirbornePlanAdapter, X1ContingencyExecutor, X1Envelope,
+    DECISION_SCHEMA,
+    MAX_DECISION_BYTES,
+    X1AirbornePlanAdapter,
+    X1ContingencyExecutor,
+    X1Envelope,
 )
 from multidetect.autonomy.x1_contingency_state import X1StateBuilder
 
@@ -49,7 +53,8 @@ class DecisionTick:
     """Submit on a worker. Validate and apply on the serialized collector tick."""
 
     def __init__(self, package, profile, backend, gimbal_port, record, *, run_id, plan_digest,
-                 revision=1, peer=(1, 1), now_ms=lambda: time.monotonic_ns() // 1_000_000):
+                 revision=1, peer=(1, 1), now_ms=lambda: time.monotonic_ns() // 1_000_000,
+                 build_proof=None):
         self.builder = X1StateBuilder(vehicle_system=peer[0], vehicle_component=peer[1])
         self.executor = X1ContingencyExecutor(
             X1AirbornePlanAdapter(revision, replace_remaining=lambda *_: False), gimbal_port,
@@ -60,6 +65,7 @@ class DecisionTick:
         self.revision = revision
         self.backend, self.record, self.now_ms = backend, record, now_ms
         self.run_id, self.plan_digest = run_id, plan_digest
+        self.build_proof = build_proof
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="x1-altair-decision")
         self.future = None
         self.last_requested = 0
@@ -68,7 +74,7 @@ class DecisionTick:
         self.record({"message_type": f"scenario_decision_{phase}",
                      "receive_monotonic_ns": time.monotonic_ns(), **fields})
 
-    def tick(self, frame, *, mav_rows=(), observations=(), events=(), event_current=True):
+    def tick(self, frame, *, mav_rows=(), observations=(), events=(), event_current=True, wind=None):
         now = self.now_ms()
         for row in sorted(mav_rows, key=lambda row: row["receive_monotonic_ns"]):
             stamp = row["receive_monotonic_ns"] // 1_000_000
@@ -79,8 +85,12 @@ class DecisionTick:
         for group, values, source in observations:
             self.builder.observe(now, group, values, source=source)
         for event, source in events:
-            self.builder.event(now, event, source=source)
+            confidence = wind.confidence if event == "wind_step" and wind is not None else None
+            self.builder.event(now, event, source=source, confidence=confidence)
         snapshot = self.builder.snapshot(now, mission_id=self.mission_id, revision=self.revision)
+        if wind is not None:
+            # This tick's selected reading already carries its own kinematic timestamp.
+            snapshot["telemetry"]["wind"] = wind.telemetry(now)
         self.last_tick_ms = now
         event_id = snapshot["latest_event_id"]
         if self.future is not None and self.future.done():
@@ -89,7 +99,8 @@ class DecisionTick:
                 if isinstance(wire, str) and len(wire.encode()) > MAX_DECISION_BYTES:
                     wire = ""
                 current_id = event_id if event_current else 0
-                admission = self.executor.apply(wire, replace(frame, t_ms=now, event_id=current_id), now_ms=now)
+                admission = self.executor.apply(wire, replace(frame, event_id=current_id), now_ms=now,
+                                                build_proof=self.build_proof)
             except Exception as exc:
                 self._mark("error", request_id=self.request_id, error=type(exc).__name__)
             else:
@@ -100,6 +111,7 @@ class DecisionTick:
         if self.future is None and event_current and snapshot["events"] and event_id != self.last_requested:
             self.last_requested = event_id
             request = self.executor.open_request(snapshot, run_id=self.run_id,
+                                                 hold_refs=tuple(frame.hold_sites),
                                                  remaining_plan_sha256=self.plan_digest)
             self.request_id = request["request_id"]
             self._mark("request", request=request)
