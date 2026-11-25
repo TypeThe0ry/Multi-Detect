@@ -746,6 +746,9 @@ def assemble_runtime_executor(
                 if isinstance(retry_setting, str)
                 else bool(retry_setting)
             )
+            from multidetect.autonomy.x1_plan import x1_planner_context
+
+            x1_context = x1_planner_context(self.mission_package) if self.mission_package else None
             plan_checker = (
                 (
                     lambda candidate: check_plan_against_package(
@@ -755,7 +758,7 @@ def assemble_runtime_executor(
                         executor_config=executor_config,
                     )
                 )
-                if package_retry and self.mission_package is not None
+                if (package_retry or x1_context) and self.mission_package is not None
                 else None
             )
 
@@ -805,6 +808,7 @@ def assemble_runtime_executor(
                             options.get("planning_decision_contract", False)
                         ),
                         enable_plan_pregate=bool(options.get("planning_pregate", False)),
+                        **({"x1_context": x1_context} if x1_context else {}),
                     )
                 except Exception:
                     # ``post`` records HTTP outcomes; do not count an

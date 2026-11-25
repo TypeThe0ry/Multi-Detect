@@ -20,7 +20,9 @@ from typing import Any
 
 from multidetect.autonomy.mission_package import check_plan_against_package
 from multidetect.autonomy.capability_contract import capability_violations
+from multidetect.autonomy.x1_plan import X1_CAPABILITY, X1_PARAM_KEYS, x1_param_schema, x1_prompt_rules
 from multidetect.autonomy.mission_plan import (
+    X1_SKILL_SPECS,
     PLAN_DECISION_JSON_SCHEMAS,
     SKILLS,
     MissionPlan,
@@ -33,7 +35,7 @@ from multidetect.autonomy.plan_intent import (
     intent_error,
     repair_plan_intent,
 )
-from multidetect.autonomy.serialization import AutonomyContractError
+from multidetect.autonomy.serialization import AutonomyContractError, strict_json_loads
 
 _PARAM_SCHEMA: dict[str, dict[str, Any]] = {
     "ref": {"type": "string", "minLength": 4, "maxLength": 48},
@@ -230,9 +232,14 @@ EXAMPLES: tuple[tuple[str, dict[str, Any]], ...] = (
 )
 
 
-def _step_schema(skill: str) -> dict[str, Any]:
-    spec = SKILLS[skill]
-    params = {name: _PARAM_SCHEMA[spec.param_types[name]] for name in sorted(spec.allowed_params)}
+def _step_schema(skill: str, *, x1: bool = False) -> dict[str, Any]:
+    spec = X1_SKILL_SPECS[skill] if skill in X1_SKILL_SPECS else SKILLS[skill]
+    params = {
+        name: x1_param_schema(kind) if kind in X1_PARAM_KEYS else _PARAM_SCHEMA[kind]
+        for name, kind in sorted(spec.param_types.items())
+    }
+    if skill == "return_home" and x1:
+        params = {}
     return {
         "type": "object",
         "additionalProperties": False,
@@ -261,6 +268,10 @@ def plan_json_schema(
         if not spec.gated or "payload" in capabilities
         or include_decision_contract and "payload_drop" in capabilities
     ]
+    x1 = X1_CAPABILITY in capabilities
+    if x1:
+        skills = [name for name in X1_SKILL_SPECS
+                  if name != "gimbal_stare_at" or "gimbal_control" in capabilities] + ["return_home"]
     mission_schema = {
         "type": "object",
         "additionalProperties": False,
@@ -272,7 +283,7 @@ def plan_json_schema(
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 8,
-                "items": {"anyOf": [_step_schema(name) for name in skills]},
+                "items": {"anyOf": [_step_schema(name, x1=x1) for name in skills]},
             },
             "report": {
                 "type": "array",
@@ -281,7 +292,7 @@ def plan_json_schema(
             },
         },
     }
-    if include_decision_contract:
+    if include_decision_contract or x1:
         # Closed, mutually exclusive branches keep constrained decoding compatible
         # with llama.cpp while allowing legacy MissionPlan documents.
         return {"anyOf": [mission_schema, *PLAN_DECISION_JSON_SCHEMAS]}
@@ -355,6 +366,7 @@ def plan_prompt_parts(
     capabilities: frozenset[str] = frozenset(),
     airframe: Any = None,
     include_decision_contract: bool = False,
+    x1_context: Mapping | None = None,
 ) -> dict[str, str]:
     """Ordered prompt sections, including delimiters; concatenate values to render.
 
@@ -429,6 +441,13 @@ def plan_prompt_parts(
         examples = ()
     elif prompt_variant == "two_examples":
         examples = EXAMPLES[:2]
+    if X1_CAPABILITY in capabilities:
+        lines = x1_prompt_rules(capabilities, x1_context)
+        lines.append("If unsafe, return a structured decision with plan_version=1, decision=reject, "
+                     "reason_code (unsafe_request or missing_capability), reason, missing_capabilities, "
+                     "unresolved_refs, question=null. For an unknown or ambiguous reference use decision=clarify, "
+                     "reason_code=unknown_place or ambiguous_task, and a question. Do not invent coordinates.")
+        examples = ()
     return {
         "system": "You plan drone missions. Turn the task into a JSON mission plan "
         "of bounded skills.\n",
@@ -451,6 +470,7 @@ def plan_prompt(
     prompt_variant: str = "default",
     capabilities: frozenset[str] = frozenset(),
     include_decision_contract: bool = False,
+    x1_context: Mapping | None = None,
 ) -> str:
     """Instruction for the slow model; defaults match the training prompt exactly."""
     return "".join(
@@ -461,6 +481,7 @@ def plan_prompt(
             prompt_variant=prompt_variant,
             capabilities=capabilities,
             include_decision_contract=include_decision_contract,
+            x1_context=x1_context,
         ).values()
     )
 
@@ -537,6 +558,7 @@ def compile_mission_plan(
     airframe: Any = None,
     check_intent: bool = True,
     include_decision_contract: bool = False,
+    x1_context: Mapping | None = None,
 ) -> tuple[MissionPlan | PlanDecision | None, dict[str, Any]]:
     """Compile, repair and validate a plan, retrying with the rejection reason.
 
@@ -553,7 +575,11 @@ def compile_mission_plan(
     schema = schema if schema is not None else plan_json_schema(
         capabilities=capabilities, include_decision_contract=include_decision_contract
     )
+    x1 = X1_CAPABILITY in capabilities
     report: dict[str, Any] = {"raw": "", "attempts": [], "repairs": [], "error": None}
+    if x1 and (not x1_context or plan_checker is None):
+        report["error"] = "X1 planning requires an operator corridor and a package checker"
+        return None, report
     error: str | None = None
     for attempt in range(attempts):
         started = time.perf_counter()
@@ -570,6 +596,7 @@ def compile_mission_plan(
                     prompt_variant=prompt_variant,
                     capabilities=capabilities,
                     include_decision_contract=include_decision_contract,
+                    x1_context=x1_context,
                 ),
                 schema,
             )
@@ -578,7 +605,7 @@ def compile_mission_plan(
         else:
             report["raw"] = raw
             try:
-                document = json.loads(raw)
+                document = strict_json_loads(raw, name="X1 planner output") if x1 else json.loads(raw)
                 if not isinstance(document, dict):
                     raise ValueError("mission plan must be a JSON object")
                 if document.get("decision") in {"reject", "clarify"}:
@@ -586,9 +613,9 @@ def compile_mission_plan(
                     report["decision"] = decision
                     report["error"] = None
                     return decision, report
-                document, notes = repair_plan_document(document)
+                document, notes = (document, []) if x1 else repair_plan_document(document)
                 document, ref_notes, unknown = check_plan_refs(
-                    document, tuple(refs), substitute=last
+                    document, tuple(refs), substitute=last and not x1
                 )
                 if unknown:
                     raise ValueError(
@@ -616,7 +643,7 @@ def compile_mission_plan(
                 if check_intent:
                     findings = check_plan_intent(plan, task_text, refs)
                     blocking = [f for f in findings if f.blocking]
-                    if blocking and last and all(f.code in _INTENT_REPAIRABLE for f in blocking):
+                    if blocking and last and not x1 and all(f.code in _INTENT_REPAIRABLE for f in blocking):
                         document, intent_notes = repair_plan_intent(document, blocking)
                         plan = validate_mission_plan(document, capabilities=capabilities)
                         notes = notes + intent_notes

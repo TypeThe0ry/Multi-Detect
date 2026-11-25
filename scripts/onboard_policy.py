@@ -168,6 +168,7 @@ def build_mission_from_text(
     airframe: Any = None,
     include_decision_contract: bool = False,
     enable_plan_pregate: bool = False,
+    x1_context: Mapping | None = None,
 ) -> tuple[MissionPlan | PlanDecision, dict[str, Any]]:
     """Compile a task; explicit reject/clarify results never get a flight fallback."""
     if enable_plan_pregate:
@@ -199,10 +200,15 @@ def build_mission_from_text(
         capabilities=capabilities,
         airframe=airframe,
         include_decision_contract=include_decision_contract,
+        x1_context=x1_context,
     )
     if isinstance(plan, PlanDecision):
         return plan, report
     if plan is None:
+        from multidetect.autonomy.x1_plan import X1_CAPABILITY
+
+        if X1_CAPABILITY in capabilities:
+            raise ValueError(f"X1 planner did not produce an admissible plan: {report['error']}")
         plan = validate_mission_plan(
             {
                 "plan_version": 1,

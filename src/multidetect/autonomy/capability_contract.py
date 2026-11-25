@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .x1_plan import X1_CAPABILITY, X1_PROFILE_IDS
+
 SKILL_REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     "deliver": frozenset({"payload_drop"}),
     "hover": frozenset({"hover"}),
@@ -25,6 +27,7 @@ KNOWN_CAPABILITIES = frozenset(
         "landing_on_target",
         "hover",
         "gimbal_control",
+        X1_CAPABILITY,
     }
 )
 
@@ -46,6 +49,8 @@ def normalize_capabilities(values: Any) -> frozenset[str]:
 def capabilities_for_airframe(profile: Any, configured: Any = ()) -> frozenset[str]:
     """Resolve physical capabilities from config and an AirframeProfile."""
     result = set(normalize_capabilities(configured))
+    if getattr(profile, "id", None) not in X1_PROFILE_IDS:
+        result.discard(X1_CAPABILITY)
     if getattr(profile, "can_hover", False):
         result.add("hover")
     if getattr(profile, "category", None) == "fixed_wing":

@@ -439,6 +439,12 @@ class MissionExecutor:
         camera_mount: CameraMount | None = None,
         gimbal_controller: GimbalController | None = None,
     ) -> None:
+        from .x1_plan import X1_CAPABILITY, X1_SKILLS
+
+        bound_package = mission_package if mission_package is not None else package
+        if (X1_CAPABILITY in capabilities or "x1_planning" in getattr(bound_package, "document", {})
+                or isinstance(plan, MissionPlan) and any(step.skill in X1_SKILLS for step in plan.steps)):
+            raise ValueError("X1 plans require the X1 SIM primitive adapter, not the stock executor")
         # Validate the contract here; execution gates fail the step through on_fail.
         self.plan = (
             plan

@@ -1,0 +1,634 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "X1 SIM plan v1 or decision",
+  "anyOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_version",
+        "goal",
+        "steps",
+        "report"
+      ],
+      "properties": {
+        "plan_version": {
+          "type": "integer",
+          "enum": [
+            1
+          ]
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "skill",
+                  "params",
+                  "on_success",
+                  "on_fail"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "skill": {
+                    "type": "string",
+                    "enum": [
+                      "vtol_takeoff"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "altitude_agl_m"
+                    ],
+                    "properties": {
+                      "altitude_agl_m": {
+                        "type": "number",
+                        "minimum": 40,
+                        "maximum": 120
+                      }
+                    }
+                  },
+                  "on_success": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  },
+                  "on_fail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "skill",
+                  "params",
+                  "on_success",
+                  "on_fail"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "skill": {
+                    "type": "string",
+                    "enum": [
+                      "fw_transition"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [],
+                    "properties": {}
+                  },
+                  "on_success": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  },
+                  "on_fail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "skill",
+                  "params",
+                  "on_success",
+                  "on_fail"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "skill": {
+                    "type": "string",
+                    "enum": [
+                      "fw_goto_waypoint"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "altitude_agl_m",
+                      "target_ref"
+                    ],
+                    "properties": {
+                      "altitude_agl_m": {
+                        "type": "number",
+                        "minimum": 40,
+                        "maximum": 120
+                      },
+                      "target_ref": {
+                        "type": "string",
+                        "minLength": 4,
+                        "maxLength": 48
+                      }
+                    }
+                  },
+                  "on_success": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  },
+                  "on_fail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "skill",
+                  "params",
+                  "on_success",
+                  "on_fail"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "skill": {
+                    "type": "string",
+                    "enum": [
+                      "loiter_observe"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "altitude_agl_m",
+                      "duration_s",
+                      "radius_m",
+                      "target_ref"
+                    ],
+                    "properties": {
+                      "altitude_agl_m": {
+                        "type": "number",
+                        "minimum": 40,
+                        "maximum": 120
+                      },
+                      "duration_s": {
+                        "type": "number",
+                        "minimum": 5,
+                        "maximum": 120
+                      },
+                      "radius_m": {
+                        "type": "number",
+                        "minimum": 50,
+                        "maximum": 150
+                      },
+                      "target_ref": {
+                        "type": "string",
+                        "minLength": 4,
+                        "maxLength": 48
+                      }
+                    }
+                  },
+                  "on_success": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  },
+                  "on_fail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "skill",
+                  "params",
+                  "on_success",
+                  "on_fail"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "skill": {
+                    "type": "string",
+                    "enum": [
+                      "find_object_then_return"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "altitude_agl_m",
+                      "duration_s",
+                      "query",
+                      "radius_m",
+                      "region"
+                    ],
+                    "properties": {
+                      "altitude_agl_m": {
+                        "type": "number",
+                        "minimum": 40,
+                        "maximum": 120
+                      },
+                      "duration_s": {
+                        "type": "number",
+                        "minimum": 5,
+                        "maximum": 120
+                      },
+                      "query": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "radius_m": {
+                        "type": "number",
+                        "minimum": 50,
+                        "maximum": 150
+                      },
+                      "region": {
+                        "type": "string",
+                        "minLength": 6,
+                        "maxLength": 48,
+                        "pattern": "^zone:.+"
+                      }
+                    }
+                  },
+                  "on_success": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  },
+                  "on_fail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "skill",
+                  "params",
+                  "on_success",
+                  "on_fail"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "skill": {
+                    "type": "string",
+                    "enum": [
+                      "gimbal_stare_at"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "altitude_agl_m",
+                      "duration_s",
+                      "radius_m",
+                      "target_ref"
+                    ],
+                    "properties": {
+                      "altitude_agl_m": {
+                        "type": "number",
+                        "minimum": 40,
+                        "maximum": 120
+                      },
+                      "duration_s": {
+                        "type": "number",
+                        "minimum": 5,
+                        "maximum": 120
+                      },
+                      "radius_m": {
+                        "type": "number",
+                        "minimum": 50,
+                        "maximum": 150
+                      },
+                      "target_ref": {
+                        "type": "string",
+                        "minLength": 4,
+                        "maxLength": 48
+                      }
+                    }
+                  },
+                  "on_success": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  },
+                  "on_fail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "skill",
+                  "params",
+                  "on_success",
+                  "on_fail"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "skill": {
+                    "type": "string",
+                    "enum": [
+                      "back_transition"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [],
+                    "properties": {}
+                  },
+                  "on_success": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  },
+                  "on_fail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "skill",
+                  "params",
+                  "on_success",
+                  "on_fail"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "skill": {
+                    "type": "string",
+                    "enum": [
+                      "return_home"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [],
+                    "properties": {}
+                  },
+                  "on_success": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  },
+                  "on_fail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 8
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "report": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_version",
+        "decision",
+        "reason_code",
+        "reason",
+        "missing_capabilities",
+        "unresolved_refs",
+        "question"
+      ],
+      "properties": {
+        "plan_version": {
+          "type": "integer",
+          "enum": [
+            1
+          ]
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ambiguous_task",
+            "missing_capability",
+            "ungrounded_query",
+            "unknown_place",
+            "unsafe_request"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "missing_capabilities": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "unresolved_refs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          }
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "reject"
+          ]
+        },
+        "question": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_version",
+        "decision",
+        "reason_code",
+        "reason",
+        "missing_capabilities",
+        "unresolved_refs",
+        "question"
+      ],
+      "properties": {
+        "plan_version": {
+          "type": "integer",
+          "enum": [
+            1
+          ]
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ambiguous_task",
+            "missing_capability",
+            "ungrounded_query",
+            "unknown_place",
+            "unsafe_request"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "missing_capabilities": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "unresolved_refs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          }
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "clarify"
+          ]
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      }
+    }
+  ]
+}

@@ -95,7 +95,7 @@ def validate_plan_for_execution(
         package.document.get("capabilities", ())
     )
     try:
-        candidate, terminal_repair = _repair_missing_terminal(plan)
+        candidate, terminal_repair = (plan, None) if "x1_planning" in package.document else _repair_missing_terminal(plan)
         checked = _as_plan(candidate, available)
     except (TypeError, ValueError, KeyError, AttributeError) as exc:
         return PlanValidationResult("reject", None, (f"计划结构或能力不合法：{exc}",))
@@ -148,12 +148,13 @@ def validate_plan_for_execution(
     intent = check_plan_intent(
         checked,
         prompt,
-        package.refs,
+        ({ref: package.document.get("ref_labels", {}).get(ref, "") for ref in package.refs}
+         if "x1_planning" in package.document else package.refs),
         declared_plan=package.plan,
     )
     blocking = [item for item in intent if item.blocking]
     hard_intent = [
-        item for item in blocking if item.code in {"ungrounded_place", "return_intent_land"}
+        item for item in blocking if item.code in {"ungrounded_place", "return_intent_land", "x1_altitude_intent"}
     ]
     if hard_intent:
         return PlanValidationResult(
