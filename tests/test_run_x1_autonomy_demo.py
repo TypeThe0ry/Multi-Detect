@@ -74,6 +74,28 @@ def test_prepare_recorded_cli(inputs, flag):
     assert -120 <= target[2] <= -40
 
 
+def test_wind_airspeed_flag_requires_selected_wind_step(inputs, tmp_path):
+    response, argv, result = inputs
+    response.write_text(raw_plan(), encoding="utf-8")
+    plugin = tmp_path / "test-plugin.so"
+    plugin.touch()
+    schedule = demo.ROOT / "configs/simulation/x1-contingency-faults-v1.json"
+    assert demo.main([*argv, "--plan-only", "--contingency-scenario", str(schedule),
+                      "--inject-fault", "battery_drop", "--wind-airspeed-plugin", str(plugin)]) == 1
+    assert "requires a selected wind_step" in json.loads(result.read_text())["validator"]["reason"]
+
+
+def test_wind_airspeed_flag_records_opt_in_for_wind_step(inputs, tmp_path):
+    response, argv, result = inputs
+    response.write_text(raw_plan(), encoding="utf-8")
+    plugin = tmp_path / "test-plugin.so"
+    plugin.touch()
+    schedule = demo.ROOT / "configs/simulation/x1-contingency-faults-v1.json"
+    assert demo.main([*argv, "--plan-only", "--contingency-scenario", str(schedule),
+                      "--inject-fault", "wind_step", "--wind-airspeed-plugin", str(plugin)]) == 0
+    assert json.loads(result.read_text())["contingency_scenario"]["wind_airspeed_plugin"] == str(plugin)
+
+
 @pytest.mark.parametrize(("response_text", "code", "reason"), [
     (raw_plan(altitude=121), "INVALID_PLAN", "altitude_agl_m"),
     ('{"plan_version":', "INVALID_PLAN", "JSON"),

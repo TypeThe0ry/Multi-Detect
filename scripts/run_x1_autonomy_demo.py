@@ -51,8 +51,24 @@ def read_object(path: Path) -> dict:
     return value
 
 
+def _finite(value, counter):
+    """Non-finite telemetry (e.g. PX4 airspeed NaN after sensor invalidation) is recorded as null, and counted."""
+    if isinstance(value, float) and not math.isfinite(value):
+        counter[0] += 1
+        return None
+    if isinstance(value, dict):
+        return {key: _finite(item, counter) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(item, counter) for item in value]
+    return value
+
+
 def write_result(path: Path, value: dict) -> None:
     temp = path.with_suffix(".tmp")
+    counter = [0]
+    value = _finite(value, counter)
+    if counter[0]:
+        value["nonfinite_values_nulled"] = counter[0]
     temp.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     temp.replace(path)
 
@@ -330,6 +346,7 @@ def fly(args, collector_plan, steps, mission, record):
     from scripts.realworld import collection_guard, x1_gpu, x1_resume
     from scripts.realworld.x1_lock import LOCK, flight_lock
     from scripts.sitl_lock import SITL_LOCK_HELD_ENV, SitlLock, sitl_lock_context
+    from scripts.run_simulator_docker import X1_WIND_AIRSPEED_ENV
 
     if Path(sys.executable).resolve() != Path(long_range.SITL_PYTHON).resolve():
         raise ValueError(f"live SITL must use {long_range.SITL_PYTHON}")
@@ -352,14 +369,20 @@ def fly(args, collector_plan, steps, mission, record):
                                gpu_render=True, gpu_device=str(gpu), gpu_devices=(str(gpu),))
                 with ExitStack() as stack:
                     scenario = make_scenario(args, mission, steps, record)
+                    # Only this invocation's explicit flag can opt an X1 episode in.
+                    plugin = getattr(args, "wind_airspeed_plugin", None)
+                    stack.callback(_restore_env, X1_WIND_AIRSPEED_ENV,
+                                   os.environ.pop(X1_WIND_AIRSPEED_ENV, None))
                     if scenario is not None and any(f.kind == "wind_step" for f in scenario.faults):
                         env_key = "MULTIDETECT_RTF_SERVER_CONFIG"
                         previous = os.environ.get(env_key)
                         source = Path(previous) if previous else ROOT / "simulation/gazebo/server-wide-area.config"
                         modified_config = args.output / "x1-wind-server.config"
-                        wind_server_config(source, modified_config)
+                        wind_server_config(source, modified_config, wind_relative_airspeed=plugin is not None)
                         os.environ[env_key] = str(modified_config)
                         stack.callback(_restore_env, env_key, previous)
+                        if plugin is not None:
+                            os.environ[X1_WIND_AIRSPEED_ENV] = str(plugin)
                     stack.enter_context(long_range.collector_overrides(
                         collector, mission, x1_heading_deg=steps[1].required_mc_heading_deg))
                     record["flight"]["status"] = "started"
@@ -430,6 +453,13 @@ def run(args, *, post, launch=fly):
                 "clock": "PX4 LOCAL_POSITION_NED.time_boot_ms at first route tick",
                 "faults": [asdict(fault) for fault in faults], "decision_port": args.decision_port,
             }
+        plugin = getattr(args, "wind_airspeed_plugin", None)
+        if plugin is not None:
+            if not any(fault.kind == "wind_step" for fault in faults):
+                raise ValueError("--wind-airspeed-plugin requires a selected wind_step fault")
+            if not plugin.is_file():
+                raise ValueError(f"--wind-airspeed-plugin is not a file: {plugin}")
+            record["contingency_scenario"]["wind_airspeed_plugin"] = str(plugin)
         document = read_object(args.mission_package)
         if "plan" in document:
             raise X1PlanError("PRECOMPILED_PLAN", "demo input must not contain a precomputed plan")
@@ -487,6 +517,8 @@ def main(argv=None):
     parser.add_argument("--contingency-scenario", type=Path, help="opt in to X1 fault schedule JSON")
     parser.add_argument("--inject-fault", action="append", choices=sorted(SUPPORTED), default=[],
                         help="select a SITL-supported fault from a mixed replay schedule (repeatable)")
+    parser.add_argument("--wind-airspeed-plugin", type=lambda p: Path(p).resolve(), metavar="SO",
+                        help="replace stock Gazebo AirSpeed for a selected wind_step (default: off)")
     parser.add_argument("--decision-port", type=int, metavar="PORT",
                         help="local onboard Altair llama-server port for live contingency requests")
     parser.add_argument("--mission-package", required=True, type=Path, help="site references and constraints, without a plan")

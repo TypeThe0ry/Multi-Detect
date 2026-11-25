@@ -512,6 +512,52 @@ def test_rtf_server_config_is_optional_and_must_be_a_regular_file(
         )
 
 
+def test_x1_wind_airspeed_mount_requires_opt_in_and_replacement_config(tmp_path, monkeypatch):
+    from multidetect.sim_teacher.x1_scenario import wind_server_config
+
+    scenario_id = "rw_farm_iowa_w6km__clear_noon"
+    scenario = ROOT / f"configs/scenarios/realworld/delta_tailsitter_gimbal_cam/{scenario_id}.scenario.json"
+    world = tmp_path / f"{scenario_id}.sdf"
+    world.write_text(
+        '<sdf version="1.9"><world name="default"><spherical_coordinates>'
+        '<surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation>'
+        '<latitude_deg>42.015</latitude_deg><longitude_deg>-93.71</longitude_deg>'
+        '<elevation>318.23</elevation></spherical_coordinates></world></sdf>',
+        encoding="utf-8",
+    )
+    source = ROOT / "simulation/gazebo/server-wide-area.config"
+    enabled_config = tmp_path / "enabled.config"
+    plugin = tmp_path / "host-plugin.so"
+    plugin.write_bytes(b"mount-test-fixture")
+    monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(source))
+    env = simulator_docker.X1_WIND_AIRSPEED_ENV
+    monkeypatch.delenv(env, raising=False)
+
+    def plan(job):
+        return build_docker_simulator_plan(scenario, repository_root=ROOT,
+                                           job_dir=tmp_path / job, world_sdf_path=world)
+
+    nominal = plan("nominal")
+    assert "GZ_SIM_SYSTEM_PLUGIN_PATH" not in nominal.command[-1]
+    assert "x1_wind_airspeed" not in nominal.to_mapping()["mounts"]
+    monkeypatch.setenv(env, str(plugin))
+    with pytest.raises(DockerSimulatorPlanError, match="single replacement AirSpeed"):
+        plan("stock-rejected")
+
+    wind_server_config(source, enabled_config, wind_relative_airspeed=True)
+    monkeypatch.setenv("MULTIDETECT_RTF_SERVER_CONFIG", str(enabled_config))
+    enabled = plan("enabled")
+    mount = enabled.to_mapping()["mounts"]["x1_wind_airspeed"]
+    assert mount == {"host": str(plugin), "container": simulator_docker.CONTAINER_X1_WIND_AIRSPEED,
+                     "readonly": True, "sha256": hashlib.sha256(plugin.read_bytes()).hexdigest()}
+    assert f'type=bind,source={plugin},target={mount["container"]},readonly' in enabled.command
+    assert ('export GZ_SIM_SYSTEM_PLUGIN_PATH="/opt/multidetect-x1-plugins'
+            '${GZ_SIM_SYSTEM_PLUGIN_PATH:+:$GZ_SIM_SYSTEM_PLUGIN_PATH}"') in enabled.command[-1]
+    monkeypatch.setenv(env, str(tmp_path / "missing.so"))
+    with pytest.raises(DockerSimulatorPlanError, match="is not a file"):
+        plan("missing-rejected")
+
+
 def test_docker_plan_uses_selected_network_for_container_and_px4_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
