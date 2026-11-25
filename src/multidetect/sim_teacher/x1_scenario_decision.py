@@ -8,7 +8,11 @@ from dataclasses import asdict, replace
 from urllib.request import Request, urlopen
 
 from multidetect.autonomy.x1_contingency_executor import (
-    DECISION_SCHEMA, MAX_DECISION_BYTES, X1AirbornePlanAdapter, X1ContingencyExecutor, X1Envelope,
+    DECISION_SCHEMA,
+    MAX_DECISION_BYTES,
+    X1AirbornePlanAdapter,
+    X1ContingencyExecutor,
+    X1Envelope,
 )
 from multidetect.autonomy.x1_contingency_state import X1StateBuilder
 
@@ -70,7 +74,7 @@ class DecisionTick:
         self.record({"message_type": f"scenario_decision_{phase}",
                      "receive_monotonic_ns": time.monotonic_ns(), **fields})
 
-    def tick(self, frame, *, mav_rows=(), observations=(), events=(), event_current=True):
+    def tick(self, frame, *, mav_rows=(), observations=(), events=(), event_current=True, wind=None):
         now = self.now_ms()
         for row in sorted(mav_rows, key=lambda row: row["receive_monotonic_ns"]):
             stamp = row["receive_monotonic_ns"] // 1_000_000
@@ -81,8 +85,12 @@ class DecisionTick:
         for group, values, source in observations:
             self.builder.observe(now, group, values, source=source)
         for event, source in events:
-            self.builder.event(now, event, source=source)
+            confidence = wind.confidence if event == "wind_step" and wind is not None else None
+            self.builder.event(now, event, source=source, confidence=confidence)
         snapshot = self.builder.snapshot(now, mission_id=self.mission_id, revision=self.revision)
+        if wind is not None:
+            # This tick's selected reading already carries its own kinematic timestamp.
+            snapshot["telemetry"]["wind"] = wind.telemetry(now)
         self.last_tick_ms = now
         event_id = snapshot["latest_event_id"]
         if self.future is not None and self.future.done():

@@ -11,6 +11,7 @@ from pathlib import Path
 from threading import Event, Lock, Thread
 
 from multidetect.autonomy.x1_contingency_replay import Fault, load_faults
+from multidetect.autonomy.x1_wind_estimate import WindEstimator, WindReading
 
 SUPPORTED = frozenset({"wind_step", "battery_drop", "link_loss", "target_lost", "terrain_conflict"})
 MECHANISM = {
@@ -337,8 +338,9 @@ class CollectorScenario:
         self.decision = None
         self.heartbeat_lock = Lock()
         self.last_heartbeat_ms = None
-        self.pending_events = set()
+        self.pending_events = {}
         self.processed_events = set()
+        self.wind_estimator = WindEstimator(tailsitter=True)
         self.last_observed_boot_ms = None
         self.last_event_index = None
         self.gimbal = None
@@ -404,6 +406,7 @@ class CollectorScenario:
     def tick(self, index, gimbal):
         from multidetect.autonomy.x1_contingency_executor import RuntimeFrame
         from multidetect.autonomy.x1_contingency_state import VTOL_STATES
+
         from .x1_scenario_decision import MAVLINK_TYPES
 
         self.check()
@@ -416,10 +419,15 @@ class CollectorScenario:
             return
         self.last_observed_boot_ms = boot_ms
         state = self.reader.latest_control_state()
-        samples = {name: row for name in MAVLINK_TYPES if (row := self._fresh_sample(name, state=state)) is not None}
+        wind_types = ("ATTITUDE", "LOCAL_POSITION_NED", "GLOBAL_POSITION_INT")
+        samples = {name: row for name in (*MAVLINK_TYPES, *wind_types)
+                   if (row := self._fresh_sample(name, state=state)) is not None}
         if self.gimbal is not None:
             self.gimbal.hold = gimbal
-        now = time.monotonic_ns() // 1_000_000
+        now_ns = time.monotonic_ns()
+        now = now_ns // 1_000_000
+        estimated = self.wind_estimator.update(samples, now_ns=now_ns)
+        wind = WindReading.from_wind_cov(samples.get("WIND_COV", {}), now_ns) or estimated
         heartbeat, vtol = samples.get("HEARTBEAT", {}), samples.get("EXTENDED_SYS_STATE", {})
         sys_status, base_mode = heartbeat.get("system_status"), heartbeat.get("base_mode")
         observations = []
@@ -434,7 +442,7 @@ class CollectorScenario:
         terrain = self.transport.terrain_observation() if any(f.kind == "terrain_conflict" for f in self.faults) else None
         if terrain is not None:
             observations.append(("terrain", terrain, "terrain"))
-        events = self._new_events(samples, observations)
+        events = self._new_events(samples, observations, wind)
         if self.decision is not None:
             global_position = self._fresh_sample("GLOBAL_POSITION_INT", max_age_ms=500, state=state)
             point = self._motion_position(global_position)
@@ -451,8 +459,10 @@ class CollectorScenario:
             )
             event_current = (self.last_event_index is not None and boot_ms is not None
                              and boot_ms - self.worker.timeline.origin < self.faults[self.last_event_index].end_ms)
-            self.decision.tick(frame, mav_rows=samples.values(), observations=observations, events=events,
-                               event_current=event_current)
+            # The selected wind is current or unknown, not a generic cached observation.
+            mav_rows = (samples[name] for name in MAVLINK_TYPES if name != "WIND_COV" and name in samples)
+            self.decision.tick(frame, mav_rows=mav_rows, observations=observations, events=events,
+                               event_current=event_current, wind=wind)
 
     def _home_height_m(self, *, state=None):
         """Height above the SITL home point (flat launch pad), from fresh GLOBAL_POSITION_INT."""
@@ -487,19 +497,18 @@ class CollectorScenario:
         down = self.transport.link_suppressed.is_set() and age >= 1000
         observations.append(("link", {"gcs": "down" if down else "up", "heartbeat_age_ms": age}, "link_monitor"))
 
-    def _new_events(self, samples, observations):
-        wind = samples.get("WIND_COV", {})
-        wind_vector = tuple(wind.get(field) for field in ("wind_x", "wind_y", "wind_z"))
+    def _new_events(self, samples, observations, wind):
         battery = (samples.get("BATTERY_STATUS") or {}).get("battery_remaining")
         observed = {group: values for group, values, _ in observations}
         while self.markers:
-            self.pending_events.add(self.markers.popleft()["fault_index"])
+            marker = self.markers.popleft()
+            self.pending_events[marker["fault_index"]] = marker["receive_monotonic_ns"]
         timed_events = []
         clock = self.clock()
         if clock is None:
             return timed_events
         stamp = clock - self.worker.timeline.origin
-        for index in sorted(self.pending_events - self.processed_events):
+        for index in sorted(self.pending_events.keys() - self.processed_events):
             fault = self.faults[index]
             if stamp >= fault.end_ms:
                 self.record({"message_type": "scenario_unobserved", "fault": fault.kind, "fault_index": index,
@@ -507,6 +516,7 @@ class CollectorScenario:
                 self.processed_events.add(index)
                 continue
             source = None
+            extra = {}
             if fault.kind == "link_loss" and observed.get("link", {}).get("gcs") == "down":
                 source = "link_monitor"
             elif fault.kind == "target_lost" and observed.get("target", {}).get("visible") is False:
@@ -515,18 +525,26 @@ class CollectorScenario:
                 source = "terrain"
             elif fault.kind == "battery_drop" and type(battery) is int and 0 <= battery <= fault.values["pct"] + 2:
                 source = "mavlink"
-            elif fault.kind == "wind_step" and all(type(x) in (int, float) and math.isfinite(x) for x in wind_vector):
+            elif (fault.kind == "wind_step" and wind is not None
+                  and wind.support_since_ns >= self.pending_events[index]):
+                # The SDF baseline is configuration, not a measurement.
                 _, (east, north, up) = self.transport.wind
-                if math.dist(wind_vector, (north, east, -up)) >= 2.0:
+                wind_n, wind_e, wind_d = wind.ned_mps
+                change = (math.hypot(wind_n - north, wind_e - east) if wind_d is None
+                          else math.dist(wind.ned_mps, (north, east, -up)))
+                if change >= 2.0:
                     source = "mavlink"
+                    extra = {"wind_method": wind.method, "wind_confidence": wind.confidence,
+                             "wind_age_ms": wind.age_ms(time.monotonic_ns() // 1_000_000)}
             if source is not None:
                 timed_events.append((fault.kind, source))
                 self.last_event_index = index
-                value = {"wind_step": wind_vector, "battery_drop": battery, "link_loss": observed.get("link"),
+                value = {"wind_step": wind.ned_mps if wind is not None else None,
+                         "battery_drop": battery, "link_loss": observed.get("link"),
                          "target_lost": observed.get("target"), "terrain_conflict": observed.get("terrain")}[fault.kind]
                 self.record({"message_type": "scenario_observed", "fault": fault.kind, "fault_index": index,
                              "observed_boot_ms": clock, "observed_value": value, "source": source,
-                             "receive_monotonic_ns": time.monotonic_ns()})
+                             "receive_monotonic_ns": time.monotonic_ns(), **extra})
                 self.processed_events.add(index)
         return timed_events
 

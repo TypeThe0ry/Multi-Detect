@@ -1,23 +1,34 @@
 from __future__ import annotations
 
 import json
+from collections import deque
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from xml.etree import ElementTree as ET
 
 import pytest
+from test_run_x1_autonomy_demo import inputs, raw_plan  # noqa: F401
+from test_x1_planner import _fixture
+from test_x1_wind_estimate import MS
+from test_x1_wind_estimate import rows as wind_rows
 
 from multidetect.autonomy.x1_contingency_executor import RuntimeFrame
 from multidetect.autonomy.x1_contingency_replay import Fault
 from multidetect.sim_teacher.x1_scenario import (
-    ScenarioTimeline, SitlScenarioTransport, load_schedule, wind_baseline, wind_server_config,
+    CollectorScenario,
+    ScenarioTimeline,
+    SitlScenarioTransport,
+    load_schedule,
+    wind_baseline,
+    wind_server_config,
 )
-from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, GimbalIngress, recorded_decisions
+from multidetect.sim_teacher.x1_scenario_decision import (
+    DecisionTick,
+    GimbalIngress,
+    recorded_decisions,
+)
 from scripts import run_x1_autonomy_demo as demo
-from test_run_x1_autonomy_demo import inputs, raw_plan  # noqa: F401
-from test_x1_planner import _fixture
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEDULE = ROOT / "configs/simulation/x1-contingency-faults-v1.json"
@@ -192,3 +203,83 @@ def test_frame_telemetry_helpers_never_guess():
     assert scenario._position_ok({"GPS_RAW_INT": {"fix_type": 3}}) is None
     assert scenario._airspeed_mps({"VFR_HUD": {"airspeed": 21}}) == 21.0
     assert scenario._airspeed_mps({}) is None
+
+
+@pytest.mark.parametrize("case", ["estimate", "native", "invalid_native", "stale_native", "small", "hover",
+                                 "before_injection", "foreign_velocity"])
+def test_wind_observation_and_request_use_one_reading(case, monkeypatch):
+    from multidetect.sim_teacher import x1_scenario
+    from multidetect.sim_teacher.streams import MavlinkState
+
+    faults = load_schedule(SCHEDULE, ("wind_step",))
+    scenario = CollectorScenario(faults, clearance=lambda *_: 0)
+    now = [10_000]
+    monkeypatch.setattr(x1_scenario.time, "monotonic_ns", lambda: now[0] * MS)
+    records = []
+    scenario.target_peer = (1, 1)
+    scenario.record = records.append
+    scenario.clock = lambda: now[0]
+    scenario.check = lambda: None
+    scenario.worker.timeline = SimpleNamespace(origin=6000)  # Wind window is [9000, 16000) boot ms.
+    scenario.transport = SitlScenarioTransport(None, wind=("/world/default/wind", (0, 0, 5 if case == "small" else 0)))
+    injected_ms = 12_000 if case == "before_injection" else 9000
+    scenario.markers = deque()
+    if case != "before_injection":
+        scenario.markers.append({"fault_index": 0, "receive_monotonic_ns": injected_ms * MS})
+    scenario.reader = SimpleNamespace(state=MavlinkState())
+    scenario.reader.latest_control_state = lambda: scenario.reader.state
+    package = _fixture("Fly over the yard.")
+    scenario.decision = DecisionTick(package, demo.load_airframe_profile(demo.PROFILE),
+                                     recorded_decisions(({"action": "return", "params": {}},)), None,
+                                     records.append, run_id="wind-test", plan_digest="f" * 64,
+                                     now_ms=lambda: now[0])
+
+    def run(t, *, stop=False):
+        now[0] = t
+        sample = wind_rows(t, wind=(1.5, 0) if case == "small" else (8, -4), tailsitter=True, bank=0.25)
+        if case == "native" and t >= 10_800:
+            sample["WIND_COV"] = {"receive_monotonic_ns": (t - 100) * MS, "wind_x": 4, "wind_y": 2, "wind_z": 1}
+        elif case in {"invalid_native", "stale_native"}:
+            sample["WIND_COV"] = {"receive_monotonic_ns": (t - (1501 if case == "stale_native" else 0)) * MS,
+                                  "wind_x": 75, "wind_y": 20, "wind_z": float("nan") if case == "invalid_native" else 0}
+        if case == "hover" or stop:
+            sample["EXTENDED_SYS_STATE"]["vtol_state"] = 3
+        state = scenario.reader.state
+        state.count += 1
+        for name, row in sample.items():
+            state.received_monotonic_ns[name] = row["receive_monotonic_ns"]
+            state.messages[name] = {**row, "_source_system": 2 if case == "foreign_velocity" and
+                                    name == "LOCAL_POSITION_NED" else 1, "_source_component": 1}
+        scenario.tick(state.count, None)
+
+    try:
+        for t in range(10_000, 11_000, 200):
+            run(t)
+        if case == "before_injection":
+            scenario.markers.append({"fault_index": 0, "receive_monotonic_ns": injected_ms * MS})
+            run(injected_ms)
+            assert scenario.wind_estimator.update(scenario.reader.state.messages, now_ns=now[0] * MS) is not None
+        requests = [rec["request"] for rec in records if rec["message_type"] == "scenario_decision_request"]
+        seen = [rec for rec in records if rec["message_type"] == "scenario_observed"]
+        if case in {"estimate", "native", "invalid_native", "stale_native"}:
+            state = requests[0]["state"]
+            wind = state["telemetry"]["wind"]
+            assert len(seen) == len(requests) == 1
+            assert seen[0]["observed_value"] == pytest.approx((4, 2, 1) if case == "native" else (8, -4, None))
+            assert tuple(wind[k] for k in ("north_mps", "east_mps", "down_mps")) == pytest.approx(seen[0]["observed_value"])
+            assert wind["age_ms"] == seen[0]["wind_age_ms"] == (100 if case == "native" else 25)
+            assert wind["source"] == seen[0]["source"] == "mavlink"
+            assert seen[0]["wind_method"] == ("wind_cov" if case == "native" else "wind_triangle")
+            assert state["events"][0]["confidence"] == seen[0]["wind_confidence"] == (None if case == "native" else 1)
+            scenario.decision.future.result(timeout=2)
+            # Another request immediately after loss of FW must not inherit the estimate.
+            run(11_000, stop=True)
+            idle = RuntimeFrame(1, now[0], package.mission_id, 1, 0, False, True, "mc", 85, None, None, {})
+            scenario.decision.tick(idle, events=(("target_lost", "tracker"),))
+            assert records[-1]["request"]["state"]["telemetry"]["wind"] is None
+        else:
+            assert not requests and not seen
+            run(16_000, stop=True)
+            assert records[-1]["message_type"] == "scenario_unobserved"
+    finally:
+        scenario.decision.close()
