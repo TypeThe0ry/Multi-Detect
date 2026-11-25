@@ -144,7 +144,14 @@ def load_runtime_mission_package(
     configured_capabilities = set(options.get("capabilities", ()))
     if enabled(options.get("payload_capability")):
         configured_capabilities.add("payload_drop")
+    from multidetect.autonomy.x1_plan import X1_CAPABILITY
+
     airframe_capabilities = capabilities_for_airframe(airframe_profile, configured_capabilities)
+    if package is not None and "x1_planning" in package.document:
+        if str(runtime_mode).lower() in {"real", "flight", "hil", "live"}:
+            raise ValueError("X1 planning requires a simulation runtime")
+        if X1_CAPABILITY not in airframe_capabilities:
+            raise ValueError("X1 package requires airframe:x1 on the resolved X1 profile")
     package_capabilities = (
         normalize_capabilities(package.document.get("capabilities", ()))
         if package is not None
@@ -272,6 +279,10 @@ def prepare_runtime_operator_package(
         getattr(self, "airframe_capabilities", frozenset()),
         normalize_capabilities(package.document.get("capabilities", ())),
     )
+    from multidetect.autonomy.x1_plan import x1_planner_context
+
+    x1_context = x1_planner_context(package)
+    x1_options = {"x1_context": x1_context} if x1_context else {}
     if package.plan is not None:
         plan = package.plan
         report: dict[str, Any] = {"error": None, "source": "package"}
@@ -351,6 +362,7 @@ def prepare_runtime_operator_package(
                             self.config.get("planning_decision_contract", False)
                         ),
                         enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
+                        **x1_options,
                     )
                     if report.get("error"):
                         raise ValueError(f"operator task planning failed: {report['error']}")
@@ -383,6 +395,7 @@ def prepare_runtime_operator_package(
                             self.config.get("planning_decision_contract", False)
                         ),
                         enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
+                        **x1_options,
                     )
                 else:
                     planner_close = getattr(planner, "close", None)
@@ -419,6 +432,7 @@ def prepare_runtime_operator_package(
                 self.config.get("planning_decision_contract", False)
             ),
             enable_plan_pregate=bool(self.config.get("planning_pregate", False)),
+            **x1_options,
             )
         if report.get("error"):
             raise ValueError(f"operator task planning failed: {report['error']}")

@@ -34,10 +34,12 @@ from multidetect.autonomy.mission_planner import (  # noqa: E402
 )
 from multidetect.autonomy.plan_intent import check_plan_intent  # noqa: E402
 from multidetect.autonomy.capability_contract import capability_violations  # noqa: E402
-from multidetect.autonomy.mission_package import MissionPackage  # noqa: E402
+from multidetect.autonomy.mission_package import MissionPackage, check_plan_against_package  # noqa: E402
 from multidetect.autonomy.mission_plan import validate_mission_plan, validate_plan_decision  # noqa: E402
 from multidetect.autonomy.plan_validation import validate_plan_for_execution  # noqa: E402
 from multidetect.autonomy.plan_pregate import preflight_plan_task  # noqa: E402
+from multidetect.autonomy.x1_plan import x1_planner_context  # noqa: E402
+from scripts.x1_plan_eval import score_x1_task, summarize_x1, x1_eval_package  # noqa: E402
 
 GGUF_DIR = (
     ROOT / "artifacts/cache/hf-vlm-gguf/models--Qwen--Qwen3-VL-2B-Instruct-GGUF/snapshots/"
@@ -60,7 +62,7 @@ def compile_task(
     post, task: str, refs: tuple[str, ...], schema: dict[str, Any],
     *, prompt_variant: str = "default", capabilities: frozenset[str] = frozenset(),
     airframe: str | None = None, decision_contract: bool = False,
-    plan_pregate: bool = False,
+    plan_pregate: bool = False, x1_package: MissionPackage | None = None,
 ):
     if plan_pregate:
         decision = preflight_plan_task(task, refs, capabilities, airframe)
@@ -75,10 +77,15 @@ def compile_task(
                 "question": decision.question,
             }, ensure_ascii=False)
             return decision, raw, [0.0], None
+    x1_options = ({"x1_context": x1_planner_context(x1_package), "attempts": 1,
+                   "plan_checker": lambda plan: check_plan_against_package(plan, x1_package,
+                                                                           capabilities=capabilities)}
+                  if x1_package is not None else {})
     plan, report = compile_mission_plan(
         post, task, refs=refs, schema=schema, prompt_variant=prompt_variant,
         capabilities=capabilities, airframe=airframe,
         include_decision_contract=decision_contract,
+        **x1_options,
     )
     return plan, report["raw"], report["attempts"], report["repairs"] or report["error"]
 
@@ -314,6 +321,9 @@ def main(argv: list[str] | None = None) -> int:
     document = json.loads(args.tasks.read_text(encoding="utf-8"))
     if not document["tasks"]:
         parser.error("the task file must contain at least one task")
+    is_x1 = ["x1_package" in item for item in document["tasks"]]
+    if any(is_x1) and (not all(is_x1) or args.plan_pregate):
+        parser.error("evaluate X1 in a separate all-X1 holdout with text pre-gate off (model-only scoring)")
     refs = tuple(document.get("refs", ()))
     schema = plan_json_schema(include_decision_contract=args.decision_contract)
     if args.sorted_keys:
@@ -369,6 +379,9 @@ def main(argv: list[str] | None = None) -> int:
             task_refs = tuple(item.get("refs", refs))
             capabilities = frozenset(item.get("capabilities", ()))
             airframe = "airframe:fixed_wing" if "airframe:fixed_wing" in capabilities else None
+            package = x1_eval_package(item) if "x1_package" in item else None
+            if package is not None:
+                capabilities = frozenset(package.document["capabilities"])
             task_schema = plan_json_schema(
                 capabilities=capabilities, include_decision_contract=args.decision_contract
             )
@@ -379,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
                 post, item["text"], task_refs, task_schema, prompt_variant=args.prompt_variant,
                 capabilities=capabilities, airframe=airframe,
                 decision_contract=args.decision_contract,
-                plan_pregate=args.plan_pregate,
+                plan_pregate=args.plan_pregate, x1_package=package,
             )
             rows.append(
                 {
@@ -390,9 +403,10 @@ def main(argv: list[str] | None = None) -> int:
                     "planner_source": (
                         "host_pregate" if args.plan_pregate and not request_usage else "model"
                     ),
-                    **score_task(
-                        {**item, "refs": item.get("refs", task_refs)}, plan, error, raw=raw
-                    ),
+                    **({"sample_id": item["sample_id"], **score_x1_task(item, raw, package=package)}
+                       if package is not None else score_task(
+                           {**item, "refs": item.get("refs", task_refs)}, plan, error, raw=raw
+                       )),
                     "attempts_s": attempts,
                     "error": None if isinstance(error, list) else error,
                     "repairs": error if isinstance(error, list) else None,
@@ -442,6 +456,8 @@ def main(argv: list[str] | None = None) -> int:
         "mean_completion_tokens_total": _mean_available(rows, "completion_tokens_total"),
         "tasks_with_prompt_usage": sum(r["prompt_tokens_total"] is not None for r in rows),
     }
+    if all(is_x1):
+        summary["x1"] = summarize_x1(rows)
     diagnosis = compute_diagnosis(rows)
     if any(row.get("category") for row in rows):
         groups = {}

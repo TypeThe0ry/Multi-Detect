@@ -506,6 +506,12 @@ def check_plan_against_package(
 
         executor_config = ExecutorConfig()
     margin = max(0.0, float(executor_config.no_fly_margin_m))
+    from .x1_plan import X1_CAPABILITY, X1_SKILLS, x1_static_violations
+
+    available = capabilities if capabilities is not None else frozenset(document.get("capabilities", ()))
+    if (X1_CAPABILITY in available or "x1_planning" in document
+            or any(step.skill in X1_SKILLS for step in plan.steps)):
+        return x1_static_violations(plan, package, available, no_fly_margin_m=margin)
     no_fly = [(name, centre, effective_no_fly_radius(radius, margin))
               for name, centre, radius in no_fly]
 
@@ -816,7 +822,7 @@ def load_mission_package(
             "accepted_px4_overrides",
             "px4_offboard_loss_action",
             "resume_after_failsafe",
-            "capabilities",
+            "capabilities", "x1_planning",
         },
     )
     if not isinstance(obj["mission_id"], str) or not obj["mission_id"].strip():
@@ -880,6 +886,12 @@ def load_mission_package(
     ):
         raise ValueError("operating limits must have positive extent")
     obj["operating_area"] = area
+    from .x1_plan import X1_CAPABILITY, validate_x1_context
+
+    if "x1_planning" in obj or X1_CAPABILITY in capabilities:
+        if mode_requires_signature or flight_mode or X1_CAPABILITY not in capabilities:
+            raise ValueError("x1_planning is a simulation-only package option requiring airframe:x1")
+        obj["x1_planning"] = validate_x1_context(obj.get("x1_planning"), area)
     budget = _object(
         obj["budget"],
         "budget",
@@ -966,6 +978,10 @@ def load_mission_package(
     package = MissionPackage(obj, refs, plan)
     if plan is not None:
         package.validate_plan(plan)
+        if "x1_planning" in obj:
+            violations = check_plan_against_package(plan, package)
+            if violations:
+                raise ValueError(f"{violations[0]['code']}: {violations[0]['message_en']}")
     return package
 
 

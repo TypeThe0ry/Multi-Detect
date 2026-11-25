@@ -47,6 +47,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .x1_plan import x1_altitude_intent
+
 # --------------------------------------------------------------------------- text
 _CJK = re.compile(r"[㐀-鿿]")
 # Clause boundaries: Chinese and English punctuation (a decimal point is not one).
@@ -565,11 +567,11 @@ def place_grounded(
 # ``record`` of whatever is in view (planning data convention, 当前画面).
 VIEW_QUERIES = frozenset({"current view", "current scene", "current frame", "view", "scene"})
 # Skills whose query names the object the step is about; an invented one is an error.
-OBJECT_SKILLS = frozenset({"area_search", "count", "inspect", "record", "follow"})
+OBJECT_SKILLS = frozenset({"area_search", "count", "inspect", "record", "follow", "find_object_then_return"})
 # Skills that must carry a query even when the task names nothing to watch for.
 WATCH_SKILLS = frozenset({"patrol", "monitor"})
 # Skills that fly to (or land at) a named place.
-PLACE_SKILLS = frozenset({"goto", "land", "deliver"})
+PLACE_SKILLS = frozenset({"goto", "land", "deliver", "fw_goto_waypoint", "loiter_observe", "gimbal_stare_at"})
 
 
 @dataclass(frozen=True)
@@ -663,9 +665,11 @@ def check_plan_intent(
                     )
                 )
         for step in reachable:
-            if _get(step, "skill") not in PLACE_SKILLS:
+            skill = _get(step, "skill")
+            if skill not in PLACE_SKILLS and skill != "find_object_then_return":
                 continue
-            ref = (_get(step, "params") or {}).get("target_ref")
+            key = "region" if skill == "find_object_then_return" else "target_ref"
+            ref = (_get(step, "params") or {}).get(key)
             if (
                 not isinstance(ref, str)
                 or ref in {"home", "zone:all"}
@@ -707,6 +711,10 @@ def check_plan_intent(
                 )
     for step in reachable:
         skill = _get(step, "skill")
+        params = _get(step, "params") or {}
+        agl = params.get("altitude_agl_m")
+        if type(agl) in (int, float) and (violation := x1_altitude_intent(task_text, agl)):
+            findings.append(IntentFinding("x1_altitude_intent", str(_get(step, "id")), violation))
         if skill not in OBJECT_SKILLS and skill not in WATCH_SKILLS:
             continue
         query = (_get(step, "params") or {}).get("query")

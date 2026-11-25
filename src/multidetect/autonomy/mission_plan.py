@@ -18,6 +18,8 @@ from .serialization import (
     strict_object,
 )
 
+from .x1_plan import X1_CAPABILITY, X1_PARAM_KEYS, X1_SKILLS, x1_param_schema
+
 
 @dataclass(frozen=True, slots=True)
 class SkillSpec:
@@ -49,6 +51,11 @@ SKILLS: dict[str, SkillSpec] = {
     "return_home": _spec("return_home", set(), {"altitude_m"}, "arrived", types={"altitude_m": "altitude"}),
     "land": _spec("land", set(), {"target_ref"}, "landed", types={"target_ref": "ref"}),
 }
+# Keep the legacy registry (and its dataset coverage contract) unchanged.
+X1_SKILL_SPECS = MappingProxyType({
+    skill: _spec(skill, set(params), set(params), "x1_outcome", types=params)
+    for skill, (params, _) in X1_SKILLS.items()
+})
 SKILLS = MappingProxyType(SKILLS)
 
 MISSION_PLAN_JSON_SCHEMA: dict[str, Any] = {
@@ -145,6 +152,9 @@ def _param(value: object, kind: str, name: str) -> object:
         if len(text.split()) > 8 or len(text) > 96:
             raise AutonomyContractError(f"{name} must be at most 8 words")
         return text
+    if kind in X1_PARAM_KEYS:
+        schema = x1_param_schema(kind)
+        return require_real(value, name, minimum=schema["minimum"], maximum=schema["maximum"])
     if kind == "altitude": return require_real(value, name, minimum=1.0, maximum=120.0)
     if kind == "distance": return require_real(value, name, minimum=0.5, maximum=100.0)
     if kind == "overlap": return require_real(value, name, minimum=0.1, maximum=0.95)
@@ -212,6 +222,12 @@ def validate_mission_plan(raw: str | bytes | Mapping[str, Any], *, capabilities:
         ids.add(sid)
         skill = require_text(item["skill"], f"steps[{i}].skill")
         spec = SKILLS.get(skill)
+        if skill in X1_SKILL_SPECS:
+            if X1_CAPABILITY not in capabilities:
+                raise AutonomyContractError(f"{skill} requires the X1 simulation planning capability")
+            if skill == "gimbal_stare_at" and "gimbal_control" not in capabilities:
+                raise AutonomyContractError("gimbal_stare_at requires gimbal_control")
+            spec = X1_SKILL_SPECS[skill]
         if spec is None: raise AutonomyContractError(f"unknown skill {skill!r}")
         if spec.gated and not ({"payload", "payload_drop"} & set(capabilities)):
             raise AutonomyContractError("deliver requires payload capability (payload_drop)")
