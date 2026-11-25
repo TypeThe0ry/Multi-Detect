@@ -49,7 +49,7 @@ def test_timeline_all_five_with_actuator_restore():
             return ""
         return str(params[args[-1]])
 
-    port = SitlScenarioTransport(command, wind=("/world/default/wind_cmd", (3, 2, 1)),
+    port = SitlScenarioTransport(command, wind=("/world/default/wind", (3, 2, 1)),
                                  battery_sample=lambda: battery[0], clearance=lambda: 35)
     port.prepare(faults)
     timeline = ScenarioTimeline(faults, lambda: clock[0], port, markers.append, origin_ms=clock[0])
@@ -127,7 +127,7 @@ def test_wind_config_preserves_existing_systems(tmp_path):
     world = tmp_path / "world.sdf"
     world.write_text('<sdf version="1.9"><world name="custom"><wind><linear_velocity>2 -3 4</linear_velocity>'
                      '</wind></world></sdf>', encoding="utf-8")
-    assert wind_baseline(world) == ("/world/custom/wind_cmd", (2, -3, 4))
+    assert wind_baseline(world) == ("/world/custom/wind", (2, -3, 4))
 
 
 @pytest.mark.parametrize("choice, elapsed, expected_status, sends", [

@@ -124,7 +124,7 @@ def wind_baseline(world_sdf):
     if (not re.fullmatch(r"[A-Za-z0-9_-]+", name) or len(velocity) != 3
             or not all(map(math.isfinite, velocity))):
         raise ValueError("invalid SDF world name or ENU wind baseline")
-    return f"/world/{name}/wind_cmd", velocity
+    return f"/world/{name}/wind", velocity
 
 
 class SitlScenarioTransport:
@@ -159,8 +159,13 @@ class SitlScenarioTransport:
         kinds = {fault.kind for fault in faults}
         if "wind_step" in kinds:
             topic, _ = self.wind
-            info = self.command("gz", "topic", "-i", "-t", topic)
-            subscribers = info.partition("Subscribers")[2]
+            deadline = time.monotonic() + 90.0
+            while True:
+                info = self.command("gz", "topic", "-i", "-t", topic)
+                subscribers = info.partition("Subscribers")[2]
+                if "gz.msgs.Wind" in subscribers or time.monotonic() >= deadline:
+                    break
+                time.sleep(2.0)
             if "gz.msgs.Wind" not in subscribers:
                 raise RuntimeError(f"Gazebo WindEffects subscriber unavailable: {topic}: {info.strip()}")
         if "battery_drop" in kinds:
@@ -368,7 +373,8 @@ class CollectorScenario:
         if received is None or message is None or not 0 <= time.monotonic_ns() - received <= max_age_ms * 1_000_000:
             return None
         row = MavlinkReader._mapping(message)
-        if (row.get("_source_system"), row.get("_source_component")) != self.target_peer:
+        system, component = self.target_peer
+        if row.get("_source_system") != system or (component and row.get("_source_component") != component):
             return None
         return {**row, "message_type": name, "receive_monotonic_ns": received}
 

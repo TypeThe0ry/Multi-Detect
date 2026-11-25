@@ -222,6 +222,7 @@ def prepare(package, plan, capabilities, site, *, output, slot):
                "geometry": SimpleNamespace(home=site.home, takeoff_altitude_m=height),
                "terrain": site.terrain, "x1_cruise_guard": observe_cruise, "observed_margins": observed_margins}
     with long_range._preview_slot(slot):
+        (output / "flight").mkdir(parents=True, exist_ok=True)
         collector_plan = long_range.collection_plan(site.scenario, output / "flight", slot, mission)
     return replace(collector_plan, steps_per_episode=sum(step.command is not None for step in steps),
                    task_text=package.document["task_text"], image=IMAGE), steps, safety, mission
