@@ -9189,6 +9189,11 @@ def run_episode(
                 _raise_if_px4_clock_stalled(
                     result, index, sim_clock=primitive_sim_clock
                 )
+                if (x1_scenario is not None and x1_scenario.motion_evidence is not None
+                        and x1_scenario.motion_evidence.basis == "ASSUMED_SIM" and result.status != "success"):
+                    # The assumed suffix has no certified failure branch. Stop
+                    # route writes and let the collector tear down this SITL episode.
+                    raise RuntimeError(f"ASSUMED_SIM route stopped after failed step {index}: {result.status}")
                 timing["command_and_primitive_wait_ms"] = round(
                     (time.perf_counter_ns() - primitive_started_ns) / 1e6, 3
                 )

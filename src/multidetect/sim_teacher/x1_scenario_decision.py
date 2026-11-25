@@ -96,6 +96,8 @@ class DecisionTick:
         self.backend, self.record, self.now_ms = backend, record, now_ms
         self.run_id, self.plan_digest = run_id, plan_digest
         self.build_proof = build_proof
+        evidence = package.document.get("x1_live_evidence", {})
+        self.provenance = {key: evidence[key] for key in ("basis", "assumed_bounds_sha256") if key in evidence}
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="x1-altair-decision")
         self.future = None
         self.last_requested = 0
@@ -131,13 +133,23 @@ class DecisionTick:
                 current_id = event_id if event_current else 0
                 # A reference must still denote the same hold option that was offered.
                 holds = {ref: site for ref, site in frame.hold_sites.items() if self.offered_holds.get(ref) == site}
+                proof = None
+
+                def record_proof(decision, current_frame):
+                    nonlocal proof
+                    proof = self.build_proof(decision, current_frame)
+                    return proof
+
                 admission = self.executor.apply(wire, replace(frame, event_id=current_id, hold_sites=holds),
-                                                now_ms=now, build_proof=self.build_proof)
+                                                now_ms=now, build_proof=record_proof if self.build_proof else None)
             except Exception as exc:
                 self._mark("error", request_id=self.request_id, error=type(exc).__name__)
             else:
+                trace = dict(self.provenance)
+                if trace:
+                    trace["motion_proof"] = asdict(proof) if proof is not None else None
                 self._mark("receipt", request_id=self.request_id, wire=wire if isinstance(wire, str) else None,
-                           **asdict(admission))
+                           **asdict(admission), **trace)
             finally:
                 self.future = None
         if self.future is None and event_current and snapshot["events"] and event_id != self.last_requested:

@@ -73,6 +73,7 @@ class MissionPackage:
     document: dict[str, Any]
     refs: dict[str, Any]
     plan: MissionPlan | None
+    mode: str | None = None
 
     @property
     def mission_id(self) -> str:
@@ -767,6 +768,7 @@ def load_mission_package(
     operator_key_path: str | Path | None = None,
     mode: str | None = None,
     flight_mode: bool | None = None,
+    allow_assumed_sim: bool = False,
 ) -> MissionPackage:
     if isinstance(raw, Path):
         raw = strict_json_loads(raw.read_text(encoding="utf-8"), name="mission package")
@@ -899,6 +901,10 @@ def load_mission_package(
         if (mode != "sim" or require_signature or flight_mode or X1_CAPABILITY not in capabilities
                 or not isinstance(obj["x1_live_evidence"], Mapping)):
             raise ValueError("x1_live_evidence requires an X1 simulation package and an object")
+        if "basis" in obj["x1_live_evidence"] and (
+            obj["x1_live_evidence"]["basis"] != "ASSUMED_SIM" or allow_assumed_sim is not True
+        ):
+            raise ValueError("ASSUMED_SIM evidence requires the authorized SITL scenario runner")
     budget = _object(
         obj["budget"],
         "budget",
@@ -982,7 +988,7 @@ def load_mission_package(
     )
     if plan is None and not task:
         raise ValueError("mission package needs task_text or plan")
-    package = MissionPackage(obj, refs, plan)
+    package = MissionPackage(obj, refs, plan, mode=mode)
     if plan is not None:
         package.validate_plan(plan)
         if "x1_planning" in obj:

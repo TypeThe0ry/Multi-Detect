@@ -32,12 +32,15 @@ from multidetect.autonomy.x1_plan import (  # noqa: E402
     X1_CAPABILITY, one_waypoint_primitives_input, x1_planner_context,
 )
 from multidetect.terrain_dem import LocalDemGrid, load_local_dem_grid  # noqa: E402
-from multidetect.sim_teacher.x1_live_clearance import LiveContinueEvidence, clearance_scope  # noqa: E402
+from multidetect.sim_teacher.x1_live_clearance import (  # noqa: E402
+    MOTION_SAMPLE_MAX_AGE_MS, LiveContinueEvidence, clearance_scope,
+)
 from multidetect.sim_teacher.x1_live_evidence_builder import build_live_evidence  # noqa: E402
 from multidetect.sim_teacher.x1_scenario import (  # noqa: E402
     SUPPORTED, CollectorScenario, load_schedule, schedule_sha256, wind_server_config,
 )
 from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, llama_decisions  # noqa: E402
+from scripts import generate_x1_assumed_sim_bounds as assumptions  # noqa: E402
 from scripts.realworld import long_range_flight as long_range  # noqa: E402
 from scripts.realworld import x1_site_evidence  # noqa: E402
 
@@ -312,6 +315,40 @@ def forward_clearance(steps, dem):
     return clearance
 
 
+def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds, scope, base_digest):
+    """Authorize the generated template only against a verified SITL run and its site inventory."""
+    data = path.read_bytes()
+    raw = strict_json_loads(data.decode("utf-8"), name=str(path))
+    expected = assumptions.generate(mode=package.mode, world=site.scenario_id,
+                                    image=collector_plan.image, profile_path=PROFILE)
+    fault = faults[0].kind if len(faults) == 1 else None
+    if (canonical_sha256(raw) != canonical_sha256(expected) or site.world_sha256 != assumptions.WORLD_SHA
+            or site.terrain.source_sha256 != assumptions.DEM_SHA
+            or base_digest != assumptions.BASE_SHA or fault not in assumptions.SCOPES
+            or scope != assumptions.SCOPES[fault]
+            or set(site_bounds or ()) != {"scope_sha256", "dem_sha256", "base_mission_sha256",
+                                          "obstacle_coverage", "obstacles"}):
+        raise ValueError("ASSUMED_SIM requires the exact Iowa route, fault schedule and verified site bounds")
+    battery = raw["battery"]["value"]
+    if battery["max_sample_age_ms"] != MOTION_SAMPLE_MAX_AGE_MS:
+        raise ValueError("ASSUMED_SIM battery sample delay differs from the runtime gate")
+    capacity = raw["battery_capacity_wh"]["value"]
+    state = {"sha256": hashlib.sha256(data).hexdigest(), "image_id": assumptions.IMAGE_ID,
+             "capacity_wh": capacity, "parameters": {"SIM_BAT_DRAIN": battery["nominal_drain_s"],
+                                                      "SIM_BAT_MIN_PCT": battery["nominal_floor_pct"]}}
+    if "battery_capacity_wh" in package.document["budget"]:
+        raise ValueError("ASSUMED_SIM requires the base mission without a battery capacity override")
+    document = {**package.document, "budget": {**package.document["budget"], "battery_capacity_wh": capacity}}
+    assumed_bounds = {**site_bounds, "dem_error_m": raw["dem_error_m"]["value"],
+                      "landing_pad": raw["landing_pad"]["value"],
+                      "battery": {"max_voltage_v": battery["max_voltage_v"],
+                                  "consumption_error_wh": battery["consumption_error_wh"],
+                                  "soc_error_pct": battery["fault_soc_error_pct" if fault == "battery_drop"
+                                                           else "nominal_soc_error_pct"]},
+                      "suffixes": {key: entry["value"] for key, entry in raw["suffixes"].items()}}
+    return load_mission_package(document, mode="sim"), assumed_bounds, state
+
+
 def make_scenario(args, mission, steps, record):
     faults = mission.get("scenario_faults")
     if not faults:
@@ -322,7 +359,8 @@ def make_scenario(args, mission, steps, record):
         profile = load_airframe_profile(PROFILE)
         package = mission["scenario_package"]
         motion_evidence = LiveContinueEvidence(package, profile, mission["terrain"], steps,
-                                               scope=record["contingency_scenario"]["motion_scope_sha256"])
+                                               scope=record["contingency_scenario"]["motion_scope_sha256"],
+                                               assumed_sim=mission.get("assumed_sim"))
 
         def make_decision(gimbal, emit, episode_id, peer):
             return DecisionTick(package, profile, backend, gimbal, emit,
@@ -355,6 +393,9 @@ def fly(args, collector_plan, steps, mission, record):
         raise ValueError("run the X1 demo outside an inherited SITL lock")
     with flight_lock(LOCK, shared=True):
         image_id = x1_resume.image_check(IMAGE)
+        assumed = mission.get("assumed_sim")
+        if assumed is not None and image_id != assumed["image_id"]:
+            raise ValueError("ASSUMED_SIM immutable SITL image mismatch")
         x1_resume.flight_gate((args.slot,))
         with sitl_lock_context(SitlLock(label="x1-autonomy-demo", slots=8, slot=args.slot, retry_s=20.0),
                                wait=False):
@@ -465,6 +506,12 @@ def run(args, *, post, launch=fly):
         if "plan" in document:
             raise X1PlanError("PRECOMPILED_PLAN", "demo input must not contain a precomputed plan")
         generate_evidence = getattr(args, "generate_live_evidence", False)
+        assumed_path = getattr(args, "assumed_sim_bounds", None)
+        if assumed_path is not None and (not generate_evidence or not faults
+                                         or not getattr(args, "live_evidence_bounds", None)):
+            raise ValueError("ASSUMED_SIM requires generation, selected faults and verified site bounds")
+        if assumed_path is not None and not args.plan_only and args.decision_port is None:
+            raise ValueError("ASSUMED_SIM live runs require the Altair scenario decision backend")
         if generate_evidence and (not faults or "x1_live_evidence" in document):
             raise ValueError("--generate-live-evidence requires selected faults and a package without x1_live_evidence")
         package = load_mission_package({**document, "task_text": args.sentence}, mode="sim")
@@ -496,21 +543,45 @@ def run(args, *, post, launch=fly):
                     )
                 else:
                     bounds = read_object(bounds_path)
+            provenance = {}
+            if assumed_path is not None:
+                if not bounds_path.name.endswith(x1_site_evidence.BOUNDS_SUFFIX):
+                    raise ValueError("ASSUMED_SIM requires verified .site-bounds.json geometry")
+                package, bounds, assumed = load_assumed_sim(
+                    assumed_path, package=package, site=site, collector_plan=collector_plan, faults=faults,
+                    site_bounds=bounds, scope=record["contingency_scenario"]["motion_scope_sha256"],
+                    base_digest=base_digest,
+                )
+                collector_plan = replace(collector_plan, extra_sim_params=(
+                    *collector_plan.extra_sim_params,
+                    *((key, str(value)) for key, value in assumed["parameters"].items()),
+                ))
+                mission["assumed_sim"] = assumed
+                provenance = {"basis": assumptions.BASIS, "assumed_bounds_sha256": assumed["sha256"]}
+                record["contingency_scenario"]["live_evidence"] = {
+                    **provenance, "assumed_bounds_path": str(assumed_path), "expected_image_id": assumed["image_id"],
+                    "battery_parameters": assumed["parameters"],
+                }
+                record["prepared"]["collector"] = asdict(collector_plan)
             evidence, missing = build_live_evidence(
                 package, terrain=site.terrain,
                 scope_sha256=record["contingency_scenario"]["motion_scope_sha256"],
                 base_mission_sha256=base_digest,
                 surveyed_bounds=bounds,
             )
-            package = load_mission_package({**package.document, "x1_live_evidence": evidence}, mode="sim")
+            if assumed_path is not None and missing:
+                raise ValueError(f"incomplete ASSUMED_SIM evidence: {', '.join(missing)}")
+            evidence.update(provenance)
+            package = load_mission_package({**package.document, "x1_live_evidence": evidence}, mode="sim",
+                                           allow_assumed_sim=assumed_path is not None)
             generated_path = args.output / "mission-package.json"
             write_result(generated_path, package.document)
             record["mission_package_sha256"] = canonical_sha256(package.document)
-            record["contingency_scenario"]["live_evidence"] = {
+            record["contingency_scenario"].setdefault("live_evidence", {}).update({
                 "package_path": str(generated_path), "base_mission_sha256": base_digest,
                 "host_bounds_path": str(bounds_path) if bounds_path is not None else None,
                 "present_fields": sorted(evidence), "missing_fields": missing,
-            }
+            })
         record["safety"]["planned"] = safety
         record["validator"]["verdict"] = "accepted"
         record["markers"].append({"phase": "mission_prepared"})
@@ -563,6 +634,7 @@ def main(argv=None):
     parser.add_argument("--mission-package", required=True, type=Path, help="site references and constraints, without a plan")
     parser.add_argument("--generate-live-evidence", action="store_true",
                         help="attach scenario-bound SIM evidence and save the generated package (default: off)")
+    parser.add_argument("--assumed-sim-bounds", type=Path, help="Iowa SIM-only assumption template")
     parser.add_argument("--live-evidence-bounds", type=Path, metavar="JSON",
                         help="local host-verified hard bounds for the compiled mission")
     parser.add_argument("--output", required=True, type=lambda p: Path(p).resolve(), help="fresh result directory")
