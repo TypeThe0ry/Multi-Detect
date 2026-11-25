@@ -101,6 +101,12 @@ class RuntimeFrame:
     # Only true if the pinned transport/airframe has admitted front-abort to MC.
     front_abort_enabled: bool = False
     gimbal_available: bool = False
+    position_ne_amsl: tuple[float, float, float] | None = None
+    active_motion_index: int | None = None
+    terrain_conflict: bool | None = None
+    # Same-tick lower bounds, accounting for consumption and mission deadlines.
+    remaining_energy_wh: float | None = None
+    remaining_time_s: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,7 +367,8 @@ class X1ContingencyExecutor:
                 "capabilities": sorted(self.capabilities)}
 
     def apply(self, wire: str | bytes, frame: RuntimeFrame, *, now_ms: int,
-              proof: MotionProof | None = None) -> Admission:
+              proof: MotionProof | None = None,
+              build_proof: Callable[[Decision, RuntimeFrame], MotionProof] | None = None) -> Admission:
         """Authorize and dispatch one exact action. Rejections send no command."""
         try:
             d = decode_decision(wire, capabilities=self.capabilities)
@@ -385,6 +392,8 @@ class X1ContingencyExecutor:
         if self.native_owner is not None and d.action in {"continue", "retask"}:
             return Admission("rejected", "native_handoff_required", d.action)
         try:
+            if proof is None and build_proof is not None and d.action != "gimbal-retarget":
+                proof = build_proof(d, frame)
             reason = self.envelope.veto(
                 d, frame, proof, self.package, executor_config=getattr(self.mission, "config", None),
                 check_airborne_plan=getattr(self.mission, "check_airborne_plan", None),

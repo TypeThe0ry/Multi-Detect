@@ -328,10 +328,11 @@ def wind_server_config(source, output):
 class CollectorScenario:
     """Bridge the owned episode clock, telemetry and original compiled route to the injector."""
 
-    def __init__(self, faults, *, clearance, make_decision=None):
+    def __init__(self, faults, *, clearance, make_decision=None, terrain=None):
         self.faults = faults
         self.clearance = clearance
         self.make_decision = make_decision
+        self.terrain = terrain
         self.worker = ScenarioWorker()
         self.decision = None
         self.heartbeat_lock = Lock()
@@ -364,10 +365,11 @@ class CollectorScenario:
     def prepare(self):
         self.transport.prepare(self.faults)
 
-    def _fresh_sample(self, name, max_age_ms=1500):
+    def _fresh_sample(self, name, max_age_ms=1500, *, state=None):
         from .streams import MavlinkReader
 
-        state = self.reader.state
+        if state is None:
+            state = self.reader.latest_control_state()
         received = state.received_monotonic_ns.get(name)
         message = state.get(name)
         if received is None or message is None or not 0 <= time.monotonic_ns() - received <= max_age_ms * 1_000_000:
@@ -413,7 +415,8 @@ class CollectorScenario:
         if self.decision is None and boot_ms == self.last_observed_boot_ms:
             return
         self.last_observed_boot_ms = boot_ms
-        samples = {name: row for name in MAVLINK_TYPES if (row := self._fresh_sample(name)) is not None}
+        state = self.reader.latest_control_state()
+        samples = {name: row for name in MAVLINK_TYPES if (row := self._fresh_sample(name, state=state)) is not None}
         if self.gimbal is not None:
             self.gimbal.hold = gimbal
         now = time.monotonic_ns() // 1_000_000
@@ -433,34 +436,50 @@ class CollectorScenario:
             observations.append(("terrain", terrain, "terrain"))
         events = self._new_events(samples, observations)
         if self.decision is not None:
+            global_position = self._fresh_sample("GLOBAL_POSITION_INT", max_age_ms=500, state=state)
+            point = self._motion_position(global_position)
             frame = RuntimeFrame(
-                frame_id=self.reader.state.count, t_ms=now, mission_id=self.decision.mission_id,
+                frame_id=time.monotonic_ns(), t_ms=now, mission_id=self.decision.mission_id,
                 revision=self.decision.revision, event_id=0,
                 px4_failsafe=True if sys_status in {5, 6, 8} else False if sys_status == 4 else None,
                 armed_in_air=(type(base_mode) is int and bool(base_mode & 128) and vtol.get("landed_state") == 2),
-                vtol_state=VTOL_STATES.get(vtol.get("vtol_state")), agl_m=self._home_height_m(),
-                airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples), hold_sites={},
+                vtol_state=VTOL_STATES.get(vtol.get("vtol_state")), agl_m=self._home_height_m(state=state),
+                airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples, state=state), hold_sites={},
                 gimbal_available=gimbal is not None and not gimbal.awaiting_readback,
+                position_ne_amsl=point, active_motion_index=index,
+                terrain_conflict=terrain.get("conflict") if terrain is not None else None,
             )
             event_current = (self.last_event_index is not None and boot_ms is not None
                              and boot_ms - self.worker.timeline.origin < self.faults[self.last_event_index].end_ms)
             self.decision.tick(frame, mav_rows=samples.values(), observations=observations, events=events,
                                event_current=event_current)
 
-    def _home_height_m(self):
+    def _home_height_m(self, *, state=None):
         """Height above the SITL home point (flat launch pad), from fresh GLOBAL_POSITION_INT."""
-        alt = (self._fresh_sample("GLOBAL_POSITION_INT") or {}).get("relative_alt")
+        alt = (self._fresh_sample("GLOBAL_POSITION_INT", state=state) or {}).get("relative_alt")
         return alt / 1000.0 if type(alt) is int else None
+
+    def _motion_position(self, row):
+        if self.terrain is None or row is None:
+            return None
+        lat, lon, alt = (row.get(key) for key in ("lat", "lon", "alt"))
+        if not all(type(value) is int for value in (lat, lon, alt)):
+            return None
+        if not (-900_000_000 <= lat <= 900_000_000 and -1_800_000_000 <= lon <= 1_800_000_000
+                and -500_000 <= alt <= 10_000_000):
+            return None
+        n, e = self.terrain.local_from_wgs84(lat / 1e7, lon / 1e7)
+        return n, e, alt / 1000.0
 
     @staticmethod
     def _airspeed_mps(samples):
         speed = (samples.get("VFR_HUD") or {}).get("airspeed")
         return float(speed) if type(speed) in (int, float) and math.isfinite(speed) else None
 
-    def _position_ok(self, samples):
+    def _position_ok(self, samples, *, state=None):
         """True only with a 3D GPS fix and a fresh local position; never inferred otherwise."""
         fix = (samples.get("GPS_RAW_INT") or {}).get("fix_type")
-        if self._fresh_sample("LOCAL_POSITION_NED") is None or type(fix) is not int:
+        if self._fresh_sample("LOCAL_POSITION_NED", state=state) is None or type(fix) is not int:
             return None
         return fix >= 3
 

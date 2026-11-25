@@ -183,7 +183,7 @@ def test_frame_telemetry_helpers_never_guess():
 
     scenario = CollectorScenario.__new__(CollectorScenario)
     fresh = {"LOCAL_POSITION_NED": {}, "GLOBAL_POSITION_INT": {"relative_alt": 85_500}}
-    scenario._fresh_sample = lambda name: fresh.get(name)
+    scenario._fresh_sample = lambda name, **_: fresh.get(name)
     assert scenario._home_height_m() == 85.5
     assert scenario._position_ok({"GPS_RAW_INT": {"fix_type": 3}}) is True
     assert scenario._position_ok({"GPS_RAW_INT": {"fix_type": 1}}) is False
