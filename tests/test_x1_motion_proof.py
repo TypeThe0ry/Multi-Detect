@@ -258,3 +258,220 @@ def test_scenario_tick_uses_deployed_ingress_for_current_decision(admitted, prof
     assert markers[-1]["reason"] == {
         "proven": "no_new_command", "unknown": "unverified_clearance", "stale": "decision_or_frame_stale",
     }[case]
+
+
+NATIVE_CASES = {
+    "hold": ("loiter", {"hold_ref": "here"}, ("set_mode", "HOLD")),
+    "orbit": ("loiter", {"hold_ref": "orbit"}, ("loiter_at", (52.0, 5.0), 60, 180, 15)),
+    "return": ("return", {}, ("rtl",)),
+    "land": ("land-now", {}, ("land",)),
+}
+
+
+def _native_fixture(kind, package):
+    frame = _frame(package)
+    if kind == "orbit":
+        frame = replace(frame, position_ne_amsl=(0, 0, 180), vtol_state="fw", airspeed_mps=15,
+                        hold_sites={"orbit": HoldSite("fw", 52.0, 5.0, 180, 60, 15)})
+
+    def evidence(decision):
+        start = frame.position_ne_amsl
+        if kind == "orbit":
+            return _sweep(decision, frame, (_leg("fw", start, (0, 0, 180), 15, padding=60),),
+                          min_airspeed_mps=12, max_airspeed_mps=18, hold_revalidation_enforced=True)
+        if kind == "hold":
+            return _sweep(decision, frame, (_leg("mc", start, start, 5),), hold_revalidation_enforced=True)
+        if kind == "land":
+            site = (*start[:2], 100)
+            return _sweep(decision, frame, (_leg("landing", start, site),), landing_pad=LandingPad(site, 8, 2))
+        return _sweep(decision, frame)
+
+    return frame, evidence
+
+
+def _replay_native(kind, package, profile, frame, proof, *, request_frame=None, live=False):
+    markers, now = [], [1000]
+    action, params, _ = NATIVE_CASES[kind]
+    decision = {"action": action, "params": params}
+    tick = DecisionTick(package, profile, recorded_decisions((decision,)), None, markers.append,
+                        run_id="native-fixture", plan_digest="f" * 64, now_ms=lambda: now[0],
+                        build_proof=proof, cpu_replay=not live)
+    try:
+        tick.tick(replace(request_frame or frame, t_ms=now[0]), events=(("target_lost", "tracker"),))
+        tick.future.result(timeout=2)
+        now[0] += 10
+        tick.tick(frame)
+        last = markers[-1]
+        assert last["message_type"] == "scenario_decision_receipt"
+        assert last["action"] == action
+        assert {k: json.loads(last["wire"])[k] for k in decision} == decision
+        return last, tick.replay_commands, tick.executor.native_owner
+    finally:
+        tick.close()
+
+
+@pytest.mark.parametrize("kind", NATIVE_CASES)
+@pytest.mark.parametrize(("defect", "reason"), [
+    (None, "readback_required"),
+    ("live", "native_handoff_not_available"),
+    ("stale_frame", "decision_or_frame_stale"),
+    ("missing_sweep", "unverified_clearance"),
+    ("stale_sweep", "unverified_clearance"),
+    ("wrong_decision", "unverified_clearance"),
+    ("wrong_proof_frame", "missing_or_unbound_motion_proof"),
+    ("wrong_proof_digest", "missing_or_unbound_motion_proof"),
+    ("position_missing", "unverified_clearance"),
+    ("terrain_conflict", "unverified_clearance"),
+    ("terrain_unknown", "unverified_clearance"),
+    ("obstacle_missing", "unverified_clearance"),
+    ("obstacle_hit", "unverified_clearance"),
+    ("energy_missing", "energy_or_reserve_limit"),
+    ("energy_low", "energy_or_reserve_limit"),
+    ("time_missing", "time_or_reserve_limit"),
+    ("time_low", "time_or_reserve_limit"),
+    ("bank_missing", "predicted_dynamics_limit"),
+    ("bank_high", "predicted_dynamics_limit"),
+    ("duration_missing", "unverified_clearance"),
+    ("power_missing", "unverified_clearance"),
+])
+def test_native_replay_requires_bound_evidence(admitted, profile, kind, defect, reason):  # noqa: F811
+    package, steps, builder = admitted
+    frame, evidence = _native_fixture(kind, package)
+    original = frame
+    frame = replace(frame, **{
+        "stale_frame": {"t_ms": 999}, "position_missing": {"position_ne_amsl": None},
+        "terrain_conflict": {"terrain_conflict": True}, "energy_missing": {"remaining_energy_wh": None},
+        "energy_low": {"remaining_energy_wh": 0}, "time_missing": {"remaining_time_s": None},
+        "time_low": {"remaining_time_s": 0},
+    }.get(defect, {}))
+    if defect in {"terrain_unknown", "obstacle_missing", "obstacle_hit"}:
+        builder = X1MotionProofBuilder(
+            package, profile, builder.terrain, steps, mission_radius_m=1250,
+            terrain_error_m=None if defect == "terrain_unknown" else 1,
+            obstacle_clearance=lambda box: {"obstacle_missing": None, "obstacle_hit": -1}.get(defect, 25),
+        )
+    submitted = []
+
+    def prove(decision, current):
+        submitted.append(current)
+        sweep = evidence(decision)
+        sweep = replace(sweep, **{
+            "stale_sweep": {"frame_id": current.frame_id - 1}, "wrong_decision": {"decision_digest": "0" * 64},
+            "bank_missing": {"max_bank_deg": None}, "bank_high": {"max_bank_deg": profile.max_bank_deg + 1},
+            "duration_missing": {"legs": (replace(sweep.legs[0], duration_s=None), *sweep.legs[1:])},
+            "power_missing": {"legs": (replace(sweep.legs[0], peak_power_w=None), *sweep.legs[1:])},
+        }.get(defect, {}))
+        proof = builder.build(decision, current, None if defect == "missing_sweep" else sweep)
+        return replace(proof, **{
+            "wrong_proof_frame": {"frame_id": current.frame_id - 1}, "wrong_proof_digest": {"decision_digest": "0" * 64},
+        }.get(defect, {}))
+
+    row, commands, owner = _replay_native(kind, package, profile, frame, prove, request_frame=original,
+                                          live=defect == "live")
+    assert row["reason"] == reason
+    assert submitted == ([] if defect == "stale_frame" else [frame])
+    if defect is None:
+        assert row["status"] == ("accepted_unconfirmed" if kind == "orbit" else "sent_unconfirmed")
+        assert commands == [NATIVE_CASES[kind][2]] and owner == row["action"]
+    else:
+        assert row["status"] == "rejected" and not commands and owner is None
+
+
+@pytest.mark.parametrize(("kind", "defect", "reason"), [
+    ("hold", "moving", "unverified_clearance"),
+    ("hold", "missing_deadline", "unverified_clearance"),
+    ("hold", "wrong_mode", "unknown_hold_site_for_mode"),
+    ("hold", "not_offered", "hold_ref_not_offered"),
+    ("orbit", "hold_changed", "unknown_hold_site_for_mode"),
+    ("orbit", "undersized_radius", "orbit_radius_limit"),
+    ("orbit", "airspeed_missing", "predicted_fw_airspeed_limit"),
+    ("orbit", "airspeed_exceeded", "predicted_fw_airspeed_limit"),
+    ("orbit", "current_airspeed_missing", "current_fw_airspeed_limit"),
+    ("orbit", "uncovered_edge", "unverified_clearance"),
+    ("orbit", "corridor_edge", "unverified_clearance"),
+    ("orbit", "dem_edge", "unverified_clearance"),
+    ("orbit", "orbit_terrain", "unverified_clearance"),
+    ("return", "missing_reserve", "energy_or_reserve_limit"),
+    ("return", "package_reserve", "energy_or_reserve_limit"),
+    ("return", "wrong_arrival", "unverified_clearance"),
+    ("return", "off_route", "unverified_clearance"),
+    ("return", "broken_connector", "unverified_clearance"),
+    ("return", "terrain_on_route", "unverified_clearance"),
+    ("land", "wrong_mode", "land_now_requires_mc"),
+    ("land", "missing_pad", "unverified_clearance"),
+    ("land", "small_pad", "unverified_clearance"),
+    ("land", "early_contact", "unverified_clearance"),
+    ("land", "slanted_descent", "unverified_clearance"),
+    ("land", "multi_leg", "readback_required"),
+])
+def test_native_replay_checks_action_geometry(admitted, profile, kind, defect, reason):  # noqa: F811
+    package, steps, builder = admitted
+    terrain = builder.terrain
+    frame, evidence = _native_fixture(kind, package)
+    if defect == "package_reserve":
+        package = replace(package, document={**package.document, "budget": {
+            **package.document["budget"], "reserve_energy_wh": 20,
+        }})
+    if defect == "corridor_edge":
+        # All centreline points fit; the east edge of the full orbit does not.
+        package = replace(package, document={**package.document, "x1_planning": {
+            "corridor": {**package.document["operating_area"], "east_max_m": 59},
+            "max_distance_from_home_m": 1250,
+        }})
+    if defect == "dem_edge":
+        terrain = replace(terrain, east_origin_m=-50)
+    if defect in {"orbit_terrain", "terrain_on_route"}:
+        n, e = (100, 100) if kind == "orbit" else (200, 0)
+        terrain = _raise_vertex(terrain, n, e, 181)
+    builder = X1MotionProofBuilder(package, profile, terrain, steps, mission_radius_m=1250,
+                                   terrain_error_m=1, obstacle_clearance=lambda box: 25)
+    if defect == "undersized_radius":
+        frame = replace(frame, hold_sites={"orbit": replace(frame.hold_sites["orbit"], radius_m=1)})
+    if defect == "wrong_mode":
+        frame = replace(frame, vtol_state="fw", airspeed_mps=15)
+    if defect == "current_airspeed_missing":
+        frame = replace(frame, airspeed_mps=None)
+    if defect in {"missing_reserve", "package_reserve"}:
+        route_wh = 140 * 750 / 3600
+        reserve = profile.endurance.reserve_fraction * profile.endurance.battery_wh
+        frame = replace(frame, remaining_energy_wh=route_wh + reserve + (-1 if defect == "missing_reserve" else 1))
+    request_frame = frame
+    if defect == "not_offered":
+        request_frame = replace(frame, hold_sites={})
+    if defect == "hold_changed":
+        frame = replace(frame, hold_sites={"orbit": replace(frame.hold_sites["orbit"], tangential_speed_mps=16)})
+
+    def prove(decision, current):
+        sweep = evidence(decision)
+        first, last = sweep.legs[0], sweep.legs[-1]
+        if defect == "wrong_arrival":
+            arrival = (0, 0, 170)
+            sweep = replace(sweep, legs=(replace(first, end=arrival), replace(last, start=arrival)))
+        if defect == "off_route":
+            turn = (200, 80, 180)
+            sweep = replace(sweep, legs=(replace(first, end=turn), replace(first, start=turn), last))
+        if defect == "broken_connector":
+            sweep = replace(sweep, legs=(replace(first, start=(409, 0, 180)), last))
+        if defect in {"early_contact", "multi_leg"}:
+            middle = (*first.start[:2], 102 if defect == "early_contact" else 130)
+            sweep = replace(sweep, legs=(replace(first, end=middle, padding_alt_m=2), replace(last, start=middle)))
+        if defect == "slanted_descent":
+            site = (411, 0, 100)
+            sweep = replace(sweep, legs=(replace(last, end=site),), landing_pad=LandingPad(site, 8, 2))
+        overrides = {
+            "moving": {"legs": (replace(first, end=(411, 0, 180)),)},
+            "missing_deadline": {"hold_revalidation_enforced": False},
+            "uncovered_edge": {"legs": (replace(first, end=(-0.005, -0.005, 180), start=(-0.005, -0.005, 180)),)},
+            "airspeed_missing": {"min_airspeed_mps": None}, "airspeed_exceeded": {"max_airspeed_mps": 19},
+            "missing_pad": {"landing_pad": None}, "small_pad": {"landing_pad": LandingPad(last.end, 1, 2)},
+        }
+        return builder.build(decision, current, replace(sweep, **overrides.get(defect, {})))
+
+    if defect == "uncovered_edge":
+        frame = replace(frame, position_ne_amsl=(-0.005, -0.005, 180))
+    row, commands, owner = _replay_native(kind, package, profile, frame, prove, request_frame=request_frame)
+    assert row["reason"] == reason
+    if defect == "multi_leg":
+        assert commands == [("land",)] and owner == "land-now"
+    else:
+        assert row["status"] == "rejected" and commands == [] and owner is None

@@ -5,6 +5,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
+from types import SimpleNamespace
 from urllib.request import Request, urlopen
 
 from multidetect.autonomy.x1_contingency_executor import (
@@ -49,16 +50,45 @@ def recorded_decisions(decisions):
     return post
 
 
+class _ReplayPort:
+    """Record dispatcher calls in memory; this port cannot reach a vehicle."""
+
+    def __init__(self):
+        self.commands = []
+
+    def rtl(self):
+        self.commands.append(("rtl",))
+
+    def land(self):
+        self.commands.append(("land",))
+
+    def set_mode(self, mode):
+        self.commands.append(("set_mode", mode))
+
+    def loiter_at(self, centre, radius, altitude, *, speed):
+        self.commands.append(("loiter_at", centre, radius, altitude, speed))
+        return SimpleNamespace(ok=True, ack_result=0)  # Synthetic ACK, never a readback.
+
+    def gimbal_control(self, *, pitch_deg, yaw_deg):
+        self.commands.append(("gimbal_control", pitch_deg, yaw_deg))
+        return SimpleNamespace(ok=True, ack_result=0)
+
+
 class DecisionTick:
     """Submit on a worker. Validate and apply on the serialized collector tick."""
 
     def __init__(self, package, profile, backend, gimbal_port, record, *, run_id, plan_digest,
                  revision=1, peer=(1, 1), now_ms=lambda: time.monotonic_ns() // 1_000_000,
-                 build_proof=None):
+                 build_proof=None, cpu_replay=False):
+        if cpu_replay and gimbal_port is not None:
+            raise ValueError("CPU replay cannot take a live port")
+        replay_port = _ReplayPort() if cpu_replay else None
+        self.replay_commands = replay_port.commands if replay_port is not None else None
         self.builder = X1StateBuilder(vehicle_system=peer[0], vehicle_component=peer[1])
         self.executor = X1ContingencyExecutor(
-            X1AirbornePlanAdapter(revision, replace_remaining=lambda *_: False), gimbal_port,
-            package, X1Envelope(profile), claim_native=lambda: False,
+            X1AirbornePlanAdapter(revision, replace_remaining=lambda *_: False),
+            replay_port if replay_port is not None else gimbal_port,
+            package, X1Envelope(profile), claim_native=lambda: replay_port is not None,
             capabilities=frozenset(package.document["capabilities"]),
         )
         self.mission_id = package.mission_id
@@ -99,8 +129,10 @@ class DecisionTick:
                 if isinstance(wire, str) and len(wire.encode()) > MAX_DECISION_BYTES:
                     wire = ""
                 current_id = event_id if event_current else 0
-                admission = self.executor.apply(wire, replace(frame, event_id=current_id), now_ms=now,
-                                                build_proof=self.build_proof)
+                # A reference must still denote the same hold option that was offered.
+                holds = {ref: site for ref, site in frame.hold_sites.items() if self.offered_holds.get(ref) == site}
+                admission = self.executor.apply(wire, replace(frame, event_id=current_id, hold_sites=holds),
+                                                now_ms=now, build_proof=self.build_proof)
             except Exception as exc:
                 self._mark("error", request_id=self.request_id, error=type(exc).__name__)
             else:
@@ -110,8 +142,9 @@ class DecisionTick:
                 self.future = None
         if self.future is None and event_current and snapshot["events"] and event_id != self.last_requested:
             self.last_requested = event_id
+            self.offered_holds = dict(frame.hold_sites)
             request = self.executor.open_request(snapshot, run_id=self.run_id,
-                                                 hold_refs=tuple(frame.hold_sites),
+                                                 hold_refs=tuple(self.offered_holds),
                                                  remaining_plan_sha256=self.plan_digest)
             self.request_id = request["request_id"]
             self._mark("request", request=request)
@@ -133,8 +166,6 @@ class GimbalIngress:
     hold = None
 
     def gimbal_control(self, *, pitch_deg, yaw_deg):
-        from types import SimpleNamespace
-
         hold = self.hold
         if hold is None or hold.awaiting_readback or hold.session.poll() not in {"idle", "ready"}:
             return SimpleNamespace(ok=False, ack_result=1)
