@@ -54,6 +54,8 @@ X1 采集器优先使用 1500 ms 内的有效 `WIND_COV`。否则，仅在明确
 
 Gazebo Harmonic 的 X1 风情景可通过 `run_x1_autonomy_demo.py --wind-airspeed-plugin /绝对路径/libx1_wind_airspeed.so` 显式启用风相对空速；仅在选中 `wind_step` 时可用，默认关闭。启动器在该作业的 server config 中替换 stock AirSpeed，而不是另起一个发布者。替代系统把世界风投影到皮托管正向，从 stock 轴向地速中减去该投影；仍使用原传感器的压差模型、更新频率和 PX4 订阅话题。零风时使用原速度输入。世界风只在 Gazebo 传感器模型内部使用；Altair 仍从 PX4 遥测估风并决定动作，执行器只校验包线并接受或拒绝，PX4 内置安全行为不变。源码和构建入口见 `simulation/gazebo/plugins/x1_wind_airspeed/`。
 
+`wind_step.values.ramp_ms` 可选，默认 `0`，表示窗口开始和结束时分别立即切换到目标风和 SDF 基线风。正值为每段斜坡的仿真毫秒数，必须为有限数，范围为 `0..duration_ms / 2`。注入器在窗口开头按 10 Hz 的 PX4 boot-time 网格线性插值 ENU 风矢量，达到目标后保持，并在窗口最后 `ramp_ms` 内回到基线。独立线程串行发布，慢命令期间跳过过时样本，窗口结束时补发精确基线。异常退出时先等待在途发布结束，再发精确基线，恢复命令失败时重试一次。`scenario_injected`、`scenario_restored` 和发布失败标记的 `applied` 记录斜坡时长、采样间隔、基线和目标矢量，以及最后一次成功发布的 `enu_mps`。发布确认的 `readback` 为 `publish_only`，遥测触发以独立的 `scenario_observed` 为准。CPU 合成回放仍注入窗口目标值。
+
 给推理器的固定上下文还应带原始任务句子、当前计划摘要和已授权引用。`remaining_plan_sha256` 绑定宿主所提供的摘要来源。将事实快照作为单独的紧凑 JSON，编译器已有的消息模板继续承载原始任务和静态上下文。`actions` 是可序列化的动作词表，当前阶段和证据决定每个动作能否准入。保留约束、候选和数据缺口供模型判断。以实测分词器记录输入/输出 token 和首动作延迟。3 秒事件截止与 500 毫秒执行帧新鲜度是 v1 软件上限，具体场景可有更早的物理截止。
 
 ## 输出

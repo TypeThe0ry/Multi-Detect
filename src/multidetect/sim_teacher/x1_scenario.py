@@ -7,6 +7,7 @@ import re
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event, Lock, Thread
 
@@ -42,6 +43,48 @@ def schedule_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _wind_target(values):
+    return values["east_mps"], values["north_mps"], -values["down_mps"]
+
+
+class _WindRamp:
+    PUBLISH_INTERVAL_MS = 100
+
+    def __init__(self, index, fault, baseline, started_boot_ms):
+        self.index = index
+        self.fault = fault
+        self.duration = fault.values["ramp_ms"]
+        self.started_boot_ms = started_boot_ms
+        self.parameters = {"ramp_ms": self.duration, "publish_interval_ms": self.PUBLISH_INTERVAL_MS,
+                           "baseline_enu_mps": list(baseline), "target_enu_mps": list(_wind_target(fault.values))}
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="x1-sitl-wind")
+        self.future = None
+        self.phase = None
+        self.last_applied = {}
+        self.last_fraction = None
+
+    def fraction(self, elapsed):
+        up_ms = elapsed - self.fault.at_ms
+        down_ms = elapsed - (self.fault.end_ms - self.duration)
+        if down_ms >= 0:
+            sample = down_ms // self.PUBLISH_INTERVAL_MS * self.PUBLISH_INTERVAL_MS
+            return max(0, 1 - sample / self.duration)
+        if up_ms >= self.duration:
+            return 1
+        return (up_ms // self.PUBLISH_INTERVAL_MS * self.PUBLISH_INTERVAL_MS) / self.duration
+
+    def submit(self, phase, operation, clock):
+        def publish():
+            details = operation()
+            return details, clock()
+
+        self.phase = phase
+        self.future = self.executor.submit(publish)
+
+    def applied(self):
+        return {**self.parameters, "enu_mps": None, **self.last_applied}
+
+
 class ScenarioTimeline:
     """Single owner of the actuators. A half-open window missed by the clock is a failure."""
 
@@ -57,6 +100,7 @@ class ScenarioTimeline:
             key=lambda edge: edge[:3],
         )
         self.next_edge = 0
+        self.wind_ramp = None
 
     def _mark(self, fault, index, phase, scheduled, **details):
         self.record({"message_type": f"scenario_{phase}", "fault": fault.kind, "fault_index": index,
@@ -65,6 +109,9 @@ class ScenarioTimeline:
                      "observed_boot_ms": self.clock(), "receive_monotonic_ns": time.monotonic_ns(), **details})
 
     def tick(self):
+        self._poll_wind()
+        if self.wind_ramp is not None and self.wind_ramp.phase == "restore":
+            return  # preserve wind restore ordering at shared edges without waiting on the command
         while self.next_edge < len(self.edges):
             stamp = self.clock()
             if stamp is None or stamp < self.last:
@@ -81,6 +128,10 @@ class ScenarioTimeline:
             try:
                 if enabled:
                     self.active[index] = fault  # restore even after a partial write
+                    if fault.kind == "wind_step" and fault.values.get("ramp_ms", 0):
+                        self.wind_ramp = _WindRamp(index, fault, self.transport.wind[1], stamp)
+                        self._sample_wind(elapsed, "apply")
+                        continue
                     details = self.transport.apply(fault)
                     applied_stamp = self.clock()
                     if applied_stamp is None or applied_stamp < stamp or applied_stamp - self.origin >= fault.end_ms:
@@ -88,24 +139,83 @@ class ScenarioTimeline:
                         raise RuntimeError(f"X1 scenario apply exceeded its window: {fault.kind}")
                     self._mark(fault, index, "injected", offset, applied=dict(details))
                 else:
+                    if self.wind_ramp is not None and self.wind_ramp.index == index:
+                        ramp = self.wind_ramp
+                        if ramp.future is not None:
+                            self.next_edge -= 1
+                        else:
+                            ramp.submit("restore", lambda: self.transport.restore(fault), self.clock)
+                        return
                     self._restore(index, fault, "window_end")
             except Exception as exc:
                 self._mark(fault, index, "error", offset, error=str(exc))
                 raise
+        if self.wind_ramp is not None and self.wind_ramp.future is None:
+            self._sample_wind(self.last - self.origin, "update")
+
+    def _sample_wind(self, elapsed, phase):
+        ramp = self.wind_ramp
+        fraction = ramp.fraction(elapsed)
+        if fraction == ramp.last_fraction:
+            return  # hold the last vector and skip obsolete samples after a slow publish
+        ramp.last_fraction = fraction
+        ramp.submit(phase, lambda: self.transport.apply(ramp.fault, wind_fraction=fraction), self.clock)
+
+    def _poll_wind(self, *, wait=False):
+        ramp = self.wind_ramp
+        if ramp is None or ramp.future is None or (not wait and not ramp.future.done()):
+            return
+        fault, future = ramp.fault, ramp.future
+        ramp.future = None
+        offset = fault.end_ms if ramp.phase == "restore" else fault.at_ms
+        try:
+            details, stamp = future.result()
+            ramp.last_applied = details
+            if ramp.phase == "apply":
+                if stamp is None or stamp < ramp.started_boot_ms or stamp - self.origin >= fault.end_ms:
+                    self._mark(fault, ramp.index, "missed", offset, applied=ramp.applied())
+                    raise RuntimeError(f"X1 scenario apply exceeded its window: {fault.kind}")
+                self._mark(fault, ramp.index, "injected", offset, applied=ramp.applied())
+            elif ramp.phase == "restore":
+                self._finish_restore(ramp.index, fault, "window_end", details)
+        except Exception as exc:
+            self._mark(fault, ramp.index, "error", offset, error=str(exc), applied=ramp.applied())
+            raise
 
     def _restore(self, index, fault, reason):
-        details = self.transport.restore(fault)
+        self._finish_restore(index, fault, reason, self.transport.restore(fault))
+
+    def _finish_restore(self, index, fault, reason, details):
+        ramp = self.wind_ramp
+        if ramp is not None and ramp.index == index:
+            ramp.last_applied = details or ramp.last_applied
+            details = ramp.applied()
+            ramp.executor.shutdown(wait=False)
+            self.wind_ramp = None
         del self.active[index]
         self._mark(fault, index, "restored", fault.end_ms, reason=reason, applied=dict(details))
 
     def close(self, *, completed=False):
         errors = []
+        try:
+            self._poll_wind(wait=True)
+        except Exception as exc:
+            errors.append(f"wind_step: {exc}")
         for index, fault in reversed(tuple(self.active.items())):
-            try:
-                self._restore(index, fault, "episode_exit")
-            except Exception as exc:
-                self._mark(fault, index, "restore_error", fault.end_ms, error=str(exc))
-                errors.append(f"{fault.kind}: {exc}")
+            ramp = self.wind_ramp
+            is_ramped_wind = ramp is not None and ramp.index == index
+            # The pending write has drained. A failed cleanup publish gets one
+            # bounded retry of the exact baseline, never another ramp sample.
+            for _ in range(2 if is_ramped_wind else 1):
+                try:
+                    self._restore(index, fault, "episode_exit")
+                    break
+                except Exception as exc:
+                    details = {"applied": ramp.applied()} if is_ramped_wind else {}
+                    self._mark(fault, index, "restore_error", fault.end_ms, error=str(exc), **details)
+                    errors.append(f"{fault.kind}: {exc}")
+        if self.wind_ramp is not None:
+            self.wind_ramp.executor.shutdown()
         if completed and self.next_edge != len(self.edges):
             for offset, on, index, fault in self.edges[self.next_edge:]:
                 if on:
@@ -194,11 +304,22 @@ class SitlScenarioTransport:
                      f"enable_wind: true linear_velocity: {{x: {x} y: {y} z: {z}}}")
         return {"topic": topic, "enu_mps": list(enu), "readback": "publish_only"}
 
-    def apply(self, fault):
+    def apply(self, fault, *, wind_fraction=None):
         kind, values = fault.kind, fault.values
         if kind == "wind_step":
+            if wind_fraction is None:
+                wind_fraction = 0 if values.get("ramp_ms", 0) else 1
+            target = _wind_target(values)
+            baseline = self.wind[1]
+            if wind_fraction == 1:
+                enu = target
+            elif wind_fraction == 0:
+                enu = baseline
+            else:
+                enu = tuple((1 - wind_fraction) * base + wind_fraction * goal
+                            for base, goal in zip(baseline, target))
             self.wind_written = True
-            return self._wind((values["east_mps"], values["north_mps"], -values["down_mps"]))
+            return self._wind(enu)
         if kind == "battery_drop":
             baseline = self.battery_sample()
             if baseline is None or not values["pct"] < baseline <= 100:
