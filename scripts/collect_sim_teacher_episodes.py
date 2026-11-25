@@ -29,6 +29,7 @@ import types
 import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable, Mapping
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -4330,7 +4331,7 @@ def _send_gcs_heartbeat(connection: Any, mavutil_module: Any) -> None:
 
 
 def _start_gcs_heartbeat_loop(
-    connection: Any, mavutil_module: Any
+    connection: Any, mavutil_module: Any, *, heartbeat_gate=None
 ) -> tuple[threading.Event, threading.Thread]:
     """Keep PX4's GCS-liveness gate open throughout a long episode."""
     stop = threading.Event()
@@ -4338,7 +4339,10 @@ def _start_gcs_heartbeat_loop(
     def run() -> None:
         while not stop.is_set():
             try:
-                _send_gcs_heartbeat(connection, mavutil_module)
+                if heartbeat_gate is None:
+                    _send_gcs_heartbeat(connection, mavutil_module)
+                else:
+                    heartbeat_gate(_send_gcs_heartbeat, connection, mavutil_module)
             except Exception:
                 # The owning episode thread will fail on its next reader or
                 # control check if the connection has actually gone away.
@@ -6868,8 +6872,12 @@ def run_episode(
     free_space_fn: Any = free_space_bytes,
     policy_override: Any = None,
     land_after_route: bool = False,
+    x1_scenario: Any = None,
 ) -> Path:
     _env_positive_gb("MD_SIM_SERVER_RSS_SOFT_LIMIT_GB")
+    if x1_scenario is not None and (plan.airframe != "delta_tailsitter_gimbal_cam"
+                                    or plan.attach_container or not land_after_route):
+        raise ValueError("X1 scenario injection requires an owned X1 demo episode")
     plan = freeze_collection_runtime(plan)
     episode_id = f"episode-{episode_index:04d}-{uuid.uuid4().hex[:8]}"
     initial_reason = disk_space_abort_reason(
@@ -7093,7 +7101,7 @@ def run_episode(
         # Host diagnostics are strictly best effort and must never abort SIM.
         pass
     try:
-        with environment, gimbal_send_gate:
+        with environment, gimbal_send_gate, ExitStack() as scenario_cleanup:
             try:
                 server_rss_sampler.start()
             except Exception:
@@ -7214,15 +7222,33 @@ def run_episode(
             # udpin learns PX4's peer from the received heartbeat.  Start the
             # continuous GCS heartbeat only after that point so every packet
             # is sent back through this same socket to PX4.
-            gcs_heartbeat_stop, gcs_heartbeat_thread = _start_gcs_heartbeat_loop(
-                telemetry_connection, mavutil
-            )
+            if x1_scenario is None:
+                gcs_heartbeat_stop, gcs_heartbeat_thread = _start_gcs_heartbeat_loop(telemetry_connection, mavutil)
+            else:
+                x1_scenario.bind(
+                    _docker_executable(plan), environment.name, world_path, mav_reader,
+                    telemetry_connection, recorder.record_mavlink, episode_id,
+                    clock=lambda: (stamp // 1_000_000 if (stamp := _pose_sim_stamp_ns(mav_reader.state))
+                                   is not None else None),
+                )
+                scenario_cleanup.callback(x1_scenario.close)
+                gcs_heartbeat_stop, gcs_heartbeat_thread = _start_gcs_heartbeat_loop(
+                    telemetry_connection, mavutil, heartbeat_gate=x1_scenario.heartbeat,
+                )
             # Keep the GCS liveness gate open while disposable-SITL arm
             # parameters are applied.  This mirrors r29's connection-before-
             # preflight ordering and prevents PX4 from latching a stale GCS
             # failure during the docker-exec retries.
             sim_parameters = _set_sim_params(plan, environment)
             recorder.meta["sim_only_parameters"] = sim_parameters
+            if x1_scenario is not None:
+                x1_scenario.prepare()
+                for name in ("BATTERY_STATUS", "WIND_COV"):
+                    telemetry_connection.mav.command_long_send(
+                        telemetry_connection.target_system, telemetry_connection.target_component,
+                        mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+                        getattr(mavutil.mavlink, f"MAVLINK_MSG_ID_{name}"), 200_000, 0, 0, 0, 0, 0,
+                    )
             recorder.meta["gcs_identity"] = {
                 "source_system": GCS_SOURCE_SYSTEM,
                 "source_component": GCS_SOURCE_COMPONENT,
@@ -7466,6 +7492,8 @@ def run_episode(
             def _check_episode_health() -> None:
                 resource_guard.check()
                 telemetry_watchdog.check()
+                if x1_scenario is not None:
+                    x1_scenario.check()
 
             mav_reader.set_health_check(_check_episode_health)
             # The collector-owned frame server is request/response based, so
@@ -8577,6 +8605,13 @@ def run_episode(
                                                "refresh_interval_sim_s": 1.0,
                                                "readback_max_age_ms": 2000.0,
                                                "initial_readback": initial.ack}
+            if x1_scenario is not None:
+                x1_scenario.start()
+
+            def _scenario_decision_tick(index: int) -> None:
+                if x1_scenario is not None:
+                    x1_scenario.tick(index, long_range_gimbal_hold if not landing_started else None)
+
             fw_phase = X1FwPhase()
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
@@ -8594,6 +8629,7 @@ def run_episode(
                 episode_watchdog.check()
                 if horizon_loop is not None:
                     horizon_loop.check()
+                _scenario_decision_tick(index)
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 step_started_sim_ns = pose_sim_stamp_ns
@@ -8970,6 +9006,7 @@ def run_episode(
                     episode_watchdog.check()
                     if horizon_loop is not None:
                         horizon_loop.check()
+                    _scenario_decision_tick(index)
                     if long_range_gimbal_hold is not None and not landing_started:
                         long_range_gimbal_hold.tick()
                     if x1_unwind is not None and sensor_reader.meta_supported:
@@ -9481,6 +9518,8 @@ def run_episode(
                     raise RuntimeError("gimbal_check_failed: one or more video frames lack fresh camera feedback")
             _copy_mover_driver_log(plan, environment, recorder, mover_driver)
             recorder.meta["mover_driver"] = mover_driver
+            if x1_scenario is not None:
+                x1_scenario.close(completed=True)
             recorder.mark_finished(status="complete")
             server_rss_sampler.close()
             host_pressure_sampler.close()

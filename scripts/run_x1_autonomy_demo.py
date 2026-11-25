@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import time
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,6 +32,10 @@ from multidetect.autonomy.x1_plan import (  # noqa: E402
     X1_CAPABILITY, one_waypoint_primitives_input, x1_planner_context,
 )
 from multidetect.terrain_dem import LocalDemGrid, load_local_dem_grid  # noqa: E402
+from multidetect.sim_teacher.x1_scenario import (  # noqa: E402
+    SUPPORTED, CollectorScenario, load_schedule, schedule_sha256, wind_server_config,
+)
+from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, llama_decisions  # noqa: E402
 from scripts.realworld import long_range_flight as long_range  # noqa: E402
 
 AIRFRAME = "delta_tailsitter_gimbal_cam"
@@ -260,6 +265,58 @@ class MissionPolicy:
         return next(self.commands)
 
 
+def forward_clearance(steps, dem):
+    commands = tuple(step.command for step in steps if step.command is not None)
+
+    def clearance(index, message):
+        if message is None:
+            return None
+        start = tuple(getattr(message, axis, None) for axis in "xyz")
+        if not all(type(value) in (float, int) and math.isfinite(value) for value in start):
+            return None
+        target = next((command.target_ned for command in commands[index:] if command.target_ned is not None), None)
+        if target is None:
+            return None
+        distance = math.dist(start[:2], target[:2])
+        if distance < 1.0:
+            return None
+        fraction = min(1.0, 80.0 / distance)
+        # Forward clearance estimate along the active connector. Keep the
+        # physical DEM and the nominal X1 route guard on the pristine grid.
+        try:
+            return min(long_range._terrain_agl(dem, tuple(a + (b - a) * fraction * i / 8
+                        for a, b in zip(start, target, strict=True))) for i in range(1, 9))
+        except ValueError:
+            return None
+
+    return clearance
+
+
+def make_scenario(args, mission, steps, record):
+    faults = mission.get("scenario_faults")
+    if not faults:
+        return None
+    make_decision = None
+    if args.decision_port is not None:
+        backend = llama_decisions(args.decision_port, args.sentence)
+        profile = load_airframe_profile(PROFILE)
+
+        def make_decision(gimbal, emit, episode_id, peer):
+            return DecisionTick(mission["scenario_package"], profile, backend, gimbal, emit,
+                                run_id=episode_id, plan_digest=record["compiled_mission_sha256"],
+                                revision=mission["scenario_revision"], peer=peer)
+
+    return CollectorScenario(faults, clearance=forward_clearance(steps, mission["terrain"]),
+                             make_decision=make_decision)
+
+
+def _restore_env(name, previous):
+    if previous is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = previous
+
+
 def fly(args, collector_plan, steps, mission, record):
     from scripts import collect_sim_teacher_episodes as collector
     from scripts.realworld import collection_guard, x1_gpu, x1_resume
@@ -285,11 +342,23 @@ def fly(args, collector_plan, steps, mission, record):
                     args.output, gpu, collection_guard.environment_settings(), uuid)
                 plan = replace(collector_plan, image=image_id, requested_image=IMAGE,
                                gpu_render=True, gpu_device=str(gpu), gpu_devices=(str(gpu),))
-                with long_range.collector_overrides(collector, mission, x1_heading_deg=steps[1].required_mc_heading_deg):
+                with ExitStack() as stack:
+                    scenario = make_scenario(args, mission, steps, record)
+                    if scenario is not None and any(f.kind == "wind_step" for f in scenario.faults):
+                        env_key = "MULTIDETECT_RTF_SERVER_CONFIG"
+                        previous = os.environ.get(env_key)
+                        source = Path(previous) if previous else ROOT / "simulation/gazebo/server-wide-area.config"
+                        modified_config = args.output / "x1-wind-server.config"
+                        wind_server_config(source, modified_config)
+                        os.environ[env_key] = str(modified_config)
+                        stack.callback(_restore_env, env_key, previous)
+                    stack.enter_context(long_range.collector_overrides(
+                        collector, mission, x1_heading_deg=steps[1].required_mc_heading_deg))
                     record["flight"]["status"] = "started"
                     write_result(args.output / "result.json", record)
                     return collector.run_episode(plan, Path(plan.truth), 0, land_after_route=True,
-                                                 policy_override=MissionPolicy(steps, args.gimbal_pitch_deg))
+                                                 policy_override=MissionPolicy(steps, args.gimbal_pitch_deg),
+                                                 **({"x1_scenario": scenario} if scenario is not None else {}))
 
 
 def finish_flight(episode, steps, record):
@@ -324,6 +393,9 @@ def finish_flight(episode, steps, record):
         "local_position_sample_count": len(positions), "max_horizontal_displacement_from_first_sample_m": peak,
     })
     record["markers"].extend(markers)
+    if "contingency_scenario" in record:
+        scenario_rows = [row for row in mavlink if str(row.get("message_type", "")).startswith("scenario_")]
+        record["contingency_scenario"]["markers"] = scenario_rows
     record["flight"].update(episode=str(episode), takeoff=takeoff,
                             waypoints_reached=[steps[2].source_step_id] if observed.get("fw_goto_waypoint") else [],
                             return_home=bool(observed.get("mc_return_to_home")), landing=landed, steps=observed,
@@ -341,6 +413,15 @@ def run(args, *, post, launch=fly):
                          "return_home": None, "landing": None}, "safety": {}, "markers": []}
     result = args.output / "result.json"
     try:
+        faults = ()
+        scenario_path = getattr(args, "contingency_scenario", None)
+        if scenario_path is not None:
+            faults = load_schedule(scenario_path, args.inject_fault)
+            record["contingency_scenario"] = {
+                "path": str(scenario_path), "sha256": schedule_sha256(scenario_path),
+                "clock": "PX4 LOCAL_POSITION_NED.time_boot_ms at first route tick",
+                "faults": [asdict(fault) for fault in faults], "decision_port": args.decision_port,
+            }
         document = read_object(args.mission_package)
         if "plan" in document:
             raise X1PlanError("PRECOMPILED_PLAN", "demo input must not contain a precomputed plan")
@@ -360,6 +441,8 @@ def run(args, *, post, launch=fly):
         if args.plan_only:
             record["flight"]["status"] = "plan_only"
             return 0
+        if faults:
+            mission.update(scenario_faults=faults, scenario_package=package, scenario_revision=plan.plan_version)
         record["safety"]["observed"] = mission["observed_margins"]
         try:
             episode = launch(args, collector_plan, steps, mission, record)
@@ -393,6 +476,11 @@ def main(argv=None):
     parser.add_argument("--sentence", required=True)
     parser.add_argument("--world", required=True, help="site name, e.g. rw_farm_iowa_w6km")
     parser.add_argument("--scenario", required=True, type=lambda p: Path(p).resolve())
+    parser.add_argument("--contingency-scenario", type=Path, help="opt in to X1 fault schedule JSON")
+    parser.add_argument("--inject-fault", action="append", choices=sorted(SUPPORTED), default=[],
+                        help="select a SITL-supported fault from a mixed replay schedule (repeatable)")
+    parser.add_argument("--decision-port", type=int, metavar="PORT",
+                        help="local onboard Altair llama-server port for live contingency requests")
     parser.add_argument("--mission-package", required=True, type=Path, help="site references and constraints, without a plan")
     parser.add_argument("--output", required=True, type=lambda p: Path(p).resolve(), help="fresh result directory")
     planner = parser.add_mutually_exclusive_group(required=True)
@@ -406,6 +494,12 @@ def main(argv=None):
     parser.add_argument("--gimbal-pitch-deg", type=float, default=-56.0)
     parser.add_argument("--plan-only", "--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if (args.inject_fault or args.decision_port is not None) and args.contingency_scenario is None:
+        parser.error("--inject-fault and --decision-port require --contingency-scenario")
+    if args.decision_port is not None and not 1 <= args.decision_port <= 65535:
+        parser.error("--decision-port must be between 1 and 65535")
+    if args.decision_port is not None and args.decision_port == args.planner_port:
+        parser.error("the standalone decision backend needs a port separate from --planner-port")
     if args.recorded_output and not args.plan_only:
         parser.error("recorded output requires --plan-only or --dry-run")
     if args.checkpoint and not (args.checkpoint.is_file() and args.llama_server and args.llama_server.is_file()):

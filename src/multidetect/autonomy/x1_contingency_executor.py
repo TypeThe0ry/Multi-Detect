@@ -163,13 +163,13 @@ class X1Envelope:
             limits = gimbal.get("angle_range_deg", {})
             if frame.gimbal_available is not True or gimbal.get("enabled") is not True:
                 return "gimbal_unavailable"
-            if mode not in _STEADY:
+            if not isinstance(mode, str) or mode not in _STEADY:
                 return "gimbal_transition_interlock"
             if not all(axis in limits and len(limits[axis]) == 2 and _number(angle, *limits[axis])
                        for axis, angle in (("pitch", d.params["pitch_deg"]), ("yaw", d.params["yaw_deg"]), ("roll", 0.0))):
                 return "gimbal_angle_limit"
             return None
-        if mode not in _STEADY | _TRANSITION or frame.position_ok is not True:
+        if not isinstance(mode, str) or mode not in _STEADY | _TRANSITION or frame.position_ok is not True:
             return "flight_mode_or_position_unverified"
         if action not in {"continue", "abort-transition"} and mode not in _STEADY:
             return "transition_interlock"

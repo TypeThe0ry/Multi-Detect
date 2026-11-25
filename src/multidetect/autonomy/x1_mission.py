@@ -56,7 +56,10 @@ def x1_place_from_bearing(
     home_ne: tuple[float, float], distance_m: float, bearing_deg: float
 ) -> tuple[float, float]:
     """Ground a relative destination; bearings are clockwise from true north."""
-    distance = require_real(distance_m, "distance_m", minimum=1e-6, maximum=100_000)
+    try:
+        distance = require_real(distance_m, "distance_m", minimum=1e-6, maximum=100_000)
+    except ValueError as exc:
+        raise X1PlanError("INVALID_DISTANCE", str(exc)) from exc
     bearing = math.radians(require_real(bearing_deg, "bearing_deg", minimum=0, maximum=360))
     return home_ne[0] + distance * math.cos(bearing), home_ne[1] + distance * math.sin(bearing)
 
@@ -119,6 +122,9 @@ def _check_corridor(package, terrain, *, home, tangent, end_m, mission_radius_m,
 
     envelope = corners(start_m, end_m)
     area = package.document["operating_area"]
+    if (context := package.document.get("x1_planning")) is not None:
+        area = context["corridor"]
+        mission_radius_m = min(mission_radius_m, context["max_distance_from_home_m"])
     if any(not (area["north_min_m"] <= n <= area["north_max_m"]
                 and area["east_min_m"] <= e <= area["east_max_m"]
                 and math.dist((n, e), home) <= mission_radius_m) for n, e in envelope):
@@ -154,7 +160,7 @@ def _check_budget(package, profile, *, height_m, leg_m, runout_m):
     transition_s = 2 * profile.transition.timeout_s
     if climb_s + fw_s + transition_s + mc_s + descent_s > budget["time_s"] - budget["reserve_time_s"]:
         raise X1PlanError("TIME_BUDGET", "X1 sortie estimate exceeds time budget after reserve")
-    energy_wh = endurance.transition_energy_wh + (
+    energy_wh = 2 * endurance.transition_energy_wh + (
         climb_s * endurance.climb_power_w + fw_s * endurance.cruise_power_w
         + mc_s * endurance.hover_power_w + descent_s * endurance.descent_power_w
     ) / 3600.0
@@ -183,11 +189,17 @@ def build_x1_mission_steps(
     if plan is None:
         raise X1PlanError("PLAN_REQUIRED", "compile the task with the onboard planner before lowering")
     outbound_id, finish_id, target, altitude_agl = _adapt_plan(package, plan)
-    radius = require_real(mission_radius_m, "mission_radius_m", minimum=1e-6, maximum=100_000)
+    try:
+        radius = require_real(mission_radius_m, "mission_radius_m", minimum=1e-6, maximum=100_000)
+    except ValueError as exc:
+        raise X1PlanError("INVALID_MISSION_RADIUS", str(exc)) from exc
     default_min_leg = max(50.0, 3.0 * profile.cruise_airspeed_mps)
-    minimum = default_min_leg if fw_min_leg_m is None else require_real(
-        fw_min_leg_m, "fw_min_leg_m", minimum=default_min_leg,
-    )
+    try:
+        minimum = default_min_leg if fw_min_leg_m is None else require_real(
+            fw_min_leg_m, "fw_min_leg_m", minimum=default_min_leg, maximum=100_000,
+        )
+    except ValueError as exc:
+        raise X1PlanError("INVALID_FW_MIN_LEG", str(exc)) from exc
     home = package.document["home"]
     dn, de = target[0] - home[0], target[1] - home[1]
     leg_m = math.hypot(dn, de)

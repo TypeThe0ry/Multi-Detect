@@ -39,7 +39,10 @@ def _is_terminal_step(step: MissionStep) -> bool:
 def number(value: Any, name: str, *, minimum: float = 0.0) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be a finite number")
-    value = float(value)
+    try:
+        value = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"invalid {name}") from exc
     if not math.isfinite(value) or value < minimum:
         raise ValueError(f"invalid {name}")
     return value
