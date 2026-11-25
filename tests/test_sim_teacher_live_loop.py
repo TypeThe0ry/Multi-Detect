@@ -768,8 +768,9 @@ def test_collector_current_step_routes_first_and_alternating_actions_without_pri
                    action=None, gimbal_pitch_deg=-20, gimbal_yaw_deg=5, gimbal_roll_deg=0)]
     dispatches, ensures = [], []
     policy = SimpleNamespace(next_action=lambda **kwargs: actions.pop(0))
-    env = {'plan': SimpleNamespace(teacher='hover', gimbal_eval_track_step=None), 'policy': policy,
-           'pose': (0, 0, -10), 'yaw': 0.0, 'before': {}, 'timing': {},
+    env = {'plan': SimpleNamespace(teacher='hover', gimbal_eval_track_step=None, gimbal_eval_fw_legs=0),
+           'policy': policy, 'index': 0, 'horizon_stabilizer': None,
+           'x1_fw_track_preaim': collector.x1_fw_track_preaim, 'pose': (0, 0, -10), 'yaw': 0.0, 'before': {}, 'timing': {},
            'camera_mount': CameraMount.gimbal(), 'gimbal_session': None, 'landing_started': False, 'horizon_loop': None,
            'gimbal_controller': object(),
            '_managed_teacher_gimbal_action': collector._managed_teacher_gimbal_action,

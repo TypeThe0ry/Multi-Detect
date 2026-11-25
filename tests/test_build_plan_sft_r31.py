@@ -4,12 +4,15 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from conftest import requires_path
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import build_plan_sft as sft  # noqa: E402
 
 
 def test_r31_small_recipe_is_balanced_and_holdout_disjoint(tmp_path):
+    requires_path("artifacts/datasets/plan-sft-v4/train.jsonl", reason="r31 replay training dataset")
     output = tmp_path / "r31"
     assert sft.main([
         "--output", str(output), "--version", "v4", "--rows", "1", "--val-rows", "0",

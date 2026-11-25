@@ -136,13 +136,21 @@ def _free_ports(count=2):
             sock.close()
 
 
+def _write_operator_key(path: Path, key: bytes) -> None:
+    def open_private(filename: str, flags: int) -> int:
+        return os.open(filename, flags, 0o600)
+
+    with open(path, "x", encoding="ascii", opener=open_private) as stream:
+        stream.write("hmac:" + key.hex())
+
+
 def main() -> int:
     SCRATCH.mkdir(parents=True, exist_ok=True)
     work = SCRATCH / f"real-process-{os.getpid()}"
     work.mkdir(parents=True, exist_ok=True)
     key = b"R" * 32
     key_path = work / "operator.key"
-    key_path.write_text("hmac:" + key.hex(), encoding="ascii")
+    _write_operator_key(key_path, key)
     source = json.loads((ROOT / "configs/onboard/mission-package-count-cones-example.json").read_text())
     from multidetect.autonomy.mission_security import AuthenticationKey, sign_document
     package_path = work / "mission.json"

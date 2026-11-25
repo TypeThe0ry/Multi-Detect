@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -207,15 +208,28 @@ def _sources(
     bench.parent.mkdir(parents=True, exist_ok=True)
     bench.write_text(json.dumps(bench_document, sort_keys=True) + "\n", encoding="utf-8")
 
+    # Keep the fixture's parity and tool hashes, but supply a synthetic clean Git identity.
+    git_responses = {
+        ("status", "--porcelain", "--untracked-files=no"): "",
+        ("rev-parse", "HEAD"): "a" * 40,
+    }
+    monkeypatch.setattr(plan_module, "_git", lambda _root, *args: git_responses[args])
     identity = plan_module._source_identity(ROOT)
-    identity["repository"]["tracked_dirty"] = False
     identity["release_parity"]["source_verified"] = True
-    monkeypatch.setattr(plan_module, "_source_identity", lambda _root: identity)
+
+    repository_root = tmp_path / "repository"
+    repository_output = repository_root / "output"
+    repository_output.mkdir(parents=True)
+    identity["repository"]["root"] = str(repository_root)
+
+    def fixture_identity(root: Path) -> dict[str, Any]:
+        assert root == repository_root
+        return identity
+
+    monkeypatch.setattr(plan_module, "_source_identity", fixture_identity)
     monkeypatch.setenv("MULTIDETECT_OPERATOR_HMAC_KEY", "present-for-test")
     monkeypatch.setenv("MULTIDETECT_MAVLINK_SIGNING_KEY_HEX", "present-for-test")
     plan = tmp_path / "session" / "gr01-release-session-plan.json"
-    repository_output = ROOT / "tmp"
-    repository_output.mkdir(parents=True, exist_ok=True)
     create_gr01_release_session_plan(
         plan,
         host_address="192.168.144.20",
@@ -229,7 +243,7 @@ def _sources(
         maximum_ack_latency_p95_ms=500.0,
         maximum_attempts=3,
         maximum_evidence_age_s=max_age_s,
-        repository_root=ROOT,
+        repository_root=repository_root,
         python_path=PYTHON,
         output_root=repository_output,
     )
@@ -252,7 +266,7 @@ def _sources(
     create_gr01_release_session_handoff(
         handoff,
         source_plan=plan,
-        target_repository_root=ROOT,
+        target_repository_root=repository_root,
         target_python=PYTHON,
         target_output_root=repository_output,
         host_id="GR01-SESSION-TEST",

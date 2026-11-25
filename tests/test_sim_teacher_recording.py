@@ -20,7 +20,9 @@ from multidetect.sim_teacher.recording import load_depth_array
 
 def test_low_disk_start_guard_records_abort_without_starting_episode(tmp_path: Path) -> None:
     import scripts.collect_sim_teacher_episodes as collector
-    plan = type("Plan", (), {"out": str(tmp_path), "min_free_gb": 15.0})()
+    plan = type(
+        "Plan", (), {"out": str(tmp_path), "min_free_gb": 15.0, "attach_container": None, "image": None}
+    )()
     path = collector.run_episode(plan, Path("unused"), 0, free_space_fn=lambda _: 1)
     meta = json.loads((path / "episode.json").read_text(encoding="utf-8"))
     assert meta["status"] == "aborted_low_disk"

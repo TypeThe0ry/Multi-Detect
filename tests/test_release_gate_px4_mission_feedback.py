@@ -40,6 +40,7 @@ from multidetect.px4_mission_feedback_cli import (
     observe_px4_mission_feedback,
     write_px4_mission_feedback_observation,
 )
+from multidetect.product_version import load_product_version
 from multidetect.release_gate import PARITY_FIELDS, evaluate_release_gate
 from multidetect.release_gate_manifest import (
     ReleaseGateManifestError,
@@ -312,7 +313,7 @@ def test_release_manifest_binds_and_reopens_six_mission_feedback_sources(
     verification = verify_px4_mission_feedback_binding(
         binding,
         manifest_directory=output.parent,
-        expected_release_label="0.3.0-pre.8",
+        expected_release_label=load_product_version(VERSION_MANIFEST).release_label,
         expected_px4_mission_path_hash=PARITY["px4_mission_path_hash"],
     )
     assert verification["passed"] is True

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import weakref
 from dataclasses import asdict, replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
@@ -1003,10 +1003,17 @@ def test_streamed_entry_reuses_the_six_frozen_r1_sources_without_modification():
         "scripts/onboard_navigation_balanced_journal.py",
         "tests/test_onboard_navigation_balanced_journal.py",
     }
-    bindings = {Path(row["path"]).resolve(): row for row in plan["source_files"]}
-    for name in frozen:
+    recorded_root = PureWindowsPath(plan["artifact_root"])
+    bindings = {}
+    for row in plan["source_files"]:
+        recorded_path = PureWindowsPath(row["path"])
+        if recorded_path.is_relative_to(recorded_root):
+            relative = recorded_path.relative_to(recorded_root).as_posix()
+            assert relative not in bindings
+            bindings[relative] = row
+    for name in sorted(frozen):
         source = root / name
-        binding = bindings[source.resolve()]
+        binding = bindings[name]
         raw = source.read_bytes()
         assert len(raw) == binding["bytes"]
         assert hashlib.sha256(raw).hexdigest() == binding["sha256"]

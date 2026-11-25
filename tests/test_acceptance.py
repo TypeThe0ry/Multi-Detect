@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from shutil import copyfile
 
 import pytest
 
@@ -24,8 +25,19 @@ def test_unified_tracking_acceptance_bounds_workload(changes: dict[str, object])
         UnifiedTrackingAcceptanceConfig(**changes)
 
 
-def test_software_acceptance_covers_both_modes_and_person_veto() -> None:
-    report = run_software_acceptance(ROOT)
+def test_software_acceptance_covers_both_modes_and_person_veto(tmp_path: Path) -> None:
+    # Acceptance stores its replay ledger under the supplied project root.
+    for relative_path in (
+        "configs/missions/fire_patrol.demo.json",
+        "configs/missions/fire_suppression_fixed_wing.demo.json",
+        "examples/fire_mission_replay.jsonl",
+        "examples/fire_fixed_wing_hil_replay.jsonl",
+    ):
+        destination = tmp_path / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        copyfile(ROOT / relative_path, destination)
+
+    report = run_software_acceptance(tmp_path)
 
     assert report["event"] == "software_acceptance_passed"
     assert report["patrol_only"] == {

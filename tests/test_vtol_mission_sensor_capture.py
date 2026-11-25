@@ -29,6 +29,13 @@ from scripts import run_vtol_mission_sensor_capture as capture
 from scripts.run_simulator_docker import build_docker_simulator_plan
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_sim_listener(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The synthetic MAVLink records use loopback regardless of the host SIM network.
+    monkeypatch.setenv("MULTIDETECT_SIM_NETWORK", "bridge")
+    monkeypatch.setenv("MULTIDETECT_SIM_LISTEN_HOST", "127.0.0.1")
+
+
 def _energy_configuration():
     return dict(
         capacity_wh=100.0,

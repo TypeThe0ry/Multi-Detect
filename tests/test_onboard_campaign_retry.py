@@ -247,7 +247,9 @@ def test_retry_preserves_original_seed_and_does_not_reuse_complete_seed(tmp_path
 
 def test_initial_low_disk_abort_persists_seed_and_retry_reuses_it(tmp_path, monkeypatch):
     campaign_out = tmp_path / "campaign"
-    plan = SimpleNamespace(out=campaign_out / "test", min_free_gb=15.0, seed=100)
+    plan = SimpleNamespace(
+        out=campaign_out / "test", min_free_gb=15.0, seed=100, attach_container=None, image=None
+    )
     aborted = collector.run_episode(plan, Path("unused"), 0, free_space_fn=lambda _: 1)
     metadata = json.loads((aborted / "episode.json").read_text(encoding="utf-8"))
     assert metadata["episode_index"] == 0

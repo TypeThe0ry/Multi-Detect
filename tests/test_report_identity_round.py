@@ -195,11 +195,13 @@ def test_cli_writes_both_formats_and_rejects_duplicate_labels(tmp_path: Path) ->
             command += ["--views", f"{label}={path}"]
     for flag, key in (("--v1-dataset", "v1"), ("--v3-dataset", "v3"), ("--view-dataset", "four_view")):
         command += [flag, str(datasets[key])]
-    result = subprocess.run(command, capture_output=True, text=True,
-                            env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"})
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1"}
+    result = subprocess.run(command, capture_output=True, text=True, env=env)
     assert result.returncode == 0, result.stderr
     assert json.loads(output.read_text())["candidates"]["r4"]["hard_gate_status"] == "pass"
     assert md.read_text().startswith("# 身份轮次决策报告")
-    result = subprocess.run(command + ["--candidate", f"r4={pipelines['r4']}"], capture_output=True, text=True)
+    result = subprocess.run(
+        command + ["--candidate", f"r4={pipelines['r4']}"], capture_output=True, text=True, env=env
+    )
     assert result.returncode == 2
     assert "duplicate labels" in result.stderr

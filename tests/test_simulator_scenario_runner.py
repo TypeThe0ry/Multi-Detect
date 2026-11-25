@@ -580,7 +580,9 @@ def test_manifest_runner_hash_survives_equivalent_checkout_root(tmp_path: Path) 
     """Moving the scenario and world assets must not alter canonical evidence."""
 
     migrated = tmp_path / "migrated-checkout"
-    shutil.copytree(ROOT / "configs" / "scenarios", migrated / "configs" / "scenarios")
+    shutil.copytree(
+        ROOT / "configs" / "scenarios", migrated / "configs" / "scenarios", symlinks=True
+    )
     shutil.copytree(
         ROOT / "simulation" / "gazebo" / "worlds",
         migrated / "simulation" / "gazebo" / "worlds",

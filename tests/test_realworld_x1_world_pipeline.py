@@ -181,6 +181,7 @@ def test_legacy_retarget_only_migrates_known_unaccepted_site(asset):
 
 
 def test_check_6km_rejects_missing_dem_but_accepts_measured_zero_cells(tmp_path):
+    pytest.importorskip("shapely", reason="requires Shapely for the GIS world pipeline")
     from scripts.realworld.x1_world_origin import validate_dem
 
     np = pytest.importorskip("numpy")
@@ -199,6 +200,7 @@ def test_check_6km_rejects_missing_dem_but_accepts_measured_zero_cells(tmp_path)
 
 
 def test_find_pad_rejects_entirely_zero_dem_and_respects_clearance(tmp_path, monkeypatch):
+    pytest.importorskip("shapely", reason="requires Shapely for the GIS world pipeline")
     from types import SimpleNamespace
     from scripts.realworld import x1_find_pad
 
