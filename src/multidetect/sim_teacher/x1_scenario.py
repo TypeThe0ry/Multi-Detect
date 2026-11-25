@@ -438,14 +438,31 @@ class CollectorScenario:
                 revision=self.decision.revision, event_id=0,
                 px4_failsafe=True if sys_status in {5, 6, 8} else False if sys_status == 4 else None,
                 armed_in_air=(type(base_mode) is int and bool(base_mode & 128) and vtol.get("landed_state") == 2),
-                vtol_state=VTOL_STATES.get(vtol.get("vtol_state")), agl_m=None, airspeed_mps=None,
-                position_ok=None, hold_sites={},
+                vtol_state=VTOL_STATES.get(vtol.get("vtol_state")), agl_m=self._home_height_m(),
+                airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples), hold_sites={},
                 gimbal_available=gimbal is not None and not gimbal.awaiting_readback,
             )
             event_current = (self.last_event_index is not None and boot_ms is not None
                              and boot_ms - self.worker.timeline.origin < self.faults[self.last_event_index].end_ms)
             self.decision.tick(frame, mav_rows=samples.values(), observations=observations, events=events,
                                event_current=event_current)
+
+    def _home_height_m(self):
+        """Height above the SITL home point (flat launch pad), from fresh GLOBAL_POSITION_INT."""
+        alt = (self._fresh_sample("GLOBAL_POSITION_INT") or {}).get("relative_alt")
+        return alt / 1000.0 if type(alt) is int else None
+
+    @staticmethod
+    def _airspeed_mps(samples):
+        speed = (samples.get("VFR_HUD") or {}).get("airspeed")
+        return float(speed) if type(speed) in (int, float) and math.isfinite(speed) else None
+
+    def _position_ok(self, samples):
+        """True only with a 3D GPS fix and a fresh local position; never inferred otherwise."""
+        fix = (samples.get("GPS_RAW_INT") or {}).get("fix_type")
+        if self._fresh_sample("LOCAL_POSITION_NED") is None or type(fix) is not int:
+            return None
+        return fix >= 3
 
     def _observe_link(self, observations, age):
         down = self.transport.link_suppressed.is_set() and age >= 1000

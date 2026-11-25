@@ -176,3 +176,19 @@ def test_gimbal_ingress_does_not_defer_an_unsent_command():
     assert ingress.gimbal_control(pitch_deg=-36, yaw_deg=2).ok is False
     assert ingress.hold.target is target
     assert ingress.hold.sent_vehicle_ms == 117
+
+
+def test_frame_telemetry_helpers_never_guess():
+    from multidetect.sim_teacher.x1_scenario import CollectorScenario
+
+    scenario = CollectorScenario.__new__(CollectorScenario)
+    fresh = {"LOCAL_POSITION_NED": {}, "GLOBAL_POSITION_INT": {"relative_alt": 85_500}}
+    scenario._fresh_sample = lambda name: fresh.get(name)
+    assert scenario._home_height_m() == 85.5
+    assert scenario._position_ok({"GPS_RAW_INT": {"fix_type": 3}}) is True
+    assert scenario._position_ok({"GPS_RAW_INT": {"fix_type": 1}}) is False
+    assert scenario._position_ok({}) is None
+    fresh.pop("LOCAL_POSITION_NED")
+    assert scenario._position_ok({"GPS_RAW_INT": {"fix_type": 3}}) is None
+    assert scenario._airspeed_mps({"VFR_HUD": {"airspeed": 21}}) == 21.0
+    assert scenario._airspeed_mps({}) is None
