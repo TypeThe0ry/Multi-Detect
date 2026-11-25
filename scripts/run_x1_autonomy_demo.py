@@ -32,6 +32,7 @@ from multidetect.autonomy.x1_plan import (  # noqa: E402
     X1_CAPABILITY, one_waypoint_primitives_input, x1_planner_context,
 )
 from multidetect.terrain_dem import LocalDemGrid, load_local_dem_grid  # noqa: E402
+from multidetect.sim_teacher.x1_live_clearance import LiveContinueEvidence, clearance_scope  # noqa: E402
 from multidetect.sim_teacher.x1_scenario import (  # noqa: E402
     SUPPORTED, CollectorScenario, load_schedule, schedule_sha256, wind_server_config,
 )
@@ -313,25 +314,23 @@ def make_scenario(args, mission, steps, record):
     faults = mission.get("scenario_faults")
     if not faults:
         return None
-    make_decision = None
+    make_decision = motion_evidence = None
     if args.decision_port is not None:
-        from multidetect.autonomy.x1_motion_proof import X1MotionProofBuilder
-
         backend = llama_decisions(args.decision_port, args.sentence)
         profile = load_airframe_profile(PROFILE)
         package = mission["scenario_package"]
-        builder = X1MotionProofBuilder(
-            package, profile, mission["terrain"], steps,
-            mission_radius_m=package.document["x1_planning"]["max_distance_from_home_m"],
-        )
+        motion_evidence = LiveContinueEvidence(package, profile, mission["terrain"], steps,
+                                               scope=record["contingency_scenario"]["motion_scope_sha256"])
 
         def make_decision(gimbal, emit, episode_id, peer):
             return DecisionTick(package, profile, backend, gimbal, emit,
                                 run_id=episode_id, plan_digest=record["compiled_mission_sha256"],
-                                revision=mission["scenario_revision"], peer=peer, build_proof=builder)
+                                revision=mission["scenario_revision"], peer=peer,
+                                build_proof=motion_evidence.build_proof)
 
     return CollectorScenario(faults, clearance=forward_clearance(steps, mission["terrain"]),
-                             make_decision=make_decision, terrain=mission["terrain"])
+                             make_decision=make_decision, terrain=mission["terrain"],
+                             motion_evidence=motion_evidence)
 
 
 def _restore_env(name, previous):
@@ -472,6 +471,12 @@ def run(args, *, post, launch=fly):
                               "world_sdf": str(site.world_sdf), "world_sha256": site.world_sha256,
                               "dem_path": str(site.dem_path), "dem_sha256": site.terrain.source_sha256,
                               "slot": args.slot, "image": IMAGE}
+        if faults:
+            record["contingency_scenario"]["motion_scope_sha256"] = clearance_scope(
+                steps, faults, profile_sha256=hashlib.sha256(PROFILE.read_bytes()).hexdigest(),
+                world_sha256=site.world_sha256, image=IMAGE,
+                wind_plugin_sha256=hashlib.sha256(plugin.read_bytes()).hexdigest() if plugin is not None else None,
+            )
         record["safety"]["planned"] = safety
         record["validator"]["verdict"] = "accepted"
         record["markers"].append({"phase": "mission_prepared"})

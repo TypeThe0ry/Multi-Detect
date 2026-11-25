@@ -4,6 +4,7 @@ import json
 from collections import deque
 from dataclasses import replace
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from xml.etree import ElementTree as ET
 
@@ -14,7 +15,7 @@ from test_x1_wind_estimate import MS
 from test_x1_wind_estimate import rows as wind_rows
 
 from multidetect.autonomy.x1_contingency_executor import RuntimeFrame
-from multidetect.autonomy.x1_contingency_replay import Fault
+from multidetect.autonomy.x1_contingency_replay import Fault, replay_states
 from multidetect.sim_teacher.x1_scenario import (
     CollectorScenario,
     ScenarioTimeline,
@@ -126,6 +127,170 @@ def test_partial_write_restored_and_missed_window_not_replayed():
     with pytest.raises(RuntimeError, match="window missed"):
         timeline.tick()
     assert marks[-1]["message_type"] == "scenario_missed"
+
+
+@pytest.mark.parametrize("ramp", [0, 3500, 12.5, -1, 3500.1, True, "100", None,
+                                  float("inf"), float("nan")])
+def test_schedule_optional_wind_ramp(tmp_path, ramp):
+    schedule = tmp_path / "wind.json"
+    doc = json.loads(SCHEDULE.read_text())
+    wind = doc["faults"][0]
+    wind["values"]["ramp_ms"] = ramp
+    schedule.write_text(json.dumps({**doc, "faults": [wind]}))
+    if type(ramp) in (int, float) and 0 <= ramp <= wind["duration_ms"] / 2:
+        assert load_schedule(schedule)[0].values["ramp_ms"] == ramp
+    else:
+        with pytest.raises(ValueError):
+            load_schedule(schedule)
+
+
+def test_ramp_metadata_is_not_replay_telemetry(tmp_path):
+    capture = tmp_path / "mavlink.jsonl"
+    capture.write_text('{"receive_monotonic_ns": 0, "message_type": "HEARTBEAT"}\n')
+    fault = Fault(200, 1000, "wind_step", "wind",
+                  {"north_mps": -2, "east_mps": 8, "down_mps": -6, "ramp_ms": 200})
+    rows = {row["t_ms"]: row for row in replay_states(capture, mission_id="ramp", faults=(fault,))}
+    assert rows[200]["telemetry"]["wind"] == {
+        "north_mps": -2, "east_mps": 8, "down_mps": -6, "source": "fault", "age_ms": 0,
+    }
+
+
+def _wind_harness(ramp_ms, *, command=None, adjacent=False):
+    clock, commands, markers = [1000], [], []
+    values = {"east_mps": 8, "north_mps": -2, "down_mps": -6}
+    if ramp_ms is not None:
+        values["ramp_ms"] = ramp_ms
+    faults = (Fault(200, 1000, "wind_step", "wind", values),)
+    if adjacent:
+        faults += (Fault(1000, 1100, "wind_step", "wind", {**values, "ramp_ms": 0}),)
+
+    def run(*args):
+        commands.append(args)
+        if command is not None:
+            command(args[-1])
+
+    transport = SitlScenarioTransport(run, wind=("/world/fixture/wind", (4, 2, 0)))
+    timeline = ScenarioTimeline(faults, lambda: clock[0], transport, markers.append, origin_ms=clock[0])
+
+    def tick(offset):
+        clock[0] = 1000 + offset
+        timeline.tick()
+
+    def vectors():
+        return [tuple(float(payload.partition("{")[2].split(f"{axis}: ")[1].split()[0].rstrip("}"))
+                      for axis in "xyz")
+                for *_, payload in commands]
+
+    return timeline, markers, commands, tick, vectors
+
+
+def _settle_wind(timeline, tick, offset):
+    tick(offset)
+    while timeline.wind_ramp is not None and timeline.wind_ramp.future is not None:
+        timeline.wind_ramp.future.exception(timeout=2)
+        tick(offset)
+
+
+def test_ramp_interpolates_enu_in_order_and_restores_before_adjacent_wind():
+    timeline, markers, commands, tick, vectors = _wind_harness(200, adjacent=True)
+    try:
+        for offset in (199, 200, 299, 300, 400, 600, 800, 899, 900, 1000, 1100):
+            _settle_wind(timeline, tick, offset)
+        assert vectors() == [(4, 2, 0), (6, 0, 3), (8, -2, 6), (6, 0, 3), (4, 2, 0),
+                             (8, -2, 6), (4, 2, 0)]
+        assert all(c[:-1] == ("gz", "topic", "-t", "/world/fixture/wind", "-m", "gz.msgs.Wind", "-p")
+                   for c in commands)
+        assert [(m["message_type"], m["fault_index"]) for m in markers] == [
+            ("scenario_injected", 0), ("scenario_restored", 0),
+            ("scenario_injected", 1), ("scenario_restored", 1)]
+        assert markers[0]["applied"] == {"ramp_ms": 200, "publish_interval_ms": 100,
+                                         "baseline_enu_mps": [4, 2, 0], "target_enu_mps": [8, -2, 6],
+                                         "enu_mps": [4, 2, 0], "topic": "/world/fixture/wind",
+                                         "readback": "publish_only"}
+        assert markers[1]["applied"] == markers[0]["applied"]
+    finally:
+        timeline.close(completed=True)
+
+
+def test_ramp_slow_publish_does_not_block_tick_or_replay_old_samples():
+    entered, unblock = Event(), Event()
+
+    def command(payload):
+        if payload.endswith("{x: 4 y: 2 z: 0}") and not entered.is_set():
+            entered.set()
+            assert unblock.wait(timeout=5)
+
+    timeline, markers, commands, tick, vectors = _wind_harness(300, command=command)
+    try:
+        tick(200)
+        assert entered.wait(timeout=2)
+        tick(300)
+        tick(400)
+        assert len(commands) == 1
+        assert not markers
+        unblock.set()
+        _settle_wind(timeline, tick, 400)
+        assert vectors()[1] == pytest.approx((20 / 3, -2 / 3, 4))
+        assert len(commands) == 2
+    finally:
+        unblock.set()
+        timeline.close()
+    assert vectors()[-1] == (4, 2, 0)
+
+
+@pytest.mark.parametrize("failed_publish", [1, 2, 3])
+def test_ramp_failed_publish_is_followed_by_exact_baseline(failed_publish):
+    attempted = []
+
+    def command(payload):
+        attempted.append(payload)
+        if len(attempted) == failed_publish:
+            raise RuntimeError("Gazebo write failed")
+
+    timeline, markers, _, tick, vectors = _wind_harness(200, command=command)
+    try:
+        with pytest.raises(RuntimeError, match="Gazebo write failed"):
+            for offset in (200, 300, 1000):
+                _settle_wind(timeline, tick, offset)
+    finally:
+        timeline.close()
+    assert len(attempted) == failed_publish + 1
+    assert vectors()[-1] == (4, 2, 0)
+    assert markers[-2]["message_type"] == "scenario_error"
+    assert markers[-2]["applied"]["enu_mps"] == {1: None, 2: [4, 2, 0], 3: [6, 0, 3]}[failed_publish]
+    assert markers[-1]["message_type"] == "scenario_restored"
+    assert markers[-1]["applied"]["enu_mps"] == [4, 2, 0]
+
+
+def test_ramp_early_close_retries_failed_baseline():
+    attempted = []
+
+    def command(payload):
+        attempted.append(payload)
+        if len(attempted) == 3:
+            raise RuntimeError("restore transport timeout")
+
+    timeline, markers, _, tick, vectors = _wind_harness(200, command=command)
+    _settle_wind(timeline, tick, 200)
+    _settle_wind(timeline, tick, 300)
+    with pytest.raises(RuntimeError, match="restore transport timeout"):
+        timeline.close()
+    assert vectors() == [(4, 2, 0), (6, 0, 3), (4, 2, 0), (4, 2, 0)]
+    assert markers[-2]["message_type"] == "scenario_restore_error"
+    assert markers[-1]["applied"]["enu_mps"] == [4, 2, 0]
+
+
+def test_zero_ramp_matches_omitted_ramp():
+    outcomes = []
+    for ramp_ms in (None, 0):
+        timeline, markers, commands, tick, vectors = _wind_harness(ramp_ms)
+        for offset in (199, 200, 300, 900, 1000):
+            tick(offset)
+        timeline.close(completed=True)
+        assert vectors() == [(8, -2, 6), (4, 2, 0)]
+        outcomes.append((commands, [{k: v for k, v in row.items() if k not in {"values", "receive_monotonic_ns"}}
+                                    for row in markers]))
+    assert outcomes[0] == outcomes[1]
 
 
 def test_wind_config_preserves_existing_systems(tmp_path):

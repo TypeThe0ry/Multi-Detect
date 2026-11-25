@@ -1,0 +1,264 @@
+"""CPU replay of CollectorScenario against current (response-time) PX4 samples."""
+from collections import deque
+from dataclasses import replace
+from types import SimpleNamespace
+
+import pytest
+
+from multidetect.autonomy.mission_package import load_mission_package
+from multidetect.autonomy.mission_plan import validate_mission_plan
+from multidetect.autonomy.x1_contingency_replay import Fault
+from multidetect.sim_teacher import x1_scenario
+from multidetect.sim_teacher.streams import MavlinkState
+from multidetect.sim_teacher.x1_scenario import SitlScenarioTransport
+from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, recorded_decisions
+from multidetect.target_geolocation import wgs84_forward_from_ned
+from scripts import run_x1_autonomy_demo as demo
+from test_x1_mission import _build, _plan, _raise_vertex, profile, terrain  # noqa: F401
+from test_x1_planner import _fixture
+
+MS = 1_000_000
+SCOPE = "d" * 64
+FAULT = Fault(0, 30_000, "link_loss", "link", {"gcs": "down"})
+
+
+def _leg(phase, end, seconds):
+    return dict(phase=phase, end=end, padding_ne_m=2, padding_alt_m=1, duration_s=seconds, peak_power_w=500)
+
+
+def _document(terrain):
+    doc = _fixture("Fly over the yard at 80 m AGL then return and land.", target=(400, 0)).document
+    doc["places"]["poi:beacon"] = doc["places"].pop("poi:yard")
+    doc["ref_labels"] = {}
+    doc["budget"]["battery_capacity_wh"] = 74
+    entry = dict(entry=[199, 211, -2, 2, 178, 182], max_entry_speed_mps=12,
+                 legs=[_leg("mc", [0, 0, 180], 45), _leg("landing", [0, 0, 100], 50)],
+                 dynamics=dict(max_bank_deg=20, max_climb_mps=2, max_descent_mps=2,
+                               max_acceleration_mps2=1, max_angular_rate_dps=30),
+                 airspeed=None, failure_revalidation_enforced=False)
+    fw = {**entry, "max_entry_speed_mps": 30, "airspeed": [14, 18], "failure_revalidation_enforced": True,
+          "legs": [_leg("fw", [400, 0, 180], 18), _leg("transition", [430, 0, 180], 9),
+                   _leg("mc", [0, 0, 180], 75), _leg("landing", [0, 0, 100], 50)]}
+    doc["x1_live_evidence"] = {
+        "scope_sha256": SCOPE, "dem_sha256": terrain.source_sha256, "dem_error_m": 1,
+        "obstacle_coverage": [-10, 500, -10, 10, 95, 190], "obstacles": [],
+        "landing_pad": {"radius_m": 8, "elevation_error_m": 2},
+        "battery": {"max_voltage_v": 17, "soc_error_pct": 1, "consumption_error_wh": 0.25},
+        "suffixes": {"3": entry, "1": fw},
+    }
+    return doc
+
+
+def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True, fw=False,
+             fault_kind="link_loss", package_override=None):
+    doc = _document(terrain)
+    evidence = doc["x1_live_evidence"]
+    step = 1 if fw else 3
+    suffix = evidence["suffixes"][str(step)]
+    package = load_mission_package({k: v for k, v in doc.items() if k != "x1_live_evidence"}, mode="sim")
+    steps = _build(replace(package, plan=validate_mission_plan(_plan())), terrain, profile)
+    if case == "missing_evidence":
+        doc.pop("x1_live_evidence")
+    elif case == "wrong_scope":
+        evidence["scope_sha256"] = "f" * 64
+    elif case == "wrong_dem":
+        evidence["dem_sha256"] = "f" * 64
+    elif case == "missing_dem_bound":
+        evidence.pop("dem_error_m")
+    elif case == "dem_uncertainty":
+        evidence["dem_error_m"] = 100
+        evidence["landing_pad"]["elevation_error_m"] = 101
+    elif case == "terrain_ahead":
+        terrain = _raise_vertex(terrain, north=100, east=0, elevation=190)
+    elif case == "missing_coverage":
+        evidence.pop("obstacle_coverage")
+    elif case == "coverage_gap":
+        evidence["obstacle_coverage"][0] = 10
+    elif case == "obstacle":
+        evidence["obstacles"].append([130, 140, -2, 2, 179, 181])
+    elif case == "missing_capacity":
+        doc["budget"].pop("battery_capacity_wh")
+    elif case == "time_reserve":
+        doc["budget"]["time_s"] = 145
+    elif case == "too_fast_predicted":
+        suffix["dynamics"]["max_bank_deg"] = 95
+    elif case == "unbounded_failure":
+        suffix["failure_revalidation_enforced"] = False
+    elif case == "wrong_terminal":
+        suffix["legs"][-1]["end"] = [4, 0, 100]
+    package = package_override(package, doc) if package_override is not None else load_mission_package(doc, mode="sim")
+    now = [10_000]
+    monkeypatch.setattr(x1_scenario.time, "monotonic_ns", lambda: now[0] * MS)
+    monkeypatch.setattr(demo, "llama_decisions", lambda *_: recorded_decisions(({"action": "continue", "params": {}},)))
+    monkeypatch.setattr(demo, "load_airframe_profile", lambda _: profile)
+    if cpu_replay:
+        def replay(*args, **kwargs):
+            package, profile, backend, _gimbal, emit = args
+            return DecisionTick(package, profile, backend, None, emit, cpu_replay=True,
+                                now_ms=lambda: now[0], **kwargs)
+
+        monkeypatch.setattr(demo, "DecisionTick", replay)
+    fault = {
+        "link_loss": FAULT,
+        "wind_step": Fault(0, 30_000, "wind_step", "wind", dict(north_mps=8, east_mps=-4, down_mps=0)),
+        "battery_drop": Fault(0, 30_000, "battery_drop", "battery", {"pct": 70}),
+    }[fault_kind]
+    transport = SitlScenarioTransport(None, wind=("/world/fake/wind", (0, 0, 0)))
+    monkeypatch.setattr(x1_scenario, "wind_baseline", lambda _world: transport.wind)
+    monkeypatch.setattr(SitlScenarioTransport, "in_container", lambda *args, **kwargs: transport)
+    receipts = []
+    scenario = demo.make_scenario(SimpleNamespace(decision_port=9911, sentence=doc["task_text"]),
+                                  {"scenario_faults": (fault,), "scenario_package": package,
+                                   "terrain": terrain, "scenario_revision": 1}, steps,
+                                  {"compiled_mission_sha256": "a" * 64,
+                                   "contingency_scenario": {"motion_scope_sha256": SCOPE}})
+    reader = SimpleNamespace(state=MavlinkState())
+    reader.latest_control_state = lambda: reader.state
+    boot = [now[0]]
+    scenario.bind(None, None, None, reader, SimpleNamespace(target_system=1, target_component=1), receipts.append,
+                  "live-replay", clock=lambda: boot[0])
+    scenario.worker.timeline = SimpleNamespace(origin=9000)
+    if fault_kind == "link_loss":
+        transport.link_suppressed.set()
+    scenario.last_heartbeat_ms = 8500
+    scenario.markers = deque([{"fault_index": 0, "receive_monotonic_ns": 9100 * MS}])
+    built = []
+    original_proof = scenario.decision.build_proof
+
+    def capture(decision, frame):
+        proof = original_proof(decision, frame)
+        built.append((decision, frame, proof))
+        if case == "wrong_frame":
+            return replace(proof, frame_id=proof.frame_id - 1)
+        if case == "wrong_digest":
+            return replace(proof, decision_digest="e" * 64)
+        return proof
+
+    scenario.decision.build_proof = capture
+
+    def tick(now_ms, *, fault=None):
+        now[0] = boot[0] = now_ms
+        latitude, longitude = wgs84_forward_from_ned(latitude_deg=52, longitude_deg=5, north_offset_m=205, east_offset_m=0)
+        rows = {
+            "HEARTBEAT": {"system_status": 4, "base_mode": 128},
+            "EXTENDED_SYS_STATE": {"vtol_state": 4 if fw else 3, "landed_state": 2},
+            "LOCAL_POSITION_NED": {"time_boot_ms": now_ms, "x": 205, "y": 0, "z": -80,
+                                   "vx": 20 if fw else 5, "vy": 0, "vz": 0},
+            "GLOBAL_POSITION_INT": {"time_boot_ms": now_ms, "lat": round(latitude * 1e7),
+                                    "lon": round(longitude * 1e7), "alt": 180_000, "relative_alt": 80_000},
+            "GPS_RAW_INT": {"fix_type": 3},
+            "VFR_HUD": {"airspeed": 16},
+            "BATTERY_STATUS": {"id": 0, "charge_state": 1, "fault_bitmask": 0, "battery_remaining": 93,
+                               "energy_consumed": 144, "current_consumed": -1},
+        }
+        if fault_kind == "wind_step":
+            rows["WIND_COV"] = {"wind_x": 8, "wind_y": -4, "wind_z": 0}
+        elif fault_kind == "battery_drop":
+            rows["BATTERY_STATUS"]["battery_remaining"] = 71
+        stale = {"stale_global": "GLOBAL_POSITION_INT", "stale_local": "LOCAL_POSITION_NED",
+                 "stale_battery": "BATTERY_STATUS"}.get(fault)
+        if fault == "missing_global":
+            rows.pop("GLOBAL_POSITION_INT")
+        elif fault == "missing_local":
+            rows.pop("LOCAL_POSITION_NED")
+        elif fault == "missing_battery":
+            rows.pop("BATTERY_STATUS")
+        elif fault == "wrong_peer":
+            rows["GLOBAL_POSITION_INT"]["_source_system"] = 2
+        elif fault == "invalid_local":
+            rows["LOCAL_POSITION_NED"]["vx"] = float("nan")
+        elif fault == "entry_speed":
+            rows["LOCAL_POSITION_NED"]["vx"] = 90
+        elif fault == "entry_altitude":
+            rows["GLOBAL_POSITION_INT"]["alt"] = 99_000
+        elif fault == "boot_skew":
+            rows["GLOBAL_POSITION_INT"]["time_boot_ms"] -= 501
+        elif fault == "missing_mission_clock":
+            boot[0] = None
+        elif fault == "regressed_boot":
+            boot[0] = 9999
+        elif fault == "regressed_energy":
+            rows["BATTERY_STATUS"]["energy_consumed"] = 143
+        elif fault == "unknown_energy":
+            rows["BATTERY_STATUS"].update(energy_consumed=-1, current_consumed=0)
+        elif fault == "valid_charge_counter":
+            rows["BATTERY_STATUS"].update(energy_consumed=-1, current_consumed=200)
+        elif fault == "battery_reserve":
+            rows["BATTERY_STATUS"]["battery_remaining"] = 19
+        elif fault == "battery_fault":
+            rows["BATTERY_STATUS"]["fault_bitmask"] = 1
+        elif fault == "px4_failsafe":
+            rows["HEARTBEAT"]["system_status"] = 5
+        elif fault == "fw_airspeed":
+            rows["VFR_HUD"]["airspeed"] = 13
+        reader.state = MavlinkState()
+        for name, row in rows.items():
+            reader.state.received_monotonic_ns[name] = (now_ms - (501 if name == stale else 0)) * MS
+            reader.state.messages[name] = {"_source_system": 1, "_source_component": 1, **row}
+        scenario.tick(step, None)
+
+    try:
+        tick(10_000)
+        scenario.decision.future.result(timeout=2)
+        # The second sample is the only one eligible to authorize the reply.
+        tick(10_100, fault=case)
+    finally:
+        scenario.decision.close()
+    requests = [row for row in receipts if row["message_type"] == "scenario_decision_request"]
+    results = [row for row in receipts if row["message_type"] == "scenario_decision_receipt"]
+    assert len(requests) == len(results) == 1, receipts
+    assert requests[0]["request"]["request_id"] == results[0]["request_id"]
+    assert requests[0]["request"]["state"]["events"][-1]["type"] == fault_kind
+    return results[0], built, scenario.decision.replay_commands
+
+
+@pytest.mark.parametrize(("cpu_replay", "fw", "case", "fault_kind"), [
+    (False, False, "complete", "link_loss"), (True, False, "complete", "link_loss"),
+    (True, True, "complete", "wind_step"), (True, False, "valid_charge_counter", "link_loss"),
+    (True, False, "complete", "battery_drop"),
+])
+def test_continue_from_live_samples(terrain, profile, monkeypatch, cpu_replay, fw, case, fault_kind):  # noqa: F811
+    receipt, [(decision, frame, proof)], commands = exercise(terrain, profile, monkeypatch, case=case,
+                                                            cpu_replay=cpu_replay, fw=fw, fault_kind=fault_kind)
+    assert (receipt["action"], receipt["status"], receipt["reason"]) == ("continue", "continued", "no_new_command")
+    assert commands == ([] if cpu_replay else None)
+    assert frame.frame_id == proof.frame_id == 10_100 * MS
+    assert proof.decision_digest == decision.digest
+    assert frame.position_ne_amsl == pytest.approx((205, 0, 180), abs=0.02)
+    assert proof.terrain_margin_m > 0 and proof.obstacle_margin_m > 0
+    assert proof.available_time_s == pytest.approx(989.9)
+    assert proof.available_energy_wh == pytest.approx(51.8 if fault_kind == "battery_drop" else 68.08)
+
+
+@pytest.mark.parametrize(("case", "reason"), [
+    ("missing_evidence", "unverified_clearance"), ("wrong_scope", "unverified_clearance"),
+    ("wrong_dem", "unverified_clearance"), ("missing_dem_bound", "unverified_clearance"),
+    ("dem_uncertainty", "unverified_clearance"), ("terrain_ahead", "unverified_clearance"),
+    ("missing_coverage", "unverified_clearance"), ("coverage_gap", "unverified_clearance"),
+    ("obstacle", "unverified_clearance"), ("wrong_terminal", "unverified_clearance"),
+    ("stale_global", "unverified_clearance"), ("missing_global", "unverified_clearance"),
+    ("stale_local", "unverified_clearance"), ("missing_local", "flight_mode_or_position_unverified"),
+    ("wrong_peer", "unverified_clearance"), ("invalid_local", "unverified_clearance"),
+    ("entry_speed", "unverified_clearance"), ("entry_altitude", "unverified_clearance"),
+    ("boot_skew", "unverified_clearance"), ("missing_mission_clock", "superseded_mission_or_event"),
+    ("regressed_boot", "unverified_clearance"), ("regressed_energy", "energy_or_reserve_limit"),
+    ("missing_capacity", "energy_or_reserve_limit"), ("stale_battery", "energy_or_reserve_limit"),
+    ("missing_battery", "energy_or_reserve_limit"), ("unknown_energy", "energy_or_reserve_limit"),
+    ("battery_reserve", "energy_or_reserve_limit"), ("battery_fault", "energy_or_reserve_limit"),
+    ("time_reserve", "time_or_reserve_limit"), ("too_fast_predicted", "predicted_dynamics_limit"),
+    ("px4_failsafe", "px4_owns_or_flight_state_unknown"), ("fw_airspeed", "unverified_clearance"),
+    ("unbounded_failure", "unverified_clearance"), ("wrong_frame", "missing_or_unbound_motion_proof"),
+    ("wrong_digest", "missing_or_unbound_motion_proof"),
+])
+def test_live_replay_fails_closed(terrain, profile, monkeypatch, case, reason):  # noqa: F811
+    receipt, _proofs, commands = exercise(terrain, profile, monkeypatch, case=case,
+                                          fw=case in {"fw_airspeed", "unbounded_failure"})
+    assert (receipt["action"], receipt["status"], receipt["reason"]) == ("continue", "rejected", reason)
+    assert commands == []
+
+
+def test_live_evidence_is_explicitly_sim_only(terrain):  # noqa: F811
+    doc = _document(terrain)
+    with pytest.raises(ValueError, match="requires an X1 simulation package"):
+        load_mission_package(doc)
+    assert "x1_live_evidence" in load_mission_package(doc, mode="sim").document

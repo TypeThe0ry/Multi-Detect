@@ -52,12 +52,19 @@ def load_faults(path: Path) -> tuple[Fault, ...]:
         if not isinstance(item, dict) or set(item) != {"at_ms", "duration_ms", "type", "values"}:
             raise ValueError("invalid fault entry")
         start, duration, kind, values = (item[k] for k in ("at_ms", "duration_ms", "type", "values"))
+        required = _REQUIRED_VALUES.get(kind, set()) if isinstance(kind, str) else set()
+        optional = {"ramp_ms"} if kind == "wind_step" else set()
         if (not _nonnegative_int(start) or not _nonnegative_int(duration) or not duration
                 or not isinstance(kind, str) or kind not in FAULT_GROUPS or not isinstance(values, dict)
-                or values.keys() != _REQUIRED_VALUES.get(kind, set()) or any(v is None for v in values.values())):
+                or not required <= values.keys() <= (required | optional) or any(v is None for v in values.values())):
             raise ValueError("invalid fault parameters")
         group = FAULT_GROUPS[kind]
-        validated = {k: sample_value(group, k, v) for k, v in values.items()}
+        validated = {k: sample_value(group, k, v) for k, v in values.items() if k in required}
+        if "ramp_ms" in values:
+            ramp = values["ramp_ms"]
+            if type(ramp) not in (int, float) or not 0 <= ramp or ramp * 2 > duration:
+                raise ValueError("wind_step ramp_ms must be finite and in [0, duration_ms / 2]")
+            validated["ramp_ms"] = ramp
         if kind == "transition_problem" and validated["state"] not in {"front_transition", "back_transition"}:
             raise ValueError("fault must specify a transition phase")
         faults.append(Fault(start, start + duration, kind, group, {**validated, **_FIXED_VALUES.get(kind, {})}))
@@ -158,7 +165,8 @@ def replay_states(mavlink: Path, *, mission_id: str, revision: int = 1, every_ms
                         # ancillary fields under the synthetic source/age.
                         values = {field: baseline.get(field) if baseline.get("age_ms") == 0 else None
                                   for field in GROUPS[fault.group][1]}
-                        snapshot["telemetry"][fault.group] = {**values, **fault.values, "source": "fault", "age_ms": 0}
+                        values.update((k, v) for k, v in fault.values.items() if k in values)
+                        snapshot["telemetry"][fault.group] = {**values, "source": "fault", "age_ms": 0}
                 yield snapshot
             if tick == periodic:
                 periodic += every_ms

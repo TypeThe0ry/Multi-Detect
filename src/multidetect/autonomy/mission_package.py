@@ -825,7 +825,7 @@ def load_mission_package(
             "accepted_px4_overrides",
             "px4_offboard_loss_action",
             "resume_after_failsafe",
-            "capabilities", "x1_planning",
+            "capabilities", "x1_planning", "x1_live_evidence",
         },
     )
     if not isinstance(obj["mission_id"], str) or not obj["mission_id"].strip():
@@ -895,6 +895,10 @@ def load_mission_package(
         if mode_requires_signature or flight_mode or X1_CAPABILITY not in capabilities:
             raise ValueError("x1_planning is a simulation-only package option requiring airframe:x1")
         obj["x1_planning"] = validate_x1_context(obj.get("x1_planning"), area)
+    if "x1_live_evidence" in obj:
+        if (mode != "sim" or require_signature or flight_mode or X1_CAPABILITY not in capabilities
+                or not isinstance(obj["x1_live_evidence"], Mapping)):
+            raise ValueError("x1_live_evidence requires an X1 simulation package and an object")
     budget = _object(
         obj["budget"],
         "budget",
