@@ -121,6 +121,14 @@ SIM 任务包可以由任务方提供 `x1_live_evidence`。这是宿主证据，
 
 `BATTERY_STATUS` 同样要求目标对端且接收不超过 500 ms。能量同时受任务能量预算减去累计耗能上界、以及经校准的荷电状态乘以容量下界约束。累计耗能用 `energy_consumed`（hJ）或正的 `current_consumed`（mAh）乘电压上界换算。无有效计量、计数回退、状态故障或缺少标定时，剩余能量保持未知。任务时间由新启动 PX4 的鲜活启动时钟计算，保守扣除起飞前及航线开始前的所有时间。沿用原有能量与时间储备检查。
 
+### 从 demo runner 生成实时证据
+
+`run_x1_autonomy_demo.py --generate-live-evidence` 默认为关闭。启用时，传入尚未包含 `x1_live_evidence` 的 SIM 任务包，以及选定故障的 `--contingency-scenario`。runner 在编译和站点检查后将带证据的任务包写到 `--output` 下的 `mission-package.json`。同一份包用于实时准入及 `compiled_mission_sha256` 的计算。`--plan-only` 也能生成该文件。`result.json` 的 `.contingency_scenario.live_evidence` 记录证据中已生成和缺失的字段，以及加入证据前的 `base_mission_sha256`。
+
+当前 Iowa 部署可生成 `scope_sha256` 和 `dem_sha256`。DEM 发布 `vertical_sigma_m`。运行地图的 GeoJSON 提供场地边界。离线路线预检使用碰撞网格、建筑和树木等数据来检查它自己的路线与中心垂直起降区。为任意新编译路线签发硬界，仍需覆盖扫掠范围的误差上界、完备的保守占据清单、对应任务 home 的可接地范围，以及分步骤和故障窗口验证的实际轨迹与动力学界。任务包容量也须经校准，并有有效的机载累计耗能计量。缺证字段在生成结果中保持缺失。
+
+宿主验收并取得这些硬界后，可传入 `--live-evidence-bounds /path/to/verified-bounds.json`。文件由 `scope_sha256`、`dem_sha256`、`base_mission_sha256` 和上表的可选证据字段构成。先用同一站点、计划、预算及故障执行一次 `--plan-only --generate-live-evidence` 获取前三个绑定值。runner 检查三者完全匹配。哈希用于适用性校验，硬界的真实性由提供该本地文件的宿主负责。`obstacle_coverage` 和 `obstacles` 一起提供。`landing_pad` 需附 DEM 硬界。生成 `battery` 需要任务包中已有经校准的 `budget.battery_capacity_wh`。只允许为已经验证的飞行阶段提供对应 `suffixes` 条目。
+
 CPU 回放覆盖实时采样、同一执行器的准入和零新增指令。实际 SITL 轨迹需要同一场景的可信机载和任务包证据。collector 仍不提供原生模式交接或换计划执行权限，PX4 原生保底保持原行为。
 
 字段对照基于 `/data/scratch/cx/altair/autonomy/AUTONOMY-GAP.md`。该文的 `timestamp_monotonic_ms` 对应 `events[].t_ms`，`operator_link` 对应 `telemetry.link.gcs`，剩余计划 hash 和可执行技能分别对应 `remaining_plan_sha256` 和 `capabilities`。回归样本保持起飞前规划与 identity 的原有门禁，飞行中主验收使用 [闭环矩阵](x1-contingency-acceptance.md)。
