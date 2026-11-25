@@ -1099,7 +1099,13 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
         if mission.get("terrain") is not None:
             if collector._flight_state_snapshot(reader.state)["vtol_state"] != 4:
                 raise RuntimeError("VTOL left fixed-wing mode during long-range cruise")
-            agl = _terrain_agl(mission["terrain"], relative)
+            if (guard := mission.get("x1_cruise_guard")) is not None:
+                try:
+                    agl = guard(relative)
+                except ValueError as exc:
+                    reject(str(exc))
+            else:
+                agl = _terrain_agl(mission["terrain"], relative)
             if not 30.0 <= agl <= MAX_CRUISE_AGL_M:
                 reject(f"fixed-wing cruise left the 30–120 m DEM AGL envelope ({agl:.1f} m)",
                        agl_m=agl, dem_relative_home_m=-relative[2] - agl)
@@ -1142,6 +1148,7 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
             return {"waited": "arrived", "distance_m": distance, "leg_m": leg,
                     "elapsed_s": wall() - started, "sim_elapsed_s": (stamp - first_stamp) / 1e9,
                     "sim_budget_s": sim_budget, "wall_budget_s": wall_budget,
+                    **({"x1_passage": passage} if mission.get("x1_cruise_guard") else {}),
                     **({"guidance": "offboard_path", "fly_through_radius_m": command.fly_through_radius_m}
                        if command.fly_through_radius_m is not None else {})}
         previous_pose, previous_pose_stamp = relative, stamp
@@ -1150,7 +1157,7 @@ def wait_for_leg(command, reader, *, collector, mission, cruise_mps,
 
 
 @contextmanager
-def collector_overrides(collector, mission):
+def collector_overrides(collector, mission, *, x1_heading_deg=None):
     """覆盖仅存于独立 runner 进程，退出后恢复原 collector。"""
     original_policy = collector._SmokeFlightPolicy
     original_wait = collector._wait_motion_command
@@ -1159,7 +1166,7 @@ def collector_overrides(collector, mission):
     offboard_streamer = None
     offboard_active = False
     fw_pass_tangent = None
-    bounded_pass = (mission.get("route_preflight") or {}).get("metrics", {}).get(
+    bounded_pass = x1_heading_deg is not None or (mission.get("route_preflight") or {}).get("metrics", {}).get(
         "flight_margin_revision") in scenario_policy.FW_PASS_REVISIONS
 
     class LongRangeExecutor(original_executor):
@@ -1168,7 +1175,7 @@ def collector_overrides(collector, mission):
         def __init__(self, *args, **kwargs):
             nonlocal offboard_streamer
             super().__init__(*args, **kwargs)
-            if mission.get("route_preflight") is not None:
+            if x1_heading_deg is not None or mission.get("route_preflight") is not None:
                 offboard_streamer = collector.SetpointStreamer(self.vehicle)
             self.offboard_streamer = offboard_streamer
             self.previous_fw_target = None
@@ -1184,6 +1191,22 @@ def collector_overrides(collector, mission):
 
         def execute(self, action):
             nonlocal offboard_active
+            if (x1_heading_deg is not None and isinstance(action, MotionCommand)
+                    and action.kind == "transition" and action.mode == "FW"):
+                reader = self.telemetry_reader
+                if collector._flight_state_snapshot(reader.state)["vtol_state"] != 3:
+                    raise RuntimeError("X1 departure alignment requires confirmed MC mode")
+                home_ned = self._geo_reference()[1]
+                # Align above home at the planner-derived takeoff height. Confirm
+                # the hover position and yaw before commanding the transition.
+                align = MotionCommand("mc_hold", mode="MC", yaw_deg=x1_heading_deg,
+                                      target_ned=(home_ned[0], home_ned[1],
+                                                  home_ned[2] - geometry.takeoff_altitude_m))
+                settled = super().execute(align)
+                if settled.status != "success" or original_wait(
+                        align, reader, cruise_mps=8.0)["waited"] != "settled":
+                    raise RuntimeError("X1 could not settle on the planned outbound heading")
+                collector._progress("x1_departure_aligned", heading_deg=x1_heading_deg)
             if not isinstance(action, MotionCommand) or action.kind not in {"reposition", "mc_reposition", "mc_hold"}:
                 if offboard_active and isinstance(action, MotionCommand) and action.kind == "transition":
                     _check_offboard_mode(collector, self.telemetry_reader, offboard_streamer)
@@ -1212,7 +1235,8 @@ def collector_overrides(collector, mission):
             if collector._flight_state_snapshot(reader.state)["vtol_state"] != 4:
                 raise RuntimeError("long-range Offboard path requires confirmed VTOL fixed-wing mode")
             started = self._clock()
-            start = self.previous_fw_target or self._position()
+            start = (self._geo_reference()[1] if x1_heading_deg is not None
+                     else self.previous_fw_target or self._position())
             target = action.target_ned
             dn, de = target[0] - start[0], target[1] - start[1]
             length = math.hypot(dn, de)

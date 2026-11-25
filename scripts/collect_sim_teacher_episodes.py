@@ -7794,6 +7794,8 @@ def run_episode(
                     getattr(policy, "vtol_hover_mission", False)
                     or getattr(getattr(policy, "motion_adapter", None), "hover_ops", False)
                 )
+                # Explicit mission graphs own their transition after MC takeoff.
+                policy_transitions = bool(getattr(policy, "controls_vtol_transition", False))
                 executor = FixedWingVtolExecutor(
                     _ReaderAckLink(vehicle, mav_reader),
                     airframe=profile.id,
@@ -7819,7 +7821,7 @@ def run_episode(
                         else None
                     ),
                     transition_after_takeoff=(
-                        not hover_mission and profile.camera.mount != "gimbal"
+                        not (hover_mission or policy_transitions) and profile.camera.mount != "gimbal"
                     ),
                     airframe_profile=profile,
                     telemetry_reader=mav_reader,
@@ -8409,7 +8411,7 @@ def run_episode(
                         recorder.episode_path.write_text(
                             json.dumps(recorder.meta, indent=2), encoding="utf-8"
                         )
-                    if not hover_mission:
+                    if not (hover_mission or policy_transitions):
                         _start_horizon_stabilization()
                         if horizon_loop is not None and video_writer is not None and plan.video_use_sim_time:
                             hover_sample = _request_fresh_sensor_sample(
