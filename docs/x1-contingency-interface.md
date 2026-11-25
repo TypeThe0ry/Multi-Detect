@@ -102,6 +102,25 @@ Gazebo Harmonic 的 X1 风情景可通过 `run_x1_autonomy_demo.py --wind-airspe
 
 CPU 回放使用 `recorded_decisions(...)`、`DecisionTick(..., gimbal_port=None, cpu_replay=True, build_proof=...)`。回放后端只把记录的动作和参数绑定到当前请求；扫掠证据由宿主单独提供，并按本次解码的摘要与当前帧编号核对。回放只向 `replay_commands` 写入通过准入的原始动作对应的命令。FW 盘旋的模拟 ACK 仅用于测试代码路径，不是飞控读回，也不能证明实际运动。普通 collector 不启用该选项，且回放模式拒绝接收真实端口。
 
-当前场景 collector 已接入证明入口并读取同一遥测快照中的原始位置，但尚未提供认证过的实际扫掠轨迹、地形误差硬界、障碍覆盖或剩余预算。运动动作因此仍会拒绝；collector 也没有原生模式交接和换计划执行权限。CPU 回放只验证准入与分派，不证明实际 PX4 轨迹或实飞能力。
+### SITL collector 的实时 `continue` 证据
+
+收到 Altair 回包的串行 tick 读取同一个 PX4 快照。当前位置使用来自目标对端、接收不超过 500 ms 的 `GLOBAL_POSITION_INT` 和 `LOCAL_POSITION_NED`。两者启动时钟相差不得超过 500 ms。经纬度与海拔转换到 runner 已加载的 DEM 坐标系，并核对当前编译步骤、入口位置和本地速度。证明从该位置起步，逐段验证扫掠体到回家着陆，包括当前位置、前方地形、DEM 高程误差和障碍覆盖。运动证明继续使用当下的帧编号和已解码决策摘要。成功的回执是 `action=continue / status=continued / reason=no_new_command`。
+
+SIM 任务包可以由任务方提供 `x1_live_evidence`。这是宿主证据，不进入 Altair 的规划上下文。缺失、结构不正确或绑定不符会使实时 `continue` 保持拒绝。字段如下。
+
+| 字段 | 证据契约 |
+| --- | --- |
+| `scope_sha256` | 取同一任务在 `--plan-only` 下的 `.contingency_scenario.motion_scope_sha256`。摘要覆盖已编译步骤、选中的故障、机型文件 SHA-256、世界 SDF SHA-256、镜像标签和可选风速插件 SHA-256。证据方须核对实际执行版本和镜像。 |
+| `dem_sha256`, `dem_error_m` | 已加载 DEM 的内容摘要和经证实的高程绝对误差硬界。DEM 文件的标准差与编译阶段的相对地形范围不能直接作为硬界。 |
+| `obstacle_coverage`, `obstacles` | 已核验覆盖盒及覆盖区内保守占据盒的清单。盒的顺序为 `[北下界, 北上界, 东下界, 东上界, AMSL下界, AMSL上界]`，单位为米。空清单表示整盒经核验无障碍物。扫掠体离开覆盖范围则未知，接触占据盒则拒绝。 |
+| `landing_pad` | 以任务包 home 和该处 DEM 海拔为中心，提供 `radius_m` 和 `elevation_error_m`，涵盖整块可接地的区域。 |
+| `battery` | `max_voltage_v` 为电池包电压上界，`soc_error_pct` 为荷电状态与剩余可用能量比例的误差上界，`consumption_error_wh` 为累计耗能折算的误差上界，须覆盖计量误差及最多 500 ms 的采样延迟。`budget.battery_capacity_wh` 必须是可用容量下界。 |
+| `suffixes` | 键 `"1"` 为 FW 航点、`"2"` 为后过渡前的 FW 入口、`"3"` 为 MC 回家。每项给出 `entry` 盒、`max_entry_speed_mps`、`legs`、`dynamics`、`airspeed` 和 `failure_revalidation_enforced`。未提供的步骤拒绝。 |
+
+`legs[]` 字段为 `phase`、`end`（北、东、AMSL）、`padding_ne_m`、`padding_alt_m`、`duration_s`、`peak_power_w`。首段起点取当前帧，后续段首尾相接。`dynamics` 提供 `max_bank_deg`、`max_climb_mps`、`max_descent_mps`、`max_acceleration_mps2` 和 `max_angular_rate_dps`。`airspeed` 为 `[最小, 最大]`，MC 可用 `null`。证据须涵盖入口盒内满足门限的实际轨迹及相关误差、选中场景中的风况、转弯和可执行分支。只有宿主已强制约束 FW 失败分支时才能声明 `failure_revalidation_enforced: true`。实时遥测的瞬时值不能证明未来的动力学或占据范围。
+
+`BATTERY_STATUS` 同样要求目标对端且接收不超过 500 ms。能量同时受任务能量预算减去累计耗能上界、以及经校准的荷电状态乘以容量下界约束。累计耗能用 `energy_consumed`（hJ）或正的 `current_consumed`（mAh）乘电压上界换算。无有效计量、计数回退、状态故障或缺少标定时，剩余能量保持未知。任务时间由新启动 PX4 的鲜活启动时钟计算，保守扣除起飞前及航线开始前的所有时间。沿用原有能量与时间储备检查。
+
+CPU 回放覆盖实时采样、同一执行器的准入和零新增指令。实际 SITL 轨迹需要同一场景的可信机载和任务包证据。collector 仍不提供原生模式交接或换计划执行权限，PX4 原生保底保持原行为。
 
 字段对照基于 `/data/scratch/cx/altair/autonomy/AUTONOMY-GAP.md`。该文的 `timestamp_monotonic_ms` 对应 `events[].t_ms`，`operator_link` 对应 `telemetry.link.gcs`，剩余计划 hash 和可执行技能分别对应 `remaining_plan_sha256` 和 `capabilities`。回归样本保持起飞前规划与 identity 的原有门禁，飞行中主验收使用 [闭环矩阵](x1-contingency-acceptance.md)。

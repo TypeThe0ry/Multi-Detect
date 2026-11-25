@@ -14,6 +14,8 @@ from threading import Event, Lock, Thread
 from multidetect.autonomy.x1_contingency_replay import Fault, load_faults
 from multidetect.autonomy.x1_wind_estimate import WindEstimator, WindReading
 
+from .x1_live_clearance import MOTION_SAMPLE_MAX_AGE_MS
+
 SUPPORTED = frozenset({"wind_step", "battery_drop", "link_loss", "target_lost", "terrain_conflict"})
 MECHANISM = {
     "wind_step": "gazebo_wind_cmd", "battery_drop": "px4_battery_simulator",
@@ -458,11 +460,12 @@ def wind_server_config(source, output, *, wind_relative_airspeed=False):
 class CollectorScenario:
     """Bridge the owned episode clock, telemetry and original compiled route to the injector."""
 
-    def __init__(self, faults, *, clearance, make_decision=None, terrain=None):
+    def __init__(self, faults, *, clearance, make_decision=None, terrain=None, motion_evidence=None):
         self.faults = faults
         self.clearance = clearance
         self.make_decision = make_decision
         self.terrain = terrain
+        self.motion_evidence = motion_evidence
         self.worker = ScenarioWorker()
         self.decision = None
         self.heartbeat_lock = Lock()
@@ -471,6 +474,7 @@ class CollectorScenario:
         self.processed_events = set()
         self.wind_estimator = WindEstimator(tailsitter=True)
         self.last_observed_boot_ms = None
+        self.motion_boot_high_water_ms = 0
         self.last_event_index = None
         self.gimbal = None
         self.step = 0
@@ -573,8 +577,7 @@ class CollectorScenario:
             observations.append(("terrain", terrain, "terrain"))
         events = self._new_events(samples, observations, wind)
         if self.decision is not None:
-            global_position = self._fresh_sample("GLOBAL_POSITION_INT", max_age_ms=500, state=state)
-            point = self._motion_position(global_position)
+            point, remaining_energy_wh, remaining_time_s = self._motion_data(index, boot_ms, state)
             frame = RuntimeFrame(
                 frame_id=time.monotonic_ns(), t_ms=now, mission_id=self.decision.mission_id,
                 revision=self.decision.revision, event_id=0,
@@ -584,6 +587,7 @@ class CollectorScenario:
                 airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples, state=state), hold_sites={},
                 gimbal_available=gimbal is not None and not gimbal.awaiting_readback,
                 position_ne_amsl=point, active_motion_index=index,
+                remaining_energy_wh=remaining_energy_wh, remaining_time_s=remaining_time_s,
                 terrain_conflict=terrain.get("conflict") if terrain is not None else None,
             )
             event_current = (self.last_event_index is not None and boot_ms is not None
@@ -597,6 +601,33 @@ class CollectorScenario:
         """Height above the SITL home point (flat launch pad), from fresh GLOBAL_POSITION_INT."""
         alt = (self._fresh_sample("GLOBAL_POSITION_INT", state=state) or {}).get("relative_alt")
         return alt / 1000.0 if type(alt) is int else None
+
+    def _motion_data(self, index, boot_ms, state):
+        """Read motion evidence from the same trusted snapshot used for this tick."""
+        age = MOTION_SAMPLE_MAX_AGE_MS
+        global_position = self._fresh_sample("GLOBAL_POSITION_INT", max_age_ms=age, state=state)
+        point = self._motion_position(global_position)
+        if self.motion_evidence is None:
+            return point, None, None
+        local = self._fresh_sample("LOCAL_POSITION_NED", max_age_ms=age, state=state)
+        local_boot = (local or {}).get("time_boot_ms")
+        global_boot = (global_position or {}).get("time_boot_ms")
+        clock_valid = (type(local_boot) is int and type(boot_ms) is int
+                       and 0 < self.worker.timeline.origin <= min(boot_ms, local_boot)
+                       and self.motion_boot_high_water_ms <= min(boot_ms, local_boot)
+                       and max(boot_ms, local_boot) < 2**32 and abs(local_boot - boot_ms) <= age)
+        remaining_time = None
+        if clock_valid:
+            # The reader can advance between clock() and taking its snapshot.
+            self.motion_boot_high_water_ms = min(local_boot, boot_ms)
+            remaining_time = self.motion_evidence.remaining_time_s(max(local_boot, boot_ms))
+        if (clock_valid and type(global_boot) is int and 0 < global_boot < 2**32
+                and abs(local_boot - global_boot) <= age):
+            point = self.motion_evidence.check_entry(index, point, local)
+        else:
+            point = None
+        battery = self._fresh_sample("BATTERY_STATUS", max_age_ms=age, state=state)
+        return point, self.motion_evidence.remaining_energy_wh(battery), remaining_time
 
     def _motion_position(self, row):
         if self.terrain is None or row is None:
