@@ -108,7 +108,8 @@ def test_durable_progress_and_user_docs_match_current_software_receipt():
     assert entry["joint_native_exit_code"] == entry["preflight_native_exit_code"] == 0
     assert entry["live_capture_verified"] is entry["autonomous_flight_verified"] is False
     assert entry["candidate_promoted"] is entry["final_release_allowed"] is False
-    assert progress["product_version"]["release_label"] == "0.3.0-pre.8"
+    version = read(ROOT / "configs/product-version.json")
+    assert progress["product_version"]["release_label"] == version["release_label"]
     readme = (ROOT / "README.md").read_text(encoding="utf-8-sig")
     assert "docs/onboard-gazebo-live-shadow.md" in readme
     assert (ROOT / "README.md").stat().st_size < 50_000

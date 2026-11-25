@@ -847,8 +847,10 @@ def test_collect_plans_the_configured_episodes_per_world(tmp_path):
          "--scenarios", str(index.parent)],
         cwd=round_mod.ROOT, capture_output=True, text=True, encoding="utf-8",
         env={**os.environ, "PYTHONPATH": os.pathsep.join(("src", ".")), "PYTHONUTF8": "1",
-             "MULTIDETECT_SIM_GPU": "1", "MULTIDETECT_SIM_GPU_DEVICES": "1,2"},
+             "MULTIDETECT_SIM_GPU": "1", "MULTIDETECT_SIM_GPU_DEVICES": "1,2",
+             "MULTIDETECT_SIM_ALLOW_GPUS": "1,2", "MULTIDETECT_SIM_GPU_AVOID": ""},
     )
+    assert result.returncode == 0, result.stdout + result.stderr
     assert "worlds x 2 episodes" in result.stdout, result.stdout + result.stderr
     assert "GPU worker slots: slot 0->GPU 1, slot 1->GPU 2, slot 2->GPU 1, slot 3->GPU 2" in result.stdout
 
@@ -987,6 +989,8 @@ def test_worker_gpu_assignments_follow_runtime_slots(monkeypatch):
 
     monkeypatch.setenv("MULTIDETECT_SIM_GPU", "1")
     monkeypatch.setenv("MULTIDETECT_SIM_GPU_DEVICES", "1,2")
+    monkeypatch.setenv("MULTIDETECT_SIM_ALLOW_GPUS", "1,2")
+    monkeypatch.setenv("MULTIDETECT_SIM_GPU_AVOID", "")
     assert round_mod.worker_gpu_assignments(4) == (
         (0, "1"),
         (1, "2"),

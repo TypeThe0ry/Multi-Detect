@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 
@@ -13,6 +14,27 @@ import pytest
 # free memory) the onboard loop can stall past the camera watchdog.  Run it with
 # `run_onboard_gate.py --with-timing` on a quiet machine.
 pytestmark = pytest.mark.timing
+
+
+@pytest.mark.parametrize("umask", [0o000, 0o022])
+def test_harness_creates_private_operator_key(tmp_path, umask):
+    from multidetect.autonomy.mission_security import load_key
+    from scripts.run_real_mode_harness import _write_operator_key
+
+    path = tmp_path / "operator.key"
+    key = b"R" * 32
+    previous = os.umask(umask)
+    try:
+        _write_operator_key(path, key)
+    finally:
+        os.umask(previous)
+    assert path.read_text(encoding="ascii") == "hmac:" + key.hex()
+    assert load_key(path).key == key
+    if os.name == "posix":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    with pytest.raises(FileExistsError):
+        _write_operator_key(path, b"S" * 32)
+    assert path.read_text(encoding="ascii") == "hmac:" + key.hex()
 
 
 def test_real_mode_process_loopback(tmp_path, require_loopback_sockets):

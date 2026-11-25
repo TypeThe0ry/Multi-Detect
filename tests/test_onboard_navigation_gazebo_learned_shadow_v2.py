@@ -273,18 +273,31 @@ def test_cleanup_diagnostic_failure_remains_closed_evidence(tmp_path, monkeypatc
     assert report["outer_cleanup_error"]["message"] == "daemon unavailable"
 
 
-def test_watchdog_targets_only_its_launched_process_tree(monkeypatch):
-    process = SimpleNamespace(pid=1234, poll=lambda: None, wait=lambda **k: -1)
+@pytest.mark.parametrize("platform", ["nt", "posix"])
+def test_watchdog_targets_only_its_launched_process_tree(monkeypatch, platform):
     calls = []
+    process = SimpleNamespace(
+        pid=1234,
+        poll=lambda: None,
+        kill=lambda: calls.append(("kill", process.pid)),
+        wait=lambda *, timeout: calls.append(("wait", process.pid, timeout)),
+    )
 
     def run(argv, **kwargs):
         calls.append(argv)
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr(live.subprocess, "run", run)
+    monkeypatch.setattr(live, "os", SimpleNamespace(name=platform))
+    monkeypatch.setattr(live, "subprocess", SimpleNamespace(run=run))
     observation = live.terminate_owned_tree(process)
-    assert calls == [["taskkill", "/PID", "1234", "/T", "/F"]]
-    assert observation["pid"] == 1234
+    if platform == "nt":
+        assert calls == [["taskkill", "/PID", "1234", "/T", "/F"], ("wait", 1234, 15)]
+        assert observation == {
+            "command_scope": "only_the_launched_worker_process_tree", "pid": 1234, "native_exit_code": 0
+        }
+    else:
+        assert calls == [("kill", 1234), ("wait", 1234, 15)]
+        assert observation == {"command_scope": "only_the_launched_worker", "pid": 1234}
 
 
 def test_exited_worker_is_never_killed(monkeypatch):

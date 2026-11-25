@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from multidetect.product_version import load_product_version
 from multidetect.release_gate import PARITY_FIELDS, evaluate_release_gate
 from multidetect.release_gate_manifest import create_release_gate_manifest
 from multidetect.release_mode_evidence import (
@@ -34,7 +35,7 @@ def _mode_evidence(tmp_path: Path) -> dict[str, Path]:
     return result
 
 
-def _combined_document() -> dict[str, object]:
+def _combined_document(release_label: str) -> dict[str, object]:
     ports = list(range(30_001, 30_010))
     port_fields = (
         "operator_server_udp",
@@ -61,7 +62,7 @@ def _combined_document() -> dict[str, object]:
         "schema": "multidetect.px4-gazebo-qgc-combined-sim-acceptance",
         "schema_version": 2,
         "runtime_mode": "sim",
-        "release_status": "v0.3.0-pre.8; final v0.3.0 remains blocked",
+        "release_status": f"v{release_label}; final v0.3.0 remains blocked",
         "gate_passed": True,
         "ports": port_record,
         "router": {
@@ -108,7 +109,8 @@ def _combined_document() -> dict[str, object]:
 def test_release_gate_rehashes_and_reverifies_combined_sim_binding(tmp_path: Path) -> None:
     evidence = _mode_evidence(tmp_path)
     combined = tmp_path / "combined.json"
-    combined.write_text(json.dumps(_combined_document(), indent=2), encoding="utf-8")
+    release_label = load_product_version(VERSION_MANIFEST).release_label
+    combined.write_text(json.dumps(_combined_document(release_label), indent=2), encoding="utf-8")
     release_mode = tmp_path / "sim-release-mode.json"
     envelope = build_release_mode_evidence(
         combined,

@@ -603,6 +603,8 @@ scripts/run_jetson_fire_patrol.sh
 | 版本历史 | [`CHANGELOG.md`](CHANGELOG.md) |
 | 历史开发流水 | [`docs/history/README-development-log-through-v56.md`](docs/history/README-development-log-through-v56.md) |
 
+[Gazebo 实时影子模式开发记录](docs/onboard-gazebo-live-shadow.md)
+
 ## 发布边界
 
 在生产模型、Gazebo 自动飞行、实时推理、QGC 人工视觉、HIL/REAL、Jetson Orin Nano、Pixhawk PX4、室外 GNSS、实际距离、故障处理、证据回放和清理审计全部完成前，不发布最终 `0.3.0`。
