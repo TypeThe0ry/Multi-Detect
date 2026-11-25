@@ -30,7 +30,7 @@ UNIT = "md-x1-resume.service"
 MATRIX = ROOT / "scripts/realworld/rtf_matrix.sh"
 SITL_PYTHON = "/data/projects/Multi-Detect-env/Multi-Detect/.venv-vlm/bin/python"
 TOOLS_PYTHON = "/data/datasets/multidetect-sim-assets/tools/venv/bin/python"
-START_GIB, STOP_GIB = 60, 53
+START_GIB, STOP_GIB = int(os.environ.get("X1_START_GIB", "60")), int(os.environ.get("X1_STOP_GIB", "53"))
 GIB = 1024**3
 IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 THRESHOLD_ERRORS = {"horizon_feasible_p95_exceeded", "horizon_feasible_max_exceeded"}
@@ -133,8 +133,9 @@ def prepare_iowa(spec):
 def flight_gate(slots):
     if shutil.disk_usage("/data").free < START_GIB * GIB:
         raise ValueError(f"/data requires {START_GIB} GiB free to start")
-    if os.getloadavg()[0] >= 60:
-        raise ValueError("host one-minute load must be below 60")
+    max_load = float(os.environ.get("X1_MAX_LOAD", "60"))
+    if os.getloadavg()[0] >= max_load:
+        raise ValueError(f"host one-minute load must be below {max_load:g}")
     filters = [item for slot in slots for item in ("--filter", f"name=md-rw-long-slot-{slot}-")]
     occupied = read_cmd(["docker", "ps", *filters, "--format", "{{.Names}}"])
     if occupied:
