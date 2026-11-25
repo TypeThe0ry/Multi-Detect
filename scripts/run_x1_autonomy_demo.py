@@ -39,6 +39,7 @@ from multidetect.sim_teacher.x1_scenario import (  # noqa: E402
 )
 from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, llama_decisions  # noqa: E402
 from scripts.realworld import long_range_flight as long_range  # noqa: E402
+from scripts.realworld import x1_site_evidence  # noqa: E402
 
 AIRFRAME = "delta_tailsitter_gimbal_cam"
 IMAGE = "multidetect/px4-sitl-gazebo:gz-rendering-830-r1-gimbal-horizon4"
@@ -484,11 +485,22 @@ def run(args, *, post, launch=fly):
         if generate_evidence:
             base_digest = canonical_sha256({"package": package.document, "plan": asdict(plan)})
             bounds_path = getattr(args, "live_evidence_bounds", None)
+            bounds = None
+            if bounds_path is not None:
+                if bounds_path.name.endswith(x1_site_evidence.BOUNDS_SUFFIX):
+                    bounds = x1_site_evidence.verify_site_bounds(
+                        bounds_path, world_path=site.world_sdf, world_sha256=site.world_sha256,
+                        dem_sha256=site.terrain.source_sha256,
+                        models_root=os.environ.get(x1_site_evidence.MODELS_ENV, "").strip(),
+                        rtf_model_root=os.environ.get("MULTIDETECT_RTF_MODEL_ROOT", "").strip(),
+                    )
+                else:
+                    bounds = read_object(bounds_path)
             evidence, missing = build_live_evidence(
                 package, terrain=site.terrain,
                 scope_sha256=record["contingency_scenario"]["motion_scope_sha256"],
                 base_mission_sha256=base_digest,
-                surveyed_bounds=read_object(bounds_path) if bounds_path is not None else None,
+                surveyed_bounds=bounds,
             )
             package = load_mission_package({**package.document, "x1_live_evidence": evidence}, mode="sim")
             generated_path = args.output / "mission-package.json"
