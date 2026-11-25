@@ -97,13 +97,20 @@ def test_invalid_or_unresolved_readback_fails_closed_and_keeps_raw(damage):
     body = {"roll": 0, "pitch": -80, "yaw": 45}
     status = bridge_status(TARGET, body)
     vehicle = attitude(body)
-    if damage == "missing_body": vehicle = None
-    if damage == "partial_body": vehicle.pop("pitch")
-    if damage == "nan_body": vehicle["roll"] = math.nan
-    if damage == "nan_q": status["q"][0] = math.nan
-    if damage == "zero_q": status["q"] = [0, 0, 0, 0]
-    if damage == "flags": status["flags"] = 96
-    if damage == "device_failure": status["failure_flags"] = 1
+    if damage == "missing_body":
+        vehicle = None
+    if damage == "partial_body":
+        vehicle.pop("pitch")
+    if damage == "nan_body":
+        vehicle["roll"] = math.nan
+    if damage == "nan_q":
+        status["q"][0] = math.nan
+    if damage == "zero_q":
+        status["q"] = [0, 0, 0, 0]
+    if damage == "flags":
+        status["flags"] = 96
+    if damage == "device_failure":
+        status["failure_flags"] = 1
     result = attitude_readback(status, TARGET, vehicle_attitude=vehicle, gazebo_body_joints=True)
     assert result["error_deg"] is None
     assert result["readback_error"]

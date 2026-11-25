@@ -124,7 +124,7 @@ from multidetect.simulator.fixed_wing_reposition import (  # noqa: E402
     DEFAULT_NAV_LOITER_RAD_M,
     reposition_ring_metrics,
 )
-from multidetect.simulator.px4_image import DEFAULT_GPU_IMAGE, PINNED_IMAGE, resolve_runtime_image  # noqa: E402
+from multidetect.simulator.px4_image import DEFAULT_GPU_IMAGE, resolve_runtime_image  # noqa: E402
 from multidetect.simulator.runtime_image import verify_gpu_runtime_image  # noqa: E402
 from multidetect.simulator.stack import SimulatorStackError  # noqa: E402
 from multidetect.simulator.stack import _vehicle_spec as _stack_vehicle_spec  # noqa: E402

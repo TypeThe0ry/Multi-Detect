@@ -99,9 +99,11 @@ def test_rejection_fails_without_retry(phase):
     session, reader, sent, _ = setup()
     session.command(1000, 1)
     if phase != 'configure_ack':
-        ack(reader); session.poll()
+        ack(reader)
+        session.poll()
     if phase == 'command_ack':
-        owner(reader); session.poll()
+        owner(reader)
+        session.poll()
     if phase == 'owner':
         owner(reader, device=2)
         reader.state.vehicle_time_boot_ms = 4001
@@ -110,7 +112,8 @@ def test_rejection_fails_without_retry(phase):
     with pytest.raises((RuntimeError, TimeoutError)):
         session.poll()
     count = len(sent)
-    with pytest.raises(RuntimeError): session.command(1000, 2)
+    with pytest.raises(RuntimeError):
+        session.command(1000, 2)
     assert len(sent) == count
 
 
@@ -121,9 +124,11 @@ def test_slow_sim_vehicle_and_wall_timeout_are_bounded_without_waiting():
     reader.state.vehicle_time_boot_ms = 1000
     assert session.poll() == 'configure_ack'
     clock[0] = 30_000_000_001
-    with pytest.raises(TimeoutError): session.poll()
+    with pytest.raises(TimeoutError):
+        session.poll()
     ack(reader)
-    with pytest.raises(RuntimeError): session.poll()
+    with pytest.raises(RuntimeError):
+        session.poll()
     assert len(sent) == 1
 
 
@@ -132,19 +137,24 @@ def test_close_drops_pending_without_io():
     session.command(1000, 1)
     session.close()
     assert session.poll() == 'closed'
-    with pytest.raises(RuntimeError): session.command(1000, 2)
+    with pytest.raises(RuntimeError):
+        session.command(1000, 2)
     assert len(sent) == 1
 
 
 def test_ownership_loss_stops_future_commands():
     session, reader, sent, _ = setup()
     session.command(1000, 1)
-    ack(reader); owner(reader); session.poll()
-    ack(reader, command=1000); session.poll()
+    ack(reader)
+    owner(reader)
+    session.poll()
+    ack(reader, command=1000)
+    session.poll()
     owner(reader, identity=(245, 191))
     with pytest.raises(RuntimeError, match='ownership lost'):
         session.poll()
-    with pytest.raises(RuntimeError): session.command(1000, 2)
+    with pytest.raises(RuntimeError):
+        session.command(1000, 2)
     assert len(sent) == 2
 
 
@@ -172,8 +182,10 @@ def test_reader_retains_interleaved_manager_events_with_source_identity():
     class Receiver:
         def __init__(self): self.messages = queue.Queue()
         def recv_match(self, **kwargs):
-            try: return self.messages.get(timeout=0.01)
-            except queue.Empty: return None
+            try:
+                return self.messages.get(timeout=0.01)
+            except queue.Empty:
+                return None
     class WireMessage(Message):
         def __init__(self, kind, **fields):
             super().__init__(**fields)
@@ -233,7 +245,8 @@ def test_collector_advances_gimbal_during_action_and_surfaces_final_rejection():
     thread = Thread()
     def tick():
         if thread.count == 0:
-            ack(reader); owner(reader)
+            ack(reader)
+            owner(reader)
         if thread.count == 2:
             assert sent[-1][0] == 1000
         if thread.count == 3:
@@ -252,7 +265,8 @@ def test_collector_drains_final_queued_command_and_propagates_failure():
     def sleep(_):
         ticks[0] += 1
         if ticks[0] == 1:
-            ack(reader); owner(reader)
+            ack(reader)
+            owner(reader)
         elif ticks[0] == 2:
             ack(reader, command=1000, result=2)
     with pytest.raises(RuntimeError, match='rejected'):
@@ -285,7 +299,8 @@ def test_collector_final_command_success_waits_for_ack():
     def sleep(_):
         ticks[0] += 1
         if ticks[0] == 1:
-            ack(reader); owner(reader)
+            ack(reader)
+            owner(reader)
         elif ticks[0] == 2:
             ack(reader, command=1000)
     _finish_teacher_gimbal(session, lambda: None, sleep=sleep)
@@ -389,7 +404,9 @@ def test_managed_primitive_enforces_profile_limits_before_sending():
 def test_late_pitch_ack_is_rejected_even_when_already_buffered():
     session, reader, _, clock = setup(wall_timeout_s=5)
     session.command(1000, 1)
-    ack(reader); owner(reader); session.poll()
+    ack(reader)
+    owner(reader)
+    session.poll()
     assert session.phase == 'command_ack'
     clock[0] = 6_000_000_000
     reader.state.vehicle_time_boot_ms = 100
@@ -433,7 +450,9 @@ def test_managed_primitive_from_idle_acquires_once_and_waits_for_feedback():
 def test_attitude_sample_is_atomic_and_filters_other_devices_and_sources():
     session, reader, _, _ = setup()
     session.command(1000, 1)
-    ack(reader); owner(reader); session.poll()
+    ack(reader)
+    owner(reader)
+    session.poll()
     ack(reader, command=1000)
     reader.add('GIMBAL_DEVICE_ATTITUDE_STATUS', stamp=100, gimbal_device_id=2,
                q=[1, 0, 0, 0], system=1, component=1)

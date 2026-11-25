@@ -78,18 +78,22 @@ class JournalTests(TestCase):
     def test_removal_failure_propagates_and_does_not_record(self):
         from scripts import collect_sim_teacher_episodes as c
         plan=SimpleNamespace(attach_container=None,container_prefix='md-sim-teacher-slot-0',image='image',out=self.tmp.name,keep_container_on_failure=False)
-        container=c.DockerSimEnvironment(plan,'test');container.started=True;container._candidate_id='b'*64
+        container=c.DockerSimEnvironment(plan,'test')
+        container.started=True
+        container._candidate_id='b'*64
         def run(command,**kw):
             if command[1]=='inspect':
                 return SimpleNamespace(returncode=0,stdout=json.dumps([{'Id':'b'*64,'Name':'/md-sim-teacher-slot-0-test','Config':{'Labels':{'md.gimbal.invocation':'a'*32}}}]))
             return SimpleNamespace(returncode=1,stdout='')
         with patch.object(c,'_docker_executable',return_value='docker'),patch.object(c.subprocess,'run',side_effect=run),patch.object(container,'capture_cleanup_diagnostics'):
-            with self.assertRaises(RuntimeError):container.__exit__(None,None,None)
+            with self.assertRaises(RuntimeError):
+                container.__exit__(None,None,None)
         self.assertFalse(list(Path(self.tmp.name).glob('*.removed.json')))
 
     def test_timeout_leaves_unsettled_request(self):
         import subprocess
         def run(*args,**kwargs):raise subprocess.TimeoutExpired('docker',30)
-        with self.assertRaises(subprocess.TimeoutExpired):j.run_recorded(self.command,name='md-sim-teacher-slot-0-test',run=run)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            j.run_recorded(self.command,name='md-sim-teacher-slot-0-test',run=run)
         self.assertEqual(len(list(Path(self.tmp.name).glob('*.request.json'))),1)
         self.assertFalse(list(Path(self.tmp.name).glob('*.response.json')))
