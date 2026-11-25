@@ -185,6 +185,8 @@ def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True,
             rows["BATTERY_STATUS"].update(energy_consumed=-1, current_consumed=200)
         elif fault == "battery_reserve":
             rows["BATTERY_STATUS"]["battery_remaining"] = 19
+        elif fault == "battery_17":
+            rows["BATTERY_STATUS"]["battery_remaining"] = 17
         elif fault == "battery_fault":
             rows["BATTERY_STATUS"]["fault_bitmask"] = 1
         elif fault == "px4_failsafe":
@@ -262,3 +264,33 @@ def test_live_evidence_is_explicitly_sim_only(terrain):  # noqa: F811
     with pytest.raises(ValueError, match="requires an X1 simulation package"):
         load_mission_package(doc)
     assert "x1_live_evidence" in load_mission_package(doc, mode="sim").document
+
+
+@pytest.mark.parametrize(("fault_kind", "fw", "case", "status", "reason"), [
+    ("wind_step", True, "complete", "continued", "no_new_command"),
+    ("link_loss", False, "complete", "continued", "no_new_command"),
+    ("battery_drop", False, "battery_17", "rejected", "energy_or_reserve_limit"),
+    ("link_loss", False, "unknown_energy", "rejected", "energy_or_reserve_limit"),
+    ("link_loss", False, "missing_evidence", "rejected", "unverified_clearance"),
+])
+def test_generated_package_replay(terrain, profile, monkeypatch, fault_kind, fw, case, status, reason):  # noqa: F811
+    from multidetect.sim_teacher.x1_live_evidence_builder import build_live_evidence
+
+    def package_override(package, doc):
+        supplied = doc.pop("x1_live_evidence", None)
+        digest = "c" * 64
+        bounds = {**supplied, "base_mission_sha256": digest} if supplied is not None else None
+        evidence, missing = build_live_evidence(package, terrain=terrain, scope_sha256=SCOPE,
+                                                base_mission_sha256=digest, surveyed_bounds=bounds)
+        if supplied is None:
+            assert "obstacle_coverage" in missing and "suffixes" in missing
+        else:
+            assert not missing
+        return load_mission_package({**package.document, "x1_live_evidence": evidence}, mode="sim")
+
+    receipt, [(_, _, proof)], commands = exercise(terrain, profile, monkeypatch, case=case, fw=fw,
+                                         fault_kind=fault_kind, package_override=package_override)
+    assert (receipt["action"], receipt["status"], receipt["reason"]) == ("continue", status, reason)
+    assert commands == []
+    if case == "battery_17":
+        assert proof.available_energy_wh == pytest.approx(11.84)

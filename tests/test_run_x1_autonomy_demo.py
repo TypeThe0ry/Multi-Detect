@@ -201,3 +201,79 @@ def test_flight_receipt_requires_passage_and_landed_mc(inputs):
     assert record["flight"]["takeoff"] and record["flight"]["return_home"] and record["flight"]["landing"]
     assert record["safety"]["observed"]["sample_count"] == 1
     assert record["safety"]["observed"]["minimum_margins_m"]["min_agl_m"] == pytest.approx(45)
+
+
+def test_generated_package_publishes_only_supported_iowa_fields(inputs, tmp_path):
+    from multidetect.autonomy.serialization import canonical_sha256
+
+    response, argv, result = inputs
+    response.write_text(raw_plan(), encoding="utf-8")
+    schedule = demo.ROOT / "configs/simulation/x1-contingency-faults-v1.json"
+    flags = ["--plan-only", "--contingency-scenario", str(schedule), "--inject-fault", "link_loss"]
+    package_input = Path(argv[argv.index("--mission-package") + 1])
+    original_bytes = package_input.read_bytes()
+    assert demo.main([*argv, *flags, "--generate-live-evidence"]) == 0
+    record = json.loads(result.read_text())
+    scenario = record["contingency_scenario"]
+    metadata = scenario["live_evidence"]
+    generated_path = result.parent / "mission-package.json"
+    assert Path(metadata["package_path"]) == generated_path
+    generated = json.loads(generated_path.read_text())
+    assert canonical_sha256(generated) == record["mission_package_sha256"]
+    assert package_input.read_bytes() == original_bytes
+    assert generated["x1_live_evidence"] == {
+        "dem_sha256": record["prepared"]["dem_sha256"],
+        "scope_sha256": scenario["motion_scope_sha256"],
+    }
+    assert set(metadata["missing_fields"]) == {
+        "dem_error_m", "obstacle_coverage", "obstacles", "landing_pad", "suffixes", "battery",
+        "budget.battery_capacity_wh",
+    }
+    assert record["flight"]["status"] == "plan_only"
+
+    baseline = tmp_path / "default-off"
+    baseline_argv = argv.copy()
+    baseline_argv[baseline_argv.index("--output") + 1] = str(baseline)
+    assert demo.main([*baseline_argv, *flags]) == 0
+    baseline_record = json.loads((baseline / "result.json").read_text())
+    assert not (baseline / "mission-package.json").exists()
+    assert "live_evidence" not in baseline_record["contingency_scenario"]
+    assert record["plan_json"] == baseline_record["plan_json"]
+    assert record["prepared"]["steps"] == baseline_record["prepared"]["steps"]
+    assert metadata["base_mission_sha256"] == baseline_record["compiled_mission_sha256"]
+    assert record["compiled_mission_sha256"] != metadata["base_mission_sha256"]
+
+    certificate = tmp_path / "bounds.json"
+    certificate.write_text(json.dumps({**generated["x1_live_evidence"],
+                                        "base_mission_sha256": metadata["base_mission_sha256"],
+                                        "dem_error_m": 2}), encoding="utf-8")
+    certified = tmp_path / "certified"
+    bound_argv = argv.copy()
+    bound_argv[bound_argv.index("--output") + 1] = str(certified)
+    assert demo.main([*bound_argv, *flags, "--generate-live-evidence", "--live-evidence-bounds", str(certificate)]) == 0
+    assert json.loads((certified / "mission-package.json").read_text())["x1_live_evidence"]["dem_error_m"] == 2
+
+    for mismatch in ("fault", "plan", "budget", "dem"):
+        mismatched = tmp_path / f"wrong-{mismatch}"
+        bound_argv[bound_argv.index("--output") + 1] = str(mismatched)
+        mismatch_argv = bound_argv.copy()
+        mismatch_flags = flags.copy()
+        if mismatch == "fault":
+            mismatch_flags[-1] = "battery_drop"
+        elif mismatch == "plan":
+            response.write_text(raw_plan(altitude=86), encoding="utf-8")
+            mismatch_argv[mismatch_argv.index("--sentence") + 1] = TASK.replace("85 m", "86 m")
+        elif mismatch == "budget":
+            changed_budget = json.loads(original_bytes)
+            changed_budget["budget"]["reserve_energy_wh"] += 1
+            package_input.write_text(json.dumps(changed_budget), encoding="utf-8")
+        elif mismatch == "dem":
+            stale_bounds = json.loads(certificate.read_text())
+            stale_bounds["dem_sha256"] = "f" * 64
+            certificate.write_text(json.dumps(stale_bounds), encoding="utf-8")
+        assert demo.main([*mismatch_argv, *mismatch_flags, "--generate-live-evidence",
+                          "--live-evidence-bounds", str(certificate)]) == 1
+        assert "do not match" in json.loads((mismatched / "result.json").read_text())["validator"]["reason"]
+        assert not (mismatched / "mission-package.json").exists()
+        response.write_text(raw_plan(), encoding="utf-8")
+        package_input.write_bytes(original_bytes)

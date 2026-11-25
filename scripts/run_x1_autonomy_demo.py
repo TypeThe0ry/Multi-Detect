@@ -33,6 +33,7 @@ from multidetect.autonomy.x1_plan import (  # noqa: E402
 )
 from multidetect.terrain_dem import LocalDemGrid, load_local_dem_grid  # noqa: E402
 from multidetect.sim_teacher.x1_live_clearance import LiveContinueEvidence, clearance_scope  # noqa: E402
+from multidetect.sim_teacher.x1_live_evidence_builder import build_live_evidence  # noqa: E402
 from multidetect.sim_teacher.x1_scenario import (  # noqa: E402
     SUPPORTED, CollectorScenario, load_schedule, schedule_sha256, wind_server_config,
 )
@@ -462,6 +463,9 @@ def run(args, *, post, launch=fly):
         document = read_object(args.mission_package)
         if "plan" in document:
             raise X1PlanError("PRECOMPILED_PLAN", "demo input must not contain a precomputed plan")
+        generate_evidence = getattr(args, "generate_live_evidence", False)
+        if generate_evidence and (not faults or "x1_live_evidence" in document):
+            raise ValueError("--generate-live-evidence requires selected faults and a package without x1_live_evidence")
         package = load_mission_package({**document, "task_text": args.sentence}, mode="sim")
         record["mission_package_sha256"] = canonical_sha256(package.document)
         plan, caps = compile_plan(package, post, record)
@@ -477,6 +481,24 @@ def run(args, *, post, launch=fly):
                 world_sha256=site.world_sha256, image=IMAGE,
                 wind_plugin_sha256=hashlib.sha256(plugin.read_bytes()).hexdigest() if plugin is not None else None,
             )
+        if generate_evidence:
+            base_digest = canonical_sha256({"package": package.document, "plan": asdict(plan)})
+            bounds_path = getattr(args, "live_evidence_bounds", None)
+            evidence, missing = build_live_evidence(
+                package, terrain=site.terrain,
+                scope_sha256=record["contingency_scenario"]["motion_scope_sha256"],
+                base_mission_sha256=base_digest,
+                surveyed_bounds=read_object(bounds_path) if bounds_path is not None else None,
+            )
+            package = load_mission_package({**package.document, "x1_live_evidence": evidence}, mode="sim")
+            generated_path = args.output / "mission-package.json"
+            write_result(generated_path, package.document)
+            record["mission_package_sha256"] = canonical_sha256(package.document)
+            record["contingency_scenario"]["live_evidence"] = {
+                "package_path": str(generated_path), "base_mission_sha256": base_digest,
+                "host_bounds_path": str(bounds_path) if bounds_path is not None else None,
+                "present_fields": sorted(evidence), "missing_fields": missing,
+            }
         record["safety"]["planned"] = safety
         record["validator"]["verdict"] = "accepted"
         record["markers"].append({"phase": "mission_prepared"})
@@ -527,6 +549,10 @@ def main(argv=None):
     parser.add_argument("--decision-port", type=int, metavar="PORT",
                         help="local onboard Altair llama-server port for live contingency requests")
     parser.add_argument("--mission-package", required=True, type=Path, help="site references and constraints, without a plan")
+    parser.add_argument("--generate-live-evidence", action="store_true",
+                        help="attach scenario-bound SIM evidence and save the generated package (default: off)")
+    parser.add_argument("--live-evidence-bounds", type=Path, metavar="JSON",
+                        help="local host-verified hard bounds for the compiled mission")
     parser.add_argument("--output", required=True, type=lambda p: Path(p).resolve(), help="fresh result directory")
     planner = parser.add_mutually_exclusive_group(required=True)
     planner.add_argument("--recorded-output", type=Path, help="recorded raw planner output (plan-only)")
@@ -541,6 +567,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if (args.inject_fault or args.decision_port is not None) and args.contingency_scenario is None:
         parser.error("--inject-fault and --decision-port require --contingency-scenario")
+    if args.live_evidence_bounds is not None and not args.generate_live_evidence:
+        parser.error("--live-evidence-bounds requires --generate-live-evidence")
     if args.decision_port is not None and not 1 <= args.decision_port <= 65535:
         parser.error("--decision-port must be between 1 and 65535")
     if args.decision_port is not None and args.decision_port == args.planner_port:
