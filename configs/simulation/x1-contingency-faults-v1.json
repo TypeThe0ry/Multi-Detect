@@ -1,0 +1,14 @@
+{
+  "schema": "x1.contingency.faults.v1",
+  "faults": [
+    {"at_ms": 3000, "duration_ms": 7000, "type": "wind_step", "values": {"north_mps": 8, "east_mps": -4, "down_mps": 0}},
+    {"at_ms": 12000, "duration_ms": 12000, "type": "battery_drop", "values": {"pct": 17}},
+    {"at_ms": 16000, "duration_ms": 6000, "type": "link_loss", "values": {}},
+    {"at_ms": 18500, "duration_ms": 4000, "type": "gps_degraded", "values": {"fix_type": 2}},
+    {"at_ms": 20000, "duration_ms": 4000, "type": "health_degraded", "values": {"flags": 0}},
+    {"at_ms": 25000, "duration_ms": 5000, "type": "transition_problem", "values": {"state": "back_transition"}},
+    {"at_ms": 22000, "duration_ms": 5000, "type": "target_lost", "values": {}},
+    {"at_ms": 30000, "duration_ms": 6000, "type": "obstacle_conflict", "values": {"clearance_m": -2}},
+    {"at_ms": 34000, "duration_ms": 5000, "type": "terrain_conflict", "values": {"clearance_m": -5}}
+  ]
+}

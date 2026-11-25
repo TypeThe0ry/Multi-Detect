@@ -612,6 +612,28 @@ class MissionExecutor:
             raise ValueError("retask plan version must increase")
         self._pending_retask = (plan, mode, next_version)
 
+    def apply_onboard_replan(self, plan: MissionPlan, *, expected_version: int) -> None:
+        """Install an already-admitted plan on the serialized motion tick.
+
+        Unlike operator retask, a contingency cannot wait for the unsafe leg
+        to finish. Do not displace a queued operator transaction or revive a
+        completed mission. The caller arbitrates in-flight command ownership.
+        """
+        if self.done or self._pending_retask is not None or self.plan_version != expected_version:
+            raise ValueError("mission state changed before onboard replan")
+        from .x1_plan import X1_SKILLS
+
+        if any(step.skill in X1_SKILLS for step in plan.steps):
+            raise ValueError("X1 replans require the X1 SIM primitive adapter")
+        run = self._start(plan.steps[0])
+        interrupted = self._run.step.id if self._run is not None else None
+        self.plan = plan
+        self._steps = {step.id: step for step in plan.steps}
+        self.plan_version += 1
+        self._run = run
+        self.mission_log.append({"event": "onboard_replan_installed", "plan_version": self.plan_version,
+                                 "interrupted_step": interrupted, "step": run.step.id})
+
     def _apply_retask(self, plan: MissionPlan, version: int) -> None:
         self.plan = plan
         self._steps = {step.id: step for step in plan.steps}
