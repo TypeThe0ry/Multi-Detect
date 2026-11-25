@@ -99,7 +99,10 @@ def require_real(
 ) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise AutonomyContractError(f"{name} must be a number")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as exc:
+        raise AutonomyContractError(f"{name} must be finite") from exc
     if not isfinite(result):
         raise AutonomyContractError(f"{name} must be finite")
     if minimum is not None and result < minimum:

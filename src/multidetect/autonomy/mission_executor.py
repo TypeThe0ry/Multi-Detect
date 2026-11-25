@@ -604,7 +604,17 @@ class MissionExecutor:
         self.plan_version = 1
         self._pending_retask: tuple[MissionPlan, str, int] | None = None
 
+    @staticmethod
+    def _check_replacement_plan(plan: MissionPlan) -> None:
+        from .x1_plan import X1_SKILLS
+
+        if not plan.steps:
+            raise ValueError("replacement plan has no steps")
+        if any(step.skill in X1_SKILLS for step in plan.steps):
+            raise ValueError("X1 replans require the X1 SIM primitive adapter")
+
     def request_retask(self, plan: MissionPlan, *, mode: str = "replace", version: int | None = None) -> None:
+        self._check_replacement_plan(plan)
         if mode not in {"append", "replace"}:
             raise ValueError("retask mode must be append or replace")
         next_version = int(version or self.plan_version + 1)
@@ -621,10 +631,7 @@ class MissionExecutor:
         """
         if self.done or self._pending_retask is not None or self.plan_version != expected_version:
             raise ValueError("mission state changed before onboard replan")
-        from .x1_plan import X1_SKILLS
-
-        if any(step.skill in X1_SKILLS for step in plan.steps):
-            raise ValueError("X1 replans require the X1 SIM primitive adapter")
+        self._check_replacement_plan(plan)
         run = self._start(plan.steps[0])
         interrupted = self._run.step.id if self._run is not None else None
         self.plan = plan

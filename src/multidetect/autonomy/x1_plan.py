@@ -9,6 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .serialization import require_real
+
 if TYPE_CHECKING:
     from .mission_package import MissionPackage
     from .mission_plan import MissionPlan
@@ -108,9 +110,9 @@ def x1_prompt_rules(capabilities: frozenset[str], context: Mapping | None) -> li
 
 
 def _number(value: Any) -> float:
-    if type(value) not in (int, float) or not math.isfinite(value):
+    if type(value) not in (int, float):
         raise ValueError("X1 context values must be finite numbers")
-    return float(value)
+    return require_real(value, "X1 context value")
 
 
 def validate_x1_context(raw: Any, area: Mapping) -> dict:
@@ -204,6 +206,21 @@ def x1_static_violations(plan: MissionPlan, package: MissionPackage, capabilitie
         if any(_segment_distance(a, b, point) <= radius + margin + no_fly_margin_m
                for point, radius in package.no_fly_zones):
             add("X1_NO_FLY", sid, "swept path intersects a no-fly zone")
+
+    from .mission_plan import validate_mission_plan
+
+    # Validate hand-built plans before geometry so malformed values cannot be
+    # reclassified as a terrain or corridor finding. The envelope below owns
+    # the gimbal capability finding, independently of the shape check.
+    try:
+        validate_mission_plan({
+            "plan_version": plan.plan_version, "goal": plan.goal, "report": list(plan.report),
+            "steps": [{"id": s.id, "skill": s.skill, "params": s.params,
+                       "on_success": s.on_success, "on_fail": s.on_fail} for s in plan.steps],
+        }, capabilities=capabilities | {"gimbal_control"})
+    except ValueError as exc:
+        add("X1_PLAN_SCHEMA", None, str(exc))
+        return findings
 
     # Strict success path; keep failure recovery independent from flight-mode assumptions.
     by_id = {step.id: step for step in plan.steps}
