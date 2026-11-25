@@ -70,11 +70,11 @@ class ExecutionSweep:
     frame_id: int
     decision_digest: str
     legs: tuple[SweptLeg, ...]
-    max_bank_deg: float
-    max_climb_mps: float
-    max_descent_mps: float
-    max_acceleration_mps2: float
-    max_angular_rate_dps: float
+    max_bank_deg: float | None
+    max_climb_mps: float | None
+    max_descent_mps: float | None
+    max_acceleration_mps2: float | None
+    max_angular_rate_dps: float | None
     min_airspeed_mps: float | None = None
     max_airspeed_mps: float | None = None
     landing_pad: LandingPad | None = None
@@ -86,6 +86,10 @@ class ExecutionSweep:
 
 def _number(value, minimum=-100_000.0, maximum=1e6):
     return type(value) in (int, float) and minimum <= value <= maximum
+
+
+def _nonnegative(value):
+    return value if _number(value, 0.0) else None
 
 
 def _point(value):
@@ -138,6 +142,7 @@ class X1MotionProofBuilder:
             raise ValueError("expected a common cruise height and a home terminal")
         length = math.hypot(n, e)
         self.outbound = self.home_ne[0] + n, self.home_ne[1] + e, self.home_z - down
+        self.home_arrival = (*self.home_ne, self.home_z - down)
         self.tangent = n / length, e / length
         self.runout_end = length + FW_PASS_MAX_STEP_M + POSITION_MARGIN_M + profile.transition.timeout_s * (
             profile.max_airspeed_mps + profile.endurance.wind_margin_mps
@@ -167,17 +172,7 @@ class X1MotionProofBuilder:
         phases = tuple(group[0].phase for group in groups)
         first, last = sweep.legs[0].start, sweep.legs[-1].end
         if d.action == "loiter":
-            hold = frame.hold_sites.get(d.params["hold_ref"])
-            if not hold or hold.mode != frame.vtol_state or sweep.hold_revalidation_enforced is not True:
-                return False
-            if frame.vtol_state == "mc":
-                return phases == ("mc",) and all(_same(first, x.end) for x in sweep.legs)
-            if phases != ("fw",) or not _number(hold.radius_m, 0.001) or not all(
-                _number(value) for value in (hold.lat_deg, hold.lon_deg, hold.alt_amsl_m)
-            ):
-                return False
-            n, e = self.terrain.local_from_wgs84(hold.lat_deg, hold.lon_deg)
-            return _same(last, (n, e, hold.alt_amsl_m)) and sweep.legs[-1].padding_ne_m >= hold.radius_m
+            return self._hold_matches(d, frame, sweep, phases, boxes[-1])
 
         if d.action == "land-now":
             return (frame.vtol_state == "mc" and phases == ("landing",)
@@ -229,8 +224,30 @@ class X1MotionProofBuilder:
                     prefix = "fw", "transition"
         if phases != (*prefix, "mc", "landing"):
             return False
+        if d.action == "return" and not _same(groups[-1][0].start, self.home_arrival):
+            return False
         # Require an explicit home arrival before beginning the vertical landing.
         return all(_same(leg.start[:2], self.home_ne) and _same(leg.end[:2], self.home_ne) for leg in groups[-1])
+
+    def _hold_matches(self, d, frame, sweep, phases, orbit_box):
+        hold = frame.hold_sites.get(d.params["hold_ref"])
+        if not hold or hold.mode != frame.vtol_state or sweep.hold_revalidation_enforced is not True:
+            return False
+        first, last = sweep.legs[0].start, sweep.legs[-1].end
+        if frame.vtol_state == "mc":
+            return phases == ("mc",) and all(_same(first, x.end) for x in sweep.legs)
+        if phases != ("fw",) or not _number(hold.radius_m, 0.001) or not all(
+            _number(value) for value in (hold.lat_deg, hold.lon_deg, hold.alt_amsl_m)
+        ):
+            return False
+        n, e = self.terrain.local_from_wgs84(hold.lat_deg, hold.lon_deg)
+        r = hold.radius_m
+        n0, n1, e0, e1, z0, z1 = orbit_box
+        # A centre within anchoring tolerance does not imply that the disk fits.
+        # Keep the explicit padding requirement as well as all four disk extents.
+        return (_same(last, (n, e, hold.alt_amsl_m)) and sweep.legs[-1].padding_ne_m >= r
+                and n0 <= n - r and n + r <= n1 and e0 <= e - r and e + r <= e1
+                and z0 <= hold.alt_amsl_m <= z1)
 
     def _fence_clear(self, leg, box):
         if any(not (area["north_min_m"] <= n <= area["north_max_m"]
@@ -255,18 +272,22 @@ class X1MotionProofBuilder:
             if leg.phase == "landing":
                 # Check the entire touchdown footprint. The surveyed disk is
                 # the only volume in which contact with the surface is allowed.
-                landed = (pad is not None and _point(pad.point) and _number(pad.radius_m, 0.001)
-                          and _number(pad.elevation_error_m, error)
-                          and _same(legs[-1].end, pad.point)
-                          and all(math.dist(corner, pad.point[:2]) <= pad.radius_m for corner in _corners(box))
-                          and pad.point[2] - pad.elevation_error_m <= low - error
-                          and high + error <= pad.point[2] + pad.elevation_error_m
-                          and leg.start[2] >= leg.end[2]
-                          and (index and legs[index - 1].phase == "landing"
-                               or leg.start[2] - leg.padding_alt_m > high + error)
-                          and box[4] >= pad.point[2] - pad.elevation_error_m)
-                if not landed:
+                if not (isinstance(pad, LandingPad) and _point(pad.point) and _number(pad.radius_m, 0.001)
+                        and _number(pad.elevation_error_m, error) and _same(legs[-1].end, pad.point)
+                        and all(math.dist(corner, pad.point[:2]) <= pad.radius_m for corner in _corners(box))
+                        and pad.point[2] - pad.elevation_error_m <= low - error
+                        and high + error <= pad.point[2] + pad.elevation_error_m
+                        and leg.start[2] >= leg.end[2]
+                        and box[4] >= pad.point[2] - pad.elevation_error_m):
                     return None, None, False
+                if index < len(legs) - 1:
+                    if agl <= 0:  # Only the last segment may enter the surveyed contact region.
+                        return None, None, False
+                    margins.append(agl)
+                elif leg.start[2] <= leg.end[2] or leg.start[2] - leg.padding_alt_m <= high + error:
+                    return None, None, False
+                else:
+                    landed = True
                 continue
             margins.append(agl)
             if leg.phase in {"fw", "transition"}:
@@ -283,19 +304,23 @@ class X1MotionProofBuilder:
             max_descent_mps=None, max_acceleration_mps2=None, max_angular_rate_dps=None,
             required_time_s=None, available_time_s=None,
         )
-        if (sweep is None or type(frame.frame_id) is not int or type(sweep.frame_id) is not int
+        if (not isinstance(sweep, ExecutionSweep) or type(frame.frame_id) is not int or type(sweep.frame_id) is not int
                 or sweep.frame_id != frame.frame_id or sweep.decision_digest != decision.digest
                 or frame.position_ok is not True or frame.px4_failsafe is not False or frame.armed_in_air is not True
                 or frame.mission_id != self.package.mission_id or decision.mission_id != frame.mission_id
                 or decision.revision != frame.revision or decision.event_id != frame.event_id
-                or not _point(frame.position_ne_amsl) or not 1 <= len(sweep.legs) <= 128):
+                or not _point(frame.position_ne_amsl) or not isinstance(sweep.legs, tuple)
+                or not 1 <= len(sweep.legs) <= 128):
             return closed
         legs = sweep.legs
-        if (not all(x.phase in _PHASES and _point(x.start) and _point(x.end)
+        if (not all(isinstance(x, SweptLeg) and isinstance(x.phase, str) and x.phase in _PHASES
+                    and _point(x.start) and _point(x.end)
                     and _number(x.padding_ne_m, 0.0, 100_000) and _number(x.padding_alt_m, 0.0)
                     and _number(x.duration_s, 0.001) and _number(x.peak_power_w, 0.001) for x in legs)
                 or not _same(frame.position_ne_amsl, legs[0].start)
-                or any(a.end != b.start for a, b in zip(legs, legs[1:]))):
+                or any(a.end != b.start for a, b in zip(legs, legs[1:]))
+                or any(v is not None and _nonnegative(v) is None
+                       for v in (sweep.min_airspeed_mps, sweep.max_airspeed_mps))):
             return closed
         try:
             boxes = tuple(leg.box() for leg in legs)
@@ -328,11 +353,12 @@ class X1MotionProofBuilder:
         return replace(
             closed, geofence_clear=fence, obstacle_margin_m=obstacle, terrain_margin_m=terrain,
             required_energy_wh=required_wh,
-            available_energy_wh=frame.remaining_energy_wh if _number(frame.remaining_energy_wh, 0) else None,
-            min_airspeed_mps=sweep.min_airspeed_mps, max_airspeed_mps=sweep.max_airspeed_mps,
-            max_bank_deg=sweep.max_bank_deg, max_climb_mps=sweep.max_climb_mps,
-            max_descent_mps=sweep.max_descent_mps, max_acceleration_mps2=sweep.max_acceleration_mps2,
-            max_angular_rate_dps=sweep.max_angular_rate_dps, required_time_s=sum(x.duration_s for x in legs),
-            available_time_s=frame.remaining_time_s if _number(frame.remaining_time_s, 0) else None,
+            available_energy_wh=_nonnegative(frame.remaining_energy_wh),
+            min_airspeed_mps=_nonnegative(sweep.min_airspeed_mps), max_airspeed_mps=_nonnegative(sweep.max_airspeed_mps),
+            max_bank_deg=_nonnegative(sweep.max_bank_deg), max_climb_mps=_nonnegative(sweep.max_climb_mps),
+            max_descent_mps=_nonnegative(sweep.max_descent_mps),
+            max_acceleration_mps2=_nonnegative(sweep.max_acceleration_mps2),
+            max_angular_rate_dps=_nonnegative(sweep.max_angular_rate_dps), required_time_s=sum(x.duration_s for x in legs),
+            available_time_s=_nonnegative(frame.remaining_time_s),
             landing_site_clear=landed, min_transition_agl_m=transition,
         )

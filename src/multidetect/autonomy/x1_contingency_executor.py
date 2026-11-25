@@ -134,8 +134,7 @@ class MotionProof:
     max_angular_rate_dps: float | None
     required_time_s: float | None
     available_time_s: float | None
-    # Only relevant to an explicit land-now; clearance margins above exclude
-    # the authorized terrain contact at the terminal landing point.
+    # Clearance margins above exclude authorized terminal terrain contact.
     landing_site_clear: bool = False
     # Minimum predicted AGL over any transition in the certified trajectory.
     min_transition_agl_m: float | None = None
@@ -227,13 +226,14 @@ class X1Envelope:
             proof.min_transition_agl_m, p.transition.minimum_height_m
         ):
             return "predicted_transition_agl_limit"
-        if action == "land-now" and proof.landing_site_clear is not True:
+        if action in {"return", "land-now"} and proof.landing_site_clear is not True:
             return "landing_site_unverified"
-        # A certified terminal route may spend the reserve set aside for it.
-        terminal = action in {"return", "land-now"}
+        # An immediate local landing may spend the energy reserve. Powering a
+        # return trip must leave it intact, even if that trip ends in landing.
         budget = package.document["budget"]
-        reserve = 0.0 if terminal else max(budget["reserve_energy_wh"], p.endurance.reserve_fraction * p.endurance.battery_wh)
-        time_reserve = 0.0 if terminal else budget["reserve_time_s"]
+        reserve = (0.0 if action == "land-now" else
+                   max(budget["reserve_energy_wh"], p.endurance.reserve_fraction * p.endurance.battery_wh))
+        time_reserve = 0.0 if action in {"return", "land-now"} else budget["reserve_time_s"]
         if not (_number(proof.required_energy_wh, 0) and _number(proof.available_energy_wh, 0)
                 and min(proof.available_energy_wh, budget["energy_wh"], p.endurance.battery_wh)
                 >= proof.required_energy_wh + reserve):
