@@ -310,7 +310,7 @@ class ScenarioWorker:
         self.check()
 
 
-def wind_server_config(source, output):
+def wind_server_config(source, output, *, wind_relative_airspeed=False):
     """Derive the owned launch config. Keep the normal physics/sensor systems."""
     config = ET.parse(source)
     plugins = config.find("plugins")
@@ -323,6 +323,14 @@ def wind_server_config(source, output):
         horizontal = ET.SubElement(plugin, "horizontal")
         for axis in ("magnitude", "direction"):
             ET.SubElement(ET.SubElement(horizontal, axis), "time_for_rise").text = "0.2"
+    if wind_relative_airspeed:
+        matches = [plugin for plugin in plugins.findall("plugin")
+                   if plugin.get("filename") == "gz-sim-air-speed-system"
+                   or plugin.get("name") == "gz::sim::systems::AirSpeed"]
+        if len(matches) != 1:
+            raise ValueError("X1 wind airspeed requires exactly one stock AirSpeed system")
+        matches[0].set("filename", "libx1_wind_airspeed.so")
+        matches[0].set("name", "multidetect::x1::WindAirspeed")
     config.write(output, encoding="utf-8", xml_declaration=True)
 
 

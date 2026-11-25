@@ -130,6 +130,9 @@ def sim_sensor_parameters(profile: str | None = None) -> tuple[tuple[str, str], 
 IMAGE_SERVER_CONFIG = "/opt/px4-gazebo/share/gz/server.config"
 CONTAINER_SERVER_CONFIG = "/tmp/multidetect-gz-server.config"
 CONTAINER_RTF_SERVER_CONFIG = "/opt/multidetect-rtf-server.config"
+X1_WIND_AIRSPEED_ENV = "MULTIDETECT_X1_WIND_AIRSPEED_PLUGIN"
+CONTAINER_X1_PLUGIN_ROOT = "/opt/multidetect-x1-plugins"
+CONTAINER_X1_WIND_AIRSPEED = f"{CONTAINER_X1_PLUGIN_ROOT}/libx1_wind_airspeed.so"
 _DROP_GAZEBO_MAGNETOMETER = (
     f"sed '/gz-sim-magnetometer-system/d' {IMAGE_SERVER_CONFIG} > {CONTAINER_SERVER_CONFIG}; "
     f"grep -q gz-sim-sensors-system {CONTAINER_SERVER_CONFIG} || exit 71; "
@@ -389,6 +392,8 @@ class DockerSimulatorPlan:
     rtf_model_root_sha256: str = ""
     rtf_server_config: Path | None = None
     rtf_server_config_sha256: str = ""
+    x1_wind_airspeed: Path | None = None
+    x1_wind_airspeed_sha256: str = ""
     external_world_sdf: bool = False
     external_world_resource_root: Path | None = None
     gpu_render: bool = False
@@ -612,6 +617,13 @@ class DockerSimulatorPlan:
                 "container": CONTAINER_RTF_SERVER_CONFIG,
                 "readonly": True,
                 "sha256": self.rtf_server_config_sha256,
+            }
+        if self.x1_wind_airspeed is not None:
+            document["mounts"]["x1_wind_airspeed"] = {
+                "host": str(self.x1_wind_airspeed),
+                "container": CONTAINER_X1_WIND_AIRSPEED,
+                "readonly": True,
+                "sha256": self.x1_wind_airspeed_sha256,
             }
         return document
 
@@ -879,6 +891,25 @@ def build_docker_simulator_plan(
     staged_model_sdf = None
     staged_model_sha256 = ""
     extra_mounts: tuple[str, ...] = ()
+    x1_wind_airspeed = None
+    x1_wind_airspeed_sha256 = ""
+    plugin_path = os.environ.get(X1_WIND_AIRSPEED_ENV)
+    if plugin_path:
+        if model_name != "delta_tailsitter_gimbal_cam" or rtf_server_config is None:
+            raise DockerSimulatorPlanError(f"{X1_WIND_AIRSPEED_ENV} requires an X1 wind server config")
+        plugins = ET.parse(rtf_server_config).findall("plugins/plugin")
+        if (sum(p.get("filename") == "libx1_wind_airspeed.so"
+                and p.get("name") == "multidetect::x1::WindAirspeed" for p in plugins) != 1
+                or any(p.get("filename") == "gz-sim-air-speed-system"
+                       or p.get("name") == "gz::sim::systems::AirSpeed" for p in plugins)
+                or not any(p.get("name") == "gz::sim::systems::WindEffects" for p in plugins)):
+            raise DockerSimulatorPlanError(f"{X1_WIND_AIRSPEED_ENV} requires a single replacement AirSpeed and WindEffects")
+        x1_wind_airspeed = _path(plugin_path, label=X1_WIND_AIRSPEED_ENV)
+        if not x1_wind_airspeed.is_file():
+            raise DockerSimulatorPlanError(f"{X1_WIND_AIRSPEED_ENV} is not a file: {x1_wind_airspeed}")
+        with x1_wind_airspeed.open("rb") as plugin_file:
+            x1_wind_airspeed_sha256 = hashlib.file_digest(plugin_file, "sha256").hexdigest()
+        extra_mounts += ("--mount", _mount(x1_wind_airspeed, CONTAINER_X1_WIND_AIRSPEED))
     if model_name in {"delta_tailsitter_mono_cam", "delta_tailsitter_gimbal_cam"}:
         # 沿用原来的 rcS -> SYS_AUTOSTART 路径，只挂入一份自定义脚本。
         airframe_root = root / "simulation/px4" / ("airframes-main" if profile == "main" else "airframes")
@@ -1121,6 +1152,9 @@ def build_docker_simulator_plan(
                 if rtf_server_config is not None
                 else SIM_STARTUP_PATCHES
             ),
+            (f'export GZ_SIM_SYSTEM_PLUGIN_PATH="{CONTAINER_X1_PLUGIN_ROOT}'
+             '${GZ_SIM_SYSTEM_PLUGIN_PATH:+:$GZ_SIM_SYSTEM_PLUGIN_PATH}"; '
+             if x1_wind_airspeed is not None else ""),
             "export GZ_SIM_RESOURCE_PATH=",
             (f"{CONTAINER_RTF_MODEL_ROOT}:" if rtf_model_root is not None else ""),
             (f"{CONTAINER_EXTERNAL_WORLD_ROOT}:" if external_world_resource_root else ""),
@@ -1230,6 +1264,8 @@ def build_docker_simulator_plan(
         rtf_model_root_sha256=rtf_model_root_sha256,
         rtf_server_config=rtf_server_config,
         rtf_server_config_sha256=rtf_server_config_sha256,
+        x1_wind_airspeed=x1_wind_airspeed,
+        x1_wind_airspeed_sha256=x1_wind_airspeed_sha256,
         external_world_sdf=world_sdf_path is not None,
         external_world_resource_root=external_world_resource_root,
         gpu_render=gpu_render,

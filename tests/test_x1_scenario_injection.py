@@ -135,10 +135,27 @@ def test_wind_config_preserves_existing_systems(tmp_path):
     names = [plugin.get("name") for plugin in ET.parse(cfg).findall("plugins/plugin")]
     assert "gz::sim::systems::Sensors" in names
     assert names.count("gz::sim::systems::WindEffects") == 1
+    assert names.count("gz::sim::systems::AirSpeed") == 1
+    assert "multidetect::x1::WindAirspeed" not in names
     world = tmp_path / "world.sdf"
     world.write_text('<sdf version="1.9"><world name="custom"><wind><linear_velocity>2 -3 4</linear_velocity>'
                      '</wind></world></sdf>', encoding="utf-8")
     assert wind_baseline(world) == ("/world/custom/wind", (2, -3, 4))
+
+
+def test_wind_config_replaces_only_stock_airspeed(tmp_path):
+    source = ROOT / "simulation/gazebo/server-wide-area.config"
+    default = tmp_path / "default.config"
+    enabled = tmp_path / "enabled.config"
+    wind_server_config(source, default)
+    wind_server_config(source, enabled, wind_relative_airspeed=True)
+    expected = ET.parse(default).find("plugins")
+    stock = expected.find("plugin[@name='gz::sim::systems::AirSpeed']")
+    stock.set("filename", "libx1_wind_airspeed.so")
+    stock.set("name", "multidetect::x1::WindAirspeed")
+    assert ET.tostring(ET.parse(enabled).find("plugins")) == ET.tostring(expected)
+    with pytest.raises(ValueError, match="exactly one stock AirSpeed"):
+        wind_server_config(enabled, tmp_path / "invalid.config", wind_relative_airspeed=True)
 
 
 @pytest.mark.parametrize("choice, elapsed, expected_status, sends", [
