@@ -1,5 +1,6 @@
 ## [Unreleased]
 ### X1 广域 SIM 采集与云台跟踪评测（2026-11-22，仅 SIM）
+- 2026-11-25：补充 X1 固定翼 `fw_legs` 云台评测运行记录：巡航/转弯/悬停/地平线门限、#34–#47 控制链、lane a/b 队列，以及七站稳定性复飞结果（转弯 P95 2.2–6.2°，Iowa #46 之后 10/10 通过）；仅 SIM，不扩展为实机、实飞或生产结论。新增 `scripts/realworld/x1_repeat_eval.py`（等飞行锁、配置恢复有保证的重复评测工具）。
 - 2026-11-24：X1 固定翼模式云台验收（Iowa clear_noon，镜像 gimbal-horizon4）通过：巡航指向误差 P95 0.30 度、转弯 5.28 度（门限 5/10 度），锁定率 >=0.998，可达覆盖 100%，地平线验收 13 帧最大 1.68 度。修复链：每段可达地面点与 FW 段不触发偏航回中（#34）、桥端指向优先目标（#35/#36）、桥锁定模式不再整圈偏航回绕（#37，桥补丁变化，需 horizon4 镜像）；R1 为巡航 P95 113.9 度。仅 SIM，单站单次，其余 6 站未复飞。
 - 2026-11-24：测试：依赖仓库外证据产物（artifacts/ 评估收据、模型权重）的测试在产物缺失时带原因 skip，不再以 FileNotFoundError 失败或阻断收集；产物存在时仍完整运行，断言未放宽。全量 pytest 失败数 147→103，余下为真实失败或环境相关项。
 - 2026-11-22：X1 广域 SIM 采集接纳 29 个 `wide_area` 与 1 个 `mountain_short`（Grindelwald，>=2250 m 例外）episode，覆盖 Amsterdam、Rotterdam、Berlin、Singapore、Shenzhen、Zurich、Iowa，含 overcast 与 dusk 变体；新增航线余量模型（FLY-FIX-2/3/5）、切线交点航点推进、持续统计 RTF 采样器、实时 GPU 准入（优先 0、1，备用 2、3）和双车道云台评测队列。均为 SIM 结果，不代表硬件、飞行或生产验收（[`docs/realworld-wide-collect.md`](docs/realworld-wide-collect.md)）。
