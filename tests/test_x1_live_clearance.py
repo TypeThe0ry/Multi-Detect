@@ -50,7 +50,7 @@ def _document(terrain):
 
 
 def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True, fw=False,
-             fault_kind="link_loss", package_override=None):
+             fault_kind="link_loss", package_override=None, assumed_sim=None):
     doc = _document(terrain)
     evidence = doc["x1_live_evidence"]
     step = 1 if fw else 3
@@ -109,7 +109,7 @@ def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True,
     receipts = []
     scenario = demo.make_scenario(SimpleNamespace(decision_port=9911, sentence=doc["task_text"]),
                                   {"scenario_faults": (fault,), "scenario_package": package,
-                                   "terrain": terrain, "scenario_revision": 1}, steps,
+                                   "terrain": terrain, "scenario_revision": 1, "assumed_sim": assumed_sim}, steps,
                                   {"compiled_mission_sha256": "a" * 64,
                                    "contingency_scenario": {"motion_scope_sha256": SCOPE}})
     reader = SimpleNamespace(state=MavlinkState())
@@ -151,6 +151,8 @@ def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True,
             "BATTERY_STATUS": {"id": 0, "charge_state": 1, "fault_bitmask": 0, "battery_remaining": 93,
                                "energy_consumed": 144, "current_consumed": -1},
         }
+        if assumed_sim is not None:
+            rows["BATTERY_STATUS"].update(energy_consumed=-1, current_consumed=0)
         if fault_kind == "wind_step":
             rows["WIND_COV"] = {"wind_x": 8, "wind_y": -4, "wind_z": 0}
         elif fault_kind == "battery_drop":
@@ -196,6 +198,7 @@ def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True,
         reader.state = MavlinkState()
         for name, row in rows.items():
             reader.state.received_monotonic_ns[name] = (now_ms - (501 if name == stale else 0)) * MS
+            reader.state.received_vehicle_ms[name] = now_ms - (501 if fault == "stale_battery_sim" else 0)
             reader.state.messages[name] = {"_source_system": 1, "_source_component": 1, **row}
         scenario.tick(step, None)
 
@@ -294,3 +297,55 @@ def test_generated_package_replay(terrain, profile, monkeypatch, fault_kind, fw,
     assert commands == []
     if case == "battery_17":
         assert proof.available_energy_wh == pytest.approx(11.84)
+
+
+@pytest.mark.parametrize(("fault_kind", "fw", "case", "status", "reason"), [
+    ("wind_step", True, "complete", "continued", "no_new_command"),
+    ("link_loss", True, "complete", "continued", "no_new_command"),
+    ("battery_drop", True, "battery_17", "rejected", "energy_or_reserve_limit"),
+    ("link_loss", True, "stale_battery", "rejected", "energy_or_reserve_limit"),
+    ("link_loss", True, "stale_battery_sim", "rejected", "energy_or_reserve_limit"),
+    ("link_loss", True, "missing_battery", "rejected", "energy_or_reserve_limit"),
+    ("link_loss", True, "stale_global", "rejected", "unverified_clearance"),
+    ("link_loss", True, "missing_global", "rejected", "unverified_clearance"),
+])
+def test_assumed_sim_replay(terrain, profile, monkeypatch, tmp_path, fault_kind, fw, case, status, reason):  # noqa: F811
+    import json
+
+    raw = json.loads((demo.ROOT / "configs/simulation/x1-assumed-sim-bounds-iowa.json").read_text(encoding="utf-8"))
+    evidence_hash = demo.canonical_sha256(raw)
+    battery = raw["battery"]["value"]
+    state = {"sha256": evidence_hash, "capacity_wh": raw["battery_capacity_wh"]["value"]}
+
+    def package_override(_package, doc):
+        doc["budget"]["battery_capacity_wh"] = state["capacity_wh"]
+        evidence = doc["x1_live_evidence"]
+        evidence.update(basis="ASSUMED_SIM", assumed_bounds_sha256=evidence_hash)
+        key = "fault_soc_error_pct" if fault_kind == "battery_drop" else "nominal_soc_error_pct"
+        evidence["battery"]["soc_error_pct"] = battery[key]
+        return load_mission_package(doc, mode="sim", allow_assumed_sim=True)
+
+    receipt, [(_, _, proof)], commands = exercise(
+        terrain, profile, monkeypatch, case=case, fw=fw, fault_kind=fault_kind,
+        package_override=package_override, assumed_sim=state,
+    )
+    assert (receipt["action"], receipt["status"], receipt["reason"]) == ("continue", status, reason)
+    assert commands == []
+    assert receipt["basis"] == receipt["motion_proof"]["basis"] == proof.basis == "ASSUMED_SIM"
+    assert receipt["assumed_bounds_sha256"] == evidence_hash
+    if case == "complete" and fault_kind == "wind_step":
+        # Exercise the same episode-to-result path the SITL runner uses.
+        (tmp_path / "episode.json").write_text('{"status":"complete"}', encoding="utf-8")
+        (tmp_path / "mavlink.jsonl").write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+        record = {"flight": {}, "markers": [], "safety": {"observed": {}}, "contingency_scenario": {
+            "live_evidence": {"basis": "ASSUMED_SIM"},
+        }}
+        assert demo.finish_flight(tmp_path, (), record) is False  # No takeoff/landing in the CPU fixture.
+        output = tmp_path / "result.json"
+        demo.write_result(output, record)
+        saved = demo.read_object(output)["contingency_scenario"]
+        assert saved["live_evidence"]["basis"] == saved["markers"][0]["motion_proof"]["basis"] == "ASSUMED_SIM"
+    if case == "battery_17":
+        assert proof.available_energy_wh == 0
+    if case == "complete":
+        assert proof.available_energy_wh == pytest.approx(64.08)

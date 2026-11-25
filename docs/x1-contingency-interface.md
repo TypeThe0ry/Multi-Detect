@@ -132,3 +132,13 @@ SIM 任务包可以由任务方提供 `x1_live_evidence`。这是宿主证据，
 CPU 回放覆盖实时采样、同一执行器的准入和零新增指令。实际 SITL 轨迹需要同一场景的可信机载和任务包证据。collector 仍不提供原生模式交接或换计划执行权限，PX4 原生保底保持原行为。
 
 字段对照基于 `/data/scratch/cx/altair/autonomy/AUTONOMY-GAP.md`。该文的 `timestamp_monotonic_ms` 对应 `events[].t_ms`，`operator_link` 对应 `telemetry.link.gcs`，剩余计划 hash 和可执行技能分别对应 `remaining_plan_sha256` 和 `capabilities`。回归样本保持起飞前规划与 identity 的原有门禁，飞行中主验收使用 [闭环矩阵](x1-contingency-acceptance.md)。
+
+## ASSUMED_SIM，仅限 SITL，禁止用于实体飞行器
+
+Iowa Clear Noon 的 `configs/simulation/x1-assumed-sim-bounds-iowa.json` 只适用于该固定任务和 `wind_step`、`link_loss`、`battery_drop` 三个独立场景。使用 `scripts/generate_x1_assumed_sim_bounds.py --mode sim --world rw_farm_iowa_w6km__clear_noon --image multidetect/px4-sitl-gazebo:gz-rendering-830-r1-gimbal-horizon4 --output PATH` 重新生成。生成器读取固定的 4051 机型配置。模板中的 `basis` 和 `justification` 随每组数值一同审阅。
+
+SITL runner 需要显式传 `--generate-live-evidence --live-evidence-bounds CASE.site-bounds.json --assumed-sim-bounds PATH`。地形误差、着陆区、电池及后缀使用假设值。障碍覆盖仍从独立校验的 `.site-bounds.json` 获取。runner 绑定 SIM 任务模式、基础任务和计划、故障窗口、插件、SDF、DEM、机型和镜像。`--plan-only` 核对声明的镜像，启动前再核对不可变镜像 ID。真实、HIL 和无显式运行模式的加载入口拒绝此模板及带标记的任务包。通用 SIM 任务包入口也拒绝带标记的任务包。`mission-package.json` 的 `x1_live_evidence`、`result.json`、决策回执及生成的 `MotionProof` 记录 `basis: ASSUMED_SIM`。归档和评分保留这一标记。
+
+SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 Wh 由 5 Ah × 14.4 V 得到。该验收场景在预武装时设置并读回 `SIM_BAT_DRAIN=1800` 和 `SIM_BAT_MIN_PCT=50`，使正常场景在短任务内有足够的模拟 SOC 区分度。电池故障使用 1 s 和 17% 的现有注入。假定从 PX4 生成到决策至多 500 ms，正常和故障的 SOC 下界分别扣 4 和 54 个百分点，包含模型斜率、滤波与量化余量。接收时钟和 PX4 接收侧时钟两项门限必须同时通过。只有固定 SIM 模型的无计量组合 `energy_consumed=-1`、`current_consumed=0` 可以用带标记的 SOC 下界。时间、能量储备、机型、围栏、地形和障碍检查仍适用。该假设不提供实体电池校准。
+
+后缀只覆盖已编译的 `continue` 路径。受控的试验 runner 在路线步骤失败时停止后续路线写入，PX4 保持原生保底。Altair 的 `loiter`（Hold）和 `return`（RTL）依然需要各自的原生轨迹证明、接管互锁和回读。`loiter` 还需要在有界停留窗口内强制重新验证。当前 collector 仍缺这些原生路径，现有 `continue` 假设不满足它们的准入条件。

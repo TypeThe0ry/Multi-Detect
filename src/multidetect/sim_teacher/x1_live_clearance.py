@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from multidetect.autonomy.mission_package import number
 from multidetect.autonomy.serialization import canonical_sha256
@@ -126,13 +126,21 @@ class LiveContinueEvidence:
     the current entry and budgets. It cannot certify future aircraft dynamics.
     """
 
-    def __init__(self, package, profile, terrain, steps, *, scope):
+    def __init__(self, package, profile, terrain, steps, *, scope, assumed_sim=None):
+        self.assumed_sim = assumed_sim
         self.budget = package.document["budget"]
         self.suffixes = {}
         self.battery_bounds = None
         self.consumption_high_water = {}
         terrain_error, obstacle_clearance, self.pad = None, None, None
         config = package.document.get("x1_live_evidence")
+        self.basis = config.get("basis") if config is not None else None
+        if self.basis is not None or assumed_sim is not None:
+            if (self.basis != "ASSUMED_SIM" or package.mode != "sim" or assumed_sim is None
+                    or config.get("assumed_bounds_sha256") != assumed_sim["sha256"]
+                    or self.budget.get("battery_capacity_wh") != assumed_sim["capacity_wh"]):
+                raise ValueError("ASSUMED_SIM proof requires the scoped SIM configuration")
+            config = {k: v for k, v in config.items() if k not in {"basis", "assumed_bounds_sha256"}}
         if config is not None:
             try:
                 (bound_scope, dem_digest, dem_error, coverage, obstacles, pad, battery, suffixes) = _fields(
@@ -161,6 +169,8 @@ class LiveContinueEvidence:
                 self.suffixes = {int(index): _suffix(raw, int(index)) for index, raw in suffixes.items()}
                 self.pad, self.battery_bounds = landing_pad, battery_bounds
             except ValueError:
+                if self.assumed_sim is not None:
+                    raise
                 terrain_error, obstacle_clearance = None, None
         self.builder = X1MotionProofBuilder(
             package, profile, terrain, steps,
@@ -186,13 +196,20 @@ class LiveContinueEvidence:
             measured["hJ"] = consumed / 36.0  # hectojoules to Wh
         if type(charge) is int and 0 < charge < 2**31:
             measured["mAh"] = charge * voltage / 1000.0
-        if not measured or any(value < self.consumption_high_water.get(unit, 0.0)
-                               for unit, value in measured.items()):
+        if any(value < self.consumption_high_water.get(unit, 0.0) for unit, value in measured.items()):
             return None
         self.consumption_high_water.update(measured)
+        from_soc = capacity * max(0.0, pct - soc_error) / 100.0
+        budget_cap = min(capacity, self.budget["energy_wh"])
+        if not measured:
+            # Archived SIM publishes -1 hJ and 0 mAh. Only this exact model may
+            # use the marked SOC lower bound; other absent/invalid counters fail closed.
+            if (getattr(self, "assumed_sim", None) is None or type(consumed) is not int
+                    or type(charge) is not int or (consumed, charge) != (-1, 0) or self.consumption_high_water):
+                return None
+            return min(budget_cap, from_soc)
         used = max(self.consumption_high_water.values())
-        return max(0.0, min(min(capacity, self.budget["energy_wh"]) - used - counter_error,
-                            capacity * max(0.0, pct - soc_error) / 100.0))
+        return max(0.0, min(budget_cap - used - counter_error, from_soc))
 
     def remaining_time_s(self, boot_ms):
         # A fresh disposable PX4 boots before mission start. Counting all of
@@ -229,4 +246,4 @@ class LiveContinueEvidence:
                                        min_airspeed_mps=low, max_airspeed_mps=high, landing_pad=self.pad,
                                        failure_revalidation_enforced=bound.failure_revalidation_enforced,
                                        **bound.dynamics)
-        return self.builder.build(decision, frame, sweep)
+        return replace(self.builder.build(decision, frame, sweep), basis=self.basis)

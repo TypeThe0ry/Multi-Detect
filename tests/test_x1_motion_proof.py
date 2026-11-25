@@ -475,3 +475,25 @@ def test_native_replay_checks_action_geometry(admitted, profile, kind, defect, r
         assert commands == [("land",)] and owner == "land-now"
     else:
         assert row["status"] == "rejected" and commands == [] and owner is None
+
+
+@pytest.mark.parametrize("kind", ("hold", "return"))
+@pytest.mark.parametrize("live", (False, True))
+def test_assumed_native_proof_keeps_the_writer_interlock(admitted, profile, kind, live):  # noqa: F811
+    package, _steps, builder = admitted
+    package = replace(package, mode="sim", document={**package.document, "x1_live_evidence": {
+        "basis": "ASSUMED_SIM", "assumed_bounds_sha256": "b" * 64,
+    }})
+    frame, evidence = _native_fixture(kind, package)
+
+    def prove(decision, current):
+        return replace(builder.build(decision, current, evidence(decision)), basis="ASSUMED_SIM")
+
+    receipt, commands, owner = _replay_native(kind, package, profile, frame, prove, live=live)
+    assert receipt["basis"] == receipt["motion_proof"]["basis"] == "ASSUMED_SIM"
+    if live:
+        assert (receipt["status"], receipt["reason"]) == ("rejected", "native_handoff_not_available")
+        assert commands is None and owner is None
+    else:
+        assert (receipt["status"], receipt["reason"]) == ("sent_unconfirmed", "readback_required")
+        assert commands == [NATIVE_CASES[kind][2]] and owner == receipt["action"]

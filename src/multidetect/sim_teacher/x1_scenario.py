@@ -499,6 +499,11 @@ class CollectorScenario:
 
     def prepare(self):
         self.transport.prepare(self.faults)
+        assumed = self.motion_evidence.assumed_sim if self.motion_evidence is not None else None
+        if assumed is not None:
+            for parameter, expected in assumed["parameters"].items():
+                if self.transport._get_param(parameter) != expected:
+                    raise RuntimeError(f"ASSUMED_SIM battery readback mismatch for {parameter}")
 
     def _fresh_sample(self, name, max_age_ms=1500, *, state=None):
         from .streams import MavlinkReader
@@ -627,6 +632,12 @@ class CollectorScenario:
         else:
             point = None
         battery = self._fresh_sample("BATTERY_STATUS", max_age_ms=age, state=state)
+        if self.motion_evidence.assumed_sim is not None:
+            # BATTERY_STATUS has no source time. Bound its age against the PX4
+            # clock as seen at receipt, in addition to the normal receive-age check.
+            stamp = state.received_vehicle_ms.get("BATTERY_STATUS")
+            if not clock_valid or type(stamp) is not int or not 0 <= max(local_boot, boot_ms) - stamp <= age:
+                battery = None
         return point, self.motion_evidence.remaining_energy_wh(battery), remaining_time
 
     def _motion_position(self, row):

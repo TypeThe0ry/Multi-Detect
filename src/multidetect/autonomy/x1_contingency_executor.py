@@ -138,6 +138,7 @@ class MotionProof:
     landing_site_clear: bool = False
     # Minimum predicted AGL over any transition in the certified trajectory.
     min_transition_agl_m: float | None = None
+    basis: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +219,11 @@ class X1Envelope:
                 return "invalid_mission_plan_for_package"
         if proof is None or proof.frame_id != frame.frame_id or proof.decision_digest != d.digest:
             return "missing_or_unbound_motion_proof"
+        evidence_basis = package.document.get("x1_live_evidence", {}).get("basis")
+        if proof.basis != evidence_basis or (proof.basis is not None and (
+            proof.basis != "ASSUMED_SIM" or package.mode != "sim"
+        )):
+            return "motion_proof_basis_mismatch"
         if (proof.geofence_clear is not True or not _number(proof.obstacle_margin_m, 0)
                 or not _number(proof.terrain_margin_m, 0)):
             return "unverified_clearance"
