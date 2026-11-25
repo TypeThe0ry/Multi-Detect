@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+
+from conftest import requires_path
 from xml.etree import ElementTree
 
 import pytest
@@ -135,6 +137,11 @@ def test_joint_validation_counts_are_actual_xml_counts():
 
 @requires_local_artifacts(ROOT)
 def test_previous_stage_receipt_and_document_bytes_are_preserved():
+    requires_path(
+        "artifacts/evaluation/onboard-live-vlm-retained-replay-native-20261007-r1/"
+        "postseal-validation.json",
+        reason="retained-replay postseal documentation inventory",
+    )
     receipt = read(RECEIPT)
     bound(receipt["previous_receipt"])
     snapshots = receipt["previous_stage_documentation_snapshots"]

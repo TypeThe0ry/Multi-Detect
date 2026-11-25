@@ -4,6 +4,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from conftest import requires_path
+
 from multidetect.autonomy.capability_contract import capability_violations
 from multidetect.autonomy.mission_plan import validate_mission_plan
 from multidetect.autonomy.mission_planner import check_plan_refs
@@ -140,6 +142,11 @@ def test_v5_expected_plans_and_rejections_match_current_contract():
 
 
 def test_v5_texts_do_not_collide_with_r24_or_r27_training_rows():
+    for version in ("r24", "r27"):
+        requires_path(
+            f"artifacts/scratch/cx-planner-round/{version}/dataset/train.jsonl",
+            reason=f"{version} planner training dataset for holdout collision checks",
+        )
     held_out = {
         normalize_task(item["text"])
         for item in json.loads(TASKS.read_text(encoding="utf-8"))["tasks"]

@@ -5,6 +5,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from conftest import requires_path
+
 from multidetect.autonomy.mission_plan import PlanDecision
 from multidetect.autonomy.plan_pregate import preflight_plan_task
 from scripts.onboard_policy import build_mission_from_text
@@ -110,6 +112,11 @@ def test_evaluation_compile_task_pregate_skips_model_post():
 
 
 def test_pregate_training_audit_has_no_executable_false_positives():
+    for version in ("r24", "r27"):
+        requires_path(
+            f"artifacts/scratch/cx-planner-round/{version}/dataset/train.jsonl",
+            reason=f"{version} planner training dataset for the pregate audit",
+        )
     for version in ("r24", "r27"):
         report = audit_training_file(
             ROOT / f"artifacts/scratch/cx-planner-round/{version}/dataset/train.jsonl"

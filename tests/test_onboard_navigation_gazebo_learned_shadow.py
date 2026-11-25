@@ -182,6 +182,8 @@ def test_package_finder_never_handles_ml_or_nested_modules(tmp_path):
 
 def test_dependency_scope_restores_finder_without_sys_path_edits(tmp_path, monkeypatch):
     runtime = fake_runtime(tmp_path)
+    for name in live.PACKAGE_VERSIONS:
+        monkeypatch.delitem(sys.modules, name, raising=False)
     original = importlib.util.find_spec
     monkeypatch.setattr(
         importlib.util,
@@ -202,6 +204,8 @@ def test_dependency_scope_restores_finder_without_sys_path_edits(tmp_path, monke
 
 def test_dependency_scope_rejects_modified_file_before_install(tmp_path, monkeypatch):
     runtime = fake_runtime(tmp_path)
+    for name in live.PACKAGE_VERSIONS:
+        monkeypatch.delitem(sys.modules, name, raising=False)
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
     (tmp_path / "pymavlink/__init__.py").write_text("changed = True\n")
     before = tuple(sys.meta_path)

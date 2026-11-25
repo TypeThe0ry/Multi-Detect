@@ -54,7 +54,9 @@ def test_matrix_discovers_all_airframes_and_proves_repeatability() -> None:
 
 def test_matrix_paths_and_hash_are_portable_across_checkout_roots(tmp_path: Path) -> None:
     migrated = tmp_path / "migrated-checkout"
-    shutil.copytree(ROOT / "configs" / "scenarios", migrated / "configs" / "scenarios")
+    shutil.copytree(
+        ROOT / "configs" / "scenarios", migrated / "configs" / "scenarios", symlinks=True
+    )
     shutil.copytree(
         ROOT / "simulation" / "gazebo" / "worlds",
         migrated / "simulation" / "gazebo" / "worlds",

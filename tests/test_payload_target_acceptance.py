@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.usefixtures("require_loopback_sockets")
-def test_mode2_payload_hil_closes_signed_loop_and_fails_closed() -> None:
+def test_mode2_payload_hil_closes_signed_loop_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
     report = run_mode2_payload_hil_acceptance(ROOT)
 
     assert report["event"] == "mode2_payload_hil_acceptance_passed"
