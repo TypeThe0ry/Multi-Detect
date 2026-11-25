@@ -485,7 +485,7 @@ def build(site: str, weather: str, targets: list[dict], max_trees: int | None, s
     if weather == "night":
         terrain_xml = night_terrain_materials(terrain_xml, site)
     parts = [
-        f'<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.0</real_time_factor></physics>',
+        '<?xml version="1.0"?><sdf version="1.9"><world name="default"><physics name="px4_ode" type="ode"><max_step_size>0.004</max_step_size><real_time_factor>1.0</real_time_factor></physics>',
         '<gravity>0 0 -9.80665</gravity><magnetic_field>6.0e-6 2.3e-5 -4.2e-5</magnetic_field><atmosphere type="adiabatic"/>',
         f'<spherical_coordinates><surface_model>EARTH_WGS84</surface_model><world_frame_orientation>ENU</world_frame_orientation><latitude_deg>{scene["lat"]}</latitude_deg><longitude_deg>{scene["lon"]}</longitude_deg><elevation>{scene["elevation"]:.2f}</elevation></spherical_coordinates>',
         f'<scene><grid>false</grid><ambient>{amb} 1</ambient><background>{bg} 1</background><shadows>{str(w["shadows"]).lower()}</shadows>',

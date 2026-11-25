@@ -23,7 +23,7 @@ import shapely
 from PIL import Image, ImageDraw, ImageFilter
 from pyproj import Transformer
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
-from shapely.ops import linemerge, polygonize, split, unary_union
+from shapely.ops import polygonize, split, unary_union
 from shapely.strtree import STRtree
 
 import sys
@@ -709,7 +709,9 @@ def road_texture(src: Path | None, mosaic: np.ndarray, polys, half: float, out: 
         x, y = int(rng.integers(0, size)), int(rng.integers(0, size))
         pts = [(x, y)]
         for _ in range(int(rng.integers(2, 6))):
-            x += int(rng.integers(-45, 46)); y += int(rng.integers(10, 80)); pts.append((x, y))
+            x += int(rng.integers(-45, 46))
+            y += int(rng.integers(10, 80))
+            pts.append((x, y))
         pd.line(pts, fill=(25, 26, 26, int(rng.integers(70, 155))), width=int(rng.integers(1, 4)))
     pim.save(out, quality=90, subsampling=0)
 
@@ -929,7 +931,6 @@ def main() -> None:
     # Terrain visual: settle the ground slightly under roads so ribbons never z-fight.
     all_road = [p for k in road_polys for p in road_polys[k]] + [p for k in bridge_features for p, _ in bridge_features[k]]
     road_mask = rasterize(all_road, half, terrain.res)
-    n = terrain.h.shape[0]
     rm = np.zeros_like(terrain.h)
     rm[: road_mask.shape[0], : road_mask.shape[1]] = road_mask
     smooth = ndi.gaussian_filter(terrain.h, 3.0)
@@ -1033,13 +1034,15 @@ def main() -> None:
         vis_xml.append(pbr_visual(f"bridge_{cat}", f"model://{name}/meshes/bridge_{cat}.obj", f"model://{name}/textures/{tex}", 0.82))
         print("bridge", cat, tris, flush=True)
     if sidewalk_polys:
-        b = MeshBin(); drape(sidewalk_polys, terrain_road, 0.17, 3.0, b, cell=8.0)
+        b = MeshBin()
+        drape(sidewalk_polys, terrain_road, 0.17, 3.0, b, cell=8.0)
         tris = b.write(out / "meshes" / "sidewalk.obj")
         Image.new("RGB", (128, 128), (150, 153, 148)).save(out / "textures" / "sidewalk.jpg", quality=90)
         vis_xml.append(pbr_visual("sidewalk", f"model://{name}/meshes/sidewalk.obj", f"model://{name}/textures/sidewalk.jpg", 0.86))
         print("sidewalk", tris, flush=True)
     if curb_polys:
-        b = MeshBin(); drape(curb_polys, terrain_road, 0.31, 2.0, b, cell=5.0)
+        b = MeshBin()
+        drape(curb_polys, terrain_road, 0.31, 2.0, b, cell=5.0)
         tris = b.write(out / "meshes" / "curb.obj")
         Image.new("RGB", (64, 64), (178, 178, 170)).save(out / "textures" / "curb.jpg", quality=90)
         vis_xml.append(pbr_visual("curb", f"model://{name}/meshes/curb.obj", f"model://{name}/textures/curb.jpg", 0.8))
@@ -1083,7 +1086,8 @@ def main() -> None:
                     pts = [(p[0], p[1], terrain.z(p[0], p[1]) + 0.20) for p in segment.coords]
                     add_line_prism(rail_bin, pts, 0.09, 0.12)
             for s in np.arange(0.0, line.length, 1.8):
-                p = line.interpolate(s); q = line.interpolate(min(line.length, s + 0.1))
+                p = line.interpolate(s)
+                q = line.interpolate(min(line.length, s + 0.1))
                 add_box(rail_bin, (p.x, p.y, terrain.z(p.x, p.y) + 0.08), (2.0, 0.18, 0.16), math.atan2(q.y - p.y, q.x - p.x))
         tris = rail_bin.write(out / "meshes" / "rail_details.obj")
         Image.new("RGB", (64, 64), (72, 76, 80)).save(out / "textures" / "rail_details.jpg", quality=90)
@@ -1115,16 +1119,19 @@ def main() -> None:
         Image.new("RGB", (32, 32), (105, 98, 83)).save(out / "textures" / "fences.jpg", quality=90)
         vis_xml.append(pbr_visual("fences", f"model://{name}/meshes/fences.obj", f"model://{name}/textures/fences.jpg", 0.82))
     if water_polys:
-        wb = MeshBin(); water_polys = [p for p in water_polys if not p.is_empty and p.area > 2]
+        wb = MeshBin()
+        water_polys = [p for p in water_polys if not p.is_empty and p.area > 2]
         drape(water_polys, terrain_road, 0.08, 18.0, wb, cell=12.0)
         tris = wb.write(out / "meshes" / "water.obj")
-        water = np.zeros((512, 512, 3), np.uint8); wrng = np.random.default_rng(42)
+        water = np.zeros((512, 512, 3), np.uint8)
+        wrng = np.random.default_rng(42)
         water[..., 0], water[..., 1], water[..., 2] = 38, 78, 74
         wave = wrng.normal(0, 1, (64, 64)).astype(np.float32)
         wave = np.asarray(Image.fromarray(wave, mode="F").resize((512, 512), Image.BICUBIC))
         water = np.clip(water.astype(np.float32) + wave[..., None] * np.array([3, 7, 6]), 0, 255).astype(np.uint8)
         Image.fromarray(water).save(out / "textures" / "water.jpg", quality=92)
-        gy, gx = np.gradient(wave); nrm = np.dstack([-gx * 0.12, -gy * 0.12, np.ones_like(wave)])
+        gy, gx = np.gradient(wave)
+        nrm = np.dstack([-gx * 0.12, -gy * 0.12, np.ones_like(wave)])
         nrm = np.clip((nrm / np.linalg.norm(nrm, axis=2, keepdims=True) * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
         Image.fromarray(nrm).save(out / "textures" / "water_normal.png")
         vis_xml.append(pbr_visual("water", f"model://{name}/meshes/water.obj", f"model://{name}/textures/water.jpg", 0.12, 0.05, True, f"model://{name}/textures/water_normal.png", 0.55))

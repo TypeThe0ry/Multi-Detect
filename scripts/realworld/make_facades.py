@@ -35,7 +35,6 @@ def window_layer(arr: np.ndarray, bays: int, w_m: float, h_m: float, sill_m: flo
     im = Image.fromarray(arr.astype(np.uint8))
     d = ImageDraw.Draw(im)
     rng = np.random.default_rng(seed)
-    floor_px = int(3.2 * M)
     bay_px = PX // bays
     for fl in range(4):
         for b in range(bays):

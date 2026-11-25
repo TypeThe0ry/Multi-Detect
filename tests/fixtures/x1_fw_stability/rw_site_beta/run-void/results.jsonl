@@ -1,0 +1,1 @@
+{"inputs": {"site": "site_beta", "tag": null, "gimbal_eval_fw": true}, "started_at": "2026-11-24T10:00:00+00:00", "accepted": false, "valid_round": false, "errors": ["voided:fixture"], "round_errors": [], "voided_reason": "gpu_lease_busy"}

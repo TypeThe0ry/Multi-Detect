@@ -10,10 +10,9 @@ import pytest
 
 from scripts import collect_sim_teacher_episodes as collector
 from scripts.realworld import long_range_flight as flight, x1_collect_next as queue
-from scripts.realworld import wide_collect_batch as batch
 from scripts.realworld.collection_runtime import runtime_options
 from scripts.realworld.horizon_report import summarize
-from scripts.realworld.x1_gimbal_eval import fw_legs, markdown, read_track_hold
+from scripts.realworld.x1_gimbal_eval import fw_legs, read_track_hold
 from multidetect.sim_teacher.gimbal_recording import X1FwPhase
 
 NS = 10**9
