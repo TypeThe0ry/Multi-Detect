@@ -102,6 +102,9 @@ class X1YawUnwind:
 
     def step(self, yaw_rad, now_s):
         """Return "lock" to start unwinding, "track" to resume tracking, or None."""
+        if self.active and now_s - self.started_s > self.MAX_S:
+            self.active, self.started_s = False, None
+            return "track"
         if yaw_rad is None or not math.isfinite(yaw_rad):
             return None
         if not self.active:
@@ -109,7 +112,7 @@ class X1YawUnwind:
                 self.active, self.started_s = True, now_s
                 return "lock"
             return None
-        if abs(yaw_rad) <= self.EXIT_RAD or now_s - self.started_s > self.MAX_S:
+        if abs(yaw_rad) <= self.EXIT_RAD:
             self.active, self.started_s = False, None
             return "track"
         return None
@@ -122,11 +125,12 @@ def x1_eval_yaw_unwind(track_step, index, action, *, fw_leg):
     return None
 
 
-def x1_meta_yaw_for_step(meta, step_start_sim_ns):
-    """Return fresh joint yaw only from a GETMETA epoch at/after this step began."""
+def x1_meta_yaw_for_step(meta, step_start_sim_ns, *, previous_meta_stamp_ns=None):
+    """Return fresh joint yaw from this step, past the pre-aim GETMETA cache."""
     stamp = _meta_value(meta, "sensor_stamp_ns")
     if (type(step_start_sim_ns) is not int or type(stamp) is not int
-            or stamp < step_start_sim_ns):
+            or stamp < step_start_sim_ns
+            or (type(previous_meta_stamp_ns) is int and stamp <= previous_meta_stamp_ns)):
         return None
     joint_state = _meta_value(meta, "joint_state")
     gimbal = _meta_value(joint_state, "gimbal_joint_state")

@@ -903,8 +903,8 @@ class HostHorizonLoop:
         self.sent_count = 0
         self.ticket = None
         self._dispatch_sequence = None
-        self._pending_flags = None
-        # First confirmed host send in the current uninterrupted lock/follow run.
+        self._pending_lock = False
+        # First confirmed bridge send in the current uninterrupted lock run.
         self.lock_dispatch = None
 
     def step(self):
@@ -919,7 +919,7 @@ class HostHorizonLoop:
                 raise RuntimeError("horizon transport failed") from self.ticket.error
             started_ns = getattr(self.ticket, "started_ns", None)
             started_vehicle_ms = getattr(self.ticket, "started_vehicle_ms", None)
-            if self._pending_flags != 44:
+            if not self._pending_lock:
                 self.lock_dispatch = None
             elif (self.lock_dispatch is None and started_ns is not None
                   and started_vehicle_ms is not None):
@@ -946,7 +946,7 @@ class HostHorizonLoop:
             self.stabilizer.record_command(result, source[0])
         self.sent_count += 1
         self._dispatch_sequence = self.sent_count
-        self._pending_flags = result.get("transport_flags")
+        self._pending_lock = self.stabilizer.source == "bridge" and result.get("mode") == "lock"
         if self.record is not None and self.sent_count % 10 == 1:
             self.record({
                 "message_type": "host_horizon_command",

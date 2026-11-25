@@ -4132,7 +4132,7 @@ def _x1_terminal_eta(state, path, now_ns):
 
 
 def _x1_terminal_handoff(gate, bridge, reader, meta, now_ns, *, now_ms, dispatch, pending_meta=None):
-    """Observe once at the planned boundary; no IO, extra capture or wait."""
+    """Diagnose one hand-back sample without requesting or waiting for data."""
     sim_ns = now_ms * 1_000_000 if now_ms is not None else None
     # Capture may have pipelined a newer reply since its last scored sample.
     # Peek only; never ask for another frame or consume the capture's cursor.
@@ -4170,8 +4170,77 @@ def _x1_terminal_handoff(gate, bridge, reader, meta, now_ns, *, now_ms, dispatch
     )
     return {**diag, "sim_stamp_ns": sim_ns, "frame_stamp_ns": frame_ns,
             "hdeg_vehicle_ms": status[0] if status else None,
-            "dispatch_flags": 44 if gate.dispatch_vehicle_ms is not None else None,
+            "dispatch_flags": bridge.transport_flags if gate.dispatch_vehicle_ms is not None else None,
             "joint_deg": actual, "body_deg": body}
+
+
+def _wait_x1_fw_handback(gate, bridge, horizon_loop, mav_reader, sensor_reader, tick, *, start_sim_ns):
+    """Confirm measured lock convergence while video still belongs to the final FW step."""
+    required_samples, max_error_deg, timeout_s = 5, 2.0, 5.0
+    capture = X1TrackCapture(start_sim_ns)
+    started_wall_s = time.monotonic()
+    deadline_sim_ns = None if start_sim_ns is None else start_sim_ns + round(timeout_s * 1e9)
+    previous_joint_ns = None
+    consecutive = 0
+    peak_error_deg = None
+    last_sample = None
+    sim_ns = start_sim_ns
+    if deadline_sim_ns is None:
+        reason = "missing_sim_clock"
+    elif not sensor_reader.meta_supported:
+        reason = "getmeta_unsupported"
+    else:
+        while True:
+            sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+            wall_s = time.monotonic()
+            if sim_ns is None or sim_ns < start_sim_ns:
+                reason = "invalid_sim_clock"
+                break
+            if sim_ns >= deadline_sim_ns or wall_s - started_wall_s >= timeout_s:
+                reason = "sim_timeout" if sim_ns >= deadline_sim_ns else "wall_timeout"
+                break
+            mav_reader.raise_if_failed()
+            sensor_reader.raise_if_failed()
+            sample = capture.tick(sensor_reader, sim_ns=sim_ns, wall_s=wall_s)
+            if sample is not None:
+                last_sample = _x1_terminal_handoff(
+                    gate, bridge, mav_reader, sample, time.monotonic_ns(),
+                    now_ms=sim_ns // 1_000_000, dispatch=horizon_loop.lock_dispatch,
+                )
+                joint_ns = last_sample["meta_stamp_ns"]
+                error = last_sample["joint_fk_horizon_error_deg"]
+                if (last_sample["dispatch_before_readback"] and last_sample["meta_fresh"]
+                        and error is not None):
+                    if previous_joint_ns is None or joint_ns > previous_joint_ns:
+                        if (previous_joint_ns is not None
+                                and joint_ns - previous_joint_ns > 1.5 * capture.period_ns):
+                            consecutive = 0
+                        previous_joint_ns = joint_ns
+                        peak_error_deg = error if peak_error_deg is None else max(peak_error_deg, error)
+                        consecutive = consecutive + 1 if error < max_error_deg else 0
+                else:
+                    consecutive = 0
+            tick()
+            if consecutive == required_samples:
+                reason = "settled"
+                break
+            time.sleep(0.01)
+    return {
+        "reason": reason, "sim_stamp_ns": sim_ns,
+        "settle_sim_s": (sim_ns - start_sim_ns) / 1e9 if None not in (sim_ns, start_sim_ns) else None,
+        "elapsed_wall_s": time.monotonic() - started_wall_s,
+        "consecutive_samples": consecutive, "required_samples": required_samples,
+        "peak_horizon_error_deg": peak_error_deg, "max_error_deg": max_error_deg,
+        "last_sample": last_sample,
+    }
+
+
+def _video_action_index(action_index, frame_ns, fw_handback_boundary):
+    if fw_handback_boundary is not None:
+        last_fw_index, settled_ns = fw_handback_boundary
+        if action_index > last_fw_index and frame_ns <= settled_ns:
+            return last_fw_index
+    return action_index
 
 
 def _collection_gimbal_config(plan: CollectionPlan, policy, profile):
@@ -6894,6 +6963,7 @@ def run_episode(
     last_video_stamp_ns: list[int] = [-1]
     next_video_sim_ns: int | None = None
     next_video_request_s = 0.0
+    fw_handback_boundary = None
     # Persist the effective per-episode seed/index so a campaign can retry an
     # individual failed recording exactly, even when its next invocation uses a
     # different --episodes value.
@@ -7675,10 +7745,13 @@ def run_episode(
                             "cy": DEFAULT_CAMERA_INFO["cy"] * plan.rgb_size[1] / 960.0,
                         },
                     ))
-                    video_obs["flight_stage"] = flight_stage
+                    frame_action_index = _video_action_index(
+                        action_index, sample.sensor_stamp_ns, fw_handback_boundary,
+                    )
+                    video_obs["flight_stage"] = "action" if frame_action_index != action_index else flight_stage
                     if not plan.capture_depth:
                         video_obs["depth"] = None
-                    committed = video_writer.write(video_obs, action_index=action_index)
+                    committed = video_writer.write(video_obs, action_index=frame_action_index)
                     if committed and action_index == -1 and ingress_capture is not None:
                         ingress_capture.note_commit(sample.sensor_stamp_ns)
                 except Exception as exc:
@@ -8604,6 +8677,7 @@ def run_episode(
                 track_capture = None
                 track_steady_ns = None
                 x1_unwind = None
+                unwind_meta_watermark_ns = None
                 next_unwind_request_s = 0.0
                 fw_leg = bool(
                     plan.gimbal_eval_fw_legs and index < plan.gimbal_eval_fw_legs
@@ -8625,7 +8699,8 @@ def run_episode(
                     and horizon_loop is not None
                 )
                 fw_terminal_leg = fw_terminal_offboard_leg or fw_terminal_loiter_leg
-                fw_terminal_lock = X1FwTerminalLockGate(enabled=True) if fw_terminal_leg else None
+                fw_handback = fw_leg and index == plan.gimbal_eval_fw_legs - 1
+                fw_terminal_lock = X1FwTerminalLockGate(enabled=True) if fw_handback else None
                 fw_terminal_path = None
                 fw_terminal_meta = None
                 fw_pass_midpoint = None
@@ -8677,6 +8752,9 @@ def run_episode(
                     x1_unwind = x1_eval_yaw_unwind(plan.gimbal_eval_track_step, index, action, fw_leg=fw_leg)
                 if x1_unwind is not None:
                     # Aim at the eval target during the hover return so the hold starts on target.
+                    unwind_meta_watermark_ns = getattr(
+                        getattr(sensor_reader, "latest_meta", None), "sensor_stamp_ns", None,
+                    )
                     horizon_stabilizer.set_mode("track")
                     recorder.record_mavlink({"message_type": "collector_gimbal_eval_preaim",
                                              "step_index": index, "mode": "track",
@@ -8887,6 +8965,7 @@ def run_episode(
 
                 def _action_tick() -> None:
                     nonlocal next_video_s, track_steady_ns, next_unwind_request_s
+                    nonlocal unwind_meta_watermark_ns
                     resource_guard.check()
                     episode_watchdog.check()
                     if horizon_loop is not None:
@@ -8900,7 +8979,11 @@ def run_episode(
                             next_unwind_request_s = now_wall + 0.25
                             sensor_reader.request_meta(max((_pose_sim_stamp_ns(mav_reader.state) or 0) - 1, 0))
                         meta = sensor_reader.latest_meta
-                        yaw = x1_meta_yaw_for_step(meta, step_started_sim_ns)
+                        yaw = x1_meta_yaw_for_step(
+                            meta, step_started_sim_ns, previous_meta_stamp_ns=unwind_meta_watermark_ns,
+                        )
+                        if yaw is not None:
+                            unwind_meta_watermark_ns = meta.sensor_stamp_ns
                         decision = x1_unwind.step(yaw, now_wall)
                         if decision is not None and horizon_stabilizer is not None:
                             horizon_stabilizer.set_mode(decision)
@@ -9017,24 +9100,31 @@ def run_episode(
                             "FW-to-MC X1 hover pre-aim did not settle before the scored hold: "
                             f"{json.dumps(failure, sort_keys=True)}"
                         )
+                result = result_box[0]
                 if track_capture is not None:
                     recorder.record_mavlink({
                         "message_type": "collector_gimbal_eval_end", "step_index": index,
                         "marker_monotonic_ns": time.monotonic_ns(),
                         "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
                     })
-                if fw_leg and index == plan.gimbal_eval_fw_legs - 1:
-                    # Hand back at the original boundary; never wait for convergence.
+                    track_capture = None
+                    track_steady_ns = None
+                if fw_handback:
+                    handback_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
                     if fw_terminal_path:
                         boundary = dict(now_ms=mav_reader.state.vehicle_time_boot_ms,
                                         dispatch=horizon_loop.lock_dispatch,
                                         pending_meta=sensor_reader.latest_meta, now_ns=time.monotonic_ns())
+                    if not fw_terminal_lock.requested:
+                        fw_terminal_lock.observe_eta(
+                            0.0, sim_stamp_ns=handback_sim_ns, dispatch_sequence=horizon_loop.sent_count,
+                        )
                     horizon_stabilizer.set_mode("lock")
                     horizon_stabilizer.track_preview_s, horizon_stabilizer.track_preview_max_rad = x1_track_preview()[:2]
                     horizon_stabilizer.select_track_target(plan.track_targets[0])
                     recorder.record_mavlink({"message_type": "collector_gimbal_eval_fw_mode",
                                              "step_index": index, "mode": "lock",
-                                             "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                                             "sim_stamp_ns": handback_sim_ns,
                                              "marker_monotonic_ns": time.monotonic_ns()})
                     if fw_terminal_path:
                         handoff = _x1_terminal_handoff(
@@ -9044,7 +9134,19 @@ def run_episode(
                                   else "collector_gimbal_eval_fw_handoff_not_ready")
                         recorder.record_mavlink({"message_type": marker, "step_index": index,
                                                  "marker_monotonic_ns": time.monotonic_ns(), **handoff})
-                result = result_box[0]
+                    if result.status == "success":
+                        settled = _wait_x1_fw_handback(
+                            fw_terminal_lock, horizon_stabilizer, horizon_loop, mav_reader,
+                            sensor_reader, _action_tick, start_sim_ns=handback_sim_ns,
+                        )
+                        ready = settled["reason"] == "settled"
+                        marker = ("collector_gimbal_eval_fw_handback_settled" if ready
+                                  else "collector_gimbal_eval_fw_handback_not_settled")
+                        recorder.record_mavlink({"message_type": marker, "step_index": index,
+                                                 "marker_monotonic_ns": time.monotonic_ns(), **settled})
+                        if not ready:
+                            raise RuntimeError(f"X1 FW hand-back did not settle: {settled['reason']}")
+                        fw_handback_boundary = (index, settled["sim_stamp_ns"])
                 if getattr(action, "kind", None) == "land" and result.status == "success":
                     landing_started = True
                 _raise_if_px4_clock_stalled(
@@ -9101,10 +9203,13 @@ def run_episode(
                                     },
                                 )
                             )
-                            final_obs["flight_stage"] = "action_end"
+                            frame_action_index = _video_action_index(
+                                index, sample.sensor_stamp_ns, fw_handback_boundary,
+                            )
+                            final_obs["flight_stage"] = "action_end" if frame_action_index == index else "action"
                             if not plan.capture_depth:
                                 final_obs["depth"] = None
-                            video_writer.write(final_obs, action_index=index)
+                            video_writer.write(final_obs, action_index=frame_action_index)
                         except Exception as exc:
                             if camera_mount is not None and camera_mount.kind == "gimbal":
                                 video_writer.record_capture_error(str(exc))

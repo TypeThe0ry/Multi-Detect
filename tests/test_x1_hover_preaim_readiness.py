@@ -1,3 +1,4 @@
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -156,6 +157,32 @@ def test_step_yaw_rejects_stale_fw_getmeta_at_hover_entry():
         -12 * 3.141592653589793 / 180
     )
     assert x1_meta_yaw_for_step(meta(start + 100_000_000, fresh=False), start) is None
+
+
+@pytest.mark.parametrize(("stale_yaw", "first_fresh_after_s"), [(-247.7, 0.16), (-216.7, 0.22)])
+def test_yaw_unwind_replay_ignores_fw_cache_even_when_stamp_overlaps_step(stale_yaw, first_fresh_after_s):
+    start = 8_000_000_000
+    cached = meta(start, yaw_deg=stale_yaw)
+    unwind = X1YawUnwind()
+    yaw = x1_meta_yaw_for_step(cached, start, previous_meta_stamp_ns=cached.sensor_stamp_ns)
+    assert unwind.step(yaw, 0.) is None
+    assert not unwind.active
+    fresh = meta(start + round(first_fresh_after_s * 1e9), yaw_deg=-1.3)
+    yaw = x1_meta_yaw_for_step(fresh, start, previous_meta_stamp_ns=cached.sensor_stamp_ns)
+    assert unwind.step(yaw, first_fresh_after_s) is None
+    assert not unwind.active
+
+    genuinely_wound = meta(fresh.sensor_stamp_ns + 100_000_000, yaw_deg=-190.)
+    yaw = x1_meta_yaw_for_step(genuinely_wound, start, previous_meta_stamp_ns=fresh.sensor_stamp_ns)
+    assert unwind.step(yaw, 1.) == "lock"
+    assert unwind.step(math.radians(-5.), 1.25) == "track"
+
+
+def test_yaw_unwind_expires_when_readback_stops():
+    unwind = X1YawUnwind()
+    assert unwind.step(math.radians(190.), 1.0) == "lock"
+    assert unwind.step(None, 1.0 + X1YawUnwind.MAX_S + 0.01) == "track"
+    assert not unwind.active
 
 
 def test_hover_preaim_geometry_uses_frame_aligned_target_and_camera():

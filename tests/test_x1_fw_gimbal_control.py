@@ -155,14 +155,15 @@ def test_original_handoff_requires_post_dispatch_joint_fk_and_post_dispatch_hdeg
     assert not inspect()["ready"]
 
 
-def test_lock_dispatch_identifies_the_completed_44_ticket_not_queued_or_previous_track():
+@pytest.mark.parametrize(("yaw_mode", "lock_flags"), [("follow", 44), ("lock", 92)])
+def test_lock_dispatch_identifies_completed_lock_not_queued_or_previous_track(yaw_mode, lock_flags):
     import threading
 
     from multidetect.sim_teacher.horizon_stabilization import BridgeHorizonTarget, HostHorizonLoop
 
     zero = dict.fromkeys(("roll", "pitch", "yaw"), 0.)
     origin = WorldTarget(0., 0., 10.)
-    bridge = BridgeHorizonTarget(zero, mode="track", yaw_mode="follow",
+    bridge = BridgeHorizonTarget(zero, mode="track", yaw_mode=yaw_mode,
                                  track_targets=(WorldTarget(.001, 0., 0.),))
     sent = []
 
@@ -179,10 +180,103 @@ def test_lock_dispatch_identifies_the_completed_44_ticket_not_queued_or_previous
     assert [f for f, _ in sent] == [92] and loop.lock_dispatch is None
     sent[-1][1].done.set()
     loop.step()
-    assert [f for f, _ in sent] == [92, 44] and loop.lock_dispatch is None
+    assert [f for f, _ in sent] == [92, lock_flags] and loop.lock_dispatch is None
     sent[-1][1].done.set()
     loop.step()
     assert loop.lock_dispatch == (2, 1020)
+
+
+def _replay_fw_handback(monkeypatch, samples, *, sim_running=True, meta_supported=True):
+    start_ns = 100_000_000_000
+    ns = 0
+    ticks = []
+    requests = []
+    zero = dict.fromkeys(("roll", "pitch", "yaw"), 0.0)
+    mav = SimpleNamespace(state={"LOCAL_POSITION_NED": {"time_boot_ms": start_ns // 1_000_000}},
+                          attitude_at=lambda _: zero, raise_if_failed=lambda: None)
+    sensor = SimpleNamespace(meta_supported=meta_supported, latest_meta=None,
+                             request_meta=requests.append, raise_if_failed=lambda: None)
+    bridge = BridgeHorizonTarget(zero, mode="lock", yaw_mode="follow")
+    loop = SimpleNamespace(lock_dispatch=(13, start_ns // 1_000_000 + 100))
+    gate = X1FwTerminalLockGate(enabled=True, clock=lambda: 0.)
+    assert gate.observe_eta(0., sim_stamp_ns=start_ns, dispatch_sequence=12)
+
+    def stamp_meta(frame_ns, joint_ns, error_deg, fresh):
+        sensor.latest_meta = SimpleNamespace(
+            sensor_stamp_ns=start_ns + frame_ns, received_monotonic_ns=ns,
+            joint_state={
+                "source_timestamp_ns": start_ns + joint_ns,
+                "gimbal_joint_state": {
+                    "source": "gazebo_joint_state", "fresh": fresh,
+                    "position_rad": {**zero, "roll": math.radians(error_deg)},
+                },
+            },
+        )
+
+    def advance(seconds):
+        nonlocal ns
+        ns += round(seconds * 1e9)
+        sim_ns = ns if sim_running else 0
+        mav.state["LOCAL_POSITION_NED"]["time_boot_ms"] = (start_ns + sim_ns) // 1_000_000
+        sample = samples.get(sim_ns // 1_000_000)
+        if sample is not None and sim_ns % 1_000_000 == 0:
+            joint_ms, error, fresh = sample
+            stamp_meta(sim_ns, joint_ms * 1_000_000, error, fresh)
+
+    monkeypatch.setattr(collector.time, "monotonic", lambda: ns / 1e9)
+    monkeypatch.setattr(collector.time, "monotonic_ns", lambda: ns)
+    monkeypatch.setattr(collector.time, "sleep", advance)
+    stamp_meta(0, 0, 0., True)  # cached level frame from before lock dispatch
+    result = collector._wait_x1_fw_handback(
+        gate, bridge, loop, mav, sensor, lambda: ticks.append(ns), start_sim_ns=start_ns,
+    )
+    return start_ns, result, ticks, requests
+
+
+def test_fw_handback_wait_replays_transient_and_keeps_late_video_in_final_fw_step(monkeypatch):
+    samples = {ms: (ms, 75. if ms == 100 else 5., True) for ms in range(100, 1300, 100)}
+    samples.update({ms: (ms, 1.5, True) for ms in range(1300, 1800, 100)})
+    start, result, ticks, requests = _replay_fw_handback(monkeypatch, samples)
+    assert result["reason"] == "settled"
+    assert result["settle_sim_s"] == pytest.approx(1.7)
+    assert result["peak_horizon_error_deg"] == pytest.approx(75.)
+    assert result["consecutive_samples"] == 5
+    assert ticks[-1] == 1_700_000_000
+    assert requests[0] == start + 100_000_000 - 1
+    boundary = (6, result["sim_stamp_ns"])
+    assert collector._video_action_index(7, start + 1_200_000_000, boundary) == 6
+    assert collector._video_action_index(7, boundary[1], boundary) == 6
+    assert collector._video_action_index(7, boundary[1] + 1, boundary) == 7
+    assert collector._video_action_index(-1, start - 1, boundary) == -1
+    assert collector._video_action_index(7, start, None) == 7
+
+
+def test_fw_handback_restarts_on_bad_or_missing_readbacks(monkeypatch):
+    samples = {ms: (ms, 1., True) for ms in range(100, 2000, 100)}
+    samples[300] = (200, 1., True)  # duplicated joint timestamp in a new frame
+    samples[400] = (400, 2.01, True)  # resets the good prefix
+    samples[600] = (600, 1., False)
+    del samples[900]  # gap between the 800 and 1000 ms joint samples
+    _, result, _, _ = _replay_fw_handback(monkeypatch, samples)
+    assert result["reason"] == "settled"
+    assert result["settle_sim_s"] == pytest.approx(1.4)
+    assert result["peak_horizon_error_deg"] == pytest.approx(2.01)
+
+
+@pytest.mark.parametrize(("sim_running", "meta_supported", "reason", "sim_s"), [
+    (True, True, "sim_timeout", 5.0),
+    (False, True, "wall_timeout", 0.0),
+    (True, False, "getmeta_unsupported", 0.0),
+])
+def test_fw_handback_has_bounded_failure_paths(monkeypatch, sim_running, meta_supported, reason, sim_s):
+    _, result, ticks, requests = _replay_fw_handback(
+        monkeypatch, {}, sim_running=sim_running, meta_supported=meta_supported,
+    )
+    assert result["reason"] == reason
+    assert result["settle_sim_s"] == sim_s
+    assert result["elapsed_wall_s"] == pytest.approx(5.0 if meta_supported else 0.0)
+    assert result["consecutive_samples"] == 0
+    assert bool(ticks) == bool(requests) == meta_supported
 
 
 def test_spherical_bisector_is_exact_midpoint_when_under_the_cap():

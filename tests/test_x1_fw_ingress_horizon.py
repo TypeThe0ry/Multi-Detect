@@ -53,10 +53,36 @@ def _video_tick_fixture(**bindings):
         for c in collector.run_episode.__code__.co_consts
         if isinstance(c, CodeType) and c.co_name == "_video_tick"
     )
+    bindings.setdefault("fw_handback_boundary", None)
     cells = {name: CellType(bindings[name]) for name in code.co_freevars}
     tick = FunctionType(code, collector.run_episode.__globals__, closure=tuple(cells.values()))
     tick.__kwdefaults__ = {"wall_due_s": None}
     return tick, lambda: cells["next_video_sim_ns"].cell_contents
+
+
+def test_late_handback_frames_keep_fw_attribution_when_video_writer_resumes(monkeypatch):
+    written = []
+    reader = SimpleNamespace(latest=None, request=lambda _: None)
+    mav = SimpleNamespace(state=_state(3500), aligned_state=lambda _: _state(3500))
+    monkeypatch.setattr(collector, "build_observation", lambda *_, **__: {})
+    monkeypatch.setattr(collector, "_png_observation", lambda obs: obs)
+    writer = SimpleNamespace(truncated=False, write=lambda obs, **kw: written.append({**obs, **kw}))
+    tick, _ = _video_tick_fixture(
+        camera_geometry=None, camera_mount=None, gimbal_session=None, horizon_stabilizer=None,
+        last_video_stamp_ns=[-1], mav_reader=mav, next_video_request_s=0.,
+        next_video_sim_ns=2000 * MS, fw_handback_boundary=(6, 2400 * MS),
+        plan=SimpleNamespace(video_use_sim_time=True, video_hz=1., rgb_size=(1, 1), capture_depth=False),
+        recorder=SimpleNamespace(record_mavlink=lambda event: pytest.fail(str(event))),
+        sensor_reader=reader, simulation_gimbal_yaw_correction_deg=None, video_writer=writer,
+        ingress_capture=None,
+    )
+    reader.latest = SimpleNamespace(sensor_stamp_ns=2100 * MS)
+    tick(7, "transition_to_mc")
+    reader.latest = SimpleNamespace(sensor_stamp_ns=3200 * MS)
+    tick(7, "transition_to_mc")
+    assert [(r["action_index"], r["flight_stage"]) for r in written] == [
+        (6, "action"), (7, "transition_to_mc"),
+    ]
 
 
 def _state(ms):
