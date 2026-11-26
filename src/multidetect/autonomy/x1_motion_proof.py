@@ -297,7 +297,7 @@ class X1MotionProofBuilder:
         return min(margins, default=0.0), min(transition_agl, default=None), landed
 
     def build(self, decision: Decision, frame: RuntimeFrame, sweep: ExecutionSweep | None,
-              *, retask_anchors=None) -> MotionProof:
+              *, retask_anchors=None, installed_continue=False) -> MotionProof:
         closed = MotionProof(
             frame.frame_id, decision.digest, geofence_clear=False, obstacle_margin_m=None,
             terrain_margin_m=None, required_energy_wh=None, available_energy_wh=None,
@@ -325,14 +325,24 @@ class X1MotionProofBuilder:
             return closed
         try:
             boxes = tuple(leg.box() for leg in legs)
-            if retask_anchors is None:
+            if installed_continue:
+                phases = tuple(group[0].phase for group in _phase_groups(legs))
+                legal = {"fw": {("fw", "transition", "mc", "landing"), ("transition", "mc", "landing")},
+                         "back_transition": {("transition", "mc", "landing")},
+                         "mc": {("mc", "landing"), ("landing",)}}
+                if decision.action != "continue" or phases not in legal.get(frame.vtol_state, ()):
+                    return closed
+            elif retask_anchors is None:
                 if not self._route_matches(decision, frame, sweep, boxes):
                     return closed
-            elif (decision.action != "retask" or frame.retask_boundary is not True
-                  or sweep.failure_revalidation_enforced is not True
-                  or tuple((leg.phase, leg.end) for leg in legs) != retask_anchors
-                  or legs[-1].phase != "landing" or legs[-1].end != (*self.home_ne, self.home_z)
-                  or legs[-1].start[:2] != self.home_ne):
+            elif decision.action != "retask" or frame.retask_boundary is not True:
+                return closed
+            if (installed_continue or retask_anchors is not None) and (
+                sweep.failure_revalidation_enforced is not True
+                or tuple((leg.phase, leg.end) for leg in legs) != retask_anchors
+                or legs[-1].phase != "landing" or legs[-1].end != (*self.home_ne, self.home_z)
+                or legs[-1].start[:2] != self.home_ne
+            ):
                 return closed
             fence = all(self._fence_clear(leg, box) for leg, box in zip(legs, boxes, strict=True))
             terrain, transition, landed = None, None, False

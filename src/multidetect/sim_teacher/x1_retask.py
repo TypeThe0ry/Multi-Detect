@@ -17,6 +17,9 @@ class _Route:
     revision: int
     boundary: int
     steps: tuple[X1AirborneStep, ...]
+    plan_sha256: str
+    finding_step_ids: frozenset[str]
+    finding_error_m: float | None
 
 
 class AirborneRouteSlot:
@@ -31,18 +34,20 @@ class AirborneRouteSlot:
         self.boundary = boundary
         self.prepared = None
 
-    def stage(self, plan, revision, steps):
+    def stage(self, plan, revision, steps, *, plan_sha256, finding_error_m=None):
         if self.boundary is not None and steps:
-            self.prepared = plan, revision, tuple(steps)
+            finding_ids = frozenset(step.id for step in plan.steps if step.params.get("target_ref") == "finding:1")
+            self.prepared = plan, _Route(revision + 1, self.boundary, tuple(steps),
+                                         plan_sha256, finding_ids, finding_error_m)
 
     def replace_remaining(self, plan, expected_revision):
         prepared = self.prepared
         self.prepared = None
         if (self.boundary is None or prepared is None or prepared[0] is not plan
-                or prepared[1] != expected_revision or expected_revision >= 2**31 - 1
+                or prepared[1].revision != expected_revision + 1 or expected_revision >= 2**31 - 1
                 or self._route is not None):
             return False
-        self._route = _Route(expected_revision + 1, self.boundary, prepared[2])
+        self._route = prepared[1]
         return True
 
     @property
@@ -54,10 +59,13 @@ class AirborneRouteSlot:
         return self._route is not None and self._route.boundary == index
 
     def remaining_at(self, index):
+        route = self.installed_at(index)
+        return route.steps[index - route.boundary:] if route is not None else ()
+
+    def installed_at(self, index):
         route = self._route
-        if route is None or not route.boundary <= index < self.end:
-            return ()
-        return route.steps[index - route.boundary:]
+        if route is not None and type(index) is int and route.boundary <= index < self.end:
+            return route
 
     def at(self, index):
         route = self._route

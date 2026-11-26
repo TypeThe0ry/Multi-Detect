@@ -1,0 +1,1409 @@
+{
+  "episode": "episode-0000-68bf5c36",
+  "admission": {
+    "now_ns": 5589793535774,
+    "rows": {
+      "LOCAL_POSITION_NED": {
+        "mavpackettype": "LOCAL_POSITION_NED",
+        "time_boot_ms": 98156,
+        "x": 334.85693359375,
+        "y": 0.3533492982387543,
+        "z": -84.44140625,
+        "vx": 16.293954849243164,
+        "vy": 0.6572456359863281,
+        "vz": -0.02591749280691147,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "LOCAL_POSITION_NED",
+        "receive_monotonic_ns": 5589789157787,
+        "receive_wall_time": 1795683789.9796784
+      },
+      "GPS_RAW_INT": {
+        "mavpackettype": "GPS_RAW_INT",
+        "time_usec": 98012000,
+        "fix_type": 3,
+        "lat": 420179907,
+        "lon": -937099968,
+        "alt": 403131,
+        "eph": 70,
+        "epv": 110,
+        "vel": 1628,
+        "cog": 243,
+        "satellites_visible": 10,
+        "alt_ellipsoid": 403131,
+        "h_acc": 900,
+        "v_acc": 1780,
+        "vel_acc": 400,
+        "hdg_acc": 0,
+        "yaw": 0,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "GPS_RAW_INT",
+        "receive_monotonic_ns": 5589662367947,
+        "receive_wall_time": 1795683789.8528886
+      },
+      "VFR_HUD": {
+        "mavpackettype": "VFR_HUD",
+        "airspeed": 16.154415130615234,
+        "groundspeed": 16.316232681274414,
+        "heading": 16,
+        "throttle": 22,
+        "alt": 403.06353759765625,
+        "climb": 0.026364414021372795,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "VFR_HUD",
+        "receive_monotonic_ns": 5589614162841,
+        "receive_wall_time": 1795683789.8046834
+      },
+      "HEARTBEAT": {
+        "mavpackettype": "HEARTBEAT",
+        "type": 20,
+        "autopilot": 12,
+        "base_mode": 145,
+        "custom_mode": 393216,
+        "system_status": 4,
+        "mavlink_version": 3,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "HEARTBEAT",
+        "receive_monotonic_ns": 5588862247450,
+        "receive_wall_time": 1795683789.0527682
+      },
+      "EXTENDED_SYS_STATE": {
+        "mavpackettype": "EXTENDED_SYS_STATE",
+        "vtol_state": 4,
+        "landed_state": 2,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "EXTENDED_SYS_STATE",
+        "receive_monotonic_ns": 5589778345834,
+        "receive_wall_time": 1795683789.9688666
+      },
+      "GLOBAL_POSITION_INT": {
+        "mavpackettype": "GLOBAL_POSITION_INT",
+        "time_boot_ms": 98164,
+        "lat": 420180125,
+        "lon": -937099958,
+        "alt": 403072,
+        "relative_alt": 84489,
+        "vx": 1629,
+        "vy": 65,
+        "vz": -2,
+        "hdg": 1757,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "GLOBAL_POSITION_INT",
+        "receive_monotonic_ns": 5589790582633,
+        "receive_wall_time": 1795683789.9811034
+      },
+      "BATTERY_STATUS": {
+        "mavpackettype": "BATTERY_STATUS",
+        "id": 0,
+        "battery_function": 1,
+        "type": 1,
+        "temperature": 32767,
+        "voltages": [
+          16120,
+          65535,
+          65535,
+          65535,
+          65535,
+          65535,
+          65535,
+          65535,
+          65535,
+          65535
+        ],
+        "current_battery": -1,
+        "current_consumed": 0,
+        "energy_consumed": -1,
+        "battery_remaining": 96,
+        "time_remaining": 1634,
+        "charge_state": 1,
+        "voltages_ext": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "mode": 0,
+        "fault_bitmask": 0,
+        "_source_system": 1,
+        "_source_component": 1,
+        "message_type": "BATTERY_STATUS",
+        "receive_monotonic_ns": 5589650263686,
+        "receive_wall_time": 1795683789.8407843
+      }
+    },
+    "stamps": {
+      "LOCAL_POSITION_NED": 98156,
+      "GPS_RAW_INT": 97888,
+      "VFR_HUD": 97980,
+      "HEARTBEAT": 97220,
+      "EXTENDED_SYS_STATE": 98140,
+      "GLOBAL_POSITION_INT": 98164,
+      "BATTERY_STATUS": 98020
+    },
+    "boot": 98164,
+    "index": 2,
+    "label": "install"
+  },
+  "original_plan": {
+    "plan_version": 1,
+    "goal": "fly to yard and return",
+    "report": [
+      "status"
+    ],
+    "steps": [
+      {
+        "id": "takeoff",
+        "skill": "vtol_takeoff",
+        "params": {
+          "altitude_agl_m": 85
+        },
+        "on_success": "fw",
+        "on_fail": "home"
+      },
+      {
+        "id": "fw",
+        "skill": "fw_transition",
+        "params": {},
+        "on_success": "w",
+        "on_fail": "home"
+      },
+      {
+        "id": "w",
+        "skill": "fw_goto_waypoint",
+        "params": {
+          "target_ref": "poi:yard",
+          "altitude_agl_m": 85
+        },
+        "on_success": "back",
+        "on_fail": "home"
+      },
+      {
+        "id": "back",
+        "skill": "back_transition",
+        "params": {},
+        "on_success": "home",
+        "on_fail": "home"
+      },
+      {
+        "id": "home",
+        "skill": "return_home",
+        "params": {},
+        "on_success": null,
+        "on_fail": null
+      }
+    ]
+  },
+  "retask_wire": "{\"action\": \"retask\", \"params\": {\"plan\": {\"plan_version\": 1, \"goal\": \"Inspect the detected survey marker, then return home and land.\", \"report\": [], \"steps\": [{\"id\": \"approach\", \"skill\": \"fw_goto_waypoint\", \"params\": {\"target_ref\": \"finding:1\", \"altitude_agl_m\": 85}, \"on_success\": \"observe\", \"on_fail\": \"home\"}, {\"id\": \"observe\", \"skill\": \"loiter_observe\", \"params\": {\"target_ref\": \"finding:1\", \"altitude_agl_m\": 85, \"radius_m\": 65, \"duration_s\": 14}, \"on_success\": \"transition\", \"on_fail\": \"home\"}, {\"id\": \"transition\", \"skill\": \"back_transition\", \"params\": {}, \"on_success\": \"home\", \"on_fail\": \"home\"}, {\"id\": \"home\", \"skill\": \"return_home\", \"params\": {}, \"on_success\": null, \"on_fail\": null}]}}, \"schema\": \"x1.contingency.decision.v1\", \"request_id\": \"episode-0000-68bf5c36:49\", \"event_id\": 4503599627370545, \"mission_id\": \"x1-test\", \"revision\": 1}",
+  "finding": {
+    "lat_deg": 42.01869124007867,
+    "lon_deg": -93.70885302425091,
+    "alt_amsl_m": 314.947,
+    "error_bound_m": 8.0
+  },
+  "snapshots": [
+    {
+      "now_ns": 5592808137521,
+      "rows": {
+        "LOCAL_POSITION_NED": {
+          "mavpackettype": "LOCAL_POSITION_NED",
+          "time_boot_ms": 101180,
+          "x": 385.82684326171875,
+          "y": 3.451275587081909,
+          "z": -83.35226440429688,
+          "vx": 18.279216766357422,
+          "vy": 3.978074789047241,
+          "vz": -0.49635881185531616,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "LOCAL_POSITION_NED",
+          "receive_monotonic_ns": 5592806863054,
+          "receive_wall_time": 1795683792.9973838
+        },
+        "GPS_RAW_INT": {
+          "mavpackettype": "GPS_RAW_INT",
+          "time_usec": 101016000,
+          "fix_type": 3,
+          "lat": 420184433,
+          "lon": -937099655,
+          "alt": 401995,
+          "eph": 70,
+          "epv": 110,
+          "vel": 1883,
+          "cog": 1006,
+          "satellites_visible": 10,
+          "alt_ellipsoid": 401995,
+          "h_acc": 900,
+          "v_acc": 1780,
+          "vel_acc": 400,
+          "hdg_acc": 0,
+          "yaw": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GPS_RAW_INT",
+          "receive_monotonic_ns": 5592662587915,
+          "receive_wall_time": 1795683792.8531086
+        },
+        "VFR_HUD": {
+          "mavpackettype": "VFR_HUD",
+          "airspeed": 18.65355682373047,
+          "groundspeed": 18.89536476135254,
+          "heading": 296,
+          "throttle": 13,
+          "alt": 401.9058532714844,
+          "climb": 0.2594144642353058,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "VFR_HUD",
+          "receive_monotonic_ns": 5592614258171,
+          "receive_wall_time": 1795683792.804779
+        },
+        "HEARTBEAT": {
+          "mavpackettype": "HEARTBEAT",
+          "type": 20,
+          "autopilot": 12,
+          "base_mode": 145,
+          "custom_mode": 393216,
+          "system_status": 4,
+          "mavlink_version": 3,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "HEARTBEAT",
+          "receive_monotonic_ns": 5591862247461,
+          "receive_wall_time": 1795683792.0527682
+        },
+        "EXTENDED_SYS_STATE": {
+          "mavpackettype": "EXTENDED_SYS_STATE",
+          "vtol_state": 4,
+          "landed_state": 2,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "EXTENDED_SYS_STATE",
+          "receive_monotonic_ns": 5592775158056,
+          "receive_wall_time": 1795683792.9656792
+        },
+        "GLOBAL_POSITION_INT": {
+          "mavpackettype": "GLOBAL_POSITION_INT",
+          "time_boot_ms": 101164,
+          "lat": 420184670,
+          "lon": -937099591,
+          "alt": 401974,
+          "relative_alt": 83392,
+          "vx": 1831,
+          "vy": 391,
+          "vz": -48,
+          "hdg": 29857,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GLOBAL_POSITION_INT",
+          "receive_monotonic_ns": 5592790942031,
+          "receive_wall_time": 1795683792.9814627
+        },
+        "BATTERY_STATUS": {
+          "mavpackettype": "BATTERY_STATUS",
+          "id": 0,
+          "battery_function": 1,
+          "type": 1,
+          "temperature": 32767,
+          "voltages": [
+            16117,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535
+          ],
+          "current_battery": -1,
+          "current_consumed": 0,
+          "energy_consumed": -1,
+          "battery_remaining": 96,
+          "time_remaining": 1681,
+          "charge_state": 1,
+          "voltages_ext": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "mode": 0,
+          "fault_bitmask": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "BATTERY_STATUS",
+          "receive_monotonic_ns": 5592650542104,
+          "receive_wall_time": 1795683792.841063
+        }
+      },
+      "stamps": {
+        "LOCAL_POSITION_NED": 101180,
+        "GPS_RAW_INT": 100888,
+        "VFR_HUD": 100980,
+        "HEARTBEAT": 100220,
+        "EXTENDED_SYS_STATE": 101140,
+        "GLOBAL_POSITION_INT": 101164,
+        "BATTERY_STATUS": 101020
+      },
+      "boot": 101180,
+      "index": 2,
+      "label": "52",
+      "old_reason": "current_fw_airspeed_limit",
+      "after_install": true
+    },
+    {
+      "now_ns": 5594823442124,
+      "rows": {
+        "LOCAL_POSITION_NED": {
+          "mavpackettype": "LOCAL_POSITION_NED",
+          "time_boot_ms": 103180,
+          "x": 414.1007080078125,
+          "y": 19.250944137573242,
+          "z": -83.86611938476562,
+          "vx": 9.952163696289062,
+          "vy": 12.104788780212402,
+          "vz": 0.32359591126441956,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "LOCAL_POSITION_NED",
+          "receive_monotonic_ns": 5594806709009,
+          "receive_wall_time": 1795683794.9972298
+        },
+        "GPS_RAW_INT": {
+          "mavpackettype": "GPS_RAW_INT",
+          "time_usec": 103028000,
+          "fix_type": 3,
+          "lat": 420187106,
+          "lon": -937097893,
+          "alt": 402571,
+          "eph": 70,
+          "epv": 110,
+          "vel": 1550,
+          "cog": 4723,
+          "satellites_visible": 10,
+          "alt_ellipsoid": 402571,
+          "h_acc": 900,
+          "v_acc": 1780,
+          "vel_acc": 400,
+          "hdg_acc": 0,
+          "yaw": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GPS_RAW_INT",
+          "receive_monotonic_ns": 5594662494390,
+          "receive_wall_time": 1795683794.8530152
+        },
+        "VFR_HUD": {
+          "mavpackettype": "VFR_HUD",
+          "airspeed": 15.200122833251953,
+          "groundspeed": 15.486995697021484,
+          "heading": 328,
+          "throttle": 23,
+          "alt": 402.5510559082031,
+          "climb": -0.21918390691280365,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "VFR_HUD",
+          "receive_monotonic_ns": 5594614283085,
+          "receive_wall_time": 1795683794.8048038
+        },
+        "HEARTBEAT": {
+          "mavpackettype": "HEARTBEAT",
+          "type": 20,
+          "autopilot": 12,
+          "base_mode": 145,
+          "custom_mode": 393216,
+          "system_status": 4,
+          "mavlink_version": 3,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "HEARTBEAT",
+          "receive_monotonic_ns": 5593862210285,
+          "receive_wall_time": 1795683794.052731
+        },
+        "EXTENDED_SYS_STATE": {
+          "mavpackettype": "EXTENDED_SYS_STATE",
+          "vtol_state": 4,
+          "landed_state": 2,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "EXTENDED_SYS_STATE",
+          "receive_monotonic_ns": 5594776141010,
+          "receive_wall_time": 1795683794.966662
+        },
+        "GLOBAL_POSITION_INT": {
+          "mavpackettype": "GLOBAL_POSITION_INT",
+          "time_boot_ms": 103180,
+          "lat": 420187240,
+          "lon": -937097671,
+          "alt": 402496,
+          "relative_alt": 83913,
+          "vx": 995,
+          "vy": 1210,
+          "vz": 32,
+          "hdg": 33203,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GLOBAL_POSITION_INT",
+          "receive_monotonic_ns": 5594810403033,
+          "receive_wall_time": 1795683795.0009239
+        },
+        "BATTERY_STATUS": {
+          "mavpackettype": "BATTERY_STATUS",
+          "id": 0,
+          "battery_function": 1,
+          "type": 1,
+          "temperature": 32767,
+          "voltages": [
+            16115,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535
+          ],
+          "current_battery": -1,
+          "current_consumed": 0,
+          "energy_consumed": -1,
+          "battery_remaining": 96,
+          "time_remaining": 1747,
+          "charge_state": 1,
+          "voltages_ext": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "mode": 0,
+          "fault_bitmask": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "BATTERY_STATUS",
+          "receive_monotonic_ns": 5594651277471,
+          "receive_wall_time": 1795683794.8417983
+        }
+      },
+      "stamps": {
+        "LOCAL_POSITION_NED": 103180,
+        "GPS_RAW_INT": 102888,
+        "VFR_HUD": 102980,
+        "HEARTBEAT": 102220,
+        "EXTENDED_SYS_STATE": 103140,
+        "GLOBAL_POSITION_INT": 103180,
+        "BATTERY_STATUS": 103020
+      },
+      "boot": 103180,
+      "index": 2,
+      "label": "54",
+      "old_reason": "unverified_clearance",
+      "after_install": true
+    },
+    {
+      "now_ns": 5599866358186,
+      "rows": {
+        "LOCAL_POSITION_NED": {
+          "mavpackettype": "LOCAL_POSITION_NED",
+          "time_boot_ms": 108220,
+          "x": 429.2544860839844,
+          "y": 105.62812042236328,
+          "z": -85.0960693359375,
+          "vx": 2.505110740661621,
+          "vy": 14.716526985168457,
+          "vz": 0.4257603883743286,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "LOCAL_POSITION_NED",
+          "receive_monotonic_ns": 5599846589021,
+          "receive_wall_time": 1795683800.0371099
+        },
+        "GPS_RAW_INT": {
+          "mavpackettype": "GPS_RAW_INT",
+          "time_usec": 108208000,
+          "fix_type": 3,
+          "lat": 420188605,
+          "lon": -937087241,
+          "alt": 403621,
+          "eph": 70,
+          "epv": 110,
+          "vel": 1497,
+          "cog": 8052,
+          "satellites_visible": 10,
+          "alt_ellipsoid": 403621,
+          "h_acc": 900,
+          "v_acc": 1780,
+          "vel_acc": 400,
+          "hdg_acc": 0,
+          "yaw": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GPS_RAW_INT",
+          "receive_monotonic_ns": 5599864583044,
+          "receive_wall_time": 1795683800.0551038
+        },
+        "VFR_HUD": {
+          "mavpackettype": "VFR_HUD",
+          "airspeed": 15.367781639099121,
+          "groundspeed": 14.897234916687012,
+          "heading": 150,
+          "throttle": 9,
+          "alt": 403.7184753417969,
+          "climb": -0.4418630301952362,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "VFR_HUD",
+          "receive_monotonic_ns": 5599865044469,
+          "receive_wall_time": 1795683800.055565
+        },
+        "HEARTBEAT": {
+          "mavpackettype": "HEARTBEAT",
+          "type": 20,
+          "autopilot": 12,
+          "base_mode": 145,
+          "custom_mode": 393216,
+          "system_status": 4,
+          "mavlink_version": 3,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "HEARTBEAT",
+          "receive_monotonic_ns": 5599863895040,
+          "receive_wall_time": 1795683800.0544157
+        },
+        "EXTENDED_SYS_STATE": {
+          "mavpackettype": "EXTENDED_SYS_STATE",
+          "vtol_state": 4,
+          "landed_state": 2,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "EXTENDED_SYS_STATE",
+          "receive_monotonic_ns": 5599774179514,
+          "receive_wall_time": 1795683799.9647002
+        },
+        "GLOBAL_POSITION_INT": {
+          "mavpackettype": "GLOBAL_POSITION_INT",
+          "time_boot_ms": 108220,
+          "lat": 420188602,
+          "lon": -937087215,
+          "alt": 403726,
+          "relative_alt": 85143,
+          "vx": 250,
+          "vy": 1471,
+          "vz": 42,
+          "hdg": 15060,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GLOBAL_POSITION_INT",
+          "receive_monotonic_ns": 5599850410493,
+          "receive_wall_time": 1795683800.0409312
+        },
+        "BATTERY_STATUS": {
+          "mavpackettype": "BATTERY_STATUS",
+          "id": 0,
+          "battery_function": 1,
+          "type": 1,
+          "temperature": 32767,
+          "voltages": [
+            16110,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535
+          ],
+          "current_battery": -1,
+          "current_consumed": 0,
+          "energy_consumed": -1,
+          "battery_remaining": 96,
+          "time_remaining": 1932,
+          "charge_state": 1,
+          "voltages_ext": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "mode": 0,
+          "fault_bitmask": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "BATTERY_STATUS",
+          "receive_monotonic_ns": 5599850245315,
+          "receive_wall_time": 1795683800.040766
+        }
+      },
+      "stamps": {
+        "LOCAL_POSITION_NED": 108220,
+        "GPS_RAW_INT": 108088,
+        "VFR_HUD": 108160,
+        "HEARTBEAT": 108220,
+        "EXTENDED_SYS_STATE": 108140,
+        "GLOBAL_POSITION_INT": 108220,
+        "BATTERY_STATUS": 108220
+      },
+      "boot": 108160,
+      "index": 3,
+      "label": "58",
+      "old_reason": "unverified_clearance",
+      "after_install": true
+    },
+    {
+      "now_ns": 5602564947227,
+      "rows": {
+        "LOCAL_POSITION_NED": {
+          "mavpackettype": "LOCAL_POSITION_NED",
+          "time_boot_ms": 110916,
+          "x": 442.3647155761719,
+          "y": 149.97547912597656,
+          "z": -83.54867553710938,
+          "vx": 4.995395183563232,
+          "vy": 19.946138381958008,
+          "vz": -1.2034685611724854,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "LOCAL_POSITION_NED",
+          "receive_monotonic_ns": 5602546800676,
+          "receive_wall_time": 1795683802.7373214
+        },
+        "GPS_RAW_INT": {
+          "mavpackettype": "GPS_RAW_INT",
+          "time_usec": 110816000,
+          "fix_type": 3,
+          "lat": 420189735,
+          "lon": -937082091,
+          "alt": 401994,
+          "eph": 70,
+          "epv": 110,
+          "vel": 2057,
+          "cog": 7510,
+          "satellites_visible": 10,
+          "alt_ellipsoid": 401994,
+          "h_acc": 900,
+          "v_acc": 1780,
+          "vel_acc": 400,
+          "hdg_acc": 0,
+          "yaw": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GPS_RAW_INT",
+          "receive_monotonic_ns": 5602462505076,
+          "receive_wall_time": 1795683802.6530259
+        },
+        "VFR_HUD": {
+          "mavpackettype": "VFR_HUD",
+          "airspeed": 20.119338989257812,
+          "groundspeed": 20.4993839263916,
+          "heading": 8,
+          "throttle": 10,
+          "alt": 401.9895935058594,
+          "climb": 0.9552218317985535,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "VFR_HUD",
+          "receive_monotonic_ns": 5602362296574,
+          "receive_wall_time": 1795683802.5528173
+        },
+        "HEARTBEAT": {
+          "mavpackettype": "HEARTBEAT",
+          "type": 20,
+          "autopilot": 12,
+          "base_mode": 157,
+          "custom_mode": 50593792,
+          "system_status": 4,
+          "mavlink_version": 3,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "HEARTBEAT",
+          "receive_monotonic_ns": 5601862608027,
+          "receive_wall_time": 1795683802.0531287
+        },
+        "EXTENDED_SYS_STATE": {
+          "mavpackettype": "EXTENDED_SYS_STATE",
+          "vtol_state": 4,
+          "landed_state": 2,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "EXTENDED_SYS_STATE",
+          "receive_monotonic_ns": 5602474216861,
+          "receive_wall_time": 1795683802.6647375
+        },
+        "GLOBAL_POSITION_INT": {
+          "mavpackettype": "GLOBAL_POSITION_INT",
+          "time_boot_ms": 110924,
+          "lat": 420189785,
+          "lon": -937081827,
+          "alt": 402188,
+          "relative_alt": 83605,
+          "vx": 496,
+          "vy": 1995,
+          "vz": -121,
+          "hdg": 791,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GLOBAL_POSITION_INT",
+          "receive_monotonic_ns": 5602550467670,
+          "receive_wall_time": 1795683802.7409885
+        },
+        "BATTERY_STATUS": {
+          "mavpackettype": "BATTERY_STATUS",
+          "id": 0,
+          "battery_function": 1,
+          "type": 1,
+          "temperature": 32767,
+          "voltages": [
+            16108,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535
+          ],
+          "current_battery": -1,
+          "current_consumed": 0,
+          "energy_consumed": -1,
+          "battery_remaining": 95,
+          "time_remaining": 2032,
+          "charge_state": 1,
+          "voltages_ext": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "mode": 0,
+          "fault_bitmask": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "BATTERY_STATUS",
+          "receive_monotonic_ns": 5602450380416,
+          "receive_wall_time": 1795683802.640901
+        }
+      },
+      "stamps": {
+        "LOCAL_POSITION_NED": 110916,
+        "GPS_RAW_INT": 110688,
+        "VFR_HUD": 110724,
+        "HEARTBEAT": 110220,
+        "EXTENDED_SYS_STATE": 110844,
+        "GLOBAL_POSITION_INT": 110924,
+        "BATTERY_STATUS": 110820
+      },
+      "boot": 110924,
+      "index": 3,
+      "label": "61",
+      "old_reason": "current_fw_airspeed_limit",
+      "after_install": true
+    },
+    {
+      "now_ns": 5646583177383,
+      "rows": {
+        "LOCAL_POSITION_NED": {
+          "mavpackettype": "LOCAL_POSITION_NED",
+          "time_boot_ms": 154800,
+          "x": 424.72930908203125,
+          "y": 179.28123474121094,
+          "z": -83.50698852539062,
+          "vx": -5.65296745300293,
+          "vy": -2.318239212036133,
+          "vz": 1.2001451253890991,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "LOCAL_POSITION_NED",
+          "receive_monotonic_ns": 5646563115790,
+          "receive_wall_time": 1795683846.7536366
+        },
+        "GPS_RAW_INT": {
+          "mavpackettype": "GPS_RAW_INT",
+          "time_usec": 154608000,
+          "fix_type": 3,
+          "lat": 420188288,
+          "lon": -937078247,
+          "alt": 402459,
+          "eph": 70,
+          "epv": 110,
+          "vel": 597,
+          "cog": 20225,
+          "satellites_visible": 10,
+          "alt_ellipsoid": 402459,
+          "h_acc": 900,
+          "v_acc": 1780,
+          "vel_acc": 400,
+          "hdg_acc": 0,
+          "yaw": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GPS_RAW_INT",
+          "receive_monotonic_ns": 5646398417523,
+          "receive_wall_time": 1795683846.5889382
+        },
+        "VFR_HUD": {
+          "mavpackettype": "VFR_HUD",
+          "airspeed": 1.8423041105270386,
+          "groundspeed": 6.070201396942139,
+          "heading": 3,
+          "throttle": 48,
+          "alt": 402.2107238769531,
+          "climb": -1.2340518236160278,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "VFR_HUD",
+          "receive_monotonic_ns": 5646498182530,
+          "receive_wall_time": 1795683846.6887033
+        },
+        "HEARTBEAT": {
+          "mavpackettype": "HEARTBEAT",
+          "type": 20,
+          "autopilot": 12,
+          "base_mode": 157,
+          "custom_mode": 50593792,
+          "system_status": 4,
+          "mavlink_version": 3,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "HEARTBEAT",
+          "receive_monotonic_ns": 5645998497074,
+          "receive_wall_time": 1795683846.189018
+        },
+        "EXTENDED_SYS_STATE": {
+          "mavpackettype": "EXTENDED_SYS_STATE",
+          "vtol_state": 3,
+          "landed_state": 2,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "EXTENDED_SYS_STATE",
+          "receive_monotonic_ns": 5646510207692,
+          "receive_wall_time": 1795683846.7007287
+        },
+        "GLOBAL_POSITION_INT": {
+          "mavpackettype": "GLOBAL_POSITION_INT",
+          "time_boot_ms": 154800,
+          "lat": 420188195,
+          "lon": -937078299,
+          "alt": 402137,
+          "relative_alt": 83554,
+          "vx": -565,
+          "vy": -231,
+          "vz": 120,
+          "hdg": 328,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "GLOBAL_POSITION_INT",
+          "receive_monotonic_ns": 5646567346389,
+          "receive_wall_time": 1795683846.757867
+        },
+        "BATTERY_STATUS": {
+          "mavpackettype": "BATTERY_STATUS",
+          "id": 0,
+          "battery_function": 1,
+          "type": 1,
+          "temperature": 32767,
+          "voltages": [
+            16064,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535,
+            65535
+          ],
+          "current_battery": -1,
+          "current_consumed": 0,
+          "energy_consumed": -1,
+          "battery_remaining": 93,
+          "time_remaining": 4746,
+          "charge_state": 1,
+          "voltages_ext": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "mode": 0,
+          "fault_bitmask": 0,
+          "_source_system": 1,
+          "_source_component": 1,
+          "message_type": "BATTERY_STATUS",
+          "receive_monotonic_ns": 5646386365482,
+          "receive_wall_time": 1795683846.5768862
+        }
+      },
+      "stamps": {
+        "LOCAL_POSITION_NED": 154800,
+        "GPS_RAW_INT": 154488,
+        "VFR_HUD": 154720,
+        "HEARTBEAT": 154224,
+        "EXTENDED_SYS_STATE": 154744,
+        "GLOBAL_POSITION_INT": 154800,
+        "BATTERY_STATUS": 154616
+      },
+      "boot": 154800,
+      "index": 5,
+      "label": "120",
+      "old_reason": "unverified_clearance",
+      "after_install": true
+    }
+  ],
+  "package": {
+    "mission_id": "x1-test",
+    "risk_level": "low",
+    "link_loss_policy": {
+      "action": "return_now"
+    },
+    "home": [
+      0.0,
+      0.0
+    ],
+    "places": {
+      "poi:yard": [
+        320,
+        0
+      ]
+    },
+    "zones": {},
+    "routes": {},
+    "ref_labels": {
+      "poi:yard": "院子 / yard"
+    },
+    "capabilities": [
+      "airframe:x1",
+      "gimbal_control"
+    ],
+    "oversight_steps": [],
+    "operating_area": {
+      "north_min_m": -1800.0,
+      "north_max_m": 1800.0,
+      "east_min_m": -1500.0,
+      "east_max_m": 1500.0,
+      "min_altitude_m": 15.0,
+      "max_altitude_m": 145.0
+    },
+    "budget": {
+      "time_s": 1000.0,
+      "reserve_time_s": 120.0,
+      "energy_wh": 74.0,
+      "reserve_energy_wh": 14.8,
+      "battery_capacity_wh": 72.0
+    },
+    "x1_planning": {
+      "world": "rw_farm_iowa_w6km__clear_noon",
+      "max_distance_from_home_m": 1200.0,
+      "corridor": {
+        "north_min_m": -950.0,
+        "north_max_m": 1100.0,
+        "east_min_m": -950.0,
+        "east_max_m": 950.0
+      },
+      "terrain_rel_home_m": [
+        -25.0,
+        25.0
+      ]
+    },
+    "heartbeat_timeout_s": 5.0,
+    "task_text": "Fly over the yard at 85 m AGL, then return home and land.",
+    "x1_live_evidence": {
+      "scope_sha256": "a0499238a83ee19872d46b592313d1883d0e2df861d8b618c7ebe3fbf44b54bd",
+      "dem_sha256": "4bb6d4a0d3bf3bd6adaf512af722135bbf99448907161a328326a0d620a97cae",
+      "dem_error_m": 12.0,
+      "obstacle_coverage": [
+        -2999.99,
+        2999.99,
+        -2999.99,
+        2999.99,
+        118.23,
+        1318.23
+      ],
+      "obstacles": [],
+      "landing_pad": {
+        "radius_m": 16.0,
+        "elevation_error_m": 13.0
+      },
+      "battery": {
+        "max_voltage_v": 16.2,
+        "soc_error_pct": 4.0,
+        "consumption_error_wh": 72.0
+      },
+      "suffixes": {
+        "1": {
+          "entry": [
+            45,
+            410,
+            -24,
+            24,
+            392.404,
+            412.404
+          ],
+          "max_entry_speed_mps": 27.0,
+          "legs": [
+            {
+              "phase": "fw",
+              "end": [
+                320.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 19,
+              "padding_alt_m": 10,
+              "duration_s": 55,
+              "peak_power_w": 344.0
+            },
+            {
+              "phase": "transition",
+              "end": [
+                485.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 30,
+              "padding_alt_m": 12,
+              "duration_s": 20.0,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "mc",
+              "end": [
+                45.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 30,
+              "padding_alt_m": 12,
+              "duration_s": 72,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "mc",
+              "end": [
+                0.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 8,
+              "padding_alt_m": 10,
+              "duration_s": 18,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "landing",
+              "end": [
+                0.0,
+                0.0,
+                318.23
+              ],
+              "padding_ne_m": 5,
+              "padding_alt_m": 8,
+              "duration_s": 85,
+              "peak_power_w": 750.0
+            }
+          ],
+          "dynamics": {
+            "max_bank_deg": 35.0,
+            "max_climb_mps": 3.0,
+            "max_descent_mps": 2.0,
+            "max_acceleration_mps2": 2.0,
+            "max_angular_rate_dps": 60.0
+          },
+          "airspeed": [
+            12.0,
+            18.0
+          ],
+          "failure_revalidation_enforced": true
+        },
+        "2": {
+          "entry": [
+            280,
+            435,
+            -24,
+            24,
+            392.404,
+            412.404
+          ],
+          "max_entry_speed_mps": 27.0,
+          "legs": [
+            {
+              "phase": "transition",
+              "end": [
+                485.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 30,
+              "padding_alt_m": 12,
+              "duration_s": 20.0,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "mc",
+              "end": [
+                45.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 30,
+              "padding_alt_m": 12,
+              "duration_s": 72,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "mc",
+              "end": [
+                0.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 8,
+              "padding_alt_m": 10,
+              "duration_s": 18,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "landing",
+              "end": [
+                0.0,
+                0.0,
+                318.23
+              ],
+              "padding_ne_m": 5,
+              "padding_alt_m": 8,
+              "duration_s": 85,
+              "peak_power_w": 750.0
+            }
+          ],
+          "dynamics": {
+            "max_bank_deg": 35.0,
+            "max_climb_mps": 3.0,
+            "max_descent_mps": 2.0,
+            "max_acceleration_mps2": 2.0,
+            "max_angular_rate_dps": 60.0
+          },
+          "airspeed": [
+            12.0,
+            18.0
+          ],
+          "failure_revalidation_enforced": false
+        },
+        "3": {
+          "entry": [
+            25,
+            485,
+            -24,
+            24,
+            392.404,
+            412.404
+          ],
+          "max_entry_speed_mps": 12,
+          "legs": [
+            {
+              "phase": "mc",
+              "end": [
+                45.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 30,
+              "padding_alt_m": 12,
+              "duration_s": 72,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "mc",
+              "end": [
+                0.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 8,
+              "padding_alt_m": 10,
+              "duration_s": 18,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "landing",
+              "end": [
+                0.0,
+                0.0,
+                318.23
+              ],
+              "padding_ne_m": 5,
+              "padding_alt_m": 8,
+              "duration_s": 85,
+              "peak_power_w": 750.0
+            }
+          ],
+          "dynamics": {
+            "max_bank_deg": 35.0,
+            "max_climb_mps": 3.0,
+            "max_descent_mps": 2.0,
+            "max_acceleration_mps2": 2.0,
+            "max_angular_rate_dps": 60.0
+          },
+          "airspeed": null,
+          "failure_revalidation_enforced": false
+        }
+      },
+      "native": {
+        "return": {
+          "3": {
+            "entry": [
+              25,
+              485,
+              -24,
+              24,
+              392.404,
+              412.404
+            ],
+            "max_entry_speed_mps": 12,
+            "legs": [
+              {
+                "phase": "mc",
+                "end": [
+                  45.0,
+                  0.0,
+                  402.404
+                ],
+                "padding_ne_m": 30,
+                "padding_alt_m": 12,
+                "duration_s": 110,
+                "peak_power_w": 750.0
+              },
+              {
+                "phase": "mc",
+                "end": [
+                  0.0,
+                  0.0,
+                  402.404
+                ],
+                "padding_ne_m": 8,
+                "padding_alt_m": 10,
+                "duration_s": 20,
+                "peak_power_w": 750.0
+              },
+              {
+                "phase": "landing",
+                "end": [
+                  0.0,
+                  0.0,
+                  318.23
+                ],
+                "padding_ne_m": 5,
+                "padding_alt_m": 8,
+                "duration_s": 85,
+                "peak_power_w": 750.0
+              }
+            ],
+            "dynamics": {
+              "max_bank_deg": 35.0,
+              "max_climb_mps": 3.0,
+              "max_descent_mps": 2.0,
+              "max_acceleration_mps2": 2.0,
+              "max_angular_rate_dps": 60.0
+            },
+            "airspeed": null,
+            "failure_revalidation_enforced": false
+          }
+        },
+        "land-now": {
+          "3": {
+            "max_entry_speed_mps": 2,
+            "padding_ne_m": 5,
+            "padding_alt_m": 8,
+            "duration_s": 85,
+            "peak_power_w": 750.0,
+            "dynamics": {
+              "max_bank_deg": 35.0,
+              "max_climb_mps": 3.0,
+              "max_descent_mps": 2.0,
+              "max_acceleration_mps2": 2.0,
+              "max_angular_rate_dps": 60.0
+            }
+          }
+        },
+        "holds": {
+          "hold:yard-orbit": {
+            "mode": "fw",
+            "steps": [
+              1
+            ],
+            "entry": [
+              45,
+              410,
+              -24,
+              24,
+              392.404,
+              412.404
+            ],
+            "max_entry_speed_mps": 27.0,
+            "centre": [
+              320.0,
+              0.0,
+              402.404
+            ],
+            "radius_m": 80.0,
+            "tangential_speed_mps": 15.0,
+            "padding_ne_m": 120.0,
+            "padding_alt_m": 12,
+            "duration_s": 180,
+            "peak_power_w": 344.0,
+            "dynamics": {
+              "max_bank_deg": 35.0,
+              "max_climb_mps": 3.0,
+              "max_descent_mps": 2.0,
+              "max_acceleration_mps2": 2.0,
+              "max_angular_rate_dps": 60.0
+            },
+            "airspeed": [
+              12.0,
+              18.0
+            ]
+          },
+          "hold:mc-here": {
+            "mode": "mc",
+            "steps": [
+              3
+            ],
+            "entry": [
+              25,
+              485,
+              -24,
+              24,
+              392.404,
+              412.404
+            ],
+            "max_entry_speed_mps": 12,
+            "padding_ne_m": 20,
+            "padding_alt_m": 5,
+            "duration_s": 120,
+            "peak_power_w": 750.0,
+            "dynamics": {
+              "max_bank_deg": 35.0,
+              "max_climb_mps": 3.0,
+              "max_descent_mps": 2.0,
+              "max_acceleration_mps2": 2.0,
+              "max_angular_rate_dps": 60.0
+            }
+          }
+        }
+      },
+      "basis": "ASSUMED_SIM",
+      "assumed_bounds_sha256": "311fbb2ab28c53a9ff49ecce8fb7a8cc24ebac9563c077e26afa5468810c1422"
+    }
+  }
+}
