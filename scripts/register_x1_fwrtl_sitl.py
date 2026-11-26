@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import base64
 import json
+import lzma
 from pathlib import Path
 import re
 import subprocess
@@ -56,7 +58,7 @@ def verify(mode, image):
 r=/opt/px4-gazebo
 deps=$(ldd "$r/bin/px4")
 if printf '%s\n' "$deps" | grep -q 'not found'; then printf '%s\n' "$deps" >&2; exit 1; fi
-for marker do strings "$r/bin/px4" | grep -Fx -- "$marker"; done
+for marker do tr -c '[:print:]' '\n' < "$r/bin/px4" | grep -Fx -- "$marker"; done
 dpkg-query -W -f='${Version}\n' libgz-sim8 | grep -E '^8\.14\.0($|[-+~])'
 dpkg-query -W -f='${Version}\n' libgz-rendering8 | grep -E '^8\.3\.0($|[-+~])'
 for system in wind-effects air-speed; do
@@ -80,7 +82,7 @@ while IFS= read -r file; do sha256sum "$file"; done < /tmp/files
     if runtime != _read_only(assumptions.IMAGE_ID, common, *MARKERS):
         raise ValueError("Gazebo stack, gimbal markers or runtime hook files differ from horizon4")
     for ref, commit in ((assumptions.IMAGE_ID, BASE_COMMIT), (image, PX4_RTL_COMMIT)):
-        _read_only(ref, 'strings /opt/px4-gazebo/bin/px4 | grep -Fx -- "$1"', commit)
+        _read_only(ref, "tr -c '[:print:]' '\\n' < /opt/px4-gazebo/bin/px4 | grep -Fx -- \"$1\"", commit)
     # Exercise the actual launcher shell prefix; only its sed -i input is copied to tmpfs.
     patches = SIM_STARTUP_PATCHES.replace(PX4_GZSIM_RC, STAGE + "/rc").replace(CONTAINER_WORLD, STAGE + "/world")
     _read_only(image, f'mkdir {STAGE}; cp {PX4_GZSIM_RC} {STAGE}/rc; '
@@ -95,7 +97,7 @@ while IFS= read -r file; do sha256sum "$file"; done < /tmp/files
     for name, digest in airframe_digests.items():
         if hashlib.sha256((ROOT / "simulation/px4/airframes-main" / name).read_bytes()).hexdigest() != digest:
             raise ValueError(f"candidate airframe mismatch: {name}")
-    params = json.loads(_read_only(image, "xz -dc /opt/px4-gazebo/etc/extras/parameters.json.xz"))
+    params = json.loads(lzma.decompress(base64.b64decode(_read_only(image, "base64 /opt/px4-gazebo/etc/extras/parameters.json.xz"))))
     defaults = {row["name"]: row["default"] for row in params["parameters"] if "default" in row}
     keys = {*_REQUIRED, *_POSITIVE, "SIM_BAT_DRAIN", "SIM_BAT_MIN_PCT", "SENS_GNSS0_DELAY"}
     if not keys <= defaults.keys():
