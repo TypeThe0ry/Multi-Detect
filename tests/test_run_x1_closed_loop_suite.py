@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -121,7 +122,8 @@ def test_quiet_ticks_cannot_pass_with_missing_model_output():
 
 
 FAKE_RUNNER = '''
-import json, sys, time
+import json
+import socket, sys, time
 from pathlib import Path
 spec = json.loads(Path(sys.argv[1]).read_text())
 root = Path(spec['attempt_dir'])
@@ -182,6 +184,9 @@ def test_owned_fake_llama_and_planner_reuse(tmp_path, monkeypatch):
 
         def __exit__(self, *exc):
             return None
+
+        def setsockopt(self, level, option, value):
+            assert (level, option, value) == (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         def bind(self, address):
             assert address == ("127.0.0.1", port)
