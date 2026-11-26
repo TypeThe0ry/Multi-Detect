@@ -6,6 +6,7 @@ import math
 from collections import Counter, deque
 import time
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import asdict, replace
 from threading import Event
 from types import SimpleNamespace
@@ -32,7 +33,16 @@ QUIET_CADENCE_FLIGHT_STATE_REASONS = frozenset({
 })
 
 
-def llama_decisions(port, sentence):
+def _emit_audit(audit, **record):
+    try:
+        audit(deepcopy(record))
+    except Exception:
+        # An observer must not make a request or receipt fail.
+        pass
+
+
+def llama_decisions(port, sentence, *, audit=None):
+    """Return a backend that can synchronously audit each outbound model turn."""
     def post(request):
         tools = ""
         if "perception" in request:
@@ -54,8 +64,27 @@ def llama_decisions(port, sentence):
         ]}
         req = Request(f"http://127.0.0.1:{port}/v1/chat/completions", json.dumps(body).encode(),
                       {"Content-Type": "application/json"})
-        with urlopen(req, timeout=2.5) as response:
-            wire = json.loads(response.read(65_536))["choices"][0]["message"]["content"]
+        if audit is not None:
+            perception = request.get("perception")
+            call_index = perception.get("call_index", 0) if isinstance(perception, dict) else 0
+            identity = {"request_id": request.get("request_id"), "call_index": call_index}
+            _emit_audit(audit, kind="turn_sent", **identity, request=request,
+                        messages=body["messages"], body=body, body_json=req.data.decode("utf-8"))
+            started_ns = time.monotonic_ns()
+        wire = None
+        backend_error = None
+        try:
+            with urlopen(req, timeout=2.5) as response:
+                wire = json.loads(response.read(65_536))["choices"][0]["message"]["content"]
+        except Exception as exc:
+            if audit is not None:
+                backend_error = {"type": type(exc).__name__, "message": str(exc)}
+            raise
+        finally:
+            if audit is not None:
+                _emit_audit(audit, kind="turn_result", **identity,
+                            latency_ms=(time.monotonic_ns() - started_ns) / 1_000_000,
+                            model_output=wire if backend_error is None else None, backend_error=backend_error)
         return wire
     return post
 
@@ -143,7 +172,7 @@ class DecisionTick:
     def __init__(self, package, profile, backend, gimbal_port, record, *, run_id, plan_digest,
                  revision=1, peer=(1, 1), now_ms=lambda: time.monotonic_ns() // 1_000_000,
                  build_proof=None, cpu_replay=False, native_port=None, decision_cadence_s=0, tool_runner=None,
-                 replace_remaining=None, recorded_cadence_followup=False):
+                 replace_remaining=None, recorded_cadence_followup=False, audit=None, target_cadence_only=False):
         if not math.isfinite(decision_cadence_s) or decision_cadence_s < 0:
             raise ValueError("decision cadence must be finite and nonnegative")
         if cpu_replay and (gimbal_port is not None or native_port is not None):
@@ -166,6 +195,7 @@ class DecisionTick:
         self.mission_id = package.mission_id
         self.revision = revision
         self.backend, self.record, self.now_ms = backend, record, now_ms
+        self.audit = audit
         self.tool_runner = tool_runner
         self.tool_cancel = None
         self.run_id, self.plan_digest = run_id, plan_digest
@@ -179,6 +209,7 @@ class DecisionTick:
         self.last_submit_ms = None
         self.cadence_s = decision_cadence_s
         self.recorded_cadence_followup = recorded_cadence_followup
+        self.target_cadence_only = target_cadence_only
         self.last_followup_event = 0
         self.recent_receipts = deque(maxlen=4)
         self.quiet_cadence_rejected_continue = Counter()
@@ -211,6 +242,10 @@ class DecisionTick:
         event_id = snapshot["latest_event_id"]
         event_due = (event_current and snapshot["events"] and event_id != self.last_requested
                      and now - snapshot["events"][-1]["t_ms"] <= MAX_DECISION_AGE_MS)
+        target_cadence_due = (self.target_cadence_only and event_due and event_id != self.last_followup_event
+                              and snapshot["events"][-1]["type"] == "target_found")
+        if self.target_cadence_only and event_due and snapshot["events"][-1]["type"] == "target_found":
+            event_due = False
         phase = mission_progress["phase"] if mission_progress is not None else None
         remaining_sha = (mission_progress["remaining_plan_sha256"]
                          if mission_progress is not None else self.plan_digest)
@@ -273,7 +308,7 @@ class DecisionTick:
                     and event_id == self.last_requested and event_id > self.last_followup_event
                     and snapshot["events"] and snapshot["events"][-1]["type"] == "target_found")
         cadence_due = (self.cadence_s > 0 and cadence_active and mission_progress is not None
-                       and (followup or self.last_submit_ms is None
+                       and (followup or target_cadence_due or self.last_submit_ms is None
                             or (now - self.last_submit_ms) / 1000 >= interval_s))
         if not event_due and not cadence_due:
             return
@@ -282,14 +317,16 @@ class DecisionTick:
         request = self.executor.open_request(snapshot, run_id=self.run_id, hold_refs=tuple(holds),
                                              remaining_plan_sha256=self.plan_digest if event_due else remaining_sha,
                                              mission_progress=progress)
+        if self.audit is not None:
+            _emit_audit(self.audit, kind="request_opened", request_id=request["request_id"], request=request)
         if event_due:
             self.last_requested = event_id
-        elif followup:
+        elif followup or target_cadence_due:
             self.last_followup_event = event_id
-        if event_due or (step_boundary is not None and perception is not None):
+        if event_due or target_cadence_due or (step_boundary is not None and perception is not None):
             # The audit record has the original sample, not the backend input.
-            audit = {**request, "scenario_observation": perception} if perception is not None else request
-            self._mark("request", request=audit)
+            sample = {**request, "scenario_observation": perception} if perception is not None else request
+            self._mark("request", request=sample)
         self.last_submit_ms = now
         self.pending = request, holds, signature, injected_target_reading(perception)
         if self.tool_runner is None:
@@ -372,14 +409,20 @@ class DecisionTick:
         receipt = {"request_id": request["request_id"], "event_id": request["event_id"],
                    "trigger": request.get("trigger", "event"), **asdict(admission)}
         self.recent_receipts.append(receipt)
-        if (request.get("trigger") == "cadence" and admission.action == "continue"
-                and admission.status == "rejected" and admission.reason in QUIET_CADENCE_FLIGHT_STATE_REASONS):
+        suppressed = (request.get("trigger") == "cadence" and admission.action == "continue"
+                      and admission.status == "rejected" and admission.reason in QUIET_CADENCE_FLIGHT_STATE_REASONS)
+        latency_ms = now - request["state"]["t_ms"]
+        if suppressed:
             self.quiet_cadence_rejected_continue[admission.reason] += 1
-            return
-        progress = request.get("mission_progress")
-        if progress is not None:
-            trace.update(phase=progress["phase"], step_index=progress["step_index"])
-        self._mark("receipt", **receipt, latency_ms=now - request["state"]["t_ms"], **self.provenance, **trace)
+        else:
+            progress = request.get("mission_progress")
+            if progress is not None:
+                trace.update(phase=progress["phase"], step_index=progress["step_index"])
+            self._mark("receipt", **receipt, latency_ms=latency_ms, **self.provenance, **trace)
+        if self.audit is not None:
+            _emit_audit(self.audit, kind="receipt", request_id=receipt["request_id"],
+                        status=admission.status, action=admission.action, reason=admission.reason,
+                        latency_ms=latency_ms, suppressed=suppressed)
 
     def close(self):
         if self.pending is not None:
