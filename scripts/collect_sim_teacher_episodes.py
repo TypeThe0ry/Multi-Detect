@@ -5037,15 +5037,19 @@ class _GimbalSendGate:
 
 
 def _join_action_with_gimbal(thread: Any, session: Any, on_tick: Any, *, cancel: Any = None,
-                             abandon_on_cancel: bool = False) -> None:
+                             abandon_on_cancel: bool = False, abandon: Any = None) -> None:
     """Continue the session during a primitive without racing the MAVLink reader.
 
     Join an already-issued motion before propagating errors.  A managed
     gimbal-only worker may be left to finish after cancellation: it is a
     daemon, and the admission gate prevents it from starting another send.
+    ``abandon()`` true means a native handoff revoked route writes: the
+    primitive thread can only wait on telemetry now, so stop joining it.
     """
     error = None
     while thread.is_alive():
+        if abandon is not None and abandon():
+            return
         if session is not None and error is None:
             try:
                 session.poll()
@@ -7897,8 +7901,12 @@ def run_episode(
                 )
                 # Explicit mission graphs own their transition after MC takeoff.
                 policy_transitions = bool(getattr(policy, "controls_vtol_transition", False))
+                route_link = _ReaderAckLink(vehicle, mav_reader)
+                if x1_scenario is not None:
+                    # One route writer: a native handoff claim refuses every later route send.
+                    route_link = x1_scenario.route_gate.wrap(route_link)
                 executor = FixedWingVtolExecutor(
-                    _ReaderAckLink(vehicle, mav_reader),
+                    route_link,
                     airframe=profile.id,
                     takeoff_method=takeoff_method,
                     landing_method=landing_method,
@@ -7933,6 +7941,10 @@ def run_episode(
                     clock=primitive_sim_clock,
                 )
                 setpoint_streamer = getattr(executor, "offboard_streamer", None)
+                if x1_scenario is not None and setpoint_streamer is not None:
+                    # The route's OFFBOARD stream stops with the claim; PX4 offboard-loss
+                    # failsafe is the floor if the native command is not taken.
+                    x1_scenario.route_gate.add_stop(setpoint_streamer.stop)
                 recorder.meta["airframe_profile"] = profile.to_mapping()
                 recorder.meta["vtol_hover_mission"] = hover_mission
                 recorder.meta["takeoff_method"] = takeoff_method
@@ -8612,6 +8624,16 @@ def run_episode(
                 if x1_scenario is not None:
                     x1_scenario.tick(index, long_range_gimbal_hold if not landing_started else None)
 
+            def _x1_native_active() -> bool:
+                return x1_scenario is not None and x1_scenario.native_active
+
+            def _record_x1_route_superseded(index: int, phase: str) -> None:
+                recorder.record_mavlink({"message_type": "collector_route_superseded", "step_index": index,
+                                         "phase": phase, "owner": x1_scenario.route_gate.owner,
+                                         "refused_route_writes": list(x1_scenario.route_gate.blocked),
+                                         "receive_monotonic_ns": time.monotonic_ns()})
+                _progress("x1_route_superseded", step=index, phase=phase)
+
             fw_phase = X1FwPhase()
             for index in range(plan.steps_per_episode):
                 # perf_counter_ns is monotonic and has negligible overhead; keep
@@ -8630,6 +8652,9 @@ def run_episode(
                 if horizon_loop is not None:
                     horizon_loop.check()
                 _scenario_decision_tick(index)
+                if _x1_native_active():
+                    _record_x1_route_superseded(index, "before_step")
+                    break
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 step_started_sim_ns = pose_sim_stamp_ns
@@ -9084,6 +9109,7 @@ def run_episode(
                         _action_tick,
                         cancel=gimbal_send_gate.cancel,
                         abandon_on_cancel=managed_gimbal_action is not None,
+                        abandon=_x1_native_active,
                     )
                 except Exception as exc:
                     _progress("gimbal_action_failed", error=str(exc),
@@ -9091,6 +9117,10 @@ def run_episode(
                     recorder.record_mavlink({"message_type": "collector_gimbal_send_gate",
                                              "events": gimbal_send_gate.snapshot()})
                     raise
+                if _x1_native_active():
+                    # PX4 owns motion now; this primitive's outcome is not a route result.
+                    _record_x1_route_superseded(index, "during_step")
+                    break
                 if execute_error:
                     raise execute_error[0]
                 if fw_hover_preaim:
@@ -9447,59 +9477,67 @@ def run_episode(
                 # make a fixed wall-clock wait expire before PX4 reaches the ground.
                 mav_reader.raise_if_failed()
                 _progress("land")
-                if land_after_route:
-                    if _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3:
-                        raise RuntimeError("guided VTOL landing requires confirmed MC mode")
-                elif not use_multirotor_executor:
-                    rtl_started_ns = time.monotonic_ns()
-                    executor.rtl()
-                    # Confirm PX4 is really in AUTO.RTL before anything else is sent:
-                    # otherwise the landing mission upload races the mode change and
-                    # PX4 may skip RTL ("No valid mission available").
-                    rtl_mode = _wait_px4_mode(
-                        mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S, after_ns=rtl_started_ns
-                    )
-                    if not rtl_mode["confirmed"]:
-                        executor.rtl()
-                        rtl_mode = _wait_px4_mode(
-                            mav_reader,
-                            (4, 5),
-                            timeout_s=RTL_MODE_CONFIRM_S,
-                            after_ns=time.monotonic_ns(),
-                        )
-                    recorder.meta["rtl_mode"] = rtl_mode
-                    _progress("rtl", **rtl_mode)
-                    profile = _airframe_profile(plan.airframe)
-                    if (
-                        profile is not None
-                        and profile.category in {"fixed_wing", "vtol"}
-                        and not (strict_delta_smoke and _delta_native_rtl_requested())
-                    ):
-                        # Let RTL bring the aircraft back over home before the landing
-                        # (mission or VTOL back-transition) replaces it.
-                        _progress(
-                            "rtl_home",
-                            **_wait_near_home(
-                                mav_reader,
-                                radius_m=2.0 * profile.orbit_radius() + 50.0,
-                                timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],
-                            ),
-                        )
-                # Fixed-wing/VTOL use their physical landing lifecycle. x500 uses
-                # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
-                if strict_delta_smoke and _delta_native_rtl_requested():
-                    land_result = _wait_native_rtl_landing(mav_reader)
-                elif use_multirotor_executor:
-                    land_result = _land_and_wait(
-                        executor,
-                        mav_reader,
-                        telemetry_connection,
-                        setpoint_streamer,
+                if _x1_native_active():
+                    # Only PX4 writes now. Read back the admitted native action until it lands;
+                    # an unconfirmed takeover or expired hold fails closed (PX4 failsafe floor).
+                    land_result = x1_scenario.finish_native(
+                        x1_scenario.step,
+                        check=lambda: (episode_watchdog.check(), mav_reader.raise_if_failed()),
                     )
                 else:
-                    land_result = _fixed_wing_or_vtol_land_and_wait(
-                        executor, mav_reader, already_in_mc=land_after_route
-                    )
+                    if land_after_route:
+                        if _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3:
+                            raise RuntimeError("guided VTOL landing requires confirmed MC mode")
+                    elif not use_multirotor_executor:
+                        rtl_started_ns = time.monotonic_ns()
+                        executor.rtl()
+                        # Confirm PX4 is really in AUTO.RTL before anything else is sent:
+                        # otherwise the landing mission upload races the mode change and
+                        # PX4 may skip RTL ("No valid mission available").
+                        rtl_mode = _wait_px4_mode(
+                            mav_reader, (4, 5), timeout_s=RTL_MODE_CONFIRM_S, after_ns=rtl_started_ns
+                        )
+                        if not rtl_mode["confirmed"]:
+                            executor.rtl()
+                            rtl_mode = _wait_px4_mode(
+                                mav_reader,
+                                (4, 5),
+                                timeout_s=RTL_MODE_CONFIRM_S,
+                                after_ns=time.monotonic_ns(),
+                            )
+                        recorder.meta["rtl_mode"] = rtl_mode
+                        _progress("rtl", **rtl_mode)
+                        profile = _airframe_profile(plan.airframe)
+                        if (
+                            profile is not None
+                            and profile.category in {"fixed_wing", "vtol"}
+                            and not (strict_delta_smoke and _delta_native_rtl_requested())
+                        ):
+                            # Let RTL bring the aircraft back over home before the landing
+                            # (mission or VTOL back-transition) replaces it.
+                            _progress(
+                                "rtl_home",
+                                **_wait_near_home(
+                                    mav_reader,
+                                    radius_m=2.0 * profile.orbit_radius() + 50.0,
+                                    timeout_s=FixedWingVtolExecutor.STATE_TIMEOUT_S["rtl"],
+                                ),
+                            )
+                    # Fixed-wing/VTOL use their physical landing lifecycle. x500 uses
+                    # the OFFBOARD -> LAND helper with PX4-time waits on Linux.
+                    if strict_delta_smoke and _delta_native_rtl_requested():
+                        land_result = _wait_native_rtl_landing(mav_reader)
+                    elif use_multirotor_executor:
+                        land_result = _land_and_wait(
+                            executor,
+                            mav_reader,
+                            telemetry_connection,
+                            setpoint_streamer,
+                        )
+                    else:
+                        land_result = _fixed_wing_or_vtol_land_and_wait(
+                            executor, mav_reader, already_in_mc=land_after_route
+                        )
             except _EpisodeEarlyStop as exc:
                 if not episode_data_complete or exc.reason not in _EPISODE_RESOURCE_STOP_REASONS:
                     raise

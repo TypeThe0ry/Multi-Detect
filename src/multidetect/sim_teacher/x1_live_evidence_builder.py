@@ -4,10 +4,12 @@ from __future__ import annotations
 from copy import deepcopy
 
 from multidetect.autonomy.mission_package import number
-from multidetect.sim_teacher.x1_live_clearance import _box, _fields, _suffix
+from multidetect.sim_teacher.x1_live_clearance import _box, _fields, _suffix, parse_native
 
 _BINDINGS = ("scope_sha256", "dem_sha256", "base_mission_sha256")
 _FIELDS = ("dem_error_m", "obstacle_coverage", "obstacles", "landing_pad", "battery", "suffixes")
+# Optional per-action native bounds. Absent sections keep those actions rejected.
+_OPTIONAL = ("native",)
 
 
 def build_live_evidence(package, *, terrain, scope_sha256, base_mission_sha256, surveyed_bounds=None):
@@ -24,7 +26,7 @@ def build_live_evidence(package, *, terrain, scope_sha256, base_mission_sha256, 
     if surveyed_bounds is not None:
         if any(bounds.get(key) != value for key, value in bindings.items()):
             raise ValueError("host evidence bounds do not match the compiled scenario, DEM or base mission")
-        if bounds.keys() - set(_BINDINGS + _FIELDS):
+        if bounds.keys() - set(_BINDINGS + _FIELDS + _OPTIONAL):
             raise ValueError("unknown field in host evidence bounds")
 
     if "dem_error_m" in bounds:
@@ -61,6 +63,10 @@ def build_live_evidence(package, *, terrain, scope_sha256, base_mission_sha256, 
             _suffix(suffix, int(index))
         if suffixes:
             evidence["suffixes"] = deepcopy(suffixes)
+
+    if "native" in bounds and "landing_pad" in evidence:
+        parse_native(bounds["native"], terrain)
+        evidence["native"] = deepcopy(bounds["native"])
 
     missing = [key for key in _FIELDS if key not in evidence]
     if "battery_capacity_wh" not in budget:

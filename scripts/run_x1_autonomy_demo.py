@@ -324,8 +324,7 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
     fault = faults[0].kind if len(faults) == 1 else None
     if (canonical_sha256(raw) != canonical_sha256(expected) or site.world_sha256 != assumptions.WORLD_SHA
             or site.terrain.source_sha256 != assumptions.DEM_SHA
-            or base_digest != assumptions.BASE_SHA or fault not in assumptions.SCOPES
-            or scope != assumptions.SCOPES[fault]
+            or base_digest != assumptions.BASE_SHA or scope not in assumptions.scopes_for(fault)
             or set(site_bounds or ()) != {"scope_sha256", "dem_sha256", "base_mission_sha256",
                                           "obstacle_coverage", "obstacles"}):
         raise ValueError("ASSUMED_SIM requires the exact Iowa route, fault schedule and verified site bounds")
@@ -333,9 +332,11 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
     if battery["max_sample_age_ms"] != MOTION_SAMPLE_MAX_AGE_MS:
         raise ValueError("ASSUMED_SIM battery sample delay differs from the runtime gate")
     capacity = raw["battery_capacity_wh"]["value"]
+    # PX4 native-mode parameters are set before arming and read back like the battery model.
     state = {"sha256": hashlib.sha256(data).hexdigest(), "image_id": assumptions.IMAGE_ID,
              "capacity_wh": capacity, "parameters": {"SIM_BAT_DRAIN": battery["nominal_drain_s"],
-                                                      "SIM_BAT_MIN_PCT": battery["nominal_floor_pct"]}}
+                                                      "SIM_BAT_MIN_PCT": battery["nominal_floor_pct"],
+                                                      **raw["px4_native_parameters"]["value"]}}
     if "battery_capacity_wh" in package.document["budget"]:
         raise ValueError("ASSUMED_SIM requires the base mission without a battery capacity override")
     document = {**package.document, "budget": {**package.document["budget"], "battery_capacity_wh": capacity}}
@@ -345,7 +346,9 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
                                   "consumption_error_wh": battery["consumption_error_wh"],
                                   "soc_error_pct": battery["fault_soc_error_pct" if fault == "battery_drop"
                                                            else "nominal_soc_error_pct"]},
-                      "suffixes": {key: entry["value"] for key, entry in raw["suffixes"].items()}}
+                      "suffixes": {key: entry["value"] for key, entry in raw["suffixes"].items()},
+                      "native": {section: {key: entry["value"] for key, entry in entries.items()}
+                                 for section, entries in raw["native"].items()}}
     return load_mission_package(document, mode="sim"), assumed_bounds, state
 
 
@@ -362,11 +365,11 @@ def make_scenario(args, mission, steps, record):
                                                scope=record["contingency_scenario"]["motion_scope_sha256"],
                                                assumed_sim=mission.get("assumed_sim"))
 
-        def make_decision(gimbal, emit, episode_id, peer):
+        def make_decision(gimbal, emit, episode_id, peer, native=None):
             return DecisionTick(package, profile, backend, gimbal, emit,
                                 run_id=episode_id, plan_digest=record["compiled_mission_sha256"],
                                 revision=mission["scenario_revision"], peer=peer,
-                                build_proof=motion_evidence.build_proof)
+                                build_proof=motion_evidence.build_proof, native_port=native)
 
     return CollectorScenario(faults, clearance=forward_clearance(steps, mission["terrain"]),
                              make_decision=make_decision, terrain=mission["terrain"],
@@ -469,12 +472,42 @@ def finish_flight(episode, steps, record):
     if "contingency_scenario" in record:
         scenario_rows = [row for row in mavlink if str(row.get("message_type", "")).startswith("scenario_")]
         record["contingency_scenario"]["markers"] = scenario_rows
+    native = _native_outcome(mavlink, markers, positions, names[len(rows):], record)
+    return_home = bool(observed.get("mc_return_to_home")) or bool(native and native["return_home"])
     record["flight"].update(episode=str(episode), takeoff=takeoff,
                             waypoints_reached=[steps[2].source_step_id] if observed.get("fw_goto_waypoint") else [],
-                            return_home=bool(observed.get("mc_return_to_home")), landing=landed, steps=observed,
+                            return_home=return_home, landing=landed, steps=observed,
                             episode_status=metadata.get("status"), episode_failure=metadata.get("failure"))
-    return (takeoff and landed and metadata.get("status") == "complete"
-            and len(rows) == len(names) and all(observed.values()))
+    if native is not None:
+        record["flight"]["native_handoff"] = native
+    complete = takeoff and landed and metadata.get("status") == "complete" and all(observed.values())
+    if native is not None:
+        # The admitted native action replaced the remaining compiled steps; PX4 flew them.
+        return complete and native["confirmed"] and native["landed_by_native"] and (
+            native["action"] != "return" or native["return_home"])
+    return complete and len(rows) == len(names)
+
+
+def _native_outcome(mavlink, markers, positions, superseded, record):
+    """Summarize a native takeover. None when the route was never superseded."""
+    if not any(row.get("message_type") == "collector_route_superseded" for row in mavlink):
+        return None
+    handoffs = [row for row in mavlink if row.get("message_type") == "scenario_native_handoff"]
+    last = handoffs[-1] if handoffs else {}
+    landing = next((row for row in reversed(markers) if row["message_type"] == "collector_landing_complete"), {})
+    pad_radius = None
+    package_path = record.get("contingency_scenario", {}).get("live_evidence", {}).get("package_path")
+    if package_path:
+        pad = read_object(Path(package_path)).get("x1_live_evidence", {}).get("landing_pad") or {}
+        pad_radius = pad.get("radius_m")
+    offset = math.dist(positions[0][:2], positions[-1][:2]) if positions else None
+    return {"action": last.get("action"), "status": last.get("status"), "reason": last.get("reason"),
+            "confirmed": last.get("status") == "confirmed",
+            "landed_by_native": str(landing.get("method", "")).startswith("native_"),
+            "landing_offset_from_first_sample_m": offset, "landing_pad_radius_m": pad_radius,
+            "return_home": (last.get("action") == "return" and offset is not None
+                            and type(pad_radius) in (int, float) and offset <= pad_radius),
+            "superseded_steps": [step.primitive for step in superseded], "handoffs": handoffs}
 
 
 def run(args, *, post, launch=fly):

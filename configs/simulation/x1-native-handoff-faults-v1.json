@@ -1,0 +1,6 @@
+{
+  "schema": "x1.contingency.faults.v1",
+  "faults": [
+    {"at_ms": 50000, "duration_ms": 8000, "type": "link_loss", "values": {}}
+  ]
+}

@@ -12,6 +12,8 @@ EVENT_KINDS = frozenset({
     "wind_step", "battery_drop", "link_loss", "link_restored", "target_lost",
     "target_reacquired", "obstacle_conflict", "terrain_conflict", "gps_degraded",
     "health_degraded", "transition_problem",
+    # Host-raised before an admitted native hold reaches its proven residence bound.
+    "hold_revalidation",
 })
 MAX_EVENTS = 8
 EVENT_TTL_MS = 15_000

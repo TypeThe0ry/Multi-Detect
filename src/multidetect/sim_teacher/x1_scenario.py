@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 import subprocess
@@ -15,6 +16,13 @@ from multidetect.autonomy.x1_contingency_replay import Fault, load_faults
 from multidetect.autonomy.x1_wind_estimate import WindEstimator, WindReading
 
 from .x1_live_clearance import MOTION_SAMPLE_MAX_AGE_MS
+from .x1_native_handoff import NativeHandoffPort, RouteWriteGate
+
+# A hold re-request must reach Altair and come back within the 3 s decision
+# deadline before the proven residence bound runs out.
+HOLD_REVALIDATION_LEAD_MS = 10_000
+NATIVE_LANDING_TIMEOUT_S = 900.0
+_DISPATCHED = frozenset({"accepted_unconfirmed", "sent_unconfirmed"})
 
 SUPPORTED = frozenset({"wind_step", "battery_drop", "link_loss", "target_lost", "terrain_conflict"})
 MECHANISM = {
@@ -245,8 +253,11 @@ class SitlScenarioTransport:
 
     PARAM = "/opt/px4-gazebo/bin/px4-param"
 
-    def __init__(self, command, *, wind=None, battery_sample=None, clearance=None, link_lock=None):
+    def __init__(self, command, *, wind=None, battery_sample=None, clearance=None, link_lock=None,
+                 recovery_exempt=None):
         self.command = command
+        # Returns a reason only while a confirmed native return/land-now owns the vehicle.
+        self.recovery_exempt = recovery_exempt
         self.wind = wind
         self.battery_sample = battery_sample
         self.clearance = clearance
@@ -355,6 +366,7 @@ class SitlScenarioTransport:
             self._set_param("SIM_BAT_DRAIN", drain)
             # Refill the simulated pack to the captured percentage before removing
             # the temporary floor. The native low-battery mode may remain latched.
+            recovery = {"status": "observed", "expected_min_pct": self.battery_prior - 1}
             try:
                 self._set_param("SIM_BAT_MIN_PCT", self.battery_prior)
                 deadline = time.monotonic() + 8
@@ -364,11 +376,16 @@ class SitlScenarioTransport:
                         break
                     time.sleep(0.05)
                 else:
-                    raise RuntimeError("PX4 battery percentage recovery was not observed")
+                    # The check guards a resumed route. A confirmed native return or
+                    # land-now never resumes it, so record why it was not applied.
+                    reason = self.recovery_exempt() if self.recovery_exempt is not None else None
+                    if reason is None:
+                        raise RuntimeError("PX4 battery percentage recovery was not observed")
+                    recovery = {**recovery, "status": "not_applicable", "reason": reason}
             finally:
                 self._set_param("SIM_BAT_MIN_PCT", floor)
             self.battery_prior = None
-            return {"floor_pct": floor, "drain_s": drain, "observed_recovery_pct": sample}
+            return {"floor_pct": floor, "drain_s": drain, "observed_recovery_pct": sample, "recovery": recovery}
         if kind == "link_loss":
             with self.link_lock:
                 self.link_suppressed.clear()
@@ -478,6 +495,23 @@ class CollectorScenario:
         self.last_event_index = None
         self.gimbal = None
         self.step = 0
+        # Install route_gate.wrap() on the route executor link before flight.
+        self.route_gate = RouteWriteGate()
+        self.native = None
+        self.hold = None
+        self.native_failure = None
+        self._seen_admission = None
+
+    @property
+    def native_active(self):
+        """True once a native action claimed the route writer. It never reopens."""
+        return self.route_gate.owner is not None
+
+    def _recovery_exempt(self):
+        native = self.native
+        if native is not None and native.confirmed("return", "land-now"):
+            return f"vehicle_under_native_{native.action}"
+        return None
 
     def bind(self, docker, container, world, reader, connection, record, episode_id, *, clock):
         from collections import deque
@@ -489,13 +523,22 @@ class CollectorScenario:
         self.transport = SitlScenarioTransport.in_container(
             docker, container, wind=wind, battery_sample=self.battery_pct,
             clearance=lambda: self.clearance(self.step, self.reader.state.get("LOCAL_POSITION_NED")),
-            link_lock=self.heartbeat_lock,
+            link_lock=self.heartbeat_lock, recovery_exempt=self._recovery_exempt,
         )
         if self.make_decision is not None:
+            from .x1_native_handoff import reader_ack_waiter
             from .x1_scenario_decision import GimbalIngress
 
             self.gimbal = GimbalIngress()
-            self.decision = self.make_decision(self.gimbal, record, episode_id, self.target_peer)
+            extra = {}
+            if getattr(connection, "mav", None) is not None:
+                self.native = NativeHandoffPort(
+                    connection, reader, self.route_gate, record, wait_ack=reader_ack_waiter(reader),
+                    peer=self.target_peer,
+                    local_from_wgs84=self.terrain.local_from_wgs84 if self.terrain is not None else None,
+                )
+                extra["native"] = self.native
+            self.decision = self.make_decision(self.gimbal, record, episode_id, self.target_peer, **extra)
 
     def prepare(self):
         self.transport.prepare(self.faults)
@@ -583,24 +626,98 @@ class CollectorScenario:
         events = self._new_events(samples, observations, wind)
         if self.decision is not None:
             point, remaining_energy_wh, remaining_time_s = self._motion_data(index, boot_ms, state)
+            vtol_state = VTOL_STATES.get(vtol.get("vtol_state"))
+            holds = (self.motion_evidence.hold_sites(index, vtol_state)
+                     if self.motion_evidence is not None and hasattr(self.motion_evidence, "hold_sites") else {})
+            hold_current = self._hold_events(now, events)
             frame = RuntimeFrame(
                 frame_id=time.monotonic_ns(), t_ms=now, mission_id=self.decision.mission_id,
                 revision=self.decision.revision, event_id=0,
                 px4_failsafe=True if sys_status in {5, 6, 8} else False if sys_status == 4 else None,
                 armed_in_air=(type(base_mode) is int and bool(base_mode & 128) and vtol.get("landed_state") == 2),
-                vtol_state=VTOL_STATES.get(vtol.get("vtol_state")), agl_m=self._home_height_m(state=state),
-                airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples, state=state), hold_sites={},
+                vtol_state=vtol_state, agl_m=self._home_height_m(state=state),
+                airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples, state=state),
+                hold_sites=holds,
                 gimbal_available=gimbal is not None and not gimbal.awaiting_readback,
                 position_ne_amsl=point, active_motion_index=index,
                 remaining_energy_wh=remaining_energy_wh, remaining_time_s=remaining_time_s,
                 terrain_conflict=terrain.get("conflict") if terrain is not None else None,
             )
-            event_current = (self.last_event_index is not None and boot_ms is not None
-                             and boot_ms - self.worker.timeline.origin < self.faults[self.last_event_index].end_ms)
+            event_current = hold_current or (
+                self.last_event_index is not None and boot_ms is not None
+                and boot_ms - self.worker.timeline.origin < self.faults[self.last_event_index].end_ms)
             # The selected wind is current or unknown, not a generic cached observation.
             mav_rows = (samples[name] for name in MAVLINK_TYPES if name != "WIND_COV" and name in samples)
             self.decision.tick(frame, mav_rows=mav_rows, observations=observations, events=events,
                                event_current=event_current, wind=wind)
+            self._after_decision()
+
+    def _hold_events(self, now, events):
+        """Raise one revalidation event before an admitted hold's residence bound expires."""
+        hold = self.hold
+        if hold is None:
+            return False
+        if now >= hold["deadline_ms"]:
+            self.hold = None
+            self.native_failure = "hold_residence_expired"
+            self.record({"message_type": "scenario_native_hold_expired", "hold_ref": hold["hold_ref"],
+                         "deadline_ms": hold["deadline_ms"], "receive_monotonic_ns": time.monotonic_ns()})
+            return False
+        if not hold["revalidation_requested"] and now >= hold["deadline_ms"] - HOLD_REVALIDATION_LEAD_MS:
+            hold["revalidation_requested"] = True
+            events.append(("hold_revalidation", "executor"))
+            self.record({"message_type": "scenario_native_hold_revalidation", "hold_ref": hold["hold_ref"],
+                         "deadline_ms": hold["deadline_ms"], "receive_monotonic_ns": time.monotonic_ns()})
+        return True
+
+    def _after_decision(self):
+        """Track the residence bound of a dispatched hold and advance native readback."""
+        if self.native is not None:
+            self.native.poll()
+        admitted = getattr(self.decision, "last_admission", None)
+        if admitted is None or admitted is self._seen_admission:
+            return
+        self._seen_admission = admitted
+        admission, proof, admitted_ms, wire = admitted
+        if admission.status not in _DISPATCHED:
+            return
+        if admission.action == "loiter" and proof is not None and type(proof.required_time_s) in (int, float):
+            # The executor decoded and admitted this exact wire; it names the hold.
+            self.hold = {"hold_ref": json.loads(wire)["params"]["hold_ref"],
+                         "deadline_ms": admitted_ms + int(proof.required_time_s * 1000),
+                         "revalidation_requested": False}
+        elif admission.action in {"return", "land-now"}:
+            self.hold = None
+
+    def finish_native(self, index, *, check=lambda: None, timeout_s=NATIVE_LANDING_TIMEOUT_S,
+                      sleep=time.sleep, monotonic=time.monotonic):
+        """After a native claim: keep readback and decisions running until PX4 lands.
+
+        Fails closed. An unconfirmed takeover or an expired hold is reported,
+        and the vehicle is left to PX4 (its own failsafe is the floor).
+        """
+        if not self.native_active:
+            raise RuntimeError("X1 native finish requires a claimed route writer")
+        started = monotonic()
+        while True:
+            check()
+            self.tick(index, None)
+            native = self.native
+            if native is None or native.pending is None:
+                raise RuntimeError("X1 native handoff claimed the route writer but dispatched no command")
+            if native.status == "unconfirmed":
+                raise RuntimeError(f"X1 native handoff unconfirmed: {native.action}; PX4 failsafe remains the floor")
+            if self.native_failure is not None:
+                raise RuntimeError(f"X1 native handoff failed closed: {self.native_failure}")
+            if native.confirmed("return", "land-now"):
+                landed = native.landed()
+                if landed is not None:
+                    return {"status": "landed", "method": f"native_{native.action}",
+                            "native_handoff": [dict(row) for row in native.history],
+                            "elapsed_s": monotonic() - started, **landed}
+            if monotonic() - started > timeout_s:
+                raise TimeoutError(f"X1 native {native.action} did not land within {timeout_s:.0f} s")
+            sleep(0.1)
 
     def _home_height_m(self, *, state=None):
         """Height above the SITL home point (flat launch pad), from fresh GLOBAL_POSITION_INT."""

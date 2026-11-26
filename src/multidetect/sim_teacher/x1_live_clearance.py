@@ -8,7 +8,10 @@ from dataclasses import asdict, dataclass, replace
 
 from multidetect.autonomy.mission_package import number
 from multidetect.autonomy.serialization import canonical_sha256
+from multidetect.autonomy.x1_contingency_executor import HoldSite
 from multidetect.autonomy.x1_motion_proof import ExecutionSweep, LandingPad, SweptLeg, X1MotionProofBuilder
+from multidetect.autonomy.x1_contingency_state import require_token
+from multidetect.target_geolocation import wgs84_forward_from_ned
 
 MOTION_SAMPLE_MAX_AGE_MS = 500
 _SUFFIXES = {1: ("fw", ("fw", "transition", "mc", "landing")),
@@ -118,6 +121,107 @@ def _suffix(raw, index):
                         airspeed, failure)
 
 
+_DYNAMICS = ("max_bank_deg", "max_climb_mps", "max_descent_mps", "max_acceleration_mps2", "max_angular_rate_dps")
+# PX4 RTL from FW loiters around home before its back-transition (rtl_direct.cpp
+# MOVE_TO_LOITER/LOITER_DOWN/MOVE_TO_LAND), which is not the compiled corridor.
+# Only the MC return (direct to home, then LAND) is modelled in this slice.
+_NATIVE_RETURN_STEPS = frozenset({"3"})
+_NATIVE_LAND_STEPS = frozenset({"3"})
+
+
+def _dynamics(raw):
+    return {key: number(value, key) for key, value in zip(_DYNAMICS, _fields(raw, *_DYNAMICS), strict=True)}
+
+
+@dataclass(frozen=True)
+class _LandNowBound:
+    max_entry_speed_mps: float
+    padding_ne_m: float
+    padding_alt_m: float
+    duration_s: float
+    peak_power_w: float
+    dynamics: dict[str, float]
+
+
+@dataclass(frozen=True)
+class _HoldBound:
+    site: HoldSite
+    steps: frozenset
+    entry: tuple[float, ...]
+    max_entry_speed_mps: float
+    centre: tuple[float, float, float] | None
+    padding_ne_m: float
+    padding_alt_m: float
+    duration_s: float
+    peak_power_w: float
+    dynamics: dict[str, float]
+    airspeed: tuple[float | None, float | None]
+
+
+def _land_now(raw):
+    speed, padding_ne, padding_alt, duration, power, dynamics = _fields(
+        raw, "max_entry_speed_mps", "padding_ne_m", "padding_alt_m", "duration_s", "peak_power_w", "dynamics")
+    return _LandNowBound(number(speed, "entry speed", minimum=0.001), number(padding_ne, "horizontal padding"),
+                         number(padding_alt, "vertical padding"), number(duration, "duration", minimum=0.001),
+                         number(power, "power", minimum=0.001), _dynamics(dynamics))
+
+
+def _hold(raw, terrain):
+    mode = raw.get("mode") if isinstance(raw, Mapping) else None
+    keys = ["mode", "steps", "entry", "max_entry_speed_mps", "padding_ne_m", "padding_alt_m", "duration_s",
+            "peak_power_w", "dynamics"]
+    if mode == "fw":
+        keys += ["centre", "radius_m", "tangential_speed_mps", "airspeed"]
+    elif mode != "mc":
+        raise ValueError("hold mode must be mc or fw")
+    values = dict(zip(keys, _fields(raw, *keys), strict=True))
+    steps = values["steps"]
+    if not isinstance(steps, list) or not steps or not set(steps) <= {1, 2, 3} or len(set(steps)) != len(steps):
+        raise ValueError("invalid hold step indices")
+    common = dict(steps=frozenset(steps), entry=_box(values["entry"]),
+                  max_entry_speed_mps=number(values["max_entry_speed_mps"], "entry speed", minimum=0.001),
+                  padding_ne_m=number(values["padding_ne_m"], "horizontal padding"),
+                  padding_alt_m=number(values["padding_alt_m"], "vertical padding"),
+                  duration_s=number(values["duration_s"], "hold residence bound", minimum=0.001),
+                  peak_power_w=number(values["peak_power_w"], "power", minimum=0.001),
+                  dynamics=_dynamics(values["dynamics"]))
+    if mode == "mc":
+        return _HoldBound(site=HoldSite("mc"), centre=None, airspeed=(None, None), **common)
+    north, east, altitude = _vector(values["centre"], 3)
+    radius = number(values["radius_m"], "orbit radius", minimum=0.001)
+    speed = number(values["tangential_speed_mps"], "orbit speed", minimum=0.001)
+    if common["padding_ne_m"] < radius:
+        raise ValueError("orbit padding must cover the whole disk")
+    lat, lon = wgs84_forward_from_ned(latitude_deg=terrain.origin_latitude_deg,
+                                      longitude_deg=terrain.origin_longitude_deg,
+                                      north_offset_m=north, east_offset_m=east)
+    # Anchor the proof on the exact point the WGS-84 command will denote.
+    n, e = terrain.local_from_wgs84(lat, lon)
+    if math.dist((n, e), (north, east)) > 0.05:
+        raise ValueError("orbit centre does not round-trip through WGS-84")
+    airspeed = _vector(values["airspeed"], 2)
+    if not 0 < airspeed[0] <= airspeed[1]:
+        raise ValueError("invalid airspeed bounds")
+    return _HoldBound(site=HoldSite("fw", lat, lon, altitude, radius, speed), centre=(n, e, altitude),
+                      airspeed=airspeed, **common)
+
+
+def parse_native(raw, terrain):
+    """Validate host bounds for native return, land-now and hold sites."""
+    if not isinstance(raw, Mapping) or not set(raw) <= {"return", "land-now", "holds"} or not raw:
+        raise ValueError("invalid native bound sections")
+    returns, landings, holds = raw.get("return", {}), raw.get("land-now", {}), raw.get("holds", {})
+    if not isinstance(returns, Mapping) or not set(returns) <= _NATIVE_RETURN_STEPS:
+        raise ValueError("native return is bounded only for the MC return step")
+    if not isinstance(landings, Mapping) or not set(landings) <= _NATIVE_LAND_STEPS:
+        raise ValueError("native land-now is bounded only for the MC return step")
+    if not isinstance(holds, Mapping) or len(holds) > 8:
+        raise ValueError("expected at most 8 hold sites")
+    return ({int(k): _suffix(v, int(k)) for k, v in returns.items()},
+            {int(k): _land_now(v) for k, v in landings.items()},
+            {require_token(ref): _hold(v, terrain) for ref, v in holds.items()})
+
+
 class LiveContinueEvidence:
     """The package supplies surveyed geometry and certified bounds for this lowering.
 
@@ -130,6 +234,9 @@ class LiveContinueEvidence:
         self.assumed_sim = assumed_sim
         self.budget = package.document["budget"]
         self.suffixes = {}
+        self.native_returns, self.native_landings, self.holds = {}, {}, {}
+        self._entry = None
+        self.terrain = terrain
         self.battery_bounds = None
         self.consumption_high_water = {}
         terrain_error, obstacle_clearance, self.pad = None, None, None
@@ -143,6 +250,8 @@ class LiveContinueEvidence:
             config = {k: v for k, v in config.items() if k not in {"basis", "assumed_bounds_sha256"}}
         if config is not None:
             try:
+                native = config.get("native")
+                config = {k: v for k, v in config.items() if k != "native"}
                 (bound_scope, dem_digest, dem_error, coverage, obstacles, pad, battery, suffixes) = _fields(
                     config, "scope_sha256", "dem_sha256", "dem_error_m", "obstacle_coverage",
                     "obstacles", "landing_pad", "battery", "suffixes")
@@ -167,11 +276,14 @@ class LiveContinueEvidence:
                 if not isinstance(suffixes, Mapping) or not set(suffixes) <= {"1", "2", "3"}:
                     raise ValueError("invalid suffix indices")
                 self.suffixes = {int(index): _suffix(raw, int(index)) for index, raw in suffixes.items()}
+                if native is not None:
+                    self.native_returns, self.native_landings, self.holds = parse_native(native, terrain)
                 self.pad, self.battery_bounds = landing_pad, battery_bounds
             except ValueError:
                 if self.assumed_sim is not None:
                     raise
                 terrain_error, obstacle_clearance = None, None
+                self.suffixes, self.native_returns, self.native_landings, self.holds = {}, {}, {}, {}
         self.builder = X1MotionProofBuilder(
             package, profile, terrain, steps,
             mission_radius_m=package.document["x1_planning"]["max_distance_from_home_m"],
@@ -218,32 +330,101 @@ class LiveContinueEvidence:
             return None
         return max(0.0, self.budget["time_s"] - boot_ms / 1000.0)
 
+    def _entries(self, index):
+        """Every bound whose entry gate applies at this compiled step."""
+        entries = []
+        if index in self.suffixes:
+            entries.append((("continue", index), self.suffixes[index]))
+        if index in self.native_returns:
+            entries.append((("return", index), self.native_returns[index]))
+        entries += [(("hold", ref), bound) for ref, bound in sorted(self.holds.items()) if index in bound.steps]
+        return entries
+
     def check_entry(self, index, point, local):
-        bound = self.suffixes.get(index)
-        if bound is None or point is None or not _contains(bound.entry, point):
+        """Return the point if any applicable bound admits it; remember which ones do."""
+        self._entry = None
+        if point is None:
             return None
         try:
             _vector([local.get(key) for key in ("x", "y", "z")], 3)
             velocity = _vector([local.get(key) for key in ("vx", "vy", "vz")], 3)
         except ValueError:
             return None
-        return point if math.hypot(*velocity) <= bound.max_entry_speed_mps else None
+        speed = math.hypot(*velocity)
+        admitted = {key for key, bound in self._entries(index)
+                    if _contains(bound.entry, point) and speed <= bound.max_entry_speed_mps}
+        land = self.native_landings.get(index)
+        if land is not None and speed <= land.max_entry_speed_mps and self._land_pad(point, land) is not None:
+            admitted.add(("land-now", index))
+        if not admitted:
+            return None
+        self._entry = point, frozenset(admitted)
+        return point
+
+    def _entered(self, key, start):
+        return self._entry is not None and self._entry[0] == start and key in self._entry[1]
+
+    def hold_sites(self, index, vtol_state):
+        """Host-defined hold options for this step and steady mode (offered to Altair by reference)."""
+        return {ref: bound.site for ref, bound in sorted(self.holds.items())
+                if index in bound.steps and bound.site.mode == vtol_state}
+
+    def hold_residence_s(self, ref):
+        bound = self.holds.get(ref)
+        return bound.duration_s if bound is not None else None
+
+    def _land_pad(self, point, bound):
+        # A disk inside the surveyed home pad is itself surveyed landable.
+        if self.pad is None:
+            return None
+        radius = self.pad.radius_m - math.dist(point[:2], self.pad.point[:2])
+        if radius <= bound.padding_ne_m:
+            return None
+        return LandingPad((*point[:2], self.pad.point[2]), radius, self.pad.elevation_error_m)
+
+    def _sweep(self, decision, frame, legs, bound, *, low=None, high=None, pad=None, **options):
+        return ExecutionSweep(frame.frame_id, decision.digest, tuple(legs), min_airspeed_mps=low,
+                              max_airspeed_mps=high, landing_pad=pad, **options, **bound.dynamics)
+
+    def _airspeed_ok(self, frame, low, high):
+        return low is None or (frame.airspeed_mps is not None and low <= frame.airspeed_mps <= high)
 
     def build_proof(self, decision, frame):
         sweep = None
         index, start = frame.active_motion_index, frame.position_ne_amsl
-        bound = self.suffixes.get(index)
-        if (decision.action == "continue" and bound is not None and frame.vtol_state == _SUFFIXES[index][0]
-                and start is not None and _contains(bound.entry, start)):
-            low, high = bound.airspeed
-            if low is None or (frame.airspeed_mps is not None and low <= frame.airspeed_mps <= high):
+        action = decision.action
+        steady = _SUFFIXES[index][0] if index in _SUFFIXES else None
+        if action in {"continue", "return"} and start is not None:
+            bound = (self.suffixes if action == "continue" else self.native_returns).get(index)
+            if (bound is not None and frame.vtol_state == steady and _contains(bound.entry, start)
+                    and self._entered((action, index), start)
+                    and self._airspeed_ok(frame, *bound.airspeed)):
                 legs = []
                 for leg in bound.legs:
                     legs.append(SweptLeg(leg.phase, start, leg.end, leg.padding_ne_m, leg.padding_alt_m,
                                          leg.duration_s, leg.peak_power_w))
                     start = leg.end
-                sweep = ExecutionSweep(frame.frame_id, decision.digest, tuple(legs),
-                                       min_airspeed_mps=low, max_airspeed_mps=high, landing_pad=self.pad,
-                                       failure_revalidation_enforced=bound.failure_revalidation_enforced,
-                                       **bound.dynamics)
+                low, high = bound.airspeed
+                sweep = self._sweep(decision, frame, legs, bound, low=low, high=high, pad=self.pad,
+                                    failure_revalidation_enforced=bound.failure_revalidation_enforced)
+        elif action == "land-now" and start is not None and self._entered(("land-now", index), start):
+            bound = self.native_landings[index]
+            pad = self._land_pad(start, bound)
+            if pad is not None and frame.vtol_state == "mc":
+                leg = SweptLeg("landing", start, pad.point, bound.padding_ne_m, bound.padding_alt_m,
+                               bound.duration_s, bound.peak_power_w)
+                sweep = self._sweep(decision, frame, (leg,), bound, pad=pad)
+        elif action == "loiter" and start is not None:
+            ref = decision.params["hold_ref"]
+            bound = self.holds.get(ref)
+            if (bound is not None and index in bound.steps and frame.vtol_state == bound.site.mode
+                    and frame.hold_sites.get(ref) == bound.site and _contains(bound.entry, start)
+                    and self._entered(("hold", ref), start) and self._airspeed_ok(frame, *bound.airspeed)):
+                end = bound.centre if bound.centre is not None else start
+                leg = SweptLeg(bound.site.mode, start, end, bound.padding_ne_m, bound.padding_alt_m,
+                               bound.duration_s, bound.peak_power_w)
+                low, high = bound.airspeed
+                # The collector re-requests a decision before this residence bound ends.
+                sweep = self._sweep(decision, frame, (leg,), bound, low=low, high=high,
+                                    hold_revalidation_enforced=True)
         return replace(self.builder.build(decision, frame, sweep), basis=self.basis)

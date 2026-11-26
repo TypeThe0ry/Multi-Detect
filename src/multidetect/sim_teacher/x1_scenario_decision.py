@@ -74,21 +74,55 @@ class _ReplayPort:
         return SimpleNamespace(ok=True, ack_result=0)
 
 
+class _LivePort:
+    """The collector's gimbal ingress plus the native handoff writer."""
+
+    def __init__(self, gimbal, native):
+        self.gimbal, self.native = gimbal, native
+
+    def gimbal_control(self, **angles):
+        if self.gimbal is None:
+            return SimpleNamespace(ok=False, ack_result=None)
+        return self.gimbal.gimbal_control(**angles)
+
+    def rtl(self):
+        return self.native.rtl()
+
+    def land(self):
+        return self.native.land()
+
+    def set_mode(self, mode):
+        return self.native.set_mode(mode)
+
+    def loiter_at(self, centre, radius, altitude, *, speed):
+        return self.native.loiter_at(centre, radius, altitude, speed=speed)
+
+
 class DecisionTick:
-    """Submit on a worker. Validate and apply on the serialized collector tick."""
+    """Submit on a worker. Validate and apply on the serialized collector tick.
+
+    Without ``native_port`` a live tick cannot claim the route writer, so every
+    native action is rejected with ``native_handoff_not_available``.
+    """
 
     def __init__(self, package, profile, backend, gimbal_port, record, *, run_id, plan_digest,
                  revision=1, peer=(1, 1), now_ms=lambda: time.monotonic_ns() // 1_000_000,
-                 build_proof=None, cpu_replay=False):
-        if cpu_replay and gimbal_port is not None:
+                 build_proof=None, cpu_replay=False, native_port=None):
+        if cpu_replay and (gimbal_port is not None or native_port is not None):
             raise ValueError("CPU replay cannot take a live port")
         replay_port = _ReplayPort() if cpu_replay else None
         self.replay_commands = replay_port.commands if replay_port is not None else None
+        self.native = native_port
+        if replay_port is not None:
+            port, claim = replay_port, (lambda: True)
+        elif native_port is not None:
+            port, claim = _LivePort(gimbal_port, native_port), native_port.claim
+        else:
+            port, claim = gimbal_port, (lambda: False)
         self.builder = X1StateBuilder(vehicle_system=peer[0], vehicle_component=peer[1])
         self.executor = X1ContingencyExecutor(
             X1AirbornePlanAdapter(revision, replace_remaining=lambda *_: False),
-            replay_port if replay_port is not None else gimbal_port,
-            package, X1Envelope(profile), claim_native=lambda: replay_port is not None,
+            port, package, X1Envelope(profile), claim_native=claim,
             capabilities=frozenset(package.document["capabilities"]),
         )
         self.mission_id = package.mission_id
@@ -101,6 +135,7 @@ class DecisionTick:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="x1-altair-decision")
         self.future = None
         self.last_requested = 0
+        self.last_admission = None
 
     def _mark(self, phase, **fields):
         self.record({"message_type": f"scenario_decision_{phase}",
@@ -148,6 +183,7 @@ class DecisionTick:
                 trace = dict(self.provenance)
                 if trace:
                     trace["motion_proof"] = asdict(proof) if proof is not None else None
+                self.last_admission = admission, proof, now, wire if isinstance(wire, str) else None
                 self._mark("receipt", request_id=self.request_id, wire=wire if isinstance(wire, str) else None,
                            **asdict(admission), **trace)
             finally:
