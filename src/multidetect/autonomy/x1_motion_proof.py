@@ -167,10 +167,18 @@ class X1MotionProofBuilder:
                     return False
         return True
 
-    def _route_matches(self, d, frame, sweep, boxes):
+    def _route_matches(self, d, frame, sweep, boxes, *, native_fw_rtl=False):
         groups = _phase_groups(sweep.legs)
         phases = tuple(group[0].phase for group in groups)
         first, last = sweep.legs[0].start, sweep.legs[-1].end
+        if native_fw_rtl:
+            # Direct native RTL uses the mission package corridor (checked by
+            # _fence_clear), not the narrow compiled straight-line connector.
+            return (d.action == "return" and frame.vtol_state == "fw" and frame.native_hold_active is True
+                    and phases == ("fw", "transition", "mc", "landing")
+                    and _same(last, (*self.home_ne, self.home_z))
+                    and all(_same(x.start[:2], self.home_ne) and _same(x.end[:2], self.home_ne)
+                            for x in groups[-1]))
         if d.action == "loiter":
             return self._hold_matches(d, frame, sweep, phases, boxes[-1])
 
@@ -297,7 +305,7 @@ class X1MotionProofBuilder:
         return min(margins, default=0.0), min(transition_agl, default=None), landed
 
     def build(self, decision: Decision, frame: RuntimeFrame, sweep: ExecutionSweep | None,
-              *, retask_anchors=None, installed_continue=False) -> MotionProof:
+              *, retask_anchors=None, installed_continue=False, native_fw_rtl=False) -> MotionProof:
         closed = MotionProof(
             frame.frame_id, decision.digest, geofence_clear=False, obstacle_margin_m=None,
             terrain_margin_m=None, required_energy_wh=None, available_energy_wh=None,
@@ -333,7 +341,7 @@ class X1MotionProofBuilder:
                 if decision.action != "continue" or phases not in legal.get(frame.vtol_state, ()):
                     return closed
             elif retask_anchors is None:
-                if not self._route_matches(decision, frame, sweep, boxes):
+                if not self._route_matches(decision, frame, sweep, boxes, native_fw_rtl=native_fw_rtl):
                     return closed
             elif decision.action != "retask" or frame.retask_boundary is not True:
                 return closed
@@ -348,7 +356,7 @@ class X1MotionProofBuilder:
             terrain, transition, landed = None, None, False
             if _number(self.terrain_error_m, 0.0) and frame.terrain_conflict is not True:
                 terrain, transition, landed = self._terrain_clearance(
-                    legs, boxes, sweep.landing_pad, all_airborne=retask_anchors is not None)
+                    legs, boxes, sweep.landing_pad, all_airborne=retask_anchors is not None or native_fw_rtl)
             obstacle = None
             if self.obstacle_clearance is not None:
                 margins = tuple(self.obstacle_clearance(box) for box in boxes)

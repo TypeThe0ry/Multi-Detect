@@ -115,6 +115,7 @@ class RuntimeFrame:
     retask_finding_error_m: float | None = None
     retask_gimbal_ready: bool = False
     installed_plan_sha256: str | None = None
+    native_hold_active: bool = False
 
 
 @dataclass(frozen=True, slots=True)

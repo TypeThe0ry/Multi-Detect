@@ -20,7 +20,7 @@ from multidetect.autonomy.x1_wind_estimate import WindEstimator, WindReading
 from multidetect.px4_mission import PX4_AUTOPILOT_COMPONENT_ID
 
 from .x1_live_clearance import MOTION_SAMPLE_MAX_AGE_MS
-from .x1_native_handoff import NativeHandoffPort, RouteWriteGate
+from .x1_native_handoff import AUTO_LOITER, NativeHandoffPort, RouteWriteGate, px4_mode
 from .x1_retask import AirborneRouteSlot
 from .x1_scenario_observation import project_target_found
 
@@ -642,6 +642,28 @@ class CollectorScenario:
             for parameter, expected in assumed["parameters"].items():
                 if self.transport._get_param(parameter) != expected:
                     raise RuntimeError(f"ASSUMED_SIM battery readback mismatch for {parameter}")
+        fw_rtl = getattr(self.motion_evidence, "fw_rtl", None)
+        if fw_rtl is not None:
+            self.motion_evidence.fw_rtl_ready = False
+            commits, observed = [], {}
+            error = None
+            try:
+                out = self.transport.command("/opt/px4-gazebo/bin/px4-ver", "all")
+                commits = re.findall(r"(?m)^\s*PX4 git-hash:\s*([a-f0-9]{40})\s*$", out)
+                if commits == [fw_rtl.px4_commit]:
+                    for key in fw_rtl.params:
+                        observed[key] = self.transport._get_param(key)
+                    self.motion_evidence.fw_rtl_ready = all(
+                        math.isclose(observed[k], v, rel_tol=0, abs_tol=1e-6) for k, v in fw_rtl.params.items()
+                    )
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+                error = str(exc)
+            self.record({"message_type": "scenario_fw_rtl_readback",
+                         "expected_px4_commit": fw_rtl.px4_commit,
+                         "observed_px4_commits": commits, "observed_parameters": observed, "error": error,
+                         "verified": self.motion_evidence.fw_rtl_ready})
+            if not self.motion_evidence.fw_rtl_ready:
+                raise RuntimeError("FW RTL candidate PX4 commit or parameter readback mismatch")
 
     def _fresh_sample(self, name, max_age_ms=1500, *, state=None, now_ns=None):
         from .streams import MavlinkReader
@@ -745,13 +767,14 @@ class CollectorScenario:
         if self.decision is not None:
             motion_index, installed_sha, installed_key = self._continue_motion_context(index, lifecycle)
             evidence_kwargs = {"installed_key": installed_key} if installed_key is not None else {}
+            hold_is_current = self._hold_events(now, events)
             point, remaining_energy_wh, remaining_time_s = self._motion_data(
                 motion_index, boot_ms, state, now_ns=now_ns, **evidence_kwargs)
             vtol_state = VTOL_STATES.get(vtol.get("vtol_state"))
-            holds = (self.motion_evidence.hold_sites(motion_index, vtol_state)
-                     if motion_index is not None and installed_sha is None and self.motion_evidence is not None
+            hold_kwargs = {**evidence_kwargs, "point": point} if installed_key is not None else {}
+            holds = (self.motion_evidence.hold_sites(motion_index, vtol_state, **hold_kwargs)
+                     if motion_index is not None and self.motion_evidence is not None
                      and hasattr(self.motion_evidence, "hold_sites") else {})
-            hold_current = self._hold_events(now, events)
             estimate = perception["detection"]["position_estimate"] if perception is not None else None
             finding = None
             if estimate is not None and self.terrain is not None:
@@ -773,8 +796,9 @@ class CollectorScenario:
                 retask_finding_error_m=estimate["error_bound_m"] if estimate is not None else None,
                 retask_gimbal_ready=retask_gimbal_ready,
                 installed_plan_sha256=installed_sha,
+                native_hold_active=hold_is_current,
             )
-            event_current = hold_current or (
+            event_current = hold_is_current or (
                 timeline is not None and self.last_event_index is not None and boot_ms is not None
                 and boot_ms - timeline.origin < self.faults[self.last_event_index].end_ms)
             # The selected wind is current or unknown, not a generic cached observation.
@@ -966,10 +990,20 @@ class CollectorScenario:
             remaining_time = self.motion_evidence.remaining_time_s(max(local_boot, boot_ms))
         if (index is not None and clock_valid and type(global_boot) is int and 0 < global_boot < 2**32
                 and abs(local_boot - global_boot) <= age):
-            if installed_key is None:
-                point = self.motion_evidence.check_entry(index, point, local)
-            else:
-                point = self.motion_evidence.check_entry(index, point, local, installed_key=installed_key)
+            entry = {"installed_key": installed_key} if installed_key is not None else {}
+            if (getattr(self.motion_evidence, "fw_rtl_ready", False) and self.hold is not None
+                    and self.native is not None and self.native.confirmed("loiter")):
+                heartbeat = self._fresh_sample("HEARTBEAT", state=state, now_ns=now_ns) or {}
+                if px4_mode(heartbeat.get("custom_mode")) == AUTO_LOITER:
+                    home = self._fresh_sample("HOME_POSITION", max_age_ms=3_000, state=state, now_ns=now_ns) or {}
+                    home_z, relative_z = home.get("altitude"), global_position.get("relative_alt")
+                    if (type(home_z) is int and type(relative_z) is int
+                            and type(global_position.get("alt")) is int
+                            and abs(global_position["alt"] - relative_z - home_z) <= 1_000):
+                        entry.update(confirmed_hold_ref=self.hold["hold_ref"], observed_home=self._motion_position({
+                            "lat": home.get("latitude"), "lon": home.get("longitude"), "alt": home_z,
+                        }))
+            point = self.motion_evidence.check_entry(index, point, local, **entry)
         else:
             point = None
         battery = self._fresh_sample("BATTERY_STATUS", max_age_ms=age, state=state, now_ns=now_ns)

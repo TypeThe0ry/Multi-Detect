@@ -39,6 +39,7 @@ from multidetect.sim_teacher.x1_live_clearance import (  # noqa: E402
     MOTION_SAMPLE_MAX_AGE_MS, LiveContinueEvidence, clearance_scope,
 )
 from multidetect.sim_teacher.x1_live_evidence_builder import build_live_evidence  # noqa: E402
+from multidetect.sim_teacher.x1_fw_native_rtl import FwRtlBounds  # noqa: E402
 from multidetect.sim_teacher.x1_scenario import (  # noqa: E402
     SUPPORTED, CollectorScenario, load_schedule, schedule_sha256, wind_server_config,
 )
@@ -509,9 +510,11 @@ def fly(args, collector_plan, steps, mission, record):
     if os.environ.get(SITL_LOCK_HELD_ENV) == "1":
         raise ValueError("run the X1 demo outside an inherited SITL lock")
     with flight_lock(LOCK, shared=True):
-        image_id = x1_resume.image_check(IMAGE)
         assumed = mission.get("assumed_sim")
-        if assumed is not None and image_id != assumed["image_id"]:
+        fw_rtl = (assumed or {}).get("fw_rtl")
+        requested_image = fw_rtl.image_id if fw_rtl is not None else IMAGE
+        image_id = x1_resume.image_check(requested_image)
+        if assumed is not None and image_id != (fw_rtl.image_id if fw_rtl is not None else assumed["image_id"]):
             raise ValueError("ASSUMED_SIM immutable SITL image mismatch")
         x1_resume.flight_gate((args.slot,))
         with sitl_lock_context(SitlLock(label="x1-autonomy-demo", slots=8, slot=args.slot, retry_s=20.0),
@@ -524,7 +527,7 @@ def fly(args, collector_plan, steps, mission, record):
                 fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 record["gpu_admission"] = collection_guard.x1_start(
                     args.output, gpu, collection_guard.environment_settings(), uuid)
-                plan = replace(collector_plan, image=image_id, requested_image=IMAGE,
+                plan = replace(collector_plan, image=image_id, requested_image=requested_image,
                                gpu_render=True, gpu_device=str(gpu), gpu_devices=(str(gpu),))
                 with ExitStack() as stack:
                     scenario = make_scenario(args, mission, steps, record)
@@ -710,6 +713,11 @@ def run(args, *, post, launch=fly):
             raise X1PlanError("PRECOMPILED_PLAN", "demo input must not contain a precomputed plan")
         generate_evidence = getattr(args, "generate_live_evidence", False)
         assumed_path = getattr(args, "assumed_sim_bounds", None)
+        fw_rtl_path = getattr(args, "fw_rtl_host_manifest", None)
+        if fw_rtl_path is not None and (
+            assumed_path is None or tuple(f.kind for f in faults) not in {("wind_step",), ("target_found",)}
+        ):
+            raise ValueError("FW RTL host manifest requires a scoped ASSUMED_SIM wind_step or target_found scenario")
         if assumed_path is not None and (not generate_evidence or not faults
                                          or not getattr(args, "live_evidence_bounds", None)):
             raise ValueError("ASSUMED_SIM requires generation, selected faults and verified site bounds")
@@ -760,6 +768,25 @@ def run(args, *, post, launch=fly):
                     site_bounds=bounds, scope=record["contingency_scenario"]["motion_scope_sha256"],
                     base_digest=base_digest,
                 )
+                if fw_rtl_path is not None:
+                    fw_raw = fw_rtl_path.read_bytes()
+                    fw_rtl = FwRtlBounds.from_host_manifest(strict_json_loads(fw_raw.decode("utf-8"), name=str(fw_rtl_path)))
+                    scope = record["contingency_scenario"]["motion_scope_sha256"]
+                    if (not fw_rtl.valid_for(scope, load_airframe_profile(PROFILE))
+                            or fw_rtl.image_id == assumed["image_id"]
+                            or any(assumed["parameters"].get(k, v) != v for k, v in fw_rtl.params.items())):
+                        raise ValueError("FW RTL needs a separately reviewed image, matching scope, profile and native pins")
+                    validation = fw_rtl_path.with_suffix(".validation.json")
+                    if hashlib.sha256(validation.read_bytes()).hexdigest() != fw_rtl.validation_sha256:
+                        raise ValueError("FW RTL validation record hash mismatch")
+                    assumed["fw_rtl"] = fw_rtl
+                    record["contingency_scenario"]["fw_rtl_host_manifest"] = {
+                        "sha256": hashlib.sha256(fw_raw).hexdigest(), "px4_commit": fw_rtl.px4_commit,
+                        "path": str(fw_rtl_path.resolve()), "image_id": fw_rtl.image_id,
+                        "validation_sha256": fw_rtl.validation_sha256, "validation_path": str(validation.resolve()),
+                    }
+                    # Extra FW-specific values are measured, not changed. In
+                    # particular do not alter the shared MC RTL return altitude.
                 collector_plan = replace(collector_plan, extra_sim_params=(
                     *collector_plan.extra_sim_params,
                     *((key, str(value)) for key, value in assumed["parameters"].items()),
@@ -767,7 +794,8 @@ def run(args, *, post, launch=fly):
                 mission["assumed_sim"] = assumed
                 provenance = {"basis": assumptions.BASIS, "assumed_bounds_sha256": assumed["sha256"]}
                 record["contingency_scenario"]["live_evidence"] = {
-                    **provenance, "assumed_bounds_path": str(assumed_path), "expected_image_id": assumed["image_id"],
+                    **provenance, "assumed_bounds_path": str(assumed_path),
+                    "expected_image_id": (assumed["fw_rtl"].image_id if "fw_rtl" in assumed else assumed["image_id"]),
                     "battery_parameters": assumed["parameters"],
                 }
                 record["prepared"]["collector"] = asdict(collector_plan)
@@ -847,6 +875,8 @@ def main(argv=None):
     parser.add_argument("--generate-live-evidence", action="store_true",
                         help="attach scenario-bound SIM evidence and save the generated package (default: off)")
     parser.add_argument("--assumed-sim-bounds", type=Path, help="Iowa SIM-only assumption template")
+    parser.add_argument("--fw-rtl-host-manifest", type=Path,
+                        help="opt in to separate reviewed FW RTL SITL image/bounds and sibling .validation.json")
     parser.add_argument("--live-evidence-bounds", type=Path, metavar="JSON",
                         help="local host-verified hard bounds for the compiled mission")
     parser.add_argument("--output", required=True, type=lambda p: Path(p).resolve(), help="fresh result directory")

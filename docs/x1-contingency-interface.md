@@ -176,7 +176,7 @@ CPU 回放覆盖实时采样、同一执行器的准入和零新增指令。实�
 
 | 字段 | 证据契约 |
 | --- | --- |
-| `return` | 键只能是 `"3"`（MC 回家步骤），结构同 `suffixes`，阶段为 `mc → landing`。PX4 VTOL 在 FW 中的 RTL 会先绕 home 盘旋降高再后过渡（`rtl_direct.cpp` 的 MOVE_TO_LOITER/LOITER_DOWN/MOVE_TO_LAND），离开已验证的原航线走廊，本版本不建模，FW `return` 拒绝。 |
+| `return` | 键只能是 `"3"`（MC 回家步骤），结构同 `suffixes`，阶段为 `mc → landing`。FW 不复用此后缀；其专用证明和候选镜像要求见下文。 |
 | `land-now` | 键只能是 `"3"`。给出 `max_entry_speed_mps`、`padding_ne_m`、`padding_alt_m`、`duration_s`、`peak_power_w`、`dynamics`。只在当前位置位于 home 着陆圆内、且剩余半径大于水平余量时，用该圆内的子圆作为接地区。 |
 | `holds` | 至多 8 个 `hold:*` 引用。均含 `mode`、`steps`、`entry`、`max_entry_speed_mps`、`padding_ne_m`、`padding_alt_m`、`duration_s`（进入加驻留的上界）、`peak_power_w`、`dynamics`。FW 另含 `centre`（北、东、AMSL）、`radius_m`、`tangential_speed_mps`、`airspeed`；水平余量须覆盖整个圆。圆心按 DEM 原点转为 WGS-84 再转回，证明锚定在指令实际表示的点上。只有当前步骤与稳态模式匹配的 Hold 才在请求中提供。 |
 
@@ -203,7 +203,24 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 | `hold:yard-orbit`（FW，步骤 1） | 航点 (320, 0) 上空巡航高度，半径 80 m，15 m/s 的 `DO_ORBIT`。水平余量 120 m，垂向 12 m，进入加驻留 180 s，两倍盘旋功率。 |
 | `hold:mc-here`（MC，步骤 3） | 原地 AUTO.LOITER，水平 20 m、垂向 5 m，120 s，最高功率。 |
 
-`configs/simulation/x1-native-handoff-faults-v1.json` 在 MC 回家段放一个 50–58 s 的 `link_loss` 窗口，范围摘要以 `link_loss:mc_return` 登记，用于原生 `return` 的验收。固定任务里 FW 段还没有可准入的原生退出：FW `return` 没有建模，`land-now` 需要 MC，接管后不能 `continue`/`retask`。所以 FW Hold 驻留到期仍会失败关闭。17% 的 `battery_drop` 发生在 FW 段，`return` 因无 FW RTL 证明而以 `unverified_clearance` 拒绝。即使有证明，17% × 72 Wh 也低于 14.8 Wh 的返航储备，仍会因 `energy_or_reserve_limit` 拒绝。
+`configs/simulation/x1-native-handoff-faults-v1.json` 在 MC 回家段放一个 50–58 s 的 `link_loss` 窗口，范围摘要以 `link_loss:mc_return` 登记，用于原生 `return` 的验收。17% 的 `battery_drop` 仍不是固定翼返航特例：未建立证明仍拒绝；即使有证明，17% × 72 Wh 也低于 14.8 Wh 的返航储备。接管后仍不能 `continue`/`retask`。
+
+### 固定翼 Hold 后的原生 RTL（仅限经审阅的 SITL 候选）
+
+Altair 请求 `return {}`，执行器只接受或拒绝。准入后仍发送同一个原生 `MAV_CMD_NAV_RETURN_TO_LAUNCH`；没有额外航点、补发动作或自动降级方案。须存在未到期的 FW Hold、已确认的 `DO_ORBIT` 目标、同一飞控的新鲜 `AUTO.LOITER` 和 `HOME_POSITION`，并通过既有遥测与动力学门槛。`DO_ORBIT` 的速度参数不是飞控速度证明。FW `land-now` 仍被 MC 互锁拒绝；FW Hold 上的再次 `loiter`（包括续驻同一站点）没有证明转接及新驻留，故拒绝。未准入且 Hold 到期仍报 `hold_residence_expired`，PX4 保持原生保底。
+
+候选清单仅支持各自独立绑定的 Iowa `wind_step`（Case C）或 `target_found`（空中换装）证据范围，不接受组合故障或跨范围借用。换装后，只有候选已核验、串行路线槽的当前索引、计划摘要和运行修订一致、处于 FW 且新鲜位置和地速满足已审阅的 Hold 入口时，才向 Altair 提供同一个经审阅的 FW Hold。不会把已安装原语的索引套到原路线的 `suffixes` 或 `native.return`。`continue` 仍使用绑定已安装计划的证明且不发指令；原生 Hold 一旦接管，`continue` 和 `retask` 仍无权夺回路线。事件和 cadence 处理回复时，都用新的快照重新证明 Hold 或原生返航；票据有效不代表动作获准。
+
+只对审阅过的 PX4 提交 `53afcc82b2a51a90424ff7e2c35583e491587eb5` 建模。尾座机 4051、`VT_TYPE=0`，`RTL_TYPE=0`，无改选目的地的 rally/approach 或避障绕行，`RTL_APPR_FORCE=0`、`RTL_PLD_MD=0`。`rtl.cpp` 的 FW 返航高度为当前高度与 `home + RTL_RETURN_ALT` 的较大者；`rtl_direct.cpp` 保留已建立的盘旋或使用激活点盘旋爬升，随后获取 home 周围的 `RTL_LOITER_RAD` 轨道，盘旋降至 `min(返航高度, home + RTL_DESCEND_ALT)`。这里的盘旋下降不是 `RTL_CONE_ANG` 指定的 MC 距离锥；`RTL_LAND_DELAY=0` 不额外驻留。`MOVE_TO_LAND` 按地速和 `VT_B_DEC_MSS` 扩大接收半径且**不检查高度**。尾座机按俯仰角或 `VT_B_TRANS_DUR` 切到 MC，再移至 home 上方并开始降落；还须核对 `MPC_XY_CRUISE`、`MPC_Z_V_AUTO_DN`、`MPC_LAND_SPEED`、`NAV_ACC_RAD` 等，不把设定值当作实际速度保证。
+
+扫掠从实时位置覆盖 Hold 全圆及捕获转弯、返航连接、home 盘旋下降、转入 `MOVE_TO_LAND`、后过渡漂移、MC 回中和从残余速度状态开始的着陆。`FW_R_LIM` 和机型空速上界只给出转弯半径的可行性下限，跟踪、垂直偏离、阶段完成时间和峰值功率仍须由独立宿主证据限定。扫掠超出任务走廊、围栏、障碍覆盖或 DEM 误差后的高度余量，或无法在剩余时间、能量及现有返航储备内完成时，均拒绝。末段整个落点包络必须落在测量过的 pad 内；仍使用现有 40 m 空中 AGL 下限。
+
+**Case C 变体 SITL 验收（本文档未运行）**
+
+1. 基线归档为 `/data/scratch/cx-wc-sampling/.tmp/iowa-native-handoff.AonhPrm1/live-wind_step-hold`。其镜像运行的是 PX4 `83c4f4e580558816f0e398918f66358988004696`（`v1.18.0-beta2`），不会被本证明认可。先单独提交并审阅包含上述 `53afcc82…` 的不可变候选镜像；核对 4051、固件构建来源、无其他 RTL 分支、配方和电池模型、不会在武装后更改的完整参数快照，以及同一任务、DEM、障碍清单、风注入与皮托插件。不要替换既有 Iowa 镜像标签或证据记录，也不要把 CPU 夹具作为实测证据。
+2. 用候选镜像的独立证据覆盖所有准入航向和风、采样到命令的间隔、轨道捕获及 `MOVE_TO_LAND` 高度偏差、过渡漂移和高度损失、MC 残余横向速度至触地的偏差，以及每阶段最迟完成时间和峰值功率。将依据保存为宿主 `NAME.validation.json`，由审阅者核对并把 SHA-256 和相同任务的 `motion_scope_sha256`、镜像 ID、实际参数写入 `NAME.json`（字段见 `FwRtlBounds`）。`--fw-rtl-host-manifest NAME.json` 选择该单独镜像；原假设文件仍是范围与基线锚点。运行前核对 `scenario_fw_rtl_readback`，不匹配时不得武装。仅有 source commit、镜像摘要或一次成功飞行不能建立全部边界。
+3. 在获授权的 SITL lane，以 `.venv-vlm/bin/python` 运行 `scripts/run_x1_autonomy_demo.py`。沿用归档 `result.json` 的原始任务输入、`wind_step` 计划、同一风插件和 `wind_step.site-bounds.json`；参数包括 `--inject-fault wind_step --generate-live-evidence --assumed-sim-bounds configs/simulation/x1-assumed-sim-bounds-iowa.json --live-evidence-bounds CASE.site-bounds.json --fw-rtl-host-manifest NAME.json`。使用新输出目录与已批准的空闲 slot（`MULTIDETECT_SITL_SLOTS >= 3`，不用 slot 3、4）。Case C 回放后端按事件只回放归档中的 `loiter {"hold_ref":"hold:yard-orbit"}` 和 `return {}`，并回显本次票据；不在执行器中编写动作选择规则。
+4. 留存 `result.json`、决策回执、MAVLink 和 PX4 ULog。必须依次看到 `DO_ORBIT` ACK、`AUTO.LOITER (4,3)` 及正确 Hold 目标、返航准入、原样 RTL 与 `AUTO.RTL (4,5)` 的飞控确认。用位置及 setpoint/VTOL 主题核对返回高度、home 盘旋半径/下降、`MOVE_TO_LAND`、FW→MC、回中及下降，并用轨迹与扫掠逐段对拍。最终须观察 `ON_GROUND` 且实际落点在 16 m pad 内，无 Hold 到期和模式替代；任何阶段/证据缺失不可计为通过。
 
 ## 持续决策循环（continuous decision loop）
 
