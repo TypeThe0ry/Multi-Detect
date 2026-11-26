@@ -7,11 +7,13 @@ an oracle answer and recorded messages carry an assistant training target.
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -27,8 +29,11 @@ _contract_paths = (
 _original_path = sys.path.copy() if _contract_paths else None
 sys.path[:0] = _contract_paths
 try:
+    from multidetect.autonomy.mission_plan import MissionPlan
     from multidetect.autonomy.serialization import canonical_json, strict_json_loads
-    from multidetect.autonomy.x1_contingency_executor import DECISION_SCHEMA, MAX_DECISION_BYTES, decode_decision
+    from multidetect.autonomy.x1_contingency_executor import (
+        DECISION_SCHEMA, MAX_DECISION_BYTES, REQUEST_SCHEMA, decode_decision,
+    )
     from multidetect.autonomy.x1_perception_tools import TOOL_SCHEMA, ToolCall
     from scripts.build_x1_flight_loop_sft import ADMITTED, policy
 finally:
@@ -36,6 +41,15 @@ finally:
         sys.path[:] = _original_path
 
 _ADMITTED_STATUSES = tuple(ADMITTED | {"applied"})
+_EVENT_TOOL_TYPES = frozenset({"target_found", "link_loss", "battery_drop"})
+# These vetoes describe the availability/binding of proof in the recorded run.
+# Do not exempt envelope, energy, airspeed, protocol or other safety rejections.
+_EVIDENCE_SCOPE_REASONS = ("missing_or_unbound_motion_proof", "unverified_clearance")
+_INFRASTRUCTURE_REASONS = frozenset({
+    "request_unsent", "request_disrupted", "missing_receipt", "missing_turn_result",
+    "backend_error", "missing_model_output", "result_after_receipt", "missing_sent_messages",
+    "oracle_unlabelable", "retask_timing_unscorable",
+})
 
 
 # Inclusive upper bounds and an overflow bucket. Backend and receipt times
@@ -52,6 +66,13 @@ _COUNTS = (
     "quiet_unnecessary_actions", "quiet_unnecessary_tools", "retasks_proposed",
     "retasks_required", "retasks_installed", "required_retasks_installed",
     "deadline_on_time", "deadline_missed", "deadline_unknown", "failure_rows",
+    "identity_echo_checked", "identity_echo_valid", "event_tool_first_eligible",
+    "event_tool_first_oracle_evaluated",
+    "event_tool_first_required", "event_tool_first_compliant", "retasks_structure_valid",
+    "retasks_structure_package_checked", "retasks_timing_checked", "retasks_timing_valid",
+    "battery_structure_eligible", "battery_structure_checked", "battery_structure_valid",
+    "model_failure_rows", "evidence_scope_rejections", "evidence_scope_rows",
+    "required_retasks_evidence_scope_rejections", "infrastructure_failure_rows",
 )
 
 
@@ -62,6 +83,8 @@ def _metrics():
         "receipt_latency_ms_histogram": dict.fromkeys(_LATENCY_KEYS, 0),
         "receipt_status_counts": {},
         "failure_reason_counts": {},
+        "evidence_scope_reason_counts": {},
+        "infrastructure_failure_reason_counts": {},
     }
 
 
@@ -71,10 +94,10 @@ def merge_metrics(metrics: Iterable[dict]) -> dict:
     for attempt in metrics:
         for key, value in merged.items():
             if isinstance(value, dict):
-                for bucket, count in attempt[key].items():
+                for bucket, count in attempt.get(key, {}).items():
                     value[bucket] = value.get(bucket, 0) + count
             else:
-                merged[key] += attempt[key]
+                merged[key] += attempt.get(key, 0)
     return merged
 
 
@@ -135,15 +158,24 @@ def _oracle(request):
         return None, "incomplete_or_invalid_request"
 
 
+@dataclass(frozen=True)
+class _Reply:
+    parsed: dict | None = None
+    kind: str | None = None
+    identity: bool = False
+    offered: bool = False
+    plan: MissionPlan | None = None
+
+
 def _decode(raw, request):
-    """Return parsed JSON, reply kind, and whether identity and offer match."""
+    """Decode the original model wire using the runtime contracts."""
     parsed = None
     try:
         if not isinstance(raw, str) or len(raw.encode("utf-8")) > MAX_DECISION_BYTES:
-            return parsed, None, False, False
+            return _Reply()
         parsed = strict_json_loads(raw)
         if not isinstance(parsed, dict):
-            return None, None, False, False
+            return _Reply()
         canonical_json(parsed).encode("utf-8")
         if parsed.get("schema") == TOOL_SCHEMA:
             call = ToolCall.parse(parsed)
@@ -154,7 +186,7 @@ def _decode(raw, request):
                 and call.call_index == perception["call_index"]
             )
             offered = perception.get("calls_remaining", 0) > 0 and call.tool in perception.get("tools", ())
-            return parsed, "tool", identity, offered
+            return _Reply(parsed, "tool", identity, offered)
         if parsed.get("schema") == DECISION_SCHEMA:
             decision = decode_decision(raw, capabilities=frozenset(request.get("capabilities", ())))
             state = request.get("state") or {}
@@ -165,10 +197,69 @@ def _decode(raw, request):
                     "mission_id": state.get("mission_id"), "revision": state.get("revision"),
                 }.items()
             )
-            return parsed, "action", identity, decision.action in request.get("actions", ())
+            return _Reply(parsed, "action", identity, decision.action in request.get("actions", ()), decision.plan)
     except (TypeError, ValueError, RecursionError, AttributeError):
         pass
-    return parsed if isinstance(parsed, dict) else None, None, False, False
+    return _Reply(parsed if isinstance(parsed, dict) else None)
+
+
+class _ObjectMembers(list):
+    """Preserve duplicate JSON keys for proposal attribution only."""
+
+
+def _proposed_retask(raw, parsed):
+    if parsed is not None:
+        return parsed.get("action") == "retask"
+    try:
+        if not isinstance(raw, str) or len(raw.encode("utf-8")) > MAX_DECISION_BYTES:
+            return False
+        members = json.loads(raw, object_pairs_hook=_ObjectMembers)
+    except (ValueError, RecursionError):
+        return False
+    # Seed 31 duplicated the top-level action/params. Count the proposal even
+    # when strict decoding rejects it. Never use these members for validation.
+    return isinstance(members, _ObjectMembers) and ("action", "retask") in members
+
+
+def _identity_echo(reply, request):
+    parsed = reply.parsed or {}
+    request_id = request.get("request_id")
+    if not isinstance(request_id, str) or parsed.get("request_id") != request_id:
+        return False
+    if parsed.get("schema") == TOOL_SCHEMA:
+        # ToolCall has no event_id field. The request ID binds it to the event.
+        return True
+    return (parsed.get("schema") == DECISION_SCHEMA and type(parsed.get("event_id")) is int
+            and type(request.get("event_id")) is int and parsed["event_id"] == request["event_id"])
+
+
+def _event_type(request):
+    if not isinstance(request, dict) or request.get("trigger") == "cadence":
+        return None
+    event_id = request.get("event_id")
+    state = request.get("state")
+    events = state.get("events") if isinstance(state, dict) else None
+    if type(event_id) is not int or not isinstance(events, list):
+        return None
+    # Older event requests have no trigger field. Match the event ID instead
+    # of attributing a recent event in the state snapshot to a cadence ticket.
+    for event in events:
+        if isinstance(event, dict) and type(event.get("id")) is int and event["id"] == event_id:
+            kind = event.get("type")
+            return kind if isinstance(kind, str) else None
+    return None
+
+
+def _evidence_scope_reason(receipt, request, reply):
+    # Require a real wire request and bind the receipt to a decoded reply before
+    # exempting a rejection. Legacy/incomplete traces keep generic attribution.
+    if receipt is None or receipt.get("status") != "rejected" or request.get("schema") != REQUEST_SCHEMA:
+        return None
+    reason = receipt.get("reason")
+    if (reason in _EVIDENCE_SCOPE_REASONS and reply.kind == "action" and reply.identity and reply.offered
+            and receipt.get("action") == reply.parsed["action"]):
+        return reason
+    return None
 
 
 def _prompt(sent):
@@ -183,15 +274,17 @@ def _backend_error(result):
     return result.get("error") if error is None else error
 
 
-def _failure(rows, metrics, context, *, request_id, call_index, reasons, label,
-             label_error, sent=None, result=None, receipt=None, base_request=None):
+def _failure(rows, metrics, context, *, scope, request_id, call_index, reasons, label,
+             label_error, sent=None, result=None, receipt=None, base_request=None,
+             evidence_scope_reason=None, retask_validation_reason=None):
     prompt = _prompt(sent) if sent is not None else []
     messages = list(prompt)
-    if label is not None and prompt:
+    if label is not None and prompt and scope == "model":
         messages.append({"role": "assistant", "content": canonical_json(label)})
+    sample_id = f"{request_id}:{call_index}" if sent is not None else f"{request_id}:unsent"
     row = {
         **context,
-        "sample_id": f"{request_id}:{call_index}" if sent is not None else f"{request_id}:unsent",
+        "sample_id": sample_id if scope == "model" else f"{sample_id}:{scope}",
         "request_id": request_id,
         "call_index": call_index,
         "sent": sent is not None,
@@ -200,28 +293,66 @@ def _failure(rows, metrics, context, *, request_id, call_index, reasons, label,
         "label_status": "oracle_labeled" if label is not None else "unlabelable",
         "label_reason": label_error,
         "failure_reasons": reasons,
+        "failure_scope": scope,
+        "evidence_scope_reason": evidence_scope_reason,
         "request": sent.get("request") if sent is not None else None,
         "model_output": result.get("model_output") if result is not None else None,
         "backend_error": _backend_error(result) if result is not None else None,
         "turn_latency_ms": result.get("latency_ms") if result is not None else None,
         "receipt": receipt,
     }
+    if retask_validation_reason is not None:
+        row["retask_validation_reason"] = retask_validation_reason
     if sent is None:
         row["base_request"] = base_request
     else:
         row.update({key: sent[key] for key in ("body", "body_json") if key in sent})
     rows.append(deepcopy(row))
     metrics["failure_rows"] += 1
+    count_key, reason_key = {
+        "model": ("model_failure_rows", "failure_reason_counts"),
+        "evidence_scope": ("evidence_scope_rows", "evidence_scope_reason_counts"),
+        "infrastructure": ("infrastructure_failure_rows", "infrastructure_failure_reason_counts"),
+    }[scope]
+    metrics[count_key] += 1
     for reason in reasons:
-        _count(metrics["failure_reason_counts"], reason)
+        _count(metrics[reason_key], reason)
 
 
-def _score_turn(metrics, request, label, raw):
-    parsed, kind, identity, offered = _decode(raw, request)
-    observed = parsed or {}
+def _emit_turn_failures(rows, metrics, context, *, row, disrupted, ticket_interrupted):
+    reasons = row.pop("reasons")
+    evidence_reason = row.pop("evidence_scope_reason")
+    result = row["result"] or {}
+    no_reply = result.get("model_output") is None
+    operational_stop = disrupted or no_reply or _backend_error(result) is not None
+    infrastructure, model = [], []
+    for reason in reasons:
+        if (reason in _INFRASTRUCTURE_REASONS or no_reply
+                or (operational_stop and reason in {"receipt_not_admitted", "retask_not_installed", "deadline_missed"})
+                or (ticket_interrupted and reason in {"missing_followup_turn", "event_tool_first_no_final_action"})):
+            infrastructure.append(reason)
+        else:
+            model.append(reason)
+    if model:
+        model_row = {**row, "receipt": None} if evidence_reason is not None else row
+        _failure(rows, metrics, context, scope="model", reasons=model, **model_row)
+    if infrastructure:
+        _failure(rows, metrics, context, scope="infrastructure", reasons=infrastructure,
+                 **{**row, "retask_validation_reason": None})
+    if evidence_reason is not None:
+        _failure(rows, metrics, context, scope="evidence_scope", reasons=[evidence_reason],
+                 **{**row, "retask_validation_reason": None, "evidence_scope_reason": evidence_reason})
+
+def _score_turn(metrics, request, label, raw, reply, *, check_retask_timing, validate_retask):
+    kind, identity, offered = reply.kind, reply.identity, reply.offered
+    observed = reply.parsed or {}
     metrics["schema_valid"] += kind is not None
     metrics["identity_valid"] += identity
-    metrics["retasks_proposed"] += observed.get("action") == "retask"
+    echo = _identity_echo(reply, request)
+    metrics["identity_echo_checked"] += 1
+    metrics["identity_echo_valid"] += echo
+    retask = _proposed_retask(raw, reply.parsed)
+    metrics["retasks_proposed"] += retask
     expected_tool = label is not None and label["schema"] == TOOL_SCHEMA
     expected_action = label.get("action") if label is not None else None
     tool_match = kind == "tool" and identity and offered and expected_tool and observed["tool"] == label["tool"]
@@ -263,12 +394,37 @@ def _score_turn(metrics, request, label, raw):
         reasons.append("tool_mismatch")
     elif expected_action is not None and not action_match:
         reasons.append("action_mismatch")
-    return reasons, kind, observed.get("action") if kind == "action" else None, action_match
+    if kind is None and raw is not None and observed.get("schema") in (DECISION_SCHEMA, TOOL_SCHEMA) and not echo:
+        reasons.append("identity_echo_mismatch")
+    structure_valid = reply.plan is not None
+    validation_reason = None
+    if retask:
+        if structure_valid and validate_retask is not None:
+            metrics["retasks_structure_package_checked"] += 1
+            validation_reason = validate_retask(reply.plan, request)
+            structure_valid = validation_reason is None
+        metrics["retasks_structure_valid"] += structure_valid
+        if not structure_valid:
+            reasons.append("retask_structure_invalid")
+        if check_retask_timing:
+            metrics["retasks_timing_checked"] += 1
+            # An oracle retask means the request already contains the evidence
+            # required by the training policy. Timing is independent of shape.
+            timing_valid = expected_action == "retask"
+            metrics["retasks_timing_valid"] += timing_valid
+            if not timing_valid:
+                reasons.append("retask_evidence_not_established" if label is not None
+                               else "retask_timing_unscorable")
+    action = observed.get("action") if kind == "action" else None
+    return reasons, action, action_match, structure_valid, validation_reason
 
 
 def harvest(
     trace_rows: Iterable[dict], *, case_id, attempt, fault=None,
     expected_by_request: Mapping[str, tuple[str, ...]] | None = None,
+    event_tool_first: bool = False, check_retask_timing: bool = False,
+    check_battery_structure: bool = False,
+    validate_retask: Callable[[MissionPlan, dict], str | None] | None = None,
 ) -> tuple[list[dict], dict]:
     """Return failure SFT rows and additive metrics for one audit stream.
 
@@ -278,6 +434,13 @@ def harvest(
     continue. A missing receipt gives unknown deadline timing.
     The optional case expectations flag admitted receipt actions outside the
     supplied tuple for a request. The policy still supplies the SFT label.
+
+    The optional package validator receives the parsed MissionPlan and the
+    original turn request and returns None on acceptance or a rejection reason.
+    The package-checked counter distinguishes that coverage from wire validity.
+    Evidence vetoes count once per receipt. Evidence and infrastructure rows
+    carry the original messages without an assistant target. Independent model
+    failures retain a separate SFT row.
     """
     rows, metrics = [], _metrics()
     metrics["attempts"] = 1
@@ -342,25 +505,54 @@ def harvest(
             terminal_reasons.append("request_disrupted")
         if deadline == "missed":
             terminal_reasons.append("deadline_missed")
+        event_type = _event_type(request)
+        battery_ticket = check_battery_structure and event_type == "battery_drop"
+        event_tool_ticket = event_tool_first and event_type in _EVENT_TOOL_TYPES
+        metrics["battery_structure_eligible"] += battery_ticket
+        metrics["event_tool_first_eligible"] += event_tool_ticket
         if not sent_turns and opened is not None:
             metrics["requests_unsent"] += 1
             label, label_error = _oracle(base)
             reasons = ["request_unsent", *terminal_reasons]
             if label is None:
                 reasons.append("oracle_unlabelable")
-            _failure(rows, metrics, context, request_id=request_id, call_index=None,
+            _failure(rows, metrics, context, scope="infrastructure", request_id=request_id, call_index=None,
                      reasons=reasons, label=label, label_error=label_error, receipt=receipt, base_request=base)
             continue
 
         last_index = max(sent_turns, default=-1)
-        for index, (_, sent) in sorted(sent_turns.items()):
+        first_tool_required = first_tool_matched = first_tool_followed = False
+        first_tool_position = first_tool_name = None
+        pending_rows = []
+        for index, (sent_position, sent) in sorted(sent_turns.items()):
             result_position, result = results.get(index, (None, None))
             sent_request = sent.get("request")
             label, label_error = _oracle(sent_request)
             raw = (result or {}).get("model_output")
-            reasons, reply_kind, action, action_match = _score_turn(
-                metrics, sent_request if isinstance(sent_request, dict) else {}, label, raw,
+            sent_request = sent_request if isinstance(sent_request, dict) else {}
+            reply = _decode(raw, sent_request)
+            reasons, action, action_match, structure_valid, validation_reason = _score_turn(
+                metrics, sent_request, label, raw, reply,
+                check_retask_timing=check_retask_timing, validate_retask=validate_retask,
             )
+            if event_tool_ticket and index == 0 and label is not None:
+                metrics["event_tool_first_oracle_evaluated"] += 1
+                first_tool_required = label["schema"] == TOOL_SCHEMA
+                if first_tool_required:
+                    metrics["event_tool_first_required"] += 1
+                    first_tool_matched = (reply.kind == "tool" and reply.identity and reply.offered
+                                          and reply.parsed["tool"] == label["tool"]
+                                          and sent_position < result_position)
+                    first_tool_position = result_position
+                    first_tool_name = label["tool"]
+            if (first_tool_matched and index == last_index and index > 0 and action is not None
+                    and reply.identity and reply.offered
+                    and first_tool_position < sent_position < result_position):
+                perception = sent_request.get("perception") or {}
+                snapshots = perception.get("results") if isinstance(perception, dict) else None
+                first_tool_followed = (isinstance(snapshots, list) and bool(snapshots)
+                                       and isinstance(snapshots[0], dict)
+                                       and snapshots[0].get("tool") == first_tool_name)
             metrics["turn_results"] += result is not None
             metrics["missing_results"] += result is None
             if result is None:
@@ -378,18 +570,47 @@ def harvest(
                     reasons.append("result_after_receipt")
             if not _prompt(sent):
                 reasons.append("missing_sent_messages")
-            if reply_kind == "tool" and index + 1 not in sent_turns:
+            if reply.kind == "tool" and index + 1 not in sent_turns:
                 reasons.append("missing_followup_turn")
+            evidence_reason = None
             if index == last_index:
+                if battery_ticket and raw is not None and reply.kind != "tool":
+                    metrics["battery_structure_checked"] += 1
+                    # The wire already enforces the empty params of native
+                    # actions. Identity, action choice and tool timing have
+                    # their own scores.
+                    battery_valid = (action in {"return", "land-now", "continue"}
+                                     or (action == "retask" and structure_valid))
+                    metrics["battery_structure_valid"] += battery_valid
+                    if not battery_valid:
+                        reasons.append("battery_structure_invalid")
+                evidence_reason = _evidence_scope_reason(receipt, sent_request, reply)
+                if evidence_reason is not None:
+                    metrics["evidence_scope_rejections"] += 1
+                    metrics["required_retasks_evidence_scope_rejections"] += (
+                        action == "retask" and action_match and structure_valid
+                    )
                 metrics["required_retasks_installed"] += installed and action_match and action == "retask"
-                if action == "retask" and not installed:
+                if action == "retask" and not installed and evidence_reason is None:
                     reasons.append("retask_not_installed")
                 if (action is not None and receipt is not None
                         and receipt.get("status") in _ADMITTED_STATUSES and receipt.get("action") != action):
                     reasons.append("receipt_action_mismatch")
-                reasons.extend(terminal_reasons)
-            if reasons:
-                _failure(rows, metrics, context, request_id=request_id, call_index=index,
-                         reasons=reasons, label=label, label_error=label_error, sent=sent,
-                         result=result, receipt=receipt)
+                reasons.extend(reason for reason in terminal_reasons
+                               if reason != "receipt_not_admitted" or evidence_reason is None)
+            pending_rows.append(dict(request_id=request_id, call_index=index, reasons=reasons, label=label,
+                                     label_error=label_error, sent=sent, result=result, receipt=receipt,
+                                     evidence_scope_reason=evidence_reason,
+                                     retask_validation_reason=validation_reason))
+        if first_tool_required:
+            metrics["event_tool_first_compliant"] += first_tool_followed
+            if not first_tool_followed:
+                pending_rows[0]["reasons"].append("event_tool_first_missing" if not first_tool_matched
+                                                   else "event_tool_first_no_final_action")
+        last_result = results.get(last_index, (None, None))[1] or {}
+        ticket_interrupted = (disrupted or receipt is None or last_result.get("model_output") is None
+                              or _backend_error(last_result) is not None or deadline == "missed")
+        for row in pending_rows:
+            _emit_turn_failures(rows, metrics, context, row=row, disrupted=disrupted,
+                                ticket_interrupted=ticket_interrupted)
     return rows, metrics

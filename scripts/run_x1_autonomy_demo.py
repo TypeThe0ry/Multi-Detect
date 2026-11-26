@@ -77,6 +77,11 @@ def _finite(value, counter):
     return value
 
 
+def load_sim_package(document: dict, *, assumed: bool):
+    """Load a SIM mission package, accepting the ASSUMED_SIM marker only when the SIM-only suite asks for it."""
+    return load_mission_package(document, mode="sim", allow_assumed_sim=assumed)
+
+
 def load_sim_replay_package(document: dict):
     """Load a synthetic ASSUMED_SIM package for offline CPU replay and data generation (never a vehicle path)."""
     return load_mission_package(document, mode="sim", allow_assumed_sim=True)
@@ -560,7 +565,7 @@ def _restore_env(name, previous):
 def fly(args, collector_plan, steps, mission, record):
     from scripts import collect_sim_teacher_episodes as collector
     from scripts.realworld import collection_guard, x1_gpu, x1_resume
-    from scripts.realworld.x1_lock import LOCK, flight_lock
+    from scripts.realworld.x1_lock import LOCK, demo_flight_lock
     from scripts.sitl_lock import SITL_LOCK_HELD_ENV, SitlLock, sitl_lock_context
     from scripts.run_simulator_docker import X1_WIND_AIRSPEED_ENV
 
@@ -568,7 +573,7 @@ def fly(args, collector_plan, steps, mission, record):
         raise ValueError(f"live SITL must use {long_range.SITL_PYTHON}")
     if os.environ.get(SITL_LOCK_HELD_ENV) == "1":
         raise ValueError("run the X1 demo outside an inherited SITL lock")
-    with flight_lock(LOCK, shared=True):
+    with demo_flight_lock(LOCK):
         assumed = mission.get("assumed_sim")
         fw_rtl = (assumed or {}).get("fw_rtl")
         requested_image = fw_rtl.image_id if fw_rtl is not None else IMAGE
