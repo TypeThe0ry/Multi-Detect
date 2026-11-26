@@ -480,12 +480,13 @@ class CollectorScenario:
     """Bridge the owned episode clock, telemetry and original compiled route to the injector."""
 
     def __init__(self, faults, *, clearance, make_decision=None, terrain=None, motion_evidence=None,
-                 cadence_steps=()):
+                 cadence_steps=(), perception_tick=None):
         self.faults = faults
         self.clearance = clearance
         self.make_decision = make_decision
         self.terrain = terrain
         self.motion_evidence = motion_evidence
+        self.perception_tick = perception_tick
         self.cadence_steps = tuple(cadence_steps)
         self.cadence_suffixes = tuple(
             [asdict(step) for step in self.cadence_steps[index:]] for index in range(len(self.cadence_steps))
@@ -666,6 +667,8 @@ class CollectorScenario:
                     "cadence_active": (type(base_mode) is int and bool(base_mode & 128)
                                        and vtol.get("landed_state") in {2, 3, 4}),
                 }
+            if self.perception_tick is not None:
+                self.perception_tick(self, index, samples, gimbal, boot_ms, frame.position_ok)
             self.decision.tick(frame, mav_rows=mav_rows, observations=observations, events=events,
                                event_current=event_current, wind=wind, **cadence)
             self._after_decision()

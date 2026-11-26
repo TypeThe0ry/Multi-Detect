@@ -78,6 +78,34 @@ Gazebo Harmonic 的 X1 风情景可通过 `run_x1_autonomy_demo.py --wind-airspe
 
 `retask` 的 `plan` 保持 `{plan_version:1,goal,steps,report}`。每步仍使用 `{id,skill,params,on_success,on_fail}`。外层 `revision` 是运行版本，不受模型控制。挂接 `X1AirbornePlanAdapter` 时，FW 接受最多四步 X1 巡航或观察原语后接 `back_transition → return_home`，也接受仅后两步。MC 接受 `return_home`。边必须显式、有限并终止。空中 failure edge 需要由 X1 原语执行器在遇到异常时上报新事件，并等待已通过校验的 Altair 决策后再确定后续动作。计算线的 `replace_plan` 映射为 `retask`。`clarify/safe_stop` 不应转译成执行器自行挑选的命令。需要恢复动作时由 Altair 显式产出 `loiter`、`return` 或 `land-now` 等具体动作。
 
+## 感知工具（可选）
+
+`x1.contingency.tool.v1` 只读，不调用飞控、任务写口或云台控制口，也不运行新的模型。Altair 仍然选择动作；执行端只准入或拒绝原动作，PX4 原生安全行为保持不变。工具结果只供 Altair 参考，不构成 `MotionProof`，也不提供执行权限。
+
+宿主以 `DecisionTick(..., tool_runner=...)` 为事件和节拍票据开启工具回合。默认保留单轮行为。X1 demo 同时指定 `--decision-port PORT --perception-tools`，并用 `--contingency-scenario`、`--decision-cadence-s` 或两者启用请求入口。工具回合共用原决策工作线程以及原节奏、票据截止和动作准入规则。
+
+1. **等待模型**：同一张 `x1.contingency.request.v1` 票据增加 `perception`：`schema`、`state_sha256`（`state` 的规范 JSON SHA-256）、`call_index`（从 0 起）、`calls_remaining`、`tools` 和 `results`（初始为空）。模型返回一个正常动作对象，或一个工具请求，不得混合：
+
+   ```json
+   {"schema":"x1.contingency.tool.v1","tool":"gimbal_state","args":{},"request_id":"sortie7:1","call_index":0}
+   ```
+
+2. **读工具**：严格校验字段、白名单、空参数和回显的请求 ID／索引。一次只读一个既有快照。结果是 `{schema, tool, ok, data, source, age_ms, error}`，其中 `schema` 同为 `x1.contingency.tool.v1`。成功时 `data` 为工具专属对象、`error` 为 `null`；失败时 `data` 为 `null`、`error` 为稳定错误码。`age_ms` 以宿主同一单调时钟计算，取本结果所依赖读数的最大年龄；没有可用时间戳时为 `null`。`source` 标识适配器来源，失败时不证明该来源实际产出了数据。
+3. **继续同一票据**：宿主重发原 `state`、哈希、ID 和截止时间；递增 `call_index`，按调用顺序附上累计结果，并重算年龄、隐藏过期数据。默认最多 3 次（包括失败读取），每次最多 150 ms，全窗口含模型推理最多 2500 ms，且不延长原票据。用完次数时 `tools=[]`，只允许最终动作。默认拒绝超过 1000 ms 或未来的读数；最终推理期间其看到的成功读数如过期，整轮失败。非法 JSON、身份不符、超额请求或窗口超时都不产生宿主替代动作。迟到的调用结果被丢弃，尚未返回的生产者不会被无限并发调用。
+
+| 工具 | 成功数据与限制 |
+| --- | --- |
+| `look` | `detections[]`：`class`、`confidence`、归一化 `bbox=[x1,y1,x2,y2]`、`bearing_deg`（机体前向起算，右正）、`elevation_deg`（上正）；`truncated` 标识最多 12 个框。使用已校正内参、同帧 RGB 检测和 100 ms 内的机体云台读回。无图像像素、掩膜或检测器附加元数据。 |
+| `target_status` | `track_id`、`visible`（仅当前视觉确认）、`last_seen_age_ms_at_snapshot`（相对 tracker 快照，不是相对当前回合）、`position_wgs84_amsl=[lat,lon,alt]`。位置必须由已有定位来源提供并绑定同一 track；不可用时整条失败。 |
+| `gimbal_state` | `angles_deg`、`limits_deg`、`frame`、`device_id`；角度为实测读回（俯仰上正），限位来自机型，坐标系显式；不使用命令目标或 ACK 代替角度。 |
+| `terrain_ahead` | `profile[]`，每点为 `distance_m/elevation_amsl_m/clearance_m`；以及 `min_sample_margin_m/minimum_clearance_m`。沿活动 FW 直线连接段在同一 `LocalDemGrid` 采 9 点（含两端）；越界或没有直线段时失败。不代表全走廊净空、DEM 误差界或障碍间隔。 |
+| `route_status` | `steps[]`，每项为 `step_id/primitive/endpoint_distance_m`。距离是当前点到首个显式端点、后续端点间的水平直线距离，不是实际飞行长度；无显式端点则为 `null`。原生接管后不展示已失效的原任务路径。 |
+| `battery_status` | `percent/remaining_wh/absolute_error_wh`；必须同时具有有效遥测和既有估算器明确发布的绝对误差界，不以任务预算或单边续航下界冒充估计。 |
+
+collector 准入前复查工具窗口和最终模型轮次看到的成功观测的新鲜度。工具协议错误记入 `scenario_decision_error`，其中 `reason` 保存错误码，同一张票据另有一条拒绝回执。实际可读的数据依赖快照来源。demo 当前接入 `gimbal_state`、`terrain_ahead` 和 `route_status`。
+
+训练样本格式、标签归属与反例见 [Altair SFT 工具回合](x1-perception-tools-sft.md)。
+
 ## 运行时联接
 
 1. **消息身份与截止**。一个事件至多开一张票。更新的事件淘汰旧票。执行端使用与事件相同的单调时钟，确认事件、任务、版本和最新帧。票据匹配的有效决定最多消费一次。重启用新的 `run_id`，并重建活动计划与控制权。
@@ -191,6 +219,8 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 | `recent_receipts` | 最近至多四条事件或节拍的准入结果，包含 IDs、触发方式、动作、状态和原因。 |
 | `hold` | 当前已派发的驻留、引用、剩余主机秒数，以及原生动作和读回状态。 |
 
-每拍最多保留一个后端调用，节拍回包窗口为提交后 3 秒。步骤、PX4 模式、修订、飞行状态或更晚的事件改变时，旧票据立即失效。新事件先撤销节拍票据，等单工作线程释放后优先提交仍在有效窗内的事件。后端调用若无法即时取消，旧回复只会被丢弃。超时、无效 JSON、失效票据及准入拒绝均无新指令，当前已通过准入的航线或 PX4 已接管的状态继续生效。现有 PX4 保护继续作为最后一道保障。
+任一时刻最多保留一个在途后端调用，节拍票据截止时间为提交后 3 秒。步骤、PX4 模式、修订、飞行状态或更晚的事件改变时，旧票据立即失效。新事件先撤销节拍票据，等单工作线程释放后优先提交仍在有效窗内的事件。后端调用若无法即时取消，旧回复只会被丢弃。超时、无效 JSON、失效票据及准入拒绝均无新指令，当前已通过准入的航线或 PX4 已接管的状态继续生效。现有 PX4 保护继续作为最后一道保障。
+
+启用感知工具后，工具回合保留同一张节拍票据的 `trigger`、合成 `event_id` 和 `mission_progress`。窗口取原票据截止与工具总预算中较早者。新事件撤票后，正在进行的读取或推理可以结束，旧窗口随后停止，不再开启下一回合或提交动作。后端尚未返回时仍占用唯一调用位置。
 
 节拍仍从同一个执行入口经过 MotionProof、适用的 ASSUMED_SIM 证据和原生接管。缺少生命周期子段或当前位置的受证据约束后缀时，`continue` 可收到拒绝回执，已在执行的航线继续。每次节拍只写一条 `scenario_decision_receipt`，带 `trigger`、IDs、阶段、步骤、结果和 `latency_ms`。延迟是从提交到 collector 处理回复或撤票的主机毫秒数。`continue` 无新指令，回执省略原回包和完整证明。原生动作的接管与读回仍有各自证据记录。
