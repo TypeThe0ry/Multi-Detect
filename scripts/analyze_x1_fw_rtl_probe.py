@@ -35,6 +35,18 @@ FLOOR_OPEN = {
     "max_angular_rate_dps": 2, "fw_peak_power_w": 10, "hover_peak_power_w": 10,
 }
 POWER_METRICS = ("fw_peak_power_w", "hover_peak_power_w")
+# Use declared settings, so a run cannot choose its bin from the measured error.
+# Offset is a proxy for Hold phase for this grid, not a heading/wind interpolation.
+_HOLD_CONDITION = ("wind_mps", "offset_s")
+_HOLD_ALTITUDE_CONDITION = (*_HOLD_CONDITION, "cruise_agl_m")
+VARIATION_CONDITIONS = {
+    "fw_tracking_m": (_HOLD_CONDITION, 3),
+    # The initial altitude changes both the FW altitude profile and the
+    # descent distance before MOVE_TO_LAND. These bins pair the drain settings.
+    "fw_vertical_m": (_HOLD_ALTITUDE_CONDITION, 2),
+    "fw_acceptance_m": (_HOLD_ALTITUDE_CONDITION, 2),
+    "move_to_land_vertical_m": (("cruise_agl_m",), 3),
+}
 PAD_RADIUS_M = 16
 PAD_ERROR_M = 13
 DEM_ERROR_M = 12
@@ -378,6 +390,11 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
     need(transition is not None and hover is not None, "ULog never confirmed FW to MC transition")
 
     nav = topic("navigator_mission_item").window(activation, land)
+    raw_states = [r["sequence_current"] for r in nav]
+    # PX4 publishes IDLE when LAND completes. The ULog's inclusive window
+    # can include IDLE at the same boot timestamp as the first landed sample.
+    if raw_states[-2:] == [8, 9] and nav[-1]["timestamp"] == land and nav[-1]["nav_cmd"] == 0:
+        nav = nav[:-1]
     states = [r["sequence_current"] for r in nav]
     need(states in ([2, 3, 4, 5, 6, 7, 8], [0, 2, 3, 4, 5, 6, 7, 8], [2, 4, 5, 6, 7, 8],
                     [0, 2, 4, 5, 6, 7, 8]), f"unsupported/missing Navigator state sequence: {states}")
@@ -495,7 +512,7 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
     for key, samples in (("fw_peak_power_w", [w for r, w in zip(batteries, powers, strict=True) if r["timestamp"] <= starts[4]]),
                          ("hover_peak_power_w", [w for r, w in zip(batteries, powers, strict=True) if r["timestamp"] >= starts[4]])):
         values[key] = max(samples) if samples and all(w is not None for w in samples) else None
-    run.update({"observations": values, "phase_time_s": times, "state_sequence": states,
+    run.update({"observations": values, "phase_time_s": times, "state_sequence": states, "raw_state_sequence": raw_states,
                 "phase_starts_us": [starts[i] for i in range(8)], "disarm_us": disarm,
                 "vtol_transition_observed_s": (hover - transition) / 1e6,
                 "entry_heading_deg": _fw_angles(topic("vehicle_attitude").near(command_sample, 200_000))[1],
@@ -518,6 +535,25 @@ def _upper(values, margin, floor=0):
                 "max_observed": maximum, "median": median, "variation_ceiling": limit, "absolute_margin": margin,
                 "floor": floor, "upper": math.ceil(1000 * max(floor, maximum + max(0.20 * maximum, margin))) / 1000}
     return evidence, maximum <= limit
+
+
+def _conditioned_variation(cells, values, fields, minimum, margin):
+    declared = defaultdict(list)
+    for cell in cells:
+        declared[tuple(getattr(cell, field) for field in fields)].append(cell.id)
+    bins = []
+    for condition, cell_ids in sorted(declared.items()):
+        observed = {run_id: values[run_id] for run_id in cell_ids if run_id in values}
+        residuals = {}
+        if len(observed) >= minimum:
+            for run_id, value in observed.items():
+                peer_median = statistics.median(other for peer, other in observed.items() if peer != run_id)
+                residuals[run_id] = value - peer_median
+        bins.append({"condition": dict(zip(fields, condition, strict=True)), "valid_run_ids": list(observed),
+                     "missing_run_ids": [run_id for run_id in cell_ids if run_id not in observed],
+                     "residual_by_run_id": residuals,
+                     "outlier_run_ids": [run_id for run_id, error in residuals.items() if error > 4 * margin]})
+    return {"fields": fields, "minimum_valid_per_bin": minimum, "residual_ceiling": 4 * margin, "bins": bins}
 
 
 def _assumed_power_derivations(profile, profile_sha256):
@@ -543,7 +579,10 @@ def evaluate(cells, runs, profile, inputs, errors):
     scope = canonical_sha256({"probe": "x1-fw-rtl.v1", "inputs": inputs, "cells": [asdict(c) for c in cells]})
     report = {**META, "scope": scope, "status": "refused", "rule": {
         "minimum_runs": MIN_RUNS, "relative_margin": 0.20, "formula": "ceil_mm(max(floor, observed_max + max(20% of observed_max, absolute_margin)))",
-        "variation": "reject if max > max(2*median, median + 4*absolute_margin); do not discard trials",
+        "variation": "unconditioned metrics reject if max > max(2*median, median + 4*absolute_margin)",
+        "conditioned_variation": "four geometric metrics use fixed declared conditions and reject positive "
+                                 "leave-one-out median residuals > 4*absolute_margin or insufficient bin coverage; "
+                                 "never discard observed extrema from envelope bounds",
         "scope": "probe grid only; not a case-C registration scope",
         "power_fallback": "only for a power metric with no valid measured peaks across the runs"},
         "refusals": refusals, "source_assumptions_unverified": UNVERIFIED, "observations": {
@@ -593,7 +632,17 @@ def evaluate(cells, runs, profile, inputs, errors):
                       else "missing valid measurement")
             refusals.append(f"{key}: {reason}")
             continue
-        evidence, stable = _upper(values, FLOOR_OPEN.get(key, 1), floors.get(key, 0))
+        margin = FLOOR_OPEN.get(key, 1)
+        evidence, stable = _upper(values, margin, floors.get(key, 0))
+        if key in VARIATION_CONDITIONS:
+            fields, minimum = VARIATION_CONDITIONS[key]
+            variation = _conditioned_variation(cells, values, fields, minimum, margin)
+            # Keep the old pooled ceiling as diagnostic evidence only.
+            evidence["pooled_variation_ceiling"] = evidence.pop("variation_ceiling")
+            evidence["conditioned_variation"] = variation
+            if any(len(b["valid_run_ids"]) < minimum for b in variation["bins"]):
+                refusals.append(f"{key}: fewer than {minimum} valid runs in a declared condition bin, see run IDs")
+            stable = not any(b["outlier_run_ids"] for b in variation["bins"])
         report["derivations"][key] = {"basis": "MEASURED_SIM", **evidence}
         bounded[key] = evidence["upper"]
         if not stable:

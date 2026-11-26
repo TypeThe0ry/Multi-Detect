@@ -163,7 +163,8 @@ def _ulog(topics, params):
     return b"".join(chunks + [packet for _, packet in sorted(data)])
 
 
-def _fixture(cell, *, descend_m=73, current=12, clock_error=0, invalid_state=False, tracking_outlier=0):
+def _fixture(cell, *, descend_m=73, current=12, clock_error=0, invalid_state=False, tracking_outlier=0,
+             idle_before_land_us=None, idle_command=0):
     cell_index = CELLS.index(cell)
     entry = 225_000_000 + 20_000_000 * cell_index
     rtl, land, disarm = entry + 100_000, entry + 9_000_000, entry + 10_000_000
@@ -217,6 +218,8 @@ def _fixture(cell, *, descend_m=73, current=12, clock_error=0, invalid_state=Fal
                            nav_cmd=3000 if state == 6 else 16, latitude=lat0, longitude=lon0,
                            altitude=elevation if state == 2 else 300 if state == 8 else 300 + descend_m,
                            loiter_radius=80, altitude_is_relative=0))
+    if idle_before_land_us is not None:
+        nav.append({**nav[-1], "timestamp": land - idle_before_land_us, "sequence_current": 9, "nav_cmd": idle_command})
     topics = {"navigator_mission_item": nav, "vehicle_command": [stamped(entry + 50_000, command=20, from_external=1)],
               "vehicle_land_detected": [stamped(land, landed=1)],
               "home_position": [stamped(entry - 100_000, lat=lat0, lon=lon0, alt=300, valid_hpos=1, valid_alt=1)]}
@@ -314,6 +317,65 @@ def test_analyze_serialized_matrix_writes_exact_bound(tmp_path, monkeypatch, cur
     assert list(partial["observations"]) == [CELLS[0].id]
     assert partial["skipped_unflown_cells"] == [c.id for c in CELLS[1:]]
     assert not (partial_out / "probe.json").exists()
+
+
+def test_landed_timestamp_idle_does_not_change_flight_phases():
+    baseline = _run(CELLS[0])
+    terminal_idle = _run(CELLS[0], idle_before_land_us=0)
+    assert terminal_idle["raw_state_sequence"] == [2, 3, 4, 5, 6, 7, 8, 9]
+    assert terminal_idle["state_sequence"] == baseline["state_sequence"]
+    assert terminal_idle["phase_time_s"] == baseline["phase_time_s"]
+    assert terminal_idle["observations"] == baseline["observations"]
+
+
+@pytest.mark.parametrize("idle_before_land_us,idle_command", [(10_000, 0), (0, 16)])
+def test_refuses_airborne_idle_or_non_idle_item_at_touchdown(idle_before_land_us, idle_command):
+    with pytest.raises(ValueError, match="unsupported/missing Navigator state sequence"):
+        _run(CELLS[0], idle_before_land_us=idle_before_land_us, idle_command=idle_command)
+
+
+def test_conditioned_variation_accepts_repeatable_altitude_shift_and_keeps_global_max():
+    runs = [_run(c) for c in CELLS]
+    for cell, run in zip(CELLS, runs, strict=True):
+        run["observations"]["move_to_land_vertical_m"] = 2 if cell.cruise_agl_m == 85 else 15
+    high = next(run for run in runs if run["cell"]["cruise_agl_m"] == 95)
+    high["observations"]["move_to_land_vertical_m"] = 18
+    bound, report = analysis.evaluate(CELLS, runs, analysis.load_airframe_profile(demo.PROFILE), INPUTS, [])
+    assert report["refusals"] == []
+    assert bound["move_to_land_vertical_m"] == 21.6
+    entry = report["derivations"]["move_to_land_vertical_m"]
+    assert entry["pooled_variation_ceiling"] == 17
+    assert {error for b in entry["conditioned_variation"]["bins"]
+            for error in b["residual_by_run_id"].values()} == {0, 3}
+
+
+def test_conditioned_variation_refuses_thin_and_empty_bins_even_with_global_minimum():
+    thin = [c for c in CELLS if c.offset_s == 30 and c.wind_mps == 0]
+    empty = [c for c in CELLS if c.offset_s == 39 and c.wind_mps == 0]
+    missing = {c.id for c in thin[:2] + empty}
+    runs = [_run(c) for c in CELLS if c.id not in missing]
+    assert len(runs) >= probe.MIN_RUNS
+    bound, report = analysis.evaluate(CELLS, runs, analysis.load_airframe_profile(demo.PROFILE), INPUTS, [])
+    assert bound is None
+    assert "fw_tracking_m: fewer than 3 valid runs in a declared condition bin, see run IDs" in report["refusals"]
+    thin_bin, empty_bin = (b for b in report["derivations"]["fw_tracking_m"]["conditioned_variation"]["bins"]
+                          if b["condition"]["wind_mps"] == 0 and b["condition"]["offset_s"] in {30, 39})
+    assert thin_bin["valid_run_ids"] == [c.id for c in thin[2:]]
+    assert thin_bin["missing_run_ids"] == [c.id for c in thin[:2]]
+    assert empty_bin["valid_run_ids"] == empty_bin["outlier_run_ids"] == []
+    assert empty_bin["missing_run_ids"] == [c.id for c in empty]
+
+
+def test_conditioned_variation_detects_high_residual_hidden_by_pooled_median():
+    values = {c.id: 30 if c.wind_mps else 0 for c in CELLS}
+    high = CELLS[0].id
+    values[high] = 8
+    _, pooled_stable = analysis._upper(values, 1)
+    assert pooled_stable
+    fields, minimum = analysis.VARIATION_CONDITIONS["fw_tracking_m"]
+    result = analysis._conditioned_variation(CELLS, values, fields, minimum, 1)
+    assert [run_id for b in result["bins"] for run_id in b["outlier_run_ids"]] == [high]
+    assert next(b for b in result["bins"] if high in b["valid_run_ids"])["residual_by_run_id"][high] == 8
 
 
 def test_refuses_missing_runs():
