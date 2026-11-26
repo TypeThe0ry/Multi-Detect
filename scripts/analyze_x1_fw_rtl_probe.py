@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from multidetect.autonomy.airframe_profile import load_airframe_profile
 from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.autonomy.x1_motion_proof import LandingPad
-from multidetect.sim_teacher.x1_fw_native_rtl import FwRtlBounds, _PHASES, _POSITIVE, _REQUIRED
+from multidetect.sim_teacher.x1_fw_native_rtl import FwRtlBounds, _PHASES, _POSITIVE, _REQUIRED, suffix_power_w
 from multidetect.terrain_dem import load_local_dem_grid
 from scripts.analyze_px4_ulog import _parse_internal
 from scripts.measure_x1_fw_rtl import (
@@ -34,6 +34,7 @@ FLOOR_OPEN = {
     "max_climb_mps": 0.15, "max_descent_mps": 0.15, "max_acceleration_mps2": 0.15,
     "max_angular_rate_dps": 2, "fw_peak_power_w": 10, "hover_peak_power_w": 10,
 }
+POWER_METRICS = ("fw_peak_power_w", "hover_peak_power_w")
 PAD_RADIUS_M = 16
 PAD_ERROR_M = 13
 DEM_ERROR_M = 12
@@ -82,6 +83,9 @@ def mav_witness(rows, cell, meta):
     need(arming.get("basis") == BASIS and all(r.get("verified") is True
          and r.get("observed_px4_commits") == [PX4_RTL_COMMIT]
          and r.get("observed_parameters") == params for r in (arming, post)), "prearm/post-disarm readback mismatch")
+    descend = _REQUIRED["RTL_DESCEND_ALT"]
+    need(abs(number(params.get("RTL_DESCEND_ALT")) - descend) <= 1e-6,
+         f"RTL_DESCEND_ALT readback {params.get('RTL_DESCEND_ALT')} differs from prearm pin {descend} m")
     need(set(params) == {*_REQUIRED, *_POSITIVE, "SIM_BAT_DRAIN", "SIM_BAT_MIN_PCT",
                          "SIM_BAT1_DRAIN", "SIM_BAT1_MIN_PCT"}
          and all(abs(number(params[k]) - v) <= 1e-6 for k, v in _REQUIRED.items())
@@ -481,8 +485,8 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
         "max_acceleration_mps2": max(math.hypot(*_vector(r, ("ax", "ay", "az"))) for r in velocity),
         "max_angular_rate_dps": max(math.degrees(math.hypot(*map(number, r["xyz"]))) for r in omega),
     }
-    # Stock BatterySimulator returns -1 A. Report SOC but refuse a power bound
-    # unless a future instrumented SIM battery supplies valid electrical samples.
+    # Record electrical observations only when a phase has valid V × A samples.
+    # Stock BatterySimulator returns -1 A; keep the missing observations visible.
     powers = []
     for row in batteries:
         voltage, current = row.get("voltage_v"), row.get("current_a")
@@ -516,6 +520,21 @@ def _upper(values, margin, floor=0):
     return evidence, maximum <= limit
 
 
+def _assumed_power_derivations(profile, profile_sha256):
+    endurance = profile.endurance.to_mapping()
+    fw, hover = suffix_power_w(endurance)
+    source = {"basis": BASIS, "source": "Iowa ASSUMED_SIM suffix power model",
+              "airframe_profile_sha256": profile_sha256,
+              "fallback_reason": "no run yielded a valid electrical peak for this phase"}
+    return {
+        "fw_peak_power_w": {**source, "upper": fw, "formula": "2 * endurance.loiter_power_w",
+                            "inputs_w": {"loiter_power_w": endurance["loiter_power_w"]}},
+        "hover_peak_power_w": {**source, "upper": hover,
+                               "formula": "max(endurance.climb_power_w, endurance.hover_power_w, endurance.descent_power_w)",
+                               "inputs_w": {k: endurance[k] for k in ("climb_power_w", "hover_power_w", "descent_power_w")}},
+    }
+
+
 def evaluate(cells, runs, profile, inputs, errors):
     refusals = list(errors)
     ids = [r["run_id"] for r in runs]
@@ -525,7 +544,8 @@ def evaluate(cells, runs, profile, inputs, errors):
     report = {**META, "scope": scope, "status": "refused", "rule": {
         "minimum_runs": MIN_RUNS, "relative_margin": 0.20, "formula": "ceil_mm(max(floor, observed_max + max(20% of observed_max, absolute_margin)))",
         "variation": "reject if max > max(2*median, median + 4*absolute_margin); do not discard trials",
-        "scope": "measured grid only; not a case-C registration scope"},
+        "scope": "probe grid only; not a case-C registration scope",
+        "power_fallback": "only for a power metric with no valid measured peaks across the runs"},
         "refusals": refusals, "source_assumptions_unverified": UNVERIFIED, "observations": {
             r["run_id"]: {k: v for k, v in r.items() if k != "positions"} for r in runs}, "derivations": {}}
     if not runs:
@@ -554,18 +574,27 @@ def evaluate(cells, runs, profile, inputs, errors):
     if any(r["landing_offset_from_home_m"] + math.dist(r["home"][:2], r["pad"][:2]) > PAD_RADIUS_M for r in runs):
         refusals.append("touchdown outside conservative pad radius")
 
-    by_metric = {name: {r["run_id"]: r["observations"][name] for r in runs} for name in FLOOR_OPEN}
+    by_metric = {name: {r["run_id"]: r["observations"].get(name) for r in runs} for name in FLOOR_OPEN}
     by_metric.update({phase: {r["run_id"]: r["phase_time_s"][i] for r in runs} for i, phase in enumerate(_PHASES)})
     floors = {"max_ground_speed_mps": profile.max_airspeed_mps, "max_bank_deg": params["FW_R_LIM"],
               "transition": params["VT_B_TRANS_DUR"] + 0.001}
     bounded = {}
+    assumed_power = _assumed_power_derivations(profile, inputs["airframe_sha256"])
     for key, values in by_metric.items():
-        if any(v is None for v in values.values()):
-            report["derivations"][key] = {"values_by_run_id": values, "upper": None}
-            refusals.append(f"{key}: missing valid electrical samples; SOC cannot identify peak power")
+        if key in POWER_METRICS and all(v is None for v in values.values()):
+            evidence = {**assumed_power[key], "values_by_run_id": values}
+            report["derivations"][key] = evidence
+            bounded[key] = evidence["upper"]
+            continue
+        if any(type(v) not in (int, float) or not math.isfinite(v) or v < 0
+               or (key in POWER_METRICS and v == 0) for v in values.values()):
+            report["derivations"][key] = {"basis": "MEASURED_SIM", "values_by_run_id": values, "upper": None}
+            reason = ("missing valid electrical samples; SOC cannot identify peak power" if key in POWER_METRICS
+                      else "missing valid measurement")
+            refusals.append(f"{key}: {reason}")
             continue
         evidence, stable = _upper(values, FLOOR_OPEN.get(key, 1), floors.get(key, 0))
-        report["derivations"][key] = evidence
+        report["derivations"][key] = {"basis": "MEASURED_SIM", **evidence}
         bounded[key] = evidence["upper"]
         if not stable:
             refusals.append(f"{key}: excessive variation/outlier, see run IDs")

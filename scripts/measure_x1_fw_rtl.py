@@ -41,6 +41,15 @@ ULOG_ROOT = PurePosixPath("/opt/px4-gazebo/fs/log")
 CRUISE_INDEX = 1
 
 
+def _probe_parameters(cell):
+    # Exact pins (including RTL_DESCEND_ALT) are written before arm. Positive
+    # image/controller defaults are observed without overriding them.
+    params = {**dict.fromkeys(_POSITIVE), **_REQUIRED, "SIM_BAT_DRAIN": 1800, "SIM_BAT_MIN_PCT": 50,
+              "SIM_BAT1_DRAIN": cell.drain_s, "SIM_BAT1_MIN_PCT": 50}
+    settings = tuple((k, str(v)) for k, v in params.items() if v is not None and k not in {"VT_TYPE", "SYS_AUTOSTART"})
+    return params, settings
+
+
 def require_sim(mode):
     if mode != "sim":
         raise ValueError("FW RTL probe requires explicit --mode sim; no real, HIL, or attached vehicle")
@@ -305,9 +314,7 @@ def _prepare(args, cell, out, site, inputs):
             "airspeed_mps": hold["airspeed"], "max_entry_speed_mps": hold["max_entry_speed_mps"], "radius_m": hold["radius_m"],
             "speed_mps": hold["tangential_speed_mps"], "padding_ne_m": hold["padding_ne_m"],
             "padding_alt_m": hold["padding_alt_m"]}
-    params = {**dict.fromkeys(_POSITIVE), **_REQUIRED, "SIM_BAT_DRAIN": 1800, "SIM_BAT_MIN_PCT": 50,
-              "SIM_BAT1_DRAIN": cell.drain_s, "SIM_BAT1_MIN_PCT": 50}
-    settings = tuple((k, str(v)) for k, v in params.items() if v is not None and k not in {"VT_TYPE", "SYS_AUTOSTART"})
+    params, settings = _probe_parameters(cell)
     collector_plan = replace(collector_plan, extra_sim_params=settings, keep_px4_ulog=True,
                              seed=cell.repeat, px4_profile="main")
     faults = ()
