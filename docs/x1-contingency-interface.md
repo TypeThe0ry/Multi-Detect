@@ -70,9 +70,9 @@ Gazebo Harmonic 的 X1 风情景可通过 `run_x1_autonomy_demo.py --wind-airspe
 | --- | --- | --- |
 | `continue` | `{}` | 对当前活动轨迹重新验包，通过后保留计划。此调用发出 0 条新指令 |
 | `retask` | `{"plan": <MissionPlan v1>}` | 按原任务包引用边界验证，机载串行 tick 原子替换剩余计划。`revision` 加一 |
-| `loiter` | `{"hold_ref":"hold:a"}` | 只接受请求中的引用。MC 进入当前位置 Hold，FW 使用已证明的圆心、半径、高度和速度 |
-| `return` | `{}` | 分派 `rtl()`，按本轮 PX4 路径、过渡与返航走廊证明准入 |
-| `land-now` | `{}` | MC 稳态下分派 `land()`，需当下着陆区及下滑净空证据 |
+| `loiter` | `{"hold_ref":"hold:a"}` | 只接受请求中的引用。MC 进入当前位置 Hold（`DO_SET_MODE` AUTO.LOITER），FW 用已证明的圆心、半径、高度和速度发 `DO_ORBIT` |
+| `return` | `{}` | 分派 `rtl()`（`NAV_RETURN_TO_LAUNCH`），按本轮 PX4 路径、过渡与返航走廊证明准入 |
+| `land-now` | `{}` | MC 稳态下分派 `land()`（`DO_SET_MODE` AUTO.LAND，原地降落），需当下着陆区及下滑净空证据 |
 | `abort-transition` | `{}` | 在已验证支持的前过渡场景发出 `vtol_transition("mc")`。后过渡问题保留独立事件和评估，当前 v1 对未验证的中止路径拒绝 |
 | `gimbal-retarget` | `{"pitch_deg":-20,"yaw_deg":5}` | 云台直接接口，机型俯仰、偏航及默认滚转须在角限内，需稳态且云台控制权可用 |
 
@@ -83,7 +83,7 @@ Gazebo Harmonic 的 X1 风情景可通过 `run_x1_autonomy_demo.py --wind-airspe
 1. **消息身份与截止**。一个事件至多开一张票。更新的事件淘汰旧票。执行端使用与事件相同的单调时钟，确认事件、任务、版本和最新帧。票据匹配的有效决定最多消费一次。重启用新的 `run_id`，并重建活动计划与控制权。
 2. **可信证据**。执行端用精度未截断的 `RuntimeFrame` 及 `MotionProof`，将路径、转弯包络、剩余时间与电量、过渡 AGL、围栏、地形和障碍裕度绑定到 `frame_id` 与规范 JSON SHA-256。前过渡离场条件、返回路径和着陆走廊需由机型与实际 PX4 配置建模。保护预算与已授权任务包由宿主提供。输入 JSON 的显示字段以及模型解释不参与证明。
 3. **提交**。在现有串行控制 tick 验包并提交。X1 原语执行器应提供 `replace_remaining(plan, expected_version)`，将已证明的同一套原语原子替换，失败保留旧版本。`claim_native()` 必须在同一控制权域完成交接，防止普通任务发令与原生模式争用。订阅真实原生模式、ACK 与动作进度。链路允许恢复和任务重新接收前需独立确认原生控制权释放。
-4. **回读**。记录关联 ID、决策摘要、动作、`Admission.status/reason`、PX4 ACK、模式与实际结果。`installed/continued` 只说明本地状态改变，`accepted_unconfirmed/sent_unconfirmed` 表示需回读。`transport_denied/transport_uncertain/executor_failed/rejected` 进入宿主诊断。新鲜事件、模型超时、非法计划、传输失败均使用同一验收日志。执行器不从这些信号派生另一条动作。原生保底、Altair 动作和不明归因分别评分。
+4. **回读**。记录关联 ID、决策摘要、动作、`Admission.status/reason`、PX4 ACK、模式与实际结果。`installed/continued` 只说明本地状态改变，`accepted_unconfirmed/sent_unconfirmed` 表示需回读。返回 `CommandReceipt` 的端口按 ACK 映射：接受为 `accepted_unconfirmed`，拒绝为 `transport_denied`，超时为 `transport_uncertain`；只发不收的端口仍为 `sent_unconfirmed`。`transport_denied/transport_uncertain/executor_failed/rejected` 进入宿主诊断。新鲜事件、模型超时、非法计划、传输失败均使用同一验收日志。执行器不从这些信号派生另一条动作。原生保底、Altair 动作和不明归因分别评分。
 
 ### 逐决策运动证明
 
@@ -129,7 +129,28 @@ SIM 任务包可以由任务方提供 `x1_live_evidence`。这是宿主证据，
 
 宿主验收并取得这些硬界后，可传入 `--live-evidence-bounds /path/to/verified-bounds.json`。文件由 `scope_sha256`、`dem_sha256`、`base_mission_sha256` 和上表的可选证据字段构成。先用同一站点、计划、预算及故障执行一次 `--plan-only --generate-live-evidence` 获取前三个绑定值。runner 检查三者完全匹配。哈希用于适用性校验，硬界的真实性由提供该本地文件的宿主负责。`obstacle_coverage` 和 `obstacles` 一起提供。`landing_pad` 需附 DEM 硬界。生成 `battery` 需要任务包中已有经校准的 `budget.battery_capacity_wh`。只允许为已经验证的飞行阶段提供对应 `suffixes` 条目。
 
-CPU 回放覆盖实时采样、同一执行器的准入和零新增指令。实际 SITL 轨迹需要同一场景的可信机载和任务包证据。collector 仍不提供原生模式交接或换计划执行权限，PX4 原生保底保持原行为。
+CPU 回放覆盖实时采样、同一执行器的准入和零新增指令。实际 SITL 轨迹需要同一场景的可信机载和任务包证据。collector 现在为 `loiter`、`return`、`land-now` 提供原生接管（见下节），仍不提供换计划（`retask`）执行权限。PX4 原生保底保持原行为。
+
+### SITL collector 的原生接管
+
+`CollectorScenario` 绑定 collector 的遥测连接后创建 `NativeHandoffPort`，并把它作为 `native_port` 传给 `DecisionTick`。没有该端口的实时 tick 仍以 `native_handoff_not_available` 拒绝所有原生动作。
+
+1. **单一写入方**。collector 把路线执行器的 MAVLink 连接包进 `RouteWriteGate`。执行器准入原生动作后调用 `claim_native()`，即 `route_gate.claim()`：先等正在发送的一条路线指令写完，再拒绝之后所有路线写入（`mav.*_send`、`set_mode` 等，记入 `blocked`），然后停止已登记的 OFFBOARD 设定点流。控制权在本架次内不再释放。主循环在下一 tick 或当前原语线程上离开路线循环，记录 `collector_route_superseded`。被放弃的原语线程只剩遥测等待，不能再发指令。
+2. **原样下发**。端口只在已认领后发送，且上一条原生指令未定论时拒绝再发。`return` 发 `MAV_CMD_NAV_RETURN_TO_LAUNCH`；`land-now` 发 `MAV_CMD_DO_SET_MODE(1, 4, 6)`；MC `loiter` 发 `MAV_CMD_DO_SET_MODE(1, 4, 3)`；FW `loiter` 用已准入 HoldSite 的半径、切向速度、经纬度和海拔发 `MAV_CMD_DO_ORBIT`。不重试，不替换，不改参数。
+3. **ACK 与遥测确认**。ACK 从 reader 的逐命令缓存读取，默认 3 s。确认要求目标对端在 ACK 之后的 `HEARTBEAT` 报告期望模式：RTL 为 (4,5)，LAND 为 (4,6)，Hold 为 (4,3)。Hold 还要求 ACK 之后的 `POSITION_TARGET_GLOBAL_INT` 落在保持点上（FW 为圆心，2 m；MC 为下令时位置，按该 Hold 的水平余量）。发令前已处于期望模式且无其他证据时不算确认。默认 10 s 内未确认、NACK、ACK 超时都记为 `scenario_native_handoff` 的 `unconfirmed` 及原因（`ack_denied`、`ack_timeout`、`mode_not_observed`、`hold_target_not_observed`、`mode_unchanged_unverifiable`）。原生控制权不释放，collector 结束本架次并报告；飞机交给 PX4，PX4 自身保底是最后一道防线。
+4. **Hold 驻留**。Hold 的证明耗时上界即驻留上限。到期前 10 s，collector 产生一次 `hold_revalidation` 事件（来源 `executor`）并向 Altair 重新请求。到期仍无新的已分派原生动作时记 `scenario_native_hold_expired`，本架次失败关闭。执行端不会替 Altair 选择后续动作。
+5. **结束架次**。认领之后由 `finish_native()` 持续回读并处理新决策，直到确认的 `return`/`land-now` 在 ACK 之后报告 `landed_state=1`。`collector_landing_complete.method` 为 `native_return` 或 `native_land-now`。demo runner 的 `flight.native_handoff` 记录动作、确认状态、被替代的编译步骤和落点到首个本地位置样本的距离。只有确认接管、PX4 原生落地、已执行步骤全部确认，且 `return` 落在任务包着陆圆内时才判 `pass`。
+6. **电池恢复检查**。`battery_drop` 窗口结束时仍先恢复 drain 与下限参数并等待 SOC 回升。只有确认的原生 `return`/`land-now` 已接管飞机时，未观察到回升才记为 `recovery.status=not_applicable`，原因 `vehicle_under_native_<action>`；其余情况仍报错。PX4 带容量参数时的 SOC 融合（`battery.cpp` `estimateStateOfCharge`）在武装期间回升极慢，这是归档中检查失败的原因。
+
+任务包 `x1_live_evidence.native` 为可选字段，缺失的部分对应动作保持拒绝。
+
+| 字段 | 证据契约 |
+| --- | --- |
+| `return` | 键只能是 `"3"`（MC 回家步骤），结构同 `suffixes`，阶段为 `mc → landing`。PX4 VTOL 在 FW 中的 RTL 会先绕 home 盘旋降高再后过渡（`rtl_direct.cpp` 的 MOVE_TO_LOITER/LOITER_DOWN/MOVE_TO_LAND），离开已验证的原航线走廊，本版本不建模，FW `return` 拒绝。 |
+| `land-now` | 键只能是 `"3"`。给出 `max_entry_speed_mps`、`padding_ne_m`、`padding_alt_m`、`duration_s`、`peak_power_w`、`dynamics`。只在当前位置位于 home 着陆圆内、且剩余半径大于水平余量时，用该圆内的子圆作为接地区。 |
+| `holds` | 至多 8 个 `hold:*` 引用。均含 `mode`、`steps`、`entry`、`max_entry_speed_mps`、`padding_ne_m`、`padding_alt_m`、`duration_s`（进入加驻留的上界）、`peak_power_w`、`dynamics`。FW 另含 `centre`（北、东、AMSL）、`radius_m`、`tangential_speed_mps`、`airspeed`；水平余量须覆盖整个圆。圆心按 DEM 原点转为 WGS-84 再转回，证明锚定在指令实际表示的点上。只有当前步骤与稳态模式匹配的 Hold 才在请求中提供。 |
+
+每个入口门限只对自己的动作生效：Hold 的入口不放宽 `continue` 的入口速度或位置。
 
 字段对照基于 `/data/scratch/cx/altair/autonomy/AUTONOMY-GAP.md`。该文的 `timestamp_monotonic_ms` 对应 `events[].t_ms`，`operator_link` 对应 `telemetry.link.gcs`，剩余计划 hash 和可执行技能分别对应 `remaining_plan_sha256` 和 `capabilities`。回归样本保持起飞前规划与 identity 的原有门禁，飞行中主验收使用 [闭环矩阵](x1-contingency-acceptance.md)。
 
@@ -141,4 +162,15 @@ SITL runner 需要显式传 `--generate-live-evidence --live-evidence-bounds CAS
 
 SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 Wh 由 5 Ah × 14.4 V 得到。该验收场景在预武装时设置并读回 `SIM_BAT_DRAIN=1800` 和 `SIM_BAT_MIN_PCT=50`，使正常场景在短任务内有足够的模拟 SOC 区分度。电池故障使用 1 s 和 17% 的现有注入。假定从 PX4 生成到决策至多 500 ms，正常和故障的 SOC 下界分别扣 4 和 54 个百分点，包含模型斜率、滤波与量化余量。接收时钟和 PX4 接收侧时钟两项门限必须同时通过。只有固定 SIM 模型的无计量组合 `energy_consumed=-1`、`current_consumed=0` 可以用带标记的 SOC 下界。时间、能量储备、机型、围栏、地形和障碍检查仍适用。该假设不提供实体电池校准。
 
-后缀只覆盖已编译的 `continue` 路径。受控的试验 runner 在路线步骤失败时停止后续路线写入，PX4 保持原生保底。Altair 的 `loiter`（Hold）和 `return`（RTL）依然需要各自的原生轨迹证明、接管互锁和回读。`loiter` 还需要在有界停留窗口内强制重新验证。当前 collector 仍缺这些原生路径，现有 `continue` 假设不满足它们的准入条件。
+后缀只覆盖已编译的 `continue` 路径。受控的试验 runner 在路线步骤失败时停止后续路线写入，PX4 保持原生保底。
+
+原生动作的假设单列在 `native` 与 `px4_native_parameters` 中，各带 `basis` 与 `justification`。预武装时设置并读回 `RTL_TYPE=0`、`RTL_CONE_ANG=0`、`RTL_LAND_DELAY=0`、`MPC_XY_CRUISE=5`、`MPC_Z_V_AUTO_DN=1.5`、`MPC_LAND_SPEED=0.7`、`NAV_ACC_RAD=2`，与电池参数一起核对。
+
+| 假设 | 内容 |
+| --- | --- |
+| MC `return`（步骤 3） | PX4 MC RTL 按 5 m/s 直飞 home 并保持当前高度，到点后原地 LAND。440 m 留 110 s，末段 45 m 留 20 s，下降 85 s，按机型最高功率计。 |
+| MC `land-now`（步骤 3） | 只在 home 着陆圆内且留出 5 m 余量时可用，85 s，最高功率。 |
+| `hold:yard-orbit`（FW，步骤 1） | 航点 (320, 0) 上空巡航高度，半径 80 m，15 m/s 的 `DO_ORBIT`。水平余量 120 m，垂向 12 m，进入加驻留 180 s，两倍盘旋功率。 |
+| `hold:mc-here`（MC，步骤 3） | 原地 AUTO.LOITER，水平 20 m、垂向 5 m，120 s，最高功率。 |
+
+`configs/simulation/x1-native-handoff-faults-v1.json` 在 MC 回家段放一个 50–58 s 的 `link_loss` 窗口，范围摘要以 `link_loss:mc_return` 登记，用于原生 `return` 的验收。固定任务里 FW 段还没有可准入的原生退出：FW `return` 没有建模，`land-now` 需要 MC，接管后不能 `continue`/`retask`。所以 FW Hold 驻留到期仍会失败关闭。17% 的 `battery_drop` 发生在 FW 段，`return` 因无 FW RTL 证明而以 `unverified_clearance` 拒绝。即使有证明，17% × 72 Wh 也低于 14.8 Wh 的返航储备，仍会因 `energy_or_reserve_limit` 拒绝。

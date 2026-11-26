@@ -142,6 +142,14 @@ class MotionProof:
 
 
 @dataclass(frozen=True, slots=True)
+class CommandReceipt:
+    """A native port's COMMAND_ACK outcome for exactly the command it was asked to send."""
+
+    ok: bool
+    ack_result: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class Admission:
     status: str
     reason: str
@@ -427,14 +435,15 @@ class X1ContingencyExecutor:
         if action == "retask":
             self.mission.apply_onboard_replan(d.plan, expected_version=d.revision)
             return Admission("installed", "mission_plan_replaced", action)
+        result = None
         if action == "return":
-            self.vehicle.rtl()
+            result = self.vehicle.rtl()
         elif action == "land-now":
-            self.vehicle.land()
+            result = self.vehicle.land()
         elif action == "loiter":
             hold = frame.hold_sites[d.params["hold_ref"]]
             if hold.mode == "mc":
-                self.vehicle.set_mode("HOLD")
+                result = self.vehicle.set_mode("HOLD")
             else:
                 return self._receipt(action, self.vehicle.loiter_at((hold.lat_deg, hold.lon_deg), hold.radius_m,
                     hold.alt_amsl_m, speed=hold.tangential_speed_mps))
@@ -442,6 +451,10 @@ class X1ContingencyExecutor:
             return self._receipt(action, self.vehicle.vtol_transition("mc"))
         elif action == "gimbal-retarget":
             return self._receipt(action, self.vehicle.gimbal_control(**d.params))
+        # A port that reports its COMMAND_ACK gets the same receipt mapping as
+        # loiter_at(). A send-only port can only claim that the command left.
+        if isinstance(result, CommandReceipt):
+            return self._receipt(action, result)
         return Admission("sent_unconfirmed", "readback_required", action)
 
     @staticmethod

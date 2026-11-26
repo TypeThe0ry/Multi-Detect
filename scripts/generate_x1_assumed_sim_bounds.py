@@ -19,7 +19,14 @@ SCOPES = {
     "battery_drop": "11e617b8bba7fc931fb72070ab6c850d4f81d8f694868b5c7d8496ac7e2c0f61",
     "link_loss": "f825effdde8a264e2d7d005e61f62b6b913f702638b9599896911d5152e2ced1",
     "wind_step": "5500bcd114c41250745dac58ff3d21b45baf4fd53b1ae73b6e436c00c765aff3",
+    # configs/simulation/x1-native-handoff-faults-v1.json: link loss inside the MC return.
+    "link_loss:mc_return": "bc36ef6a6717a37d857722566464124cc4a93be667c39c4bdd1b16d677d78e95",
 }
+
+
+def scopes_for(kind):
+    """Every admitted scenario scope for one selected SITL fault kind."""
+    return {scope for key, scope in SCOPES.items() if key.split(":", 1)[0] == kind}
 
 
 def assumed(value, justification):
@@ -62,6 +69,12 @@ def generate(*, mode, world, image, profile_path):
                     failure_revalidation_enforced=failure)
 
     entry = [45, 410, -24, 24, cruise_z - 10, cruise_z + 10]
+    mc_entry = [25, 485, -24, 24, *entry[4:]]
+    dynamics = suffix(entry, [], True)["dynamics"]
+    xy_cruise, acceptance = 5.0, 2.0
+    native_inbound = [leg("mc", (45.0, 0.0, cruise_z), 30, 12, 110, motion_power),
+                      leg("mc", (0.0, 0.0, cruise_z), 8, 10, 20, motion_power)]
+    orbit_radius, orbit_speed = 80.0, p["cruise_airspeed_mps"]
     return {
         "basis": BASIS,
         "scope": dict(mode=mode, world=world, image=image, image_id=IMAGE_ID, world_sha256=WORLD_SHA,
@@ -83,6 +96,31 @@ def generate(*, mode, world, image, profile_path):
                 "后过渡限 20 s 且向北留出到 485 m 的延伸，水平/垂直余量 30/12 m，返航与下降按 90/85 s、机型最高功率预算。"),
             "3": assumed(suffix([25, 485, -24, 24, *entry[4:]], [*inbound, landing], False),
                 "MC 回航按 8 m/s 目标保留 90 s 覆盖约 485 m，85 s 覆盖约 84 m 下降，使用机型最高功率并检查 5 m 着陆跟踪盒。"),
+        },
+        "px4_native_parameters": assumed({"RTL_TYPE": 0, "RTL_CONE_ANG": 0, "RTL_LAND_DELAY": 0,
+                                          "MPC_XY_CRUISE": xy_cruise, "MPC_Z_V_AUTO_DN": 1.5,
+                                          "MPC_LAND_SPEED": 0.7, "NAV_ACC_RAD": acceptance},
+            "预武装设置并读回：RTL 直返 home 不走锥形降高、MC 到点即 LAND（rtl_direct.cpp MOVE_TO_LOITER→LAND），5 m/s 平飞、1.5/0.7 m/s 下降，2 m 到点半径。"),
+        "native": {
+            "return": {"3": assumed(suffix(mc_entry, [*native_inbound, landing], False),
+                "PX4 MC RTL 以读回的 5 m/s 直飞 home：440 m 留 110 s、末段 45 m 留 20 s，保持当前高度后原地 LAND，85 s 覆盖 84 m 下降；FW RTL 绕 home 盘旋降高，未建模，拒绝。")},
+            "land-now": {"3": assumed({"max_entry_speed_mps": 2, "padding_ne_m": 5, "padding_alt_m": 8,
+                                       "duration_s": 85, "peak_power_w": motion_power, "dynamics": dynamics},
+                "AUTO.LAND 原地下降，仅在 home 着陆圆内且留 5 m 跟踪余量时可用；1.5/0.7 m/s 下降 84 m 留 85 s，机型最高功率。")},
+            "holds": {
+                "hold:yard-orbit": assumed({
+                    "mode": "fw", "steps": [1], "entry": entry, "max_entry_speed_mps": ground_speed,
+                    "centre": [320.0, 0.0, cruise_z], "radius_m": orbit_radius, "tangential_speed_mps": orbit_speed,
+                    "padding_ne_m": orbit_radius + 40, "padding_alt_m": 12, "duration_s": 180,
+                    "peak_power_w": 2 * power["loiter_power_w"], "dynamics": dynamics,
+                    "airspeed": [p["min_airspeed_mps"], p["max_airspeed_mps"]]},
+                    "航点上空 80 m 半径、15 m/s 的 DO_ORBIT；进圆不超过 60 s 加 120 s 驻留，跟踪与风漂移另加 40 m、垂向 12 m，两倍盘旋功率；到期前由 collector 强制重新请求。"),
+                "hold:mc-here": assumed({
+                    "mode": "mc", "steps": [3], "entry": mc_entry, "max_entry_speed_mps": 12,
+                    "padding_ne_m": 20, "padding_alt_m": 5, "duration_s": 120, "peak_power_w": motion_power,
+                    "dynamics": dynamics},
+                    "MC 原地 AUTO.LOITER：8 m/s 按 2 m/s² 制动约 16 m，取 20 m 水平、5 m 垂向余量，驻留 120 s，机型最高功率。"),
+            },
         },
     }
 

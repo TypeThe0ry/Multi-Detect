@@ -562,6 +562,8 @@ class MavlinkReader:
             "GIMBAL_MANAGER_STATUS",
             "ACTUATOR_OUTPUT_STATUS",
             "ESC_STATUS",
+            # Native hold readback: PX4's active hold/orbit point after a handoff.
+            "POSITION_TARGET_GLOBAL_INT",
         }
     )
 
