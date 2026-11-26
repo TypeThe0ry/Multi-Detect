@@ -26,7 +26,7 @@ class FlatTerrain:
         return SimpleNamespace(elevation_m=300)
 
 
-PARAMS = {**probe._REQUIRED, "RTL_RETURN_ALT": 80, "RTL_DESCEND_ALT": 66, "RTL_LOITER_RAD": 80,
+PARAMS = {**probe._REQUIRED, "RTL_RETURN_ALT": 60, "RTL_LOITER_RAD": 80,
           "NAV_LOITER_RAD": 80, "VT_B_TRANS_DUR": 2, "VT_B_DEC_MSS": 2, "FW_R_LIM": 35}
 FIXTURES = Path(__file__).with_name("fixtures")
 INPUTS = {"world_sha256": demo.assumptions.WORLD_SHA, "dem_sha256": demo.assumptions.DEM_SHA,
@@ -163,7 +163,7 @@ def _ulog(topics, params):
     return b"".join(chunks + [packet for _, packet in sorted(data)])
 
 
-def _fixture(cell, *, current=12, clock_error=0, invalid_state=False, tracking_outlier=0):
+def _fixture(cell, *, descend_m=73, current=12, clock_error=0, invalid_state=False, tracking_outlier=0):
     cell_index = CELLS.index(cell)
     entry = 225_000_000 + 20_000_000 * cell_index
     rtl, land, disarm = entry + 100_000, entry + 9_000_000, entry + 10_000_000
@@ -174,7 +174,7 @@ def _fixture(cell, *, current=12, clock_error=0, invalid_state=False, tracking_o
     start = [240, 0, elevation]
     meta = {**analysis.META, "run_id": cell.id, "cell": asdict(cell), "hold": hold, "pad": [0, 0, 300],
             "inputs": INPUTS, "dem": "unused", "scenario": demo.assumptions.WORLD}
-    params = {**PARAMS, "SIM_BAT_DRAIN": 1800, "SIM_BAT_MIN_PCT": 50,
+    params = {**PARAMS, "RTL_DESCEND_ALT": descend_m, "SIM_BAT_DRAIN": 1800, "SIM_BAT_MIN_PCT": 50,
               "SIM_BAT1_DRAIN": cell.drain_s, "SIM_BAT1_MIN_PCT": 50}
     readback = dict(verified=True, observed_px4_commits=[probe.PX4_RTL_COMMIT], observed_parameters=params, basis=probe.BASIS)
 
@@ -215,7 +215,7 @@ def _fixture(cell, *, current=12, clock_error=0, invalid_state=False, tracking_o
                          (6, 4_000_000), (7, 7_000_000), (8, 8_000_000)):
         nav.append(stamped(entry + delta, sequence_current=1 if invalid_state and state == 3 else state,
                            nav_cmd=3000 if state == 6 else 16, latitude=lat0, longitude=lon0,
-                           altitude=elevation if state == 2 else 300 if state == 8 else 366,
+                           altitude=elevation if state == 2 else 300 if state == 8 else 300 + descend_m,
                            loiter_radius=80, altitude_is_relative=0))
     topics = {"navigator_mission_item": nav, "vehicle_command": [stamped(entry + 50_000, command=20, from_external=1)],
               "vehicle_land_detected": [stamped(land, landed=1)],
@@ -227,7 +227,7 @@ def _fixture(cell, *, current=12, clock_error=0, invalid_state=False, tracking_o
     for t in range(-200_000, 10_100_000, 100_000):
         stamp = entry + t
         local_x = 240.0 if t <= 200_000 else 0.0
-        alt = elevation if t < 2_000_000 else 366 if t < 8_400_000 else 300
+        alt = elevation if t < 2_000_000 else 300 + descend_m if t < 8_400_000 else 300
         if 3_000_000 <= t < 3_500_000:
             alt -= tracking_outlier
         rows = [stamped(stamp, nav_state=5 if stamp >= rtl else 3, nav_state_timestamp=rtl,
@@ -253,13 +253,14 @@ def _run(cell, **kwargs):
                                 analysis.load_airframe_profile(demo.PROFILE), raw)
 
 
-def test_analyze_serialized_matrix_writes_exact_bound(tmp_path, monkeypatch):
+@pytest.mark.parametrize("current", [12, -1])
+def test_analyze_serialized_matrix_writes_exact_bound(tmp_path, monkeypatch, current):
     root = tmp_path / "matrix"
     root.mkdir()
     probe.json_file(root / "matrix.json", {**analysis.META, "inputs": INPUTS, "cells": [asdict(c) for c in CELLS]})
     monkeypatch.setattr(analysis, "load_local_dem_grid", lambda _: FlatTerrain())
     for cell in CELLS:
-        meta, mav, raw = _fixture(cell)
+        meta, mav, raw = _fixture(cell, current=current)
         run_dir = root / cell.id
         episode = run_dir / "evidence"
         (episode / "container-evidence").mkdir(parents=True)
@@ -278,7 +279,22 @@ def test_analyze_serialized_matrix_writes_exact_bound(tmp_path, monkeypatch):
     assert bound.valid_for(report["scope"], analysis.load_airframe_profile(demo.PROFILE))
     assert report["status"] == "reviewed" and report["basis"] == "ASSUMED_SIM"
     assert bound.validation_sha256 == probe.digest(sidecar)
-    assert bound.fw_peak_power_w == 216
+    assert bound.params["RTL_DESCEND_ALT"] == 73
+    assert bound.fw_peak_power_w == (216 if current > 0 else 344)
+    assert bound.hover_peak_power_w == (216 if current > 0 else 750)
+    derivations = report["derivations"]
+    assert set(derivations) == {*analysis.FLOOR_OPEN, *analysis._PHASES}
+    for key, entry in derivations.items():
+        expected_basis = "ASSUMED_SIM" if current < 0 and key in analysis.POWER_METRICS else "MEASURED_SIM"
+        assert entry["basis"] == expected_basis
+    if current < 0:
+        fw, hover = (derivations[key] for key in analysis.POWER_METRICS)
+        assert fw["inputs_w"] == {"loiter_power_w": 172}
+        assert hover["inputs_w"] == {"climb_power_w": 750, "hover_power_w": 500, "descent_power_w": 420}
+        for entry in (fw, hover):
+            assert entry["airframe_profile_sha256"] == INPUTS["airframe_sha256"]
+            assert set(entry["values_by_run_id"].values()) == {None}
+            assert "max_observed" not in entry
     assert bound.phase_time_s == (1.1, 2.9, 2, 2, 4, 2, 2)
     trial = report["observations"][CELLS[0].id]
     assert trial["landing_offset_from_home_m"] == 0
@@ -399,6 +415,30 @@ def test_failed_ulog_copy_does_not_publish_partial_bytes(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="source vanished"):
         probe._copy_ulog("docker", "owned-sim", probe.ULOG_ROOT / "flight.ulg", tmp_path)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_prearm_settings_pin_descend_alt_and_reject_legacy_readback():
+    cell = CELLS[0]
+    params, settings = probe._probe_parameters(cell)
+    assert params["RTL_DESCEND_ALT"] == 73 and dict(settings)["RTL_DESCEND_ALT"] == "73"
+    assert "RTL_RETURN_ALT" not in dict(settings)
+    instance = object.__new__(probe._Probe)
+    instance.params = params
+    instance.transport = SimpleNamespace(command=lambda *_: f"PX4 git-hash: {probe.PX4_RTL_COMMIT}\n")
+    for altitude, expected in ((30, False), (73, True)):
+        actual = {**PARAMS, **{k: v for k, v in params.items() if v is not None}, "RTL_DESCEND_ALT": altitude}
+        instance.transport._get_param = actual.__getitem__
+        assert instance._readback()["verified"] is expected
+    with pytest.raises(ValueError, match="RTL_DESCEND_ALT readback 30 differs from prearm pin 73 m"):
+        _run(cell, descend_m=30)
+
+
+def test_missing_non_power_measurement_refuses_even_with_assumed_power():
+    runs = [_run(c, current=-1) for c in CELLS]
+    del runs[0]["observations"]["max_descent_mps"]
+    bound, report = analysis.evaluate(CELLS, runs, analysis.load_airframe_profile(demo.PROFILE), INPUTS, [])
+    assert bound is None and report["refusals"] == ["max_descent_mps: missing valid measurement"]
+    assert report["derivations"]["hover_peak_power_w"]["basis"] == "ASSUMED_SIM"
 
 
 def test_refuses_outlier_and_missing_current():

@@ -8,18 +8,26 @@ from dataclasses import dataclass, fields
 from types import MappingProxyType
 
 from multidetect.autonomy.x1_motion_proof import ExecutionSweep, LandingPad, SweptLeg, _number
+from .x1_native_handoff import IOWA_RTL_DESCEND_ALT_M
 
 # Source reviewed in px4-main, not the 83c4f4e image used by archived case C.
 PX4_RTL_COMMIT = "53afcc82b2a51a90424ff7e2c35583e491587eb5"
 _REQUIRED = {
     "SYS_AUTOSTART": 4051, "VT_TYPE": 0, "RTL_TYPE": 0, "RTL_CONE_ANG": 0,
     "RTL_LAND_DELAY": 0, "RTL_APPR_FORCE": 0, "RTL_PLD_MD": 0,
+    "RTL_DESCEND_ALT": IOWA_RTL_DESCEND_ALT_M,
     "MPC_XY_CRUISE": 5, "MPC_Z_V_AUTO_DN": 1.5, "MPC_LAND_SPEED": 0.7,
     "NAV_ACC_RAD": 2,
 }
-_POSITIVE = ("RTL_RETURN_ALT", "RTL_DESCEND_ALT", "RTL_LOITER_RAD", "NAV_LOITER_RAD",
+_POSITIVE = ("RTL_RETURN_ALT", "RTL_LOITER_RAD", "NAV_LOITER_RAD",
              "VT_B_TRANS_DUR", "VT_B_DEC_MSS", "FW_R_LIM")
 _PHASES = ("fw_climb", "fw_connector", "fw_descent", "fw_to_land", "transition", "mc", "landing")
+
+
+def suffix_power_w(endurance):
+    """Power assumptions shared by Iowa suffixes and the FW RTL analysis."""
+    return (2 * endurance["loiter_power_w"],
+            max(endurance[name] for name in ("climb_power_w", "hover_power_w", "descent_power_w")))
 
 
 @dataclass(frozen=True, slots=True)

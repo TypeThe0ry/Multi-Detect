@@ -641,7 +641,7 @@ class CollectorScenario:
         if assumed is not None:
             for parameter, expected in assumed["parameters"].items():
                 if self.transport._get_param(parameter) != expected:
-                    raise RuntimeError(f"ASSUMED_SIM battery readback mismatch for {parameter}")
+                    raise RuntimeError(f"ASSUMED_SIM prearm parameter readback mismatch for {parameter}")
         fw_rtl = getattr(self.motion_evidence, "fw_rtl", None)
         if fw_rtl is not None:
             self.motion_evidence.fw_rtl_ready = False

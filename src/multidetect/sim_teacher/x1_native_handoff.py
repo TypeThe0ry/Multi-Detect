@@ -25,6 +25,10 @@ from multidetect.onboard_runtime.fw_vtol_commands import (
     do_orbit,
 )
 
+# Iowa home-relative RTL loiter height for both the probe and native proof.
+# MC direct-to-home RTL with no land delay skips the descent loiter.
+IOWA_RTL_DESCEND_ALT_M = 73
+
 MAV_CMD_DO_SET_MODE = 176
 MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1
 ACK_ACCEPTED = frozenset({0, 5})  # MAV_RESULT_ACCEPTED, MAV_RESULT_IN_PROGRESS

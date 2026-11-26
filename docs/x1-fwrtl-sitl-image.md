@@ -20,7 +20,7 @@ systemd-run --scope -p MemoryMax=8G -p MemorySwapMax=0 \
 
 ## 注册和证据
 
-镜像静态验证不等于启用 FW RTL。`NAME.json` 必须恰好符合 `FwRtlBounds`；未获证的数值不要填零、默认值或旧轨迹回放数字。`NAME.validation.json` 记录独立审阅和每个界限的原始证据；其 SHA-256 写入 `validation_sha256`。注册器要求 sidecar 的 `basis=ASSUMED_SIM`、`status=reviewed`、`scope`、`image_id`、`px4_commit` 与清单一致。`wind_step` 和 `target_found` 各审各的，不可共享结果。注册结果是 demo 已支持的 `--fw-rtl-host-manifest` 文件对，不是新的车辆配置。
+镜像静态验证不等于启用 FW RTL。`NAME.json` 必须恰好符合 `FwRtlBounds`；未获证的数值不要填零、默认值或旧轨迹回放数字。`NAME.validation.json` 记录独立审阅和每个界限的原始证据；其 SHA-256 写入 `validation_sha256`。清单参数需包含武装前写入并核验的 `RTL_DESCEND_ALT=73`。注册器要求 sidecar 的 `basis=ASSUMED_SIM`、`status=reviewed`、`scope`、`image_id`、`px4_commit` 与清单一致。`wind_step` 和 `target_found` 各审各的，不可共享结果。注册结果是 demo 已支持的 `--fw-rtl-host-manifest` 文件对，不是新的车辆配置。
 
 ```bash
 PYTHONPATH=src:. /data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python \
@@ -31,6 +31,10 @@ PYTHONPATH=src:. /data/projects/Multi-Detect-env/Multi-Detect/.venv/bin/python \
 启动候选专用作业时显式设 `MULTIDETECT_PX4_PROFILE=main`，由 launcher 挂入相同 4050/4051，并选择 `SENS_GNSS0_DELAY`；不要改变归档默认配置。只从 `scenario_fw_rtl_readback` 确认实际参数和 MAVLink 版本匹配。构建和注册脚本均不读回运行参数、不启动 PX4/Gazebo 仿真。要为缺失界限采样，应另行批准独立的 SITL 采集，不得用虚构界限启动有证明门槛的 demo。
 
 ## Iowa FW Hold → RTL 独立测量
+
+`RTL_DESCEND_ALT=73 m` 随 `extra_sim_params` 在武装前写入。分析核验武装前与解除武装后的读回，以及 ULog 中的武装边界和飞行期间参数记录。PX4 的返航高度为 `max(激活高度, home + RTL_RETURN_ALT)`，盘旋目标为 `min(返航高度, home + RTL_DESCEND_ALT)`。Iowa 巡航约为 85 m AGL，现有镜像的 `RTL_RETURN_ALT=60 m` 在该巡航入口不会把返航高度压到 60 m。73 m 钉值比 40 m AGL 下限加 12 m DEM 误差多出约 21 m 的名义余量，以 home 附近地面为参照。盘旋范围的地形、Home 偏差、跟踪误差与转场失高仍由实测和包络检查覆盖。
+
+73 m 配置使用独立的新矩阵目录。旧 30 m 单元会被拒绝，不能用于新矩阵。Case B 保持 `RTL_CONE_ANG=0`、`RTL_LAND_DELAY=0` 与原返航高度逻辑。PX4 在已经处于 MC 时直接从 `MOVE_TO_LOITER` 进入 `LAND`，MC 返航扫掠、时间与功耗配置保持原值。
 
 `scripts/measure_x1_fw_rtl.sh` 仅接受显式 `--mode sim`，启动独占 PX4 main profile 的 SITL。入口使用已校验的 Iowa 五步固定任务，通过现有 collector 飞至固定翼巡航。第一次满足 Case C 的 FW Hold 入口范围、速度和 Iowa 巡航约束时，收回普通路线的写权限，向 Case C 的 `hold:yard-orbit` 发送 `DO_ORBIT`（北 320 m、半径 80 m，85 m 单元的圆心为 402.404 m AMSL）。收到 ACK 并从同一 PX4 确认 Hold 模式和目标后，按 PX4 时钟等待指定偏移，检查飞行状态和轨道位置，再原样发送一次 `NAV_RETURN_TO_LAUNCH`（20，七个参数全零）。这个测量入口跳过 RTL MotionProof，正常 X1 runner 没有对应参数或入口。PX4 负责着陆和解除武装。
 
@@ -67,8 +71,8 @@ PYTHONPATH=src:. PYTHONUTF8=1 /data/projects/Multi-Detect-env/Multi-Detect/.venv
 
 候选启动器在 `/opt/px4-gazebo` 下显式传入 `-s etc/init.d-posix/rcS`，该目录就是 PX4 rootfs；因此 console 中的 `./fs/log/...ulg` 实际位于 `/opt/px4-gazebo/fs/log/`。探针在武装前确认该目录中只有一份非空 ULog，在确认解除武装并停止 logger 后、容器移除前将同一文件直接复制到 `container-evidence/px4-ulog`。现有 collector 的复制逻辑不变，仍会尝试旧路径；以 `index.json` 中的 `ulog_files` 判断是否成功归档。
 
-分析以原始 ULog 的 Navigator 和 VTOL 状态划分七段，交叉核验 MAVLink 命令与时钟、Home、RTL 参数以及触地和解除武装。sidecar 记录分段耗时、相对证明扫掠盒的水平和垂直误差、后转损失、距 Home 的触地点偏差、滚转角、空速、地速、升降速度、加速度、角速度及 SOC 推算的耗能。每个拟议上界记录逐运行值、极值运行 ID、中位数和公式。对每项取观测最大值，加 `max(观测最大值 × 20%, 该量绝对余量)`，再应用 proof 的必要下限并向上取三位小数。如果最大值超过 `max(2 × 中位数, 中位数 + 4 × 绝对余量)`，拒绝整个清单。要求所有声明单元齐全且至少 16 个有效运行、85 m 无风样本覆盖四个航向象限、相邻放电档的实测入口 SOC 中位数至少差三个百分点，以及风、遥测、航迹和机型限制检查全部通过。
+分析以原始 ULog 的 Navigator 和 VTOL 状态划分七段，交叉核验 MAVLink 命令与时钟、Home、RTL 参数以及触地和解除武装。sidecar 记录分段耗时、相对证明扫掠盒的水平和垂直误差、后转损失、距 Home 的触地点偏差、滚转角、空速、地速、升降速度、加速度、角速度及 SOC 推算的耗能。每个 `MEASURED_SIM` 上界记录逐运行值、极值运行 ID、中位数和公式。对这些量取观测最大值，加 `max(观测最大值 × 20%, 该量绝对余量)`，再应用 proof 的必要下限并向上取三位小数。如果最大值超过 `max(2 × 中位数, 中位数 + 4 × 绝对余量)`，拒绝整个清单。要求所有声明单元齐全且至少 16 个有效运行、85 m 无风样本覆盖四个航向象限、相邻放电档的实测入口 SOC 中位数至少差三个百分点，以及风、遥测、航迹和机型限制检查全部通过。
 
 离线诊断可用 `--allow-partial` 跳过没有单元目录的未飞单元；这些单元仍计入声明矩阵，因此结果继续拒绝注册，直到完整矩阵满足规则。默认严格模式会逐项报告 `probe_missing`。已完成但没有归档 ULog 的单元会明确报告 `ulog_missing`。
 
-退出 `2` 并生成 `NAME.validation.json` 时，查看 `refusals` 与逐单元测量结果。两项功率界限要求有实测电压和电流。目前候选提交的 `BatterySimulator.cpp` 发布 `current_a=-1`，因此预期只能得到诊断 sidecar。`SOC × 72 Wh` 给出合成电池的耗能估计。满足所有条件时才会生成 `NAME.json`，其 scope 哈希覆盖采样网格和资产，`status=reviewed` 表明通过该网格规则。Case C 的 wind_step 使用 `8 N / -4 E m/s` 及不同事件时序，需要独立的范围证据和审阅。
+退出 `2` 并生成 `NAME.validation.json` 时，查看 `refusals` 与逐单元测量结果。每一项功率上界若所有单元均无法得到有效的 `V × A` 峰值，沿用 Iowa 后缀模型并标记 `ASSUMED_SIM`。`fw_peak_power_w = 2 × loiter_power_w = 344 W`，`hover_peak_power_w = max(climb_power_w, hover_power_w, descent_power_w) = 750 W`，用于后转、MC 和着陆。`derivations` 保留机型文件 SHA-256、公式、输入功率及各单元的空测量值。若已有部分单元的有效峰值，则要求该项在所有单元均有峰值，并照常进行异常值检查和加余量。只有这两项可以使用假设功率。当前候选的 `BatterySimulator.cpp` 发布 `current_a=-1`，`SOC × 72 Wh` 只用于估计合成电池的耗能，无法给出瞬时功率。满足所有条件时才会生成 `NAME.json`，其 scope 哈希覆盖采样网格和资产，`status=reviewed` 表明通过该网格规则。Case C 的 wind_step 使用 `8 N / -4 E m/s` 及不同事件时序，需要独立的范围证据和审阅。

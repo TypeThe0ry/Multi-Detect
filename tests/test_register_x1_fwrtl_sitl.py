@@ -49,7 +49,7 @@ def test_sim_register_pair_is_byte_identical_and_never_overwrites(tmp_path, revi
         setup.register("sim", reviewed_pair, output)
 
 
-@pytest.mark.parametrize("corruption", ["hash", "unproved_phase", "assessment_pending"])
+@pytest.mark.parametrize("corruption", ["hash", "unproved_phase", "assessment_pending", "legacy_descend"])
 def test_registration_rejects_incomplete_or_tampered_evidence(tmp_path, reviewed_pair, monkeypatch, corruption):
     monkeypatch.setattr(setup, "verify", lambda *_: pytest.fail("bad proof attempted Docker inspection"))
     field = json.loads(reviewed_pair.read_bytes())
@@ -58,6 +58,8 @@ def test_registration_rejects_incomplete_or_tampered_evidence(tmp_path, reviewed
         validation.write_text(validation.read_text() + "\n")
     elif corruption == "unproved_phase":
         field.pop("phase_time_s")
+    elif corruption == "legacy_descend":
+        field["params"]["RTL_DESCEND_ALT"] = 30
     else:
         raw = json.loads(validation.read_bytes())
         raw["status"] = "blocked"

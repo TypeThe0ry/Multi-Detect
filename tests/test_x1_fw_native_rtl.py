@@ -14,7 +14,7 @@ from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.autonomy.x1_contingency_executor import RuntimeFrame, X1Envelope, decode_decision
 from multidetect.autonomy.x1_plan import one_waypoint_primitives_input
 from multidetect.sim_teacher.streams import MavlinkState
-from multidetect.sim_teacher.x1_fw_native_rtl import PX4_RTL_COMMIT, FwRtlBounds
+from multidetect.sim_teacher.x1_fw_native_rtl import PX4_RTL_COMMIT, FwRtlBounds, _REQUIRED
 from multidetect.sim_teacher.x1_live_clearance import LiveContinueEvidence
 from multidetect.sim_teacher.x1_scenario import HOLD_REVALIDATION_LEAD_MS, CollectorScenario
 from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, recorded_decisions
@@ -37,7 +37,7 @@ def bounds(scope):
         params={"SYS_AUTOSTART": 4051, "VT_TYPE": 0, "RTL_TYPE": 0, "RTL_CONE_ANG": 0,
                 "RTL_LAND_DELAY": 0, "RTL_APPR_FORCE": 0, "RTL_PLD_MD": 0, "MPC_XY_CRUISE": 5,
                 "MPC_Z_V_AUTO_DN": 1.5, "MPC_LAND_SPEED": 0.7, "NAV_ACC_RAD": 2,
-                "RTL_RETURN_ALT": 75, "RTL_DESCEND_ALT": 68, "RTL_LOITER_RAD": 80,
+                "RTL_RETURN_ALT": 60, "RTL_DESCEND_ALT": 73, "RTL_LOITER_RAD": 80,
                 "NAV_LOITER_RAD": 80, "VT_B_TRANS_DUR": 4, "VT_B_DEC_MSS": 2, "FW_R_LIM": 35},
         fw_tracking_m=20, fw_vertical_m=3, fw_acceptance_m=10, move_to_land_vertical_m=2,
         transition_vertical_m=4, mc_tracking_m=12, mc_vertical_m=2, landing_tracking_m=4,
@@ -62,7 +62,7 @@ def assumed(rt, sha256=None):
     ("expired_hold", "unverified_clearance"), ("home", "unverified_clearance"),
     ("land-now", "land_now_requires_mc"), ("loiter", "unverified_clearance"),
 ])
-def test_fw_rtl_envelope(inputs, profile, terrain, case, reason):
+def test_fw_rtl_envelope(inputs, profile, terrain, monkeypatch, case, reason):
     base, _, _, _ = inputs
     doc = dict(base.document)
     data = doc["x1_live_evidence"]
@@ -78,6 +78,9 @@ def test_fw_rtl_envelope(inputs, profile, terrain, case, reason):
         doc["x1_planning"]["corridor"]["east_min_m"] = -125
     if case == "terrain":
         rt = replace(rt, params={**rt.params, "RTL_DESCEND_ALT": 30})
+        assert not rt.valid_for(scope, profile)
+        # Independently exercise the legacy low-altitude geometry veto.
+        monkeypatch.setitem(_REQUIRED, "RTL_DESCEND_ALT", 30)
     if case == "coverage":
         data["obstacle_coverage"][0] = -125
     if case == "obstacle":
@@ -113,16 +116,21 @@ def test_fw_rtl_envelope(inputs, profile, terrain, case, reason):
         assert not proof.geofence_clear and proof.terrain_margin_m > 0
 
 
-@pytest.mark.parametrize("readback", ["matches", "commit", "parameter"])
+@pytest.mark.parametrize("readback", ["matches", "commit", "parameter", "legacy_descend"])
 def test_candidate_requires_exact_prearm_readback(readback):
     rt = bounds("a" * 64)
     records = []
+    observed = dict(rt.params)
+    if readback == "parameter":
+        observed["RTL_LAND_DELAY"] = -1
+    if readback == "legacy_descend":
+        observed["RTL_DESCEND_ALT"] = 30
     scenario = CollectorScenario((), clearance=None, motion_evidence=SimpleNamespace(assumed_sim=assumed(rt), fw_rtl=rt))
     scenario.record = records.append
     scenario.transport = SimpleNamespace(
         prepare=lambda _: None,
         command=lambda *_: f"PX4 git-hash: {ARCHIVE_COMMIT if readback == 'commit' else rt.px4_commit}\n",
-        _get_param=lambda key: -1 if readback == "parameter" and key == "RTL_LAND_DELAY" else rt.params[key],
+        _get_param=observed.__getitem__,
     )
     if readback == "matches":
         scenario.prepare()
@@ -142,8 +150,7 @@ def test_installed_continue_then_fw_hold_then_return(installed, monkeypatch, tri
     rt = bounds(package.document["x1_live_evidence"]["scope_sha256"])
     # Counterfactual bounds and native readback; the installed route itself is
     # from the checked-in #75 replay and was validated/installed by its fixture.
-    evidence.fw_rtl = replace(rt, params={**rt.params, "RTL_DESCEND_ALT": 73},
-                              phase_time_s=(15, 50, 25, 20, 5, 32, 95))
+    evidence.fw_rtl = replace(rt, phase_time_s=(15, 50, 25, 20, 5, 32, 95))
     evidence.fw_rtl_ready = True
     original_sha = scenario.decision.plan_digest
     route = scenario.retask.installed_at(2)
@@ -260,8 +267,8 @@ def case_c():
     return root, result, requests, receipts, telemetry
 
 
-@pytest.mark.parametrize("variant", ["archive", "default_descent", "terrain_and_energy", "admitted_hypothesis"])
-def test_case_c_replay(case_c, profile, variant):
+@pytest.mark.parametrize("variant", ["archive", "default_descent", "terrain_and_energy", "pinned_energy", "admitted_hypothesis"])
+def test_case_c_replay(case_c, profile, monkeypatch, variant):
     root, result, requests, receipts, telemetry = case_c
     assert [(r["action"], r["status"]) for r in receipts] == [("loiter", "accepted_unconfirmed"), ("return", "rejected")]
     assert receipts[-1]["reason"] == "unverified_clearance"
@@ -278,11 +285,16 @@ def test_case_c_replay(case_c, profile, variant):
         rt = replace(rt, px4_commit=ARCHIVE_COMMIT, image_id=iowa.IMAGE_ID)
     elif variant == "default_descent":
         rt = replace(rt, params={**rt.params, "RTL_DESCEND_ALT": 30})
+        assert not rt.valid_for(scope, profile)
+        # Independently exercise the legacy low-altitude geometry veto.
+        monkeypatch.setitem(_REQUIRED, "RTL_DESCEND_ALT", 30)
+    elif variant == "terrain_and_energy":
+        # Preserve the archived 68 m hypothesis as a geometry regression.
+        rt = replace(rt, params={**rt.params, "RTL_DESCEND_ALT": 68, "RTL_RETURN_ALT": 75})
+        monkeypatch.setitem(_REQUIRED, "RTL_DESCEND_ALT", 68)
     elif variant == "admitted_hypothesis":
-        # Assumptions for this CPU-only branch: a higher departure from the
-        # home loiter and independently established tighter completion bounds.
-        rt = replace(rt, params={**rt.params, "RTL_DESCEND_ALT": 73},
-                     phase_time_s=(15, 50, 25, 20, 5, 32, 95))
+        # Counterfactual completion bounds for this CPU-only replay.
+        rt = replace(rt, phase_time_s=(15, 50, 25, 20, 5, 32, 95))
     data = package.document["x1_live_evidence"]
     evidence = LiveContinueEvidence(package, profile, dem, steps, scope=scope,
                                    assumed_sim=assumed(rt, data["assumed_bounds_sha256"]))
@@ -324,6 +336,10 @@ def test_case_c_replay(case_c, profile, variant):
         if variant == "admitted_hypothesis":
             assert tick.recent_receipts[-1]["status"] == "sent_unconfirmed", str(tick.last_admission[:2])
             commands.append(("rtl",))
+        elif variant == "pinned_energy":
+            assert tick.recent_receipts[-1]["reason"] == "energy_or_reserve_limit"
+            assert proof.min_transition_agl_m >= 40 and proof.terrain_margin_m > 0
+            assert proof.required_energy_wh + 14.8 > proof.available_energy_wh
         else:
             assert tick.recent_receipts[-1]["reason"] == "unverified_clearance"
         if variant == "archive":

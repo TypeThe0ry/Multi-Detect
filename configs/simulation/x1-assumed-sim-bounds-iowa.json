@@ -301,13 +301,14 @@
       "RTL_TYPE": 0,
       "RTL_CONE_ANG": 0,
       "RTL_LAND_DELAY": 0,
+      "RTL_DESCEND_ALT": 73,
       "MPC_XY_CRUISE": 5.0,
       "MPC_Z_V_AUTO_DN": 1.5,
       "MPC_LAND_SPEED": 0.7,
       "NAV_ACC_RAD": 2.0
     },
     "basis": "ASSUMED_SIM",
-    "justification": "预武装设置并读回：RTL 直返 home 不走锥形降高、MC 到点即 LAND（rtl_direct.cpp MOVE_TO_LOITER→LAND），5 m/s 平飞、1.5/0.7 m/s 下降，2 m 到点半径。"
+    "justification": "预武装设置并读回。Iowa FW 盘旋目标为 home 上方 73 m，低于 85 m 巡航，给 40 m 净空和 12 m DEM 误差留名义余量。PX4 以返航高度封顶，实际轨迹仍须验证。MC 直返 home 不走锥形降高，零等待时跳过下降盘旋并直接 LAND，5 m/s 平飞、1.5/0.7 m/s 下降，2 m 到点半径。"
   },
   "native": {
     "return": {
