@@ -174,3 +174,23 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 | `hold:mc-here`（MC，步骤 3） | 原地 AUTO.LOITER，水平 20 m、垂向 5 m，120 s，最高功率。 |
 
 `configs/simulation/x1-native-handoff-faults-v1.json` 在 MC 回家段放一个 50–58 s 的 `link_loss` 窗口，范围摘要以 `link_loss:mc_return` 登记，用于原生 `return` 的验收。固定任务里 FW 段还没有可准入的原生退出：FW `return` 没有建模，`land-now` 需要 MC，接管后不能 `continue`/`retask`。所以 FW Hold 驻留到期仍会失败关闭。17% 的 `battery_drop` 发生在 FW 段，`return` 因无 FW RTL 证明而以 `unverified_clearance` 拒绝。即使有证明，17% × 72 Wh 也低于 14.8 Wh 的返航储备，仍会因 `energy_or_reserve_limit` 拒绝。
+
+## 持续决策循环（continuous decision loop）
+
+`run_x1_autonomy_demo.py --decision-port PORT --decision-cadence-s SECONDS` 可在无注入故障的任务上启用节拍，也可与 `--contingency-scenario` 一起使用。默认 `0`，只在原事件入口请求 Altair。启用后，collector 在起飞、转场、巡航、回家进近、降落及原生接管等待中轮询；只有收到已武装并处于飞行、起飞或降落状态的 PX4 遥测才发起节拍请求。稳态巡航间隔为 `max(1, SECONDS)` 主机单调时钟秒，其他阶段为其一半。间隔从最近一次提交计算，真实事件可以越过限频。忙碌期间不积累节拍，也不在恢复时补发。
+
+节拍沿用 `x1.contingency.request.v1` 和同一份 `state`，增加顶层 `trigger: "cadence"` 与 `mission_progress`。事件请求保持原 wire 格式。两类请求共用同一 `request_id` 序列。节拍的 `event_id` 是 `2^52 + 请求序号`，用于满足 v1 回包的正整数关联字段。真实事件 ID 从 `1` 起并保留在 `state.events` 和 `state.latest_event_id` 中。Altair 回显顶层的 `request_id`、`event_id` 及 `state` 的 `mission_id`、`revision`。
+
+| `mission_progress` 字段 | 含义 |
+| --- | --- |
+| `step_index`、`step_id`、`primitive` | 当前编译步骤索引、源计划步骤 ID 和执行原语。原生接管以后仍可看到被暂停的原计划位置。 |
+| `remaining_plan_sha256` | 编译计划摘要和从当前执行原语起的固定后缀的规范 JSON SHA-256。与请求顶层同名字段相同。 |
+| `phase` | `takeoff`、`transition`、`cruise`、`approach` 或 `hold`。 |
+| `next_waypoint_distance_m`、`home_distance_m`、`eta_s` | 新鲜本地 NED 遥测给出的水平距离、按向航点的当前闭合速度估计的抵达秒数。遥测缺失或闭合速度不足时对应值为 `null`。 |
+| `remaining_energy_wh`、`remaining_time_s` | 同一拍可用的可信预算下界，缺失时为 `null`。 |
+| `recent_receipts` | 最近至多四条事件或节拍的准入结果，包含 IDs、触发方式、动作、状态和原因。 |
+| `hold` | 当前已派发的驻留、引用、剩余主机秒数，以及原生动作和读回状态。 |
+
+每拍最多保留一个后端调用，节拍回包窗口为提交后 3 秒。步骤、PX4 模式、修订、飞行状态或更晚的事件改变时，旧票据立即失效。新事件先撤销节拍票据，等单工作线程释放后优先提交仍在有效窗内的事件。后端调用若无法即时取消，旧回复只会被丢弃。超时、无效 JSON、失效票据及准入拒绝均无新指令，当前已通过准入的航线或 PX4 已接管的状态继续生效。现有 PX4 保护继续作为最后一道保障。
+
+节拍仍从同一个执行入口经过 MotionProof、适用的 ASSUMED_SIM 证据和原生接管。缺少生命周期子段或当前位置的受证据约束后缀时，`continue` 可收到拒绝回执，已在执行的航线继续。每次节拍只写一条 `scenario_decision_receipt`，带 `trigger`、IDs、阶段、步骤、结果和 `latency_ms`。延迟是从提交到 collector 处理回复或撤票的主机毫秒数。`continue` 无新指令，回执省略原回包和完整证明。原生动作的接管与读回仍有各自证据记录。

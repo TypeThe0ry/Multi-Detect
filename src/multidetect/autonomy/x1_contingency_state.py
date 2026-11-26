@@ -94,6 +94,29 @@ def _valid_or_null(group: str, field: str, value: object) -> object:
         return None
 
 
+def mission_navigation(local, next_waypoint_ned):
+    """Horizontal distances from fresh home-relative NED, with ETA at current closing speed."""
+    def vector(fields):
+        values = tuple((local or {}).get(field) for field in fields)
+        return values if all(type(v) in (int, float) and abs(v) < 2**32 for v in values) else None
+
+    position = vector(("x", "y"))
+    if position is None:
+        return None, None, None
+    home_distance = round(math.hypot(*position), 2)
+    if next_waypoint_ned is None:
+        return None, home_distance, None
+    delta = tuple(target - current for target, current in zip(next_waypoint_ned[:2], position, strict=True))
+    distance = math.hypot(*delta)
+    velocity = vector(("vx", "vy"))
+    eta = 0.0 if distance == 0 else None
+    if velocity is not None and distance > 0:
+        closing_speed = sum(v * d for v, d in zip(velocity, delta, strict=True)) / distance
+        if closing_speed >= 0.5:
+            eta = round(distance / closing_speed, 2)
+    return round(distance, 2), home_distance, eta
+
+
 class X1StateBuilder:
     """One producer per run. Timestamps use a common nondecreasing host clock."""
 

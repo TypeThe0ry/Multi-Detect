@@ -9,10 +9,12 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from pathlib import Path
 from threading import Event, Lock, Thread
 
 from multidetect.autonomy.x1_contingency_replay import Fault, load_faults
+from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.autonomy.x1_wind_estimate import WindEstimator, WindReading
 
 from .x1_live_clearance import MOTION_SAMPLE_MAX_AGE_MS
@@ -477,12 +479,17 @@ def wind_server_config(source, output, *, wind_relative_airspeed=False):
 class CollectorScenario:
     """Bridge the owned episode clock, telemetry and original compiled route to the injector."""
 
-    def __init__(self, faults, *, clearance, make_decision=None, terrain=None, motion_evidence=None):
+    def __init__(self, faults, *, clearance, make_decision=None, terrain=None, motion_evidence=None,
+                 cadence_steps=()):
         self.faults = faults
         self.clearance = clearance
         self.make_decision = make_decision
         self.terrain = terrain
         self.motion_evidence = motion_evidence
+        self.cadence_steps = tuple(cadence_steps)
+        self.cadence_suffixes = tuple(
+            [asdict(step) for step in self.cadence_steps[index:]] for index in range(len(self.cadence_steps))
+        )
         self.worker = ScenarioWorker()
         self.decision = None
         self.heartbeat_lock = Lock()
@@ -584,7 +591,7 @@ class CollectorScenario:
     def check(self):
         self.worker.check()
 
-    def tick(self, index, gimbal):
+    def tick(self, index, gimbal, *, lifecycle=None):
         from multidetect.autonomy.x1_contingency_executor import RuntimeFrame
         from multidetect.autonomy.x1_contingency_state import VTOL_STATES
 
@@ -592,7 +599,8 @@ class CollectorScenario:
 
         self.check()
         self.step = index
-        if self.worker.timeline is None:
+        timeline = self.worker.timeline
+        if timeline is None and (lifecycle != "takeoff" or not self.cadence_steps):
             return
         boot_ms = self.clock()
         # A pending Altair reply may become ready during a paused sim frame.
@@ -623,12 +631,14 @@ class CollectorScenario:
         terrain = self.transport.terrain_observation() if any(f.kind == "terrain_conflict" for f in self.faults) else None
         if terrain is not None:
             observations.append(("terrain", terrain, "terrain"))
-        events = self._new_events(samples, observations, wind)
+        events = self._new_events(samples, observations, wind) if timeline is not None else []
         if self.decision is not None:
-            point, remaining_energy_wh, remaining_time_s = self._motion_data(index, boot_ms, state)
+            motion_index = index if lifecycle is None else None
+            point, remaining_energy_wh, remaining_time_s = self._motion_data(motion_index, boot_ms, state)
             vtol_state = VTOL_STATES.get(vtol.get("vtol_state"))
             holds = (self.motion_evidence.hold_sites(index, vtol_state)
-                     if self.motion_evidence is not None and hasattr(self.motion_evidence, "hold_sites") else {})
+                     if lifecycle is None and self.motion_evidence is not None
+                     and hasattr(self.motion_evidence, "hold_sites") else {})
             hold_current = self._hold_events(now, events)
             frame = RuntimeFrame(
                 frame_id=time.monotonic_ns(), t_ms=now, mission_id=self.decision.mission_id,
@@ -639,18 +649,66 @@ class CollectorScenario:
                 airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples, state=state),
                 hold_sites=holds,
                 gimbal_available=gimbal is not None and not gimbal.awaiting_readback,
-                position_ne_amsl=point, active_motion_index=index,
+                position_ne_amsl=point, active_motion_index=motion_index,
                 remaining_energy_wh=remaining_energy_wh, remaining_time_s=remaining_time_s,
                 terrain_conflict=terrain.get("conflict") if terrain is not None else None,
             )
             event_current = hold_current or (
-                self.last_event_index is not None and boot_ms is not None
-                and boot_ms - self.worker.timeline.origin < self.faults[self.last_event_index].end_ms)
+                timeline is not None and self.last_event_index is not None and boot_ms is not None
+                and boot_ms - timeline.origin < self.faults[self.last_event_index].end_ms)
             # The selected wind is current or unknown, not a generic cached observation.
             mav_rows = (samples[name] for name in MAVLINK_TYPES if name != "WIND_COV" and name in samples)
+            cadence = {}
+            if self.cadence_steps:
+                cadence = {
+                    "mission_progress": self._mission_progress(index, lifecycle, state, frame),
+                    "mode": (base_mode, heartbeat.get("custom_mode"), vtol.get("landed_state")),
+                    "cadence_active": (type(base_mode) is int and bool(base_mode & 128)
+                                       and vtol.get("landed_state") in {2, 3, 4}),
+                }
             self.decision.tick(frame, mav_rows=mav_rows, observations=observations, events=events,
-                               event_current=event_current, wind=wind)
+                               event_current=event_current, wind=wind, **cadence)
             self._after_decision()
+
+    def _mission_progress(self, index, lifecycle, state, frame):
+        from multidetect.autonomy.x1_contingency_state import mission_navigation
+
+        # The collector executes the command-bearing steps between its takeoff and landing.
+        if lifecycle == "takeoff":
+            step_index = 0
+        elif lifecycle == "approach":
+            step_index = len(self.cadence_steps) - 1
+        else:
+            step_index = index + 1
+        step = self.cadence_steps[step_index]
+        hold = self.hold
+        native_action = self.native.action if self.native is not None else None
+        phase = lifecycle
+        if phase is None:
+            if native_action in {"return", "land-now"}:
+                phase = "approach"
+            elif hold is not None:
+                phase = "hold"
+            elif (step.primitive in {"fw_transition", "back_transition"}
+                  or frame.vtol_state in {"front_transition", "back_transition"}):
+                phase = "transition"
+            else:
+                phase = "cruise" if frame.vtol_state == "fw" else "approach"
+        waypoint = next((item.command.target_ned for item in self.cadence_steps[step_index:]
+                         if item.command is not None and item.command.target_ned is not None), None)
+        if lifecycle == "approach":
+            waypoint = (0.0, 0.0)  # Landing is at the end of the fixed MC return to home.
+        local = self._fresh_sample("LOCAL_POSITION_NED", max_age_ms=MOTION_SAMPLE_MAX_AGE_MS, state=state)
+        distance, home_distance, eta = mission_navigation(local, waypoint)
+        return {"step_index": step_index, "step_id": step.source_step_id, "primitive": step.primitive,
+                "phase": phase, "remaining_plan_sha256": canonical_sha256({
+                    "compiled_plan_sha256": self.decision.plan_digest, "steps": self.cadence_suffixes[step_index]}),
+                "next_waypoint_distance_m": distance, "home_distance_m": home_distance, "eta_s": eta,
+                "remaining_energy_wh": frame.remaining_energy_wh, "remaining_time_s": frame.remaining_time_s,
+                "hold": {"active": hold is not None, "ref": hold["hold_ref"] if hold is not None else None,
+                         "remaining_s": max(0, hold["deadline_ms"] - frame.t_ms) / 1000 if hold else None,
+                         "native_action": native_action,
+                         "native_status": self.native.status if self.native is not None else None}}
 
     def _hold_events(self, now, events):
         """Raise one revalidation event before an admitted hold's residence bound expires."""
@@ -734,8 +792,10 @@ class CollectorScenario:
         local = self._fresh_sample("LOCAL_POSITION_NED", max_age_ms=age, state=state)
         local_boot = (local or {}).get("time_boot_ms")
         global_boot = (global_position or {}).get("time_boot_ms")
+        timeline = self.worker.timeline
+        clock_floor = timeline.origin if timeline is not None else 1
         clock_valid = (type(local_boot) is int and type(boot_ms) is int
-                       and 0 < self.worker.timeline.origin <= min(boot_ms, local_boot)
+                       and 0 < clock_floor <= min(boot_ms, local_boot)
                        and self.motion_boot_high_water_ms <= min(boot_ms, local_boot)
                        and max(boot_ms, local_boot) < 2**32 and abs(local_boot - boot_ms) <= age)
         remaining_time = None
@@ -743,7 +803,7 @@ class CollectorScenario:
             # The reader can advance between clock() and taking its snapshot.
             self.motion_boot_high_water_ms = min(local_boot, boot_ms)
             remaining_time = self.motion_evidence.remaining_time_s(max(local_boot, boot_ms))
-        if (clock_valid and type(global_boot) is int and 0 < global_boot < 2**32
+        if (index is not None and clock_valid and type(global_boot) is int and 0 < global_boot < 2**32
                 and abs(local_boot - global_boot) <= age):
             point = self.motion_evidence.check_entry(index, point, local)
         else:

@@ -16,6 +16,8 @@ REQUEST_SCHEMA = "x1.contingency.request.v1"
 DECISION_SCHEMA = "x1.contingency.decision.v1"
 MAX_DECISION_BYTES = 6144
 MAX_DECISION_AGE_MS = 3000
+# Cadence replies keep the v1 positive event_id field without inventing a state event.
+CADENCE_EVENT_ID_BASE = 2**52
 MAX_FRAME_AGE_MS = 500
 _FIELDS = {
     "continue": set(), "retask": {"plan"}, "loiter": {"hold_ref"},
@@ -349,8 +351,8 @@ class X1ContingencyExecutor:
         return self._native_owner
 
     def open_request(self, snapshot: Mapping, *, run_id: str, hold_refs: Sequence[str] = (),
-                     remaining_plan_sha256: str | None = None) -> dict:
-        """A new meaningful event supersedes any unanswered request."""
+                     remaining_plan_sha256: str | None = None, mission_progress: Mapping | None = None) -> dict:
+        """Issue a single-use ticket for a current event or a periodic observation."""
         require_token(run_id)
         if len(run_id) > 24:
             raise ValueError("run_id exceeds 24 characters")
@@ -361,24 +363,40 @@ class X1ContingencyExecutor:
             raise ValueError("expected at most 8 hold references")
         holds = [require_token(ref) for ref in hold_refs]
         t_ms = snapshot["t_ms"]
-        event_id = snapshot["latest_event_id"]
-        event = next((item for item in snapshot["events"] if item["id"] == event_id), None)
-        if (type(t_ms) is not int or type(event_id) is not int or event_id <= self._last_event_id
-                or event is None or type(event["t_ms"]) is not int
-                or not 0 <= event["t_ms"] <= t_ms <= event["t_ms"] + MAX_DECISION_AGE_MS):
-            raise ValueError("request requires a current event on the monotonic clock")
+        if mission_progress is None:
+            event_id = snapshot["latest_event_id"]
+            event = next((item for item in snapshot["events"] if item["id"] == event_id), None)
+            if (type(t_ms) is not int or type(event_id) is not int
+                    or not self._last_event_id < event_id < CADENCE_EVENT_ID_BASE
+                    or event is None or type(event["t_ms"]) is not int
+                    or not 0 <= event["t_ms"] <= t_ms <= event["t_ms"] + MAX_DECISION_AGE_MS):
+                raise ValueError("request requires a current event on the monotonic clock")
+            deadline = event["t_ms"] + MAX_DECISION_AGE_MS
+        else:
+            event_id = CADENCE_EVENT_ID_BASE + self._seq + 1
+            if type(t_ms) is not int or t_ms < 0 or event_id >= 2**53:
+                raise ValueError("invalid cadence clock or sequence")
+            deadline = t_ms + MAX_DECISION_AGE_MS
         if remaining_plan_sha256 is not None:
             remaining_plan_sha256 = require_sha256(remaining_plan_sha256, "remaining_plan_sha256")
         self._seq += 1
         ticket = _Ticket(require_token(f"{run_id}:{self._seq}"), snapshot["revision"], t_ms, event_id,
-                         event["t_ms"] + MAX_DECISION_AGE_MS, tuple(holds))
+                         deadline, tuple(holds))
         self._ticket = ticket
-        self._last_event_id = ticket.event_id
-        return {"schema": REQUEST_SCHEMA, "request_id": ticket.request_id, "event_id": ticket.event_id,
-                "deadline_ms": ticket.deadline_ms,
-                "native_owner": self.native_owner, "hold_refs": holds, "state": snapshot,
-                "remaining_plan_sha256": remaining_plan_sha256, "actions": sorted(_FIELDS),
-                "capabilities": sorted(self.capabilities)}
+        request = {"schema": REQUEST_SCHEMA, "request_id": ticket.request_id, "event_id": ticket.event_id,
+                   "deadline_ms": ticket.deadline_ms,
+                   "native_owner": self.native_owner, "hold_refs": holds, "state": snapshot,
+                   "remaining_plan_sha256": remaining_plan_sha256, "actions": sorted(_FIELDS),
+                   "capabilities": sorted(self.capabilities)}
+        if mission_progress is None:
+            self._last_event_id = ticket.event_id
+        else:
+            request.update(trigger="cadence", mission_progress=dict(mission_progress))
+        return request
+
+    def discard_request(self, request_id: str) -> None:
+        if self._ticket is not None and self._ticket.request_id == request_id:
+            self._ticket = None
 
     def apply(self, wire: str | bytes, frame: RuntimeFrame, *, now_ms: int,
               proof: MotionProof | None = None,
