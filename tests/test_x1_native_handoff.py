@@ -588,7 +588,8 @@ def test_assumed_native_bounds_are_scoped_labelled_and_parse_on_the_iowa_dem():
     assert all(e["basis"] == "ASSUMED_SIM" and len(e["justification"].splitlines()) == 1 for e in entries)
     assert set(raw["native"]["return"]) == {"3"}  # FW native RTL stays unmodelled and rejected.
     assert generator.scopes_for("link_loss") == {generator.SCOPES["link_loss"], generator.SCOPES["link_loss:mc_return"]}
-    assert generator.scopes_for("battery_drop") == {generator.SCOPES["battery_drop"]}
+    assert generator.scopes_for("battery_drop") == {generator.SCOPES["battery_drop"],
+                                                  generator.SCOPES["battery_drop:mc_return"]}
     assert generator.scopes_for(None) == set()
     iowa = load_local_dem_grid(demo.ROOT / "simulation/terrain/rw_farm_iowa_w6km__clear_noon.dem.json")
     native = {section: {k: v["value"] for k, v in items.items()} for section, items in raw["native"].items()}

@@ -208,6 +208,33 @@ def compile_plan(package, post, record):
     return plan, capabilities
 
 
+# Keep the reviewed Iowa primitive source labels stable so existing motion
+# bounds (including separately pinned FW RTL scopes) keep their meaning.
+_STEP_LABELS = {"vtol_takeoff": "takeoff", "fw_transition": "fw", "fw_goto_waypoint": "w",
+                "back_transition": "back", "return_home": "home"}
+
+
+def canonical_mission_plan(plan):
+    """Rename a validated graph without changing any step or edge semantics."""
+    ids, counts = {}, {}
+    for step in plan.steps:
+        label = _STEP_LABELS.get(step.skill, step.skill)
+        count = counts[label] = counts.get(label, 0) + 1
+        ids[step.id] = label if count == 1 else f"{label}_{count}"
+
+    def branch(step_id):
+        return None if step_id is None else ids[step_id]
+
+    return replace(plan, goal="X1 mission", steps=tuple(
+        replace(step, id=ids[step.id], on_success=branch(step.on_success), on_fail=branch(step.on_fail))
+        for step in plan.steps
+    ))
+
+
+def compiled_mission_digest(package, plan):
+    return canonical_sha256({"package": package.document, "plan": asdict(plan)})
+
+
 def prepare(package, plan, capabilities, site, *, output, slot, nominal_mc=False):
     """Bind the validated mission to the site's DEM and the collector's SIM inputs."""
     if nominal_mc:
@@ -794,6 +821,11 @@ def run(args, *, post, launch=fly):
             prepare_options["nominal_mc"] = True
         else:
             plan, caps = compile_plan(package, post, record)
+        # Intent and package checks above see the unmodified model response.
+        # Everything downstream uses one canonical graph, including the
+        # primitive source IDs and the decision audit's remaining-plan binding.
+        plan = canonical_mission_plan(plan)
+        record["canonical_plan"] = asdict(plan)
         site = load_site(args.world, args.scenario)
         collector_plan, steps, safety, mission = prepare(package, plan, caps, site, output=args.output,
                                                          slot=args.slot, **prepare_options)
@@ -808,7 +840,7 @@ def run(args, *, post, launch=fly):
                 wind_plugin_sha256=hashlib.sha256(plugin.read_bytes()).hexdigest() if plugin is not None else None,
             )
         if generate_evidence:
-            base_digest = canonical_sha256({"package": package.document, "plan": asdict(plan)})
+            base_digest = compiled_mission_digest(package, plan)
             bounds_path = getattr(args, "live_evidence_bounds", None)
             bounds = None
             if bounds_path is not None:
@@ -883,7 +915,7 @@ def run(args, *, post, launch=fly):
         record["safety"]["planned"] = safety
         record["validator"]["verdict"] = "accepted"
         record["markers"].append({"phase": "mission_prepared"})
-        record["compiled_mission_sha256"] = canonical_sha256({"package": package.document, "plan": asdict(plan)})
+        record["compiled_mission_sha256"] = compiled_mission_digest(package, plan)
         if args.plan_only:
             record["flight"]["status"] = "plan_only"
             return 0

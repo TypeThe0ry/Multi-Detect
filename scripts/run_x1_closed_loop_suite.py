@@ -66,10 +66,11 @@ CASES = (
     Case("vtol-transect", "fw", ("continue",), 1, 0, 300, 900),
     Case("ramped-wind", "fw", ("continue",), 0, 2, 300, 900, "wind_step",
          str(ARCHIVE / "faults-fw-wind.json")),
+    # "mc" is the fault/decision phase of the Iowa FW mission, not the nominal MC route.
     Case("mc-link-loss", "mc", ("return",), 0, 0, 300, 900, "link_loss",
          "configs/simulation/x1-native-handoff-faults-v1.json", assumed=True),
     Case("mc-battery-drop", "mc", ("return", "land-now"), 0, 1, 300, 900, "battery_drop",
-         "mc-battery", assumed=True, return_home=False),
+         "configs/simulation/x1-mc-battery-faults-v1.json", assumed=True, return_home=False),
     Case("evidence-follow-event", "fw", ("retask",), 0, 3, 420, 1200, "target_found",
          EVIDENCE_FAULTS, assumed=True),
     Case("evidence-follow-cadence", "fw", ("retask",), 1, 3, 420, 1200, "target_found",
@@ -199,10 +200,6 @@ def run_worker(spec):
         common += ["--target-cadence-only"]
     if case["fault"]:
         schedule = case["schedule"]
-        if schedule == "mc-battery":
-            schedule = output / "mc-battery.json"
-            write_json(schedule, {"schema": "x1.contingency.faults.v1", "faults": [
-                {"type": "battery_drop", "at_ms": 50000, "duration_ms": 12000, "values": {"pct": 17}}]})
         common += ["--contingency-scenario", str(schedule), "--inject-fault", case["fault"]]
         if case["fault"] == "wind_step":
             common += ["--wind-airspeed-plugin", args["wind_plugin"]]

@@ -35,7 +35,8 @@ def _scenario(archive):
     plan = validate_mission_plan(archive["original_plan"], capabilities=capabilities)
     view, adapted, radius = one_waypoint_primitives_input(plan, package, capabilities)
     steps = build_x1_mission_steps(view, plan=adapted, terrain=terrain, profile=profile, mission_radius_m=radius)
-    bounds_path = Path("configs/simulation/x1-assumed-sim-bounds-iowa.json")
+    # Use the exact template bytes pinned by the recorded episode.
+    bounds_path = Path(__file__).parent / "fixtures/x1_continue_after_retask/iowa-assumed-bounds.json"
     bounds = _read(bounds_path)
     bounds_sha = hashlib.sha256(bounds_path.read_bytes()).hexdigest()
     assert bounds_sha == doc["x1_live_evidence"]["assumed_bounds_sha256"]
