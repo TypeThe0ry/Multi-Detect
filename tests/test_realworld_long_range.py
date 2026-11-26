@@ -282,3 +282,54 @@ def test_delta_dem_audit_rejects_impossible_cruise_corridor():
     targets = [(north, east, down - 50) for north, east, down in mission["targets"]]
     with pytest.raises(ValueError, match="DEM route envelope"):
         flight._audit_delta_route(mission["geometry"], targets, mission["source"], mission["terrain"], 4000)
+
+
+@pytest.mark.parametrize("confirmed", [True, False])
+def test_retask_orbit_stops_offboard_only_after_fresh_auto_loiter(monkeypatch, confirmed):
+    from types import SimpleNamespace
+
+    from multidetect.sim_teacher.executor import ExecutionResult
+
+    calls = []
+
+    class FakeExecutor:
+        vehicle = object()
+        telemetry_reader = SimpleNamespace(state={})
+        _clock = staticmethod(lambda: 1)
+        _geo_reference = staticmethod(lambda: (None, (0, 0, 0)))
+        _position = staticmethod(lambda: (200, 20, -85))
+
+        def execute(self, command):
+            calls.append(("execute", command.kind))
+            return ExecutionResult("success", 0, ack={})
+
+    streamer = SimpleNamespace(
+        set_path_target=lambda target, tangent: calls.append(("path", target, tangent)),
+        start=lambda: calls.append(("start",)), stop=lambda: calls.append(("stop",)),
+    )
+
+    def wait_mode(reader, mode, *, timeout_s, after_ns):
+        calls.append(("mode", mode, timeout_s, after_ns))
+        return {"confirmed": confirmed}
+
+    fake = SimpleNamespace(_SmokeFlightPolicy=None, _wait_motion_command=None, FixedWingVtolExecutor=FakeExecutor,
+                           SetpointStreamer=lambda _vehicle: streamer, _wait_for_offboard=lambda *a, **kw: None,
+                           _flight_state_snapshot=lambda _: {"vtol_state": 4}, _wait_px4_mode=wait_mode)
+    monkeypatch.setattr(flight, "_check_offboard_mode", lambda *_: None)
+    monkeypatch.setattr(flight.time, "monotonic_ns", lambda: 123)
+    with flight.collector_overrides(fake, {"geometry": None, "targets": []}, x1_heading_deg=0):
+        executor = fake.FixedWingVtolExecutor()
+        metadata = {"x1_retask_timeout_s": 60}
+        approach = flight.MotionCommand("reposition", mode="FW", target_ned=(200, 120, -85),
+                                        fly_through_radius_m=24, metadata=metadata)
+        orbit = flight.MotionCommand("orbit", mode="FW", target_ned=(200, 120, -85), radius_m=65,
+                                     duration_s=14, metadata=metadata)
+        assert executor.execute(approach).status == "success"
+        assert calls[:2] == [("path", (200, 120, -85), (0, 1)), ("start",)]
+        if confirmed:
+            assert executor.execute(orbit).ack["px4_orbit_mode"] == {"confirmed": True}
+        else:
+            with pytest.raises(RuntimeError, match="did not confirm AUTO.LOITER"):
+                executor.execute(orbit)
+        assert calls[2:] == [("execute", "orbit"), ("mode", flight.AUTO_LOITER_MODE, 5, 123)] + (
+            [("stop",)] if confirmed else [])

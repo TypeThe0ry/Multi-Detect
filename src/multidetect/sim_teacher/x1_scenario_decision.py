@@ -20,8 +20,11 @@ from multidetect.autonomy.x1_contingency_executor import (
     X1ContingencyExecutor,
     X1Envelope,
 )
+from multidetect.autonomy.serialization import canonical_sha256, strict_json_loads
 from multidetect.autonomy.x1_contingency_state import X1StateBuilder
 from multidetect.autonomy.x1_perception_tools import TOOL_SCHEMA, ToolProtocolError
+
+from .x1_scenario_observation import injected_target_reading
 
 
 def llama_decisions(port, sentence):
@@ -63,6 +66,18 @@ def recorded_decisions(decisions):
                            "event_id": request["event_id"], "mission_id": state["mission_id"],
                            "revision": state["revision"]})
     return post
+
+
+def _is_retask(wire):
+    if isinstance(wire, str):
+        wire = wire.encode("utf-8", errors="surrogatepass")
+    if not isinstance(wire, bytes) or len(wire) > MAX_DECISION_BYTES:
+        return False
+    try:
+        value = strict_json_loads(wire, name="Altair response")
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(value, dict) and value.get("action") == "retask"
 
 
 class _ReplayPort:
@@ -122,7 +137,8 @@ class DecisionTick:
 
     def __init__(self, package, profile, backend, gimbal_port, record, *, run_id, plan_digest,
                  revision=1, peer=(1, 1), now_ms=lambda: time.monotonic_ns() // 1_000_000,
-                 build_proof=None, cpu_replay=False, native_port=None, decision_cadence_s=0, tool_runner=None):
+                 build_proof=None, cpu_replay=False, native_port=None, decision_cadence_s=0, tool_runner=None,
+                 replace_remaining=None, recorded_cadence_followup=False):
         if not math.isfinite(decision_cadence_s) or decision_cadence_s < 0:
             raise ValueError("decision cadence must be finite and nonnegative")
         if cpu_replay and (gimbal_port is not None or native_port is not None):
@@ -138,7 +154,7 @@ class DecisionTick:
             port, claim = gimbal_port, (lambda: False)
         self.builder = X1StateBuilder(vehicle_system=peer[0], vehicle_component=peer[1])
         self.executor = X1ContingencyExecutor(
-            X1AirbornePlanAdapter(revision, replace_remaining=lambda *_: False),
+            X1AirbornePlanAdapter(revision, replace_remaining=replace_remaining or (lambda *_: False)),
             port, package, X1Envelope(profile), claim_native=claim,
             capabilities=frozenset(package.document["capabilities"]),
         )
@@ -157,15 +173,18 @@ class DecisionTick:
         self.last_requested = 0
         self.last_submit_ms = None
         self.cadence_s = decision_cadence_s
+        self.recorded_cadence_followup = recorded_cadence_followup
+        self.last_followup_event = 0
         self.recent_receipts = deque(maxlen=4)
         self.last_admission = None
+        self.installed_retask = None
 
     def _mark(self, kind, **fields):
         self.record({"message_type": f"scenario_decision_{kind}",
                      "receive_monotonic_ns": time.monotonic_ns(), **fields})
 
     def tick(self, frame, *, mav_rows=(), observations=(), events=(), event_current=True, wind=None,
-             mission_progress=None, mode=None, cadence_active=True):
+             mission_progress=None, mode=None, cadence_active=True, step_boundary=None, perception=None):
         now = self.now_ms()
         for row in sorted(mav_rows, key=lambda row: row["receive_monotonic_ns"]):
             stamp = row["receive_monotonic_ns"] // 1_000_000
@@ -198,20 +217,43 @@ class DecisionTick:
             "revision": (frame.mission_id, frame.revision, self.executor.mission.plan_version),
         }
         if self.pending is not None:
-            request, offered, previous = self.pending
+            request, offered, previous, offered_detection = self.pending
             cadence = request.get("trigger") == "cadence"
             changed = next((key for key in ("step", "mode", "revision") if signature[key] != previous[key]), None)
+            retask = False
+            if (step_boundary is not None and self.future.done() and not self.future.cancelled()
+                    and self.future.exception() is None):
+                reply = self.future.result()
+                retask = _is_retask(reply.wire if self.tool_runner is not None else reply)
+            previous_index = previous["step"][0]
+            # The planned phase may change when the cursor advances. The
+            # actual PX4 mode, VTOL state, command owner and revision may not.
+            safe_boundary = (
+                retask and step_boundary and changed == "step"
+                and type(previous_index) is int and frame.active_motion_index == previous_index + 1
+                and signature["step"][1] == previous["step"][1]
+                and event_id == previous["event"] and (cadence_active if cadence else event_current)
+                and signature["mode"][:2] == previous["mode"][:2]
+                and signature["mode"][3:] == previous["mode"][3:]
+                and signature["revision"] == previous["revision"]
+            )
             if cadence and event_id != previous["event"]:
                 self._finish(request, now, Admission("rejected", "preempted_by_event"))
-            elif cadence and (changed or not cadence_active):
+            elif cadence and ((changed and not safe_boundary) or not cadence_active):
                 self._finish(request, now, Admission("rejected", f"cadence_{changed or 'flight_state'}_changed"))
-            elif self.cadence_s > 0 and changed:
+            elif (self.cadence_s > 0 or retask) and changed and not safe_boundary:
                 self._finish(request, now, Admission("rejected", f"event_{changed}_changed"))
             elif now > request["deadline_ms"]:
                 self._finish(request, now, Admission("rejected", "decision_timeout"))
             elif self.future.done():
+                if retask and step_boundary is False and (cadence_active if cadence else event_current):
+                    return
                 current_id = request["event_id"] if cadence else event_id if event_current else 0
-                self._apply_reply(request, offered, replace(frame, event_id=current_id), now)
+                finding = (offered_detection if offered_detection == injected_target_reading(perception) else None)
+                self._apply_reply(request, offered, replace(frame, event_id=current_id), now, finding=finding)
+                if self.revision != frame.revision:
+                    self.future = None
+                    return
         # A running call may not be cancellable. Drain it without accepting its
         # reply, then give the current event first use of the single worker.
         if self.future is not None and self.future.done():
@@ -219,8 +261,14 @@ class DecisionTick:
         if self.future is not None or (self.tool_runner is not None and self.tool_runner.backend_busy):
             return
         interval_s = max(1, self.cadence_s) * (1 if phase == "cruise" else 0.5)
+        # The recorded cadence variant gets one immediate follow-up after the
+        # event ticket drains, within the same short-lived sample's age budget.
+        followup = (self.recorded_cadence_followup and perception is not None and event_current
+                    and event_id == self.last_requested and event_id > self.last_followup_event
+                    and snapshot["events"] and snapshot["events"][-1]["type"] == "target_found")
         cadence_due = (self.cadence_s > 0 and cadence_active and mission_progress is not None
-                       and (self.last_submit_ms is None or (now - self.last_submit_ms) / 1000 >= interval_s))
+                       and (followup or self.last_submit_ms is None
+                            or (now - self.last_submit_ms) / 1000 >= interval_s))
         if not event_due and not cadence_due:
             return
         holds = dict(frame.hold_sites)
@@ -230,9 +278,14 @@ class DecisionTick:
                                              mission_progress=progress)
         if event_due:
             self.last_requested = event_id
-            self._mark("request", request=request)
+        elif followup:
+            self.last_followup_event = event_id
+        if event_due or (step_boundary is not None and perception is not None):
+            # The audit record has the original sample, not the backend input.
+            audit = {**request, "scenario_observation": perception} if perception is not None else request
+            self._mark("request", request=audit)
         self.last_submit_ms = now
-        self.pending = request, holds, signature
+        self.pending = request, holds, signature, injected_target_reading(perception)
         if self.tool_runner is None:
             self.future = self.pool.submit(self.backend, request)
         else:
@@ -240,12 +293,15 @@ class DecisionTick:
             self.future = self.pool.submit(self.tool_runner.run_window, request, self.backend,
                                            request["deadline_ms"], cancelled=self.tool_cancel)
 
-    def _apply_reply(self, request, offered, frame, now):
+    def _apply_reply(self, request, offered, frame, now, *, finding):
         proof = None
+        proved = None
+        injected_results = ()
 
         def record_proof(decision, current_frame):
-            nonlocal proof
+            nonlocal proof, proved
             proof = self.build_proof(decision, current_frame)
+            proved = decision, current_frame
             return proof
 
         try:
@@ -253,6 +309,7 @@ class DecisionTick:
             if self.tool_runner is not None:
                 reply.check_fresh(now)
                 wire = reply.wire
+                injected_results = reply.injected_results
             else:
                 wire = reply
         except ToolProtocolError as exc:
@@ -270,10 +327,17 @@ class DecisionTick:
             return
         if isinstance(wire, str) and len(wire.encode("utf-8", errors="surrogatepass")) > MAX_DECISION_BYTES:
             wire = ""
+        if _is_retask(wire) and frame.retask_finding_ne is not None and (
+            finding is None or (self.tool_runner is not None and not any(
+                row["tool"] == "target_status" and row["data"] == finding.data("target_status")
+                for row in injected_results
+            ))
+        ):
+            frame = replace(frame, retask_finding_ne=None, retask_finding_error_m=None)
         holds = {ref: site for ref, site in frame.hold_sites.items() if offered.get(ref) == site}
         admission = self.executor.apply(wire, replace(frame, hold_sites=holds),
                                         now_ms=now, build_proof=record_proof if self.build_proof else None)
-        wire = wire if isinstance(wire, str) else None
+        wire = wire.decode("utf-8", errors="replace") if isinstance(wire, bytes) else wire if isinstance(wire, str) else None
         self.last_admission = admission, proof, now, wire
         cadence_continue = request.get("trigger") == "cadence" and admission.action == "continue"
         trace = {}
@@ -281,7 +345,17 @@ class DecisionTick:
             trace["motion_proof"] = asdict(proof) if proof is not None else None
         if not cadence_continue:
             trace["wire"] = wire
+            if injected_results:
+                trace["injected_tool_results"] = injected_results
         self._finish(request, now, admission, **trace)
+        if admission.status == "installed":
+            self.installed_retask = proved
+            self.revision = self.executor.mission.plan_version
+            self.plan_digest = canonical_sha256(json.loads(wire)["params"]["plan"])
+            self.record({"message_type": "scenario_plan_replaced", "request_id": request["request_id"],
+                         "previous_revision": frame.revision, "revision": self.revision,
+                         "step_index": frame.active_motion_index, "plan_sha256": self.plan_digest,
+                         "receive_monotonic_ns": time.monotonic_ns()})
 
     def _finish(self, request, now, admission, **trace):
         if self.tool_cancel is not None:
@@ -299,7 +373,7 @@ class DecisionTick:
 
     def close(self):
         if self.pending is not None:
-            request, _, _ = self.pending
+            request, _, _, _ = self.pending
             self._finish(request, self.now_ms(), Admission("rejected", "collector_exit"))
         self.pool.shutdown(wait=False, cancel_futures=True)
 

@@ -262,7 +262,7 @@ class X1MotionProofBuilder:
         return (box[5] - self.home_z <= self.area["max_altitude_m"]
                 and (leg.phase == "landing" or box[4] - self.home_z >= self.area["min_altitude_m"]))
 
-    def _terrain_clearance(self, legs, boxes, pad):
+    def _terrain_clearance(self, legs, boxes, pad, *, all_airborne=False):
         margins, transition_agl = [], []
         landed = False
         for index, (leg, box) in enumerate(zip(legs, boxes, strict=True)):
@@ -290,13 +290,14 @@ class X1MotionProofBuilder:
                     landed = True
                 continue
             margins.append(agl)
-            if leg.phase in {"fw", "transition"}:
+            if all_airborne or leg.phase in {"fw", "transition"}:
                 margins.extend((agl - AGL_MIN_M, AGL_MAX_M - (box[5] - low + error)))
             if leg.phase == "transition":
                 transition_agl.append(agl)
         return min(margins, default=0.0), min(transition_agl, default=None), landed
 
-    def build(self, decision: Decision, frame: RuntimeFrame, sweep: ExecutionSweep | None) -> MotionProof:
+    def build(self, decision: Decision, frame: RuntimeFrame, sweep: ExecutionSweep | None,
+              *, retask_anchors=None) -> MotionProof:
         closed = MotionProof(
             frame.frame_id, decision.digest, geofence_clear=False, obstacle_margin_m=None,
             terrain_margin_m=None, required_energy_wh=None, available_energy_wh=None,
@@ -324,12 +325,20 @@ class X1MotionProofBuilder:
             return closed
         try:
             boxes = tuple(leg.box() for leg in legs)
-            if not self._route_matches(decision, frame, sweep, boxes):
+            if retask_anchors is None:
+                if not self._route_matches(decision, frame, sweep, boxes):
+                    return closed
+            elif (decision.action != "retask" or frame.retask_boundary is not True
+                  or sweep.failure_revalidation_enforced is not True
+                  or tuple((leg.phase, leg.end) for leg in legs) != retask_anchors
+                  or legs[-1].phase != "landing" or legs[-1].end != (*self.home_ne, self.home_z)
+                  or legs[-1].start[:2] != self.home_ne):
                 return closed
             fence = all(self._fence_clear(leg, box) for leg, box in zip(legs, boxes, strict=True))
             terrain, transition, landed = None, None, False
             if _number(self.terrain_error_m, 0.0) and frame.terrain_conflict is not True:
-                terrain, transition, landed = self._terrain_clearance(legs, boxes, sweep.landing_pad)
+                terrain, transition, landed = self._terrain_clearance(
+                    legs, boxes, sweep.landing_pad, all_airborne=retask_anchors is not None)
             obstacle = None
             if self.obstacle_clearance is not None:
                 margins = tuple(self.obstacle_clearance(box) for box in boxes)

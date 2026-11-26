@@ -31,6 +31,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
+from itertools import count
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -47,6 +48,7 @@ from multidetect.autonomy.airframe_profile import (  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256  # noqa: E402
 from multidetect.camera_defaults import DEFAULT_CAMERA_INFO  # noqa: E402
 from multidetect.gimbal_controller import GimbalManagerSession, Px4GimbalController  # noqa: E402
+from multidetect.onboard_runtime.fw_vtol_commands import local_ned_to_global  # noqa: E402
 from multidetect.provenance import build_provenance, model_paths_from_config, snapshot_config  # noqa: E402
 from multidetect.px4_mission import (  # noqa: E402
     MAV_CMD_NAV_LAND,
@@ -3052,6 +3054,8 @@ def _wait_motion_command(
         if kind == "mc_hold":
             # The hold deadline must leave room for polling and settling.
             timeout += min(float(command.duration_s or 0.0), MOTION_LOITER_MAX_WAIT_S)
+        if isinstance(reader, _X1RetaskDeadline):
+            timeout = reader.timeout_s
         distance = yaw_error = speed = float("inf")
         settled_since: float | None = None
         # Timed on PX4's lockstep clock: on a loaded host the simulation runs well
@@ -3182,6 +3186,113 @@ def _wait_motion_command(
             time.sleep(0.2)
         return {"waited": "duration", "elapsed_s": time.monotonic() - started}
     return {"waited": "none", "elapsed_s": 0.0}
+
+
+class _X1RetaskTimeout(TimeoutError):
+    pass
+
+
+class _X1RetaskDeadline:
+    """Preserve the runner's telemetry and guard checks under a PX4-time deadline."""
+
+    def __init__(self, reader: MavlinkReader, timeout_s: float):
+        self.reader = reader
+        self.timeout_s = timeout_s
+        self.start_ns = _pose_sim_stamp_ns(reader.state)
+        if self.start_ns is None:
+            raise _X1RetaskTimeout("retask_clock_unavailable")
+
+    @property
+    def state(self):
+        return self.reader.state
+
+    def elapsed_s(self, stamp_ns: int | None) -> float:
+        if stamp_ns is None or stamp_ns < self.start_ns:
+            raise _X1RetaskTimeout("retask_clock_unavailable")
+        return (stamp_ns - self.start_ns) / 1e9
+
+    def raise_if_failed(self):
+        self.reader.raise_if_failed()
+        if self.elapsed_s(_pose_sim_stamp_ns(self.state)) > self.timeout_s:
+            raise _X1RetaskTimeout("retask_phase_timeout")
+
+    def evidence(self):
+        stamp_ns = _pose_sim_stamp_ns(self.state)
+        return {
+            "phase_timeout_s": self.timeout_s,
+            "phase_start_sim_ns": self.start_ns,
+            "phase_end_sim_ns": stamp_ns,
+            "phase_elapsed_sim_s": (self.elapsed_s(stamp_ns)
+                                    if stamp_ns is not None and stamp_ns >= self.start_ns else None),
+        }
+
+
+def _x1_retask_timeout_s(command) -> float:
+    value = command.metadata.get("x1_retask_timeout_s")
+    if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        raise ValueError("X1 replacement command requires a positive finite x1_retask_timeout_s")
+    return float(value)
+
+
+def _wait_x1_retask_orbit(command, deadline: _X1RetaskDeadline) -> dict[str, Any]:
+    """Require a continuous FW residence on the commanded ring using fresh pose samples."""
+    started = time.monotonic()
+    wall_timeout = _sim_teacher_hard_wall_timeout_s()
+    residence_s = float(command.duration_s)
+    acquisition_s = deadline.timeout_s - residence_s
+    acquire_ns = deadline.start_ns + round(acquisition_s * 1e9)
+    last_ns = _pose_sim_stamp_ns(deadline.state)
+    capture_ns = None
+    stamp_ns = last_ns
+    observations = []
+    reason = "orbit_clock_timeout"
+    while time.monotonic() - started < wall_timeout:
+        deadline.reader.raise_if_failed()
+        state = _snapshot_mavlink_state(deadline.state)
+        stamp_ns = _pose_sim_stamp_ns(state)
+        elapsed_s = deadline.elapsed_s(stamp_ns)
+        if elapsed_s > deadline.timeout_s:
+            reason = "retask_phase_timeout"
+            break
+        if last_ns is None or stamp_ns > last_ns:
+            north, east, _ = _state_position(state)
+            rn, re = north - command.target_ned[0], east - command.target_ned[1]
+            # Require positional capture in stable FW. Keep gaps out of the residence proof.
+            flight = _flight_state_snapshot(state)
+            on_ring = (flight["vtol_state"] == 4 and flight["landed_state"] == 2
+                       and abs(math.hypot(rn, re) - command.radius_m) <= 8.0)
+            if not on_ring or (last_ns is not None and stamp_ns - last_ns > 1_000_000_000):
+                capture_ns = None
+                observations.clear()
+            if capture_ns is None and stamp_ns > acquire_ns:
+                reason = "orbit_capture_timeout"
+                break
+            if on_ring:
+                if capture_ns is None:
+                    capture_ns = stamp_ns
+                observations.append({
+                    "sim_time_s": elapsed_s, "x": north, "y": east, "fw_active": True,
+                })
+                if stamp_ns - capture_ns >= round(residence_s * 1e9):
+                    reason = None
+                    break
+            last_ns = stamp_ns
+        time.sleep(0.05)
+    ring = reposition_ring_metrics(
+        observations, target_ned=command.target_ned, radius_m=command.radius_m,
+        minimum_dwell_s=0.0, minimum_swept_deg=10.0,
+    )
+    if reason is None and not ring["fw_reposition_success"]:
+        reason = "orbit_sweep_unconfirmed"
+    return {
+        "waited": "duration" if reason is None else "timeout", "reason": reason,
+        "elapsed_s": time.monotonic() - started, "requested_duration_s": residence_s,
+        "acquisition_budget_s": acquisition_s, "orbit_capture_sim_ns": capture_ns,
+        "orbit_residence_sim_s": ((stamp_ns - capture_ns) / 1e9
+                                  if capture_ns is not None and stamp_ns is not None else 0.0),
+        "target_ned_m": list(command.target_ned), "radius_m": command.radius_m,
+        "sample_count": len(observations), **ring,
+    }
 
 
 def _wait_smoke_reposition(
@@ -7572,7 +7683,7 @@ def run_episode(
                     (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, attitude_interval_us),
                     (mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE, 100_000),
                 ]
-                if track_targets:
+                if track_targets or x1_scenario is not None:
                     intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, attitude_interval_us))
                 if plan.gimbal_bridge_stabilize:
                     intervals.append((mavutil.mavlink.MAVLINK_MSG_ID_NAMED_VALUE_FLOAT, attitude_interval_us))
@@ -8637,9 +8748,19 @@ def run_episode(
             if x1_scenario is not None:
                 x1_scenario.start()
 
-            def _scenario_decision_tick(index: int) -> None:
+            def _scenario_decision_tick(index: int, *, step_boundary: bool = False) -> None:
                 if x1_scenario is not None:
-                    x1_scenario.tick(index, long_range_gimbal_hold if not landing_started else None)
+                    gimbal = long_range_gimbal_hold if not landing_started else None
+                    if step_boundary:
+                        x1_scenario.tick(
+                            index, gimbal, step_boundary=True,
+                            retask_gimbal_ready=(
+                                horizon_loop is not None and horizon_stabilizer is not None
+                                and _fresh_track_position(mav_reader.state, now_ns=time.monotonic_ns()) is not None
+                            ),
+                        )
+                    else:
+                        x1_scenario.tick(index, gimbal)
 
             def _x1_native_active() -> bool:
                 return x1_scenario is not None and x1_scenario.native_active
@@ -8652,7 +8773,13 @@ def run_episode(
                 _progress("x1_route_superseded", step=index, route_phase=phase)
 
             fw_phase = X1FwPhase()
-            for index in range(plan.steps_per_episode):
+            step_end = plan.steps_per_episode
+            retask_landing = None
+            retask_landing_timeout_s = 85.0
+            indices = count() if x1_scenario is not None else range(step_end)
+            for index in indices:
+                if index >= step_end:
+                    break
                 # perf_counter_ns is monotonic and has negligible overhead; keep
                 # all emitted values in milliseconds for compact JSONL rows.
                 step_t0 = time.perf_counter_ns()
@@ -8668,10 +8795,37 @@ def run_episode(
                 episode_watchdog.check()
                 if horizon_loop is not None:
                     horizon_loop.check()
-                _scenario_decision_tick(index)
+                _scenario_decision_tick(index, step_boundary=True)
                 if _x1_native_active():
                     _record_x1_route_superseded(index, "before_step")
                     break
+                replacement = None
+                retask_fields = None
+                if x1_scenario is not None:
+                    retask_end = x1_scenario.retask_end
+                    if retask_end is not None:
+                        step_end = retask_end
+                        if index >= step_end:
+                            break
+                        replacement = x1_scenario.retask_at(index)
+                        if replacement is None:
+                            raise RuntimeError(f"X1 replacement is missing primitive at index {index}")
+                        step = replacement.step
+                        retask_fields = {
+                            "step_index": index, "revision": replacement.revision,
+                            "source_step_id": step.source_step_id, "primitive": step.primitive,
+                            "command": step.command.to_dict() if step.command is not None else None,
+                        }
+                        if step.primitive == "vtol_land" and index + 1 == step_end:
+                            retask_landing = retask_fields
+                            if step.command is not None:
+                                retask_landing_timeout_s = _x1_retask_timeout_s(step.command)
+                            break  # The collector owns the existing guided MC landing.
+                        if step.command is None:
+                            raise RuntimeError(f"Unexpected X1 replacement lifecycle step at index {index}")
+                        if index + 1 == step_end:
+                            retask_landing = {**retask_fields, "step_index": step_end,
+                                              "primitive": "vtol_land", "command": None}
                 before_state = _snapshot_mavlink_state(mav_reader.state)
                 pose_sim_stamp_ns = _pose_sim_stamp_ns(before_state)
                 step_started_sim_ns = pose_sim_stamp_ns
@@ -8712,169 +8866,212 @@ def run_episode(
                 timing["observation_pack_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
                 pose = tuple(before["pose"]["local_ned_m"])
                 yaw = float(before["attitude"]["yaw_deg"])
-                if plan.teacher == "expert_search":
-                    _extra = {}
-                    if type(policy).__name__ == "FwCruiseObservePolicy":
-                        _extra["airspeed_mps"] = (before.get("flight_state") or {}).get("airspeed_mps")
-                    action = policy.next_action(
-                        pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose"), **_extra
-                    )
-                    labels = policy.labels(
-                        pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose")
-                    )
-                elif plan.teacher == "onboard":
-                    t = time.perf_counter_ns()
-                    action, labels = policy.act(before, pose_ned=pose, yaw_deg=yaw)
-                    timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
-                    onboard_labels = labels.get("onboard") or {}
-                    if isinstance(onboard_labels.get("fast_latency_s"), (int, float)):
-                        timing["detector_ms"] = round(float(onboard_labels["fast_latency_s"]) * 1000.0, 3)
-                    slow_rows = onboard_labels.get("slow_calls") or ()
-                    if isinstance(slow_rows, (list, tuple)):
-                        timing["slow_model_ms"] = round(
-                            sum(float(row.get("latency_s", 0.0)) for row in slow_rows if isinstance(row, dict)) * 1000.0,
-                            3,
-                        )
-                    # Health holds and recoveries skip perception: no detections then.
-                    onboard_labels = labels.get("onboard") or {}
-                    _progress(
-                        "onboard_step",
-                        step=index,
-                        state=onboard_labels.get("state"),
-                        detections=onboard_labels.get("detections"),
-                        slow_calls=len(onboard_labels.get("slow_calls") or ()),
-                    )
-                elif plan.teacher == "hover":
-                    action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
-                    labels = {"teacher": "hover"}
+                retask_track_target = None
+                retask_orbit = False
+                retask_timeout_s = None
+                if replacement is not None:
+                    action = replacement.step.command
+                    retask_timeout_s = _x1_retask_timeout_s(action)
+                    labels = {"x1_retask": retask_fields}
+                    retask_orbit = action.kind in {"loiter", "orbit"}
+                    if retask_orbit and (
+                        action.target_ned is None or action.radius_m is None
+                        or not math.isfinite(action.radius_m) or action.radius_m <= 0
+                        or not math.isfinite(action.duration_s) or action.duration_s <= 0
+                        or action.duration_s >= retask_timeout_s
+                    ):
+                        raise RuntimeError(f"X1 replacement orbit at index {index} lacks bounded geometry")
+                    if retask_orbit and action.metadata.get("long_range_home_relative"):
+                        _, home_ned = _home_reference(before_state)
+                        # LongRangeExecutor binds reposition/hold only. Bind the orbit
+                        # once so the transmitted center and the telemetry center agree.
+                        action = replace(action, target_ned=tuple(
+                            a + b for a, b in zip(action.target_ned, home_ned, strict=True)
+                        ), metadata={**action.metadata, "long_range_home_relative": False})
+                        retask_fields["executed_command"] = action.to_dict()
+                    gimbal_target_ned = getattr(replacement.step, "gimbal_target_ned", None)
+                    if gimbal_target_ned is not None:
+                        if horizon_stabilizer is None or horizon_loop is None:
+                            raise RuntimeError("X1 replacement gimbal target requires horizon tracking")
+                        home_geodetic, _ = _home_reference(before_state)
+                        retask_track_target = WorldTarget(*local_ned_to_global(
+                            gimbal_target_ned, home_geodetic=home_geodetic,
+                        ))
+                        retask_fields["gimbal_target_ned"] = list(gimbal_target_ned)
+                        retask_fields["gimbal_target"] = retask_track_target.reference()
+                    track_capture = None
+                    track_steady_ns = None
+                    x1_unwind = None
+                    unwind_meta_watermark_ns = None
+                    next_unwind_request_s = 0.0
+                    fw_leg = fw_handback = fw_hover_preaim = False
+                    fw_terminal_leg = fw_terminal_offboard_leg = fw_terminal_loiter_leg = False
+                    fw_terminal_path = fw_terminal_lock = fw_terminal_meta = fw_pass_midpoint = None
+                    managed_gimbal_action = None
                 else:
-                    t = time.perf_counter_ns()
-                    action = policy.next_action()
-                    labels = {}
-                    timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
-                track_capture = None
-                track_steady_ns = None
-                x1_unwind = None
-                unwind_meta_watermark_ns = None
-                next_unwind_request_s = 0.0
-                fw_leg = bool(
-                    plan.gimbal_eval_fw_legs and index < plan.gimbal_eval_fw_legs
-                    and horizon_stabilizer is not None and _is_motion_command(action)
-                    and action.kind == "reposition" and action.mode == "FW"
-                )
-                fw_terminal_offboard_leg = bool(
-                    fw_leg and index == plan.gimbal_eval_fw_legs - 1
-                    and action.fly_through_radius_m is not None
-                    and getattr(executor, "has_fw_end_plane", False)
-                    and horizon_stabilizer.yaw_mode == "follow"
-                    and horizon_loop is not None
-                )
-                fw_terminal_loiter_leg = bool(
-                    fw_leg and index == plan.gimbal_eval_fw_legs - 1
-                    and action.fly_through_radius_m is None
-                    and action.target_ned is not None
-                    and horizon_stabilizer.yaw_mode == "follow"
-                    and horizon_loop is not None
-                )
-                fw_terminal_leg = fw_terminal_offboard_leg or fw_terminal_loiter_leg
-                fw_handback = fw_leg and index == plan.gimbal_eval_fw_legs - 1
-                fw_terminal_lock = X1FwTerminalLockGate(enabled=True) if fw_handback else None
-                fw_terminal_path = None
-                fw_terminal_meta = None
-                fw_pass_midpoint = None
-                if (fw_leg and action.fly_through_radius_m is not None
-                        and index + 1 < len(plan.gimbal_eval_fw_targets)):
-                    metadata = action.metadata or {}
-                    fw_pass_midpoint = X1FwPassMidpoint(
-                        enabled=True, has_fly_through=True,
-                        short_leg_m=metadata.get("long_range_leg_length_m"),
-                        planned_switch_angle_deg=metadata.get("fw_next_switch_angle_deg"),
-                        old_target=plan.gimbal_eval_fw_targets[index],
-                        new_target=plan.gimbal_eval_fw_targets[index + 1],
+                    if plan.teacher == "expert_search":
+                        _extra = {}
+                        if type(policy).__name__ == "FwCruiseObservePolicy":
+                            _extra["airspeed_mps"] = (before.get("flight_state") or {}).get("airspeed_mps")
+                        action = policy.next_action(
+                            pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose"), **_extra
+                        )
+                        labels = policy.labels(
+                            pose_ned=pose, yaw_deg=yaw, camera_pose=before.get("camera_pose")
+                        )
+                    elif plan.teacher == "onboard":
+                        t = time.perf_counter_ns()
+                        action, labels = policy.act(before, pose_ned=pose, yaw_deg=yaw)
+                        timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
+                        onboard_labels = labels.get("onboard") or {}
+                        if isinstance(onboard_labels.get("fast_latency_s"), (int, float)):
+                            timing["detector_ms"] = round(float(onboard_labels["fast_latency_s"]) * 1000.0, 3)
+                        slow_rows = onboard_labels.get("slow_calls") or ()
+                        if isinstance(slow_rows, (list, tuple)):
+                            timing["slow_model_ms"] = round(
+                                sum(float(row.get("latency_s", 0.0)) for row in slow_rows if isinstance(row, dict)) * 1000.0,
+                                3,
+                            )
+                        # Health holds and recoveries skip perception: no detections then.
+                        onboard_labels = labels.get("onboard") or {}
+                        _progress(
+                            "onboard_step",
+                            step=index,
+                            state=onboard_labels.get("state"),
+                            detections=onboard_labels.get("detections"),
+                            slow_calls=len(onboard_labels.get("slow_calls") or ()),
+                        )
+                    elif plan.teacher == "hover":
+                        action = policy.next_action(pose_ned=pose, yaw_deg=yaw)
+                        labels = {"teacher": "hover"}
+                    else:
+                        t = time.perf_counter_ns()
+                        action = policy.next_action()
+                        labels = {}
+                        timing["policy_total_ms"] = round((time.perf_counter_ns() - t) / 1e6, 3)
+                    track_capture = None
+                    track_steady_ns = None
+                    x1_unwind = None
+                    unwind_meta_watermark_ns = None
+                    next_unwind_request_s = 0.0
+                    fw_leg = bool(
+                        plan.gimbal_eval_fw_legs and index < plan.gimbal_eval_fw_legs
+                        and horizon_stabilizer is not None and _is_motion_command(action)
+                        and action.kind == "reposition" and action.mode == "FW"
                     )
-                fw_hover_preaim = x1_fw_track_preaim(
-                    plan.gimbal_eval_fw_legs, plan.gimbal_eval_track_step, index, action
-                )
-                preaim_readiness = None
-                preaim_target_ref = None
-                if fw_hover_preaim:
-                    previous_meta = getattr(sensor_reader, "latest_meta", None)
-                    previous_meta_stamp_ns = getattr(previous_meta, "sensor_stamp_ns", None)
-                    preaim_readiness = X1HoverPreAimReadiness(
-                        step_started_sim_ns, previous_meta_stamp_ns
+                    fw_terminal_offboard_leg = bool(
+                        fw_leg and index == plan.gimbal_eval_fw_legs - 1
+                        and action.fly_through_radius_m is not None
+                        and getattr(executor, "has_fw_end_plane", False)
+                        and horizon_stabilizer.yaw_mode == "follow"
+                        and horizon_loop is not None
                     )
-                    if not sensor_reader.meta_supported:
-                        preaim_readiness.last_failure_reasons = ["getmeta_unsupported"]
-                    preaim_target_ref = plan.track_targets[0].reference()
-                    track_capture = X1TrackCapture(step_started_sim_ns)
-                if fw_leg:
-                    # Keep the bridge in track across legs; only the point and capture window change.
-                    fw_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
-                    fw_target = plan.gimbal_eval_fw_targets[index]
-                    track_capture = _x1_enter_fw_leg(
-                        horizon_stabilizer, fw_target, fw_pass_midpoint, index, fw_sim_ns,
-                        recorder.record_mavlink,
+                    fw_terminal_loiter_leg = bool(
+                        fw_leg and index == plan.gimbal_eval_fw_legs - 1
+                        and action.fly_through_radius_m is None
+                        and action.target_ned is not None
+                        and horizon_stabilizer.yaw_mode == "follow"
+                        and horizon_loop is not None
                     )
-                if fw_hover_preaim:
-                    # A FW bridge preserves continuous lock winding, so unwind by remaining in
-                    # track through this unscored MC return instead of toggling lock/follow.
-                    horizon_stabilizer.select_track_target(plan.track_targets[0])
-                    if horizon_stabilizer.mode != "track":
+                    fw_terminal_leg = fw_terminal_offboard_leg or fw_terminal_loiter_leg
+                    fw_handback = fw_leg and index == plan.gimbal_eval_fw_legs - 1
+                    fw_terminal_lock = X1FwTerminalLockGate(enabled=True) if fw_handback else None
+                    fw_terminal_path = None
+                    fw_terminal_meta = None
+                    fw_pass_midpoint = None
+                    if (fw_leg and action.fly_through_radius_m is not None
+                            and index + 1 < len(plan.gimbal_eval_fw_targets)):
+                        metadata = action.metadata or {}
+                        fw_pass_midpoint = X1FwPassMidpoint(
+                            enabled=True, has_fly_through=True,
+                            short_leg_m=metadata.get("long_range_leg_length_m"),
+                            planned_switch_angle_deg=metadata.get("fw_next_switch_angle_deg"),
+                            old_target=plan.gimbal_eval_fw_targets[index],
+                            new_target=plan.gimbal_eval_fw_targets[index + 1],
+                        )
+                    fw_hover_preaim = x1_fw_track_preaim(
+                        plan.gimbal_eval_fw_legs, plan.gimbal_eval_track_step, index, action
+                    )
+                    preaim_readiness = None
+                    preaim_target_ref = None
+                    if fw_hover_preaim:
+                        previous_meta = getattr(sensor_reader, "latest_meta", None)
+                        previous_meta_stamp_ns = getattr(previous_meta, "sensor_stamp_ns", None)
+                        preaim_readiness = X1HoverPreAimReadiness(
+                            step_started_sim_ns, previous_meta_stamp_ns
+                        )
+                        if not sensor_reader.meta_supported:
+                            preaim_readiness.last_failure_reasons = ["getmeta_unsupported"]
+                        preaim_target_ref = plan.track_targets[0].reference()
+                        track_capture = X1TrackCapture(step_started_sim_ns)
+                    if fw_leg:
+                        # Keep the bridge in track across legs; only the point and capture window change.
+                        fw_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                        fw_target = plan.gimbal_eval_fw_targets[index]
+                        track_capture = _x1_enter_fw_leg(
+                            horizon_stabilizer, fw_target, fw_pass_midpoint, index, fw_sim_ns,
+                            recorder.record_mavlink,
+                        )
+                    if fw_hover_preaim:
+                        # A FW bridge preserves continuous lock winding, so unwind by remaining in
+                        # track through this unscored MC return instead of toggling lock/follow.
+                        horizon_stabilizer.select_track_target(plan.track_targets[0])
+                        if horizon_stabilizer.mode != "track":
+                            horizon_stabilizer.set_mode("track")
+                        recorder.record_mavlink({"message_type": "collector_gimbal_eval_preaim",
+                                                 "step_index": index, "mode": "track",
+                                                 "fw_handback": True,
+                                                 "sim_stamp_ns": step_started_sim_ns,
+                                                 "marker_monotonic_ns": time.monotonic_ns()})
+                    elif horizon_stabilizer is not None and horizon_stabilizer.mode != "track":
+                        x1_unwind = x1_eval_yaw_unwind(plan.gimbal_eval_track_step, index, action, fw_leg=fw_leg)
+                    if x1_unwind is not None:
+                        # Aim at the eval target during the hover return so the hold starts on target.
+                        unwind_meta_watermark_ns = getattr(
+                            getattr(sensor_reader, "latest_meta", None), "sensor_stamp_ns", None,
+                        )
                         horizon_stabilizer.set_mode("track")
-                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_preaim",
-                                             "step_index": index, "mode": "track",
-                                             "fw_handback": True,
-                                             "sim_stamp_ns": step_started_sim_ns,
-                                             "marker_monotonic_ns": time.monotonic_ns()})
-                elif horizon_stabilizer is not None and horizon_stabilizer.mode != "track":
-                    x1_unwind = x1_eval_yaw_unwind(plan.gimbal_eval_track_step, index, action, fw_leg=fw_leg)
-                if x1_unwind is not None:
-                    # Aim at the eval target during the hover return so the hold starts on target.
-                    unwind_meta_watermark_ns = getattr(
-                        getattr(sensor_reader, "latest_meta", None), "sensor_stamp_ns", None,
+                        recorder.record_mavlink({"message_type": "collector_gimbal_eval_preaim",
+                                                 "step_index": index, "mode": "track",
+                                                 "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                                                 "marker_monotonic_ns": time.monotonic_ns()})
+                    if plan.gimbal_eval_track_step is not None and index in (
+                        plan.gimbal_eval_track_step, plan.gimbal_eval_track_step + 1
+                    ):
+                        tracking = index == plan.gimbal_eval_track_step
+                        expected_kind = "mc_hold" if tracking else "stop"
+                        if (horizon_stabilizer is None or action.kind != expected_kind
+                                or (tracking and _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3)):
+                            raise RuntimeError("X1 gimbal evaluation did not reach its expected MC hover/stop")
+                        switch_wall_ns = time.monotonic_ns()
+                        switch_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
+                        horizon_stabilizer.set_mode("track" if tracking else "lock")
+                        recorder.record_mavlink({"message_type": "collector_gimbal_eval_mode",
+                                                 "step_index": index, "mode": horizon_stabilizer.mode,
+                                                 "sim_stamp_ns": switch_sim_ns,
+                                                 "marker_monotonic_ns": switch_wall_ns,
+                                                 **({"target_ref": plan.track_targets[0].reference()}
+                                                    if tracking else {})})
+                        if tracking:
+                            track_capture = X1TrackCapture(switch_sim_ns)
+                            if switch_sim_ns is not None:
+                                track_steady_ns = switch_sim_ns + X1_TRACK_TRANSIENT_SIM_S * 10**9
+                    managed_gimbal_action = _managed_teacher_gimbal_action(
+                        action, camera_mount,
+                        _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,
                     )
-                    horizon_stabilizer.set_mode("track")
-                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_preaim",
-                                             "step_index": index, "mode": "track",
-                                             "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
-                                             "marker_monotonic_ns": time.monotonic_ns()})
-                if plan.gimbal_eval_track_step is not None and index in (
-                    plan.gimbal_eval_track_step, plan.gimbal_eval_track_step + 1
-                ):
-                    tracking = index == plan.gimbal_eval_track_step
-                    expected_kind = "mc_hold" if tracking else "stop"
-                    if (horizon_stabilizer is None or action.kind != expected_kind
-                            or (tracking and _flight_state_snapshot(mav_reader.state)["vtol_state"] != 3)):
-                        raise RuntimeError("X1 gimbal evaluation did not reach its expected MC hover/stop")
-                    switch_wall_ns = time.monotonic_ns()
-                    switch_sim_ns = _pose_sim_stamp_ns(mav_reader.state)
-                    horizon_stabilizer.set_mode("track" if tracking else "lock")
-                    recorder.record_mavlink({"message_type": "collector_gimbal_eval_mode",
-                                             "step_index": index, "mode": horizon_stabilizer.mode,
-                                             "sim_stamp_ns": switch_sim_ns,
-                                             "marker_monotonic_ns": switch_wall_ns,
-                                             **({"target_ref": plan.track_targets[0].reference()}
-                                                if tracking else {})})
-                    if tracking:
-                        track_capture = X1TrackCapture(switch_sim_ns)
-                        if switch_sim_ns is not None:
-                            track_steady_ns = switch_sim_ns + X1_TRACK_TRANSIENT_SIM_S * 10**9
-                managed_gimbal_action = _managed_teacher_gimbal_action(
-                    action, camera_mount,
-                    _ensure_gimbal_session if camera_mount is not None and camera_mount.kind == "gimbal" else None,
-                )
-                if (camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None
-                        and not landing_started and horizon_loop is None):
-                    if gimbal_session is not None:
-                        gimbal_session.poll()
-                    _dispatch_teacher_gimbal_command(
-                        gimbal_controller,
-                        labels,
-                        vehicle_yaw_deg=yaw,
-                        default_mode=camera_mount.stabilization,
-                    )
-                    if gimbal_session is not None:
-                        labels.setdefault("onboard", {})["gimbal_session_state"] = gimbal_session.phase
+                    if (camera_mount is not None and camera_mount.kind == "gimbal" and managed_gimbal_action is None
+                            and not landing_started and horizon_loop is None):
+                        if gimbal_session is not None:
+                            gimbal_session.poll()
+                        _dispatch_teacher_gimbal_command(
+                            gimbal_controller,
+                            labels,
+                            vehicle_yaw_deg=yaw,
+                            default_mode=camera_mount.stabilization,
+                        )
+                        if gimbal_session is not None:
+                            labels.setdefault("onboard", {})["gimbal_session_state"] = gimbal_session.phase
                 # Non-multirotor onboard policies emit a MotionCommand (loiter,
                 # reposition, transition, ...).  The step record keeps the source
                 # primitive (stop detection, dataset format); the command itself is
@@ -8898,8 +9095,9 @@ def run_episode(
                     )
                 else:
                     commanded_delta = primitive_to_ned(action, yaw)[:3]
-                active_skill = getattr(policy, "active_mission_skill", lambda: None)()
-                inject_climb_timeout = climb_fault.matches(
+                active_skill = (replacement.step.primitive if replacement is not None
+                                else getattr(policy, "active_mission_skill", lambda: None)())
+                inject_climb_timeout = replacement is None and climb_fault.matches(
                     step_action, active_skill=active_skill, before=before
                 )
                 if inject_climb_timeout:
@@ -8921,10 +9119,14 @@ def run_episode(
                 result = None
                 result_box: list[Any] = []
                 execute_error: list[BaseException] = []
+                retask_deadline = (_X1RetaskDeadline(mav_reader, retask_timeout_s)
+                                   if retask_timeout_s is not None else None)
 
                 def _execute() -> None:
                     nonlocal fw_terminal_path
                     try:
+                        if retask_deadline is not None:  # noqa: B023
+                            retask_deadline.raise_if_failed()  # noqa: B023
                         if (
                             strict_delta_smoke
                             and getattr(action, "kind", None) == "translate"
@@ -8976,14 +9178,28 @@ def run_episode(
                                 fw_terminal_path = _x1_guided_loiter_terminal_path(
                                     motion, mav_reader.state  # noqa: B023
                                 )
-                            motion_wait = _wait_motion_command(
-                                motion,  # noqa: B023
-                                mav_reader,
-                                cruise_mps=getattr(
-                                    _airframe_profile(plan.airframe), "cruise_airspeed_mps", 15.0
-                                ),
-                                **_x1_fw_pass_wait_options(fw_pass_midpoint, index, recorder.record_mavlink),
-                            )
+                            try:
+                                if retask_deadline is not None:  # noqa: B023
+                                    retask_deadline.raise_if_failed()  # noqa: B023
+                                if retask_orbit:  # noqa: B023
+                                    motion_wait = _wait_x1_retask_orbit(motion, retask_deadline)  # noqa: B023
+                                else:
+                                    motion_wait = _wait_motion_command(
+                                        motion, retask_deadline or mav_reader,  # noqa: B023
+                                        cruise_mps=getattr(
+                                            _airframe_profile(plan.airframe), "cruise_airspeed_mps", 15.0
+                                        ),
+                                        **_x1_fw_pass_wait_options(fw_pass_midpoint, index, recorder.record_mavlink),
+                                    )
+                                    if retask_deadline is not None:  # noqa: B023
+                                        retask_deadline.raise_if_failed()  # noqa: B023
+                                        if motion_wait["waited"] not in {"arrived", "settled", "transitioned"}:
+                                            motion_wait = {**motion_wait, "reason": motion_wait["waited"],
+                                                           "waited": "timeout"}
+                            except _X1RetaskTimeout as exc:
+                                motion_wait = {"waited": "timeout", "reason": str(exc), "elapsed_s": 0.0}
+                            if retask_deadline is not None:  # noqa: B023
+                                motion_wait.update(retask_deadline.evidence())  # noqa: B023
                             executed.ack["motion_wait"] = motion_wait
                             # COMMAND_ACK acceptance only proves that PX4 took
                             # the command.  A guided fixed-wing leg is complete
@@ -9003,7 +9219,6 @@ def run_episode(
                     gimbal_session.control_release_expected = True
                 execute_thread = threading.Thread(target=_execute, name="sim-teacher-action",
                                                   daemon=managed_gimbal_action is not None)
-                execute_thread.start()
 
                 def _track_sample_row(sample):
                     nonlocal fw_terminal_meta
@@ -9114,7 +9329,24 @@ def run_episode(
                         if sample is not None:
                             recorder.record_mavlink(_track_sample_row(sample))
 
+                prior_horizon = None
                 try:
+                    if retask_fields is not None:
+                        x1_scenario.check_retask_entry(index, gimbal_ready=(
+                            horizon_loop is not None and horizon_stabilizer is not None
+                            and _fresh_track_position(mav_reader.state, now_ns=time.monotonic_ns()) is not None
+                        ))
+                    if retask_track_target is not None:
+                        prior_horizon = (horizon_stabilizer.mode, horizon_stabilizer.track_targets)
+                        horizon_stabilizer.select_track_target(retask_track_target)
+                        horizon_stabilizer.set_mode("track")
+                    if retask_fields is not None:
+                        recorder.record_mavlink({
+                            "message_type": "collector_x1_retask_primitive_start", **retask_fields,
+                            "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                            "receive_monotonic_ns": time.monotonic_ns(),
+                        })
+                    execute_thread.start()
                     poll_session = (
                         None
                         if managed_gimbal_action is not None or horizon_loop is not None
@@ -9134,11 +9366,18 @@ def run_episode(
                     recorder.record_mavlink({"message_type": "collector_gimbal_send_gate",
                                              "events": gimbal_send_gate.snapshot()})
                     raise
+                finally:
+                    if prior_horizon is not None:
+                        mode, targets = prior_horizon
+                        horizon_stabilizer.set_mode(mode)
+                        horizon_stabilizer.track_targets = targets
                 if _x1_native_active():
                     # PX4 owns motion now; this primitive's outcome is not a route result.
                     _record_x1_route_superseded(index, "during_step")
                     break
                 if execute_error:
+                    if retask_fields is not None and setpoint_streamer is not None:
+                        setpoint_streamer.stop()
                     raise execute_error[0]
                 if fw_hover_preaim:
                     preaim_readiness.restart_confirmation()
@@ -9185,6 +9424,17 @@ def run_episode(
                             f"{json.dumps(failure, sort_keys=True)}"
                         )
                 result = result_box[0]
+                if retask_fields is not None:
+                    recorder.record_mavlink({
+                        "message_type": "collector_x1_retask_primitive_result", **retask_fields,
+                        "status": result.status, "motion_wait": result.ack.get("motion_wait"),
+                        "sim_stamp_ns": _pose_sim_stamp_ns(mav_reader.state),
+                        "receive_monotonic_ns": time.monotonic_ns(),
+                    })
+                    if result.status != "success":
+                        if setpoint_streamer is not None:
+                            setpoint_streamer.stop()
+                        raise RuntimeError(f"X1 retask route stopped at step {index}: {result.status}")
                 if track_capture is not None:
                     recorder.record_mavlink({
                         "message_type": "collector_gimbal_eval_end", "step_index": index,
@@ -9469,7 +9719,7 @@ def run_episode(
                 # leave the primitive loop so we do not execute redundant
                 # STOPs while still performing the normal RTL/LAND teardown.
                 if not continue_loop:
-                    episode_data_complete = index + 1 >= plan.steps_per_episode
+                    episode_data_complete = index + 1 >= step_end
                     _progress("policy_stop", step=index)
                     break
             if long_range_gimbal_hold is not None:
@@ -9552,9 +9802,22 @@ def run_episode(
                             setpoint_streamer,
                         )
                     else:
+                        landing_reader = mav_reader
+                        if retask_landing is not None:
+                            landing_reader = _X1RetaskDeadline(mav_reader, retask_landing_timeout_s)
+                            recorder.record_mavlink({
+                                "message_type": "collector_x1_retask_landing_handoff", **retask_landing,
+                                "sim_stamp_ns": landing_reader.start_ns,
+                                "phase_timeout_s": retask_landing_timeout_s,
+                                "receive_monotonic_ns": time.monotonic_ns(),
+                            })
                         land_result = _fixed_wing_or_vtol_land_and_wait(
-                            executor, mav_reader, already_in_mc=land_after_route
+                            executor, landing_reader, already_in_mc=land_after_route,
+                            timeout_s=retask_landing_timeout_s if retask_landing is not None else None,
                         )
+                        if retask_landing is not None:
+                            landing_reader.raise_if_failed()
+                            land_result.update(landing_reader.evidence(), revision=retask_landing["revision"])
             except _EpisodeEarlyStop as exc:
                 if not episode_data_complete or exc.reason not in _EPISODE_RESOURCE_STOP_REASONS:
                     raise

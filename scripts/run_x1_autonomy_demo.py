@@ -29,7 +29,7 @@ from multidetect.autonomy.mission_planner import compile_mission_plan, plan_json
 from multidetect.autonomy.serialization import canonical_sha256, strict_json_loads  # noqa: E402
 from multidetect.autonomy.x1_mission import AGL_MIN_M, X1PlanError, build_x1_mission_steps  # noqa: E402
 from multidetect.autonomy.x1_perception_tools import (  # noqa: E402
-    GimbalReading, PerceptionSources, RouteReading, ToolRunner,
+    TOOL_SCHEMA, GimbalReading, PerceptionSources, RouteReading, ToolRunner,
 )
 from multidetect.autonomy.x1_plan import (  # noqa: E402
     X1_CAPABILITY, one_waypoint_primitives_input, x1_planner_context,
@@ -42,7 +42,8 @@ from multidetect.sim_teacher.x1_live_evidence_builder import build_live_evidence
 from multidetect.sim_teacher.x1_scenario import (  # noqa: E402
     SUPPORTED, CollectorScenario, load_schedule, schedule_sha256, wind_server_config,
 )
-from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, llama_decisions  # noqa: E402
+from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, llama_decisions, recorded_decisions  # noqa: E402
+from multidetect.sim_teacher.x1_scenario_observation import injected_target_reading  # noqa: E402
 from scripts import generate_x1_assumed_sim_bounds as assumptions  # noqa: E402
 from scripts.realworld import long_range_flight as long_range  # noqa: E402
 from scripts.realworld import x1_site_evidence  # noqa: E402
@@ -340,6 +341,8 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
              "capacity_wh": capacity, "parameters": {"SIM_BAT_DRAIN": battery["nominal_drain_s"],
                                                       "SIM_BAT_MIN_PCT": battery["nominal_floor_pct"],
                                                       **raw["px4_native_parameters"]["value"]}}
+    if fault == "target_found":
+        state["airborne_retask"] = raw["airborne_retask"]["value"]
     if "battery_capacity_wh" in package.document["budget"]:
         raise ValueError("ASSUMED_SIM requires the base mission without a battery capacity override")
     document = {**package.document, "budget": {**package.document["budget"], "battery_capacity_wh": capacity}}
@@ -356,17 +359,18 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
 
 
 def demo_perception(package, profile, dem, steps):
-    """Publish only existing readbacks; the model worker cannot see the collector ports."""
+    """Publish readbacks and labelled SIM fixtures, never collector vehicle ports."""
     from scripts.collect_sim_teacher_episodes import _gimbal_readback
 
-    current = SimpleNamespace(route=None, gimbal=None)
+    current = SimpleNamespace(route=None, gimbal=None, injected_target=None)
     home_ne = tuple(package.document["home"])
     home = dem.sample_local(*home_ne).elevation_m
     geometry = profile.camera.gimbal
     # Collector indices address the policy's command iterator, not lifecycle steps.
     route = tuple(step for step in steps if step.command is not None or step.primitive == "vtol_land")
 
-    def publish(scenario, index, samples, hold, boot_ms, position_ok):
+    def publish(scenario, index, samples, hold, boot_ms, position_ok, perception=None):
+        current.injected_target = injected_target_reading(perception)
         global_row = samples.get("GLOBAL_POSITION_INT")
         stamp = global_row.get("time_boot_ms") if global_row else None
         live_position = (position_ok is True and not scenario.native_active and type(stamp) is int
@@ -375,10 +379,12 @@ def demo_perception(package, profile, dem, steps):
             point = scenario._motion_position(global_row) if live_position else None
         except ValueError:
             point = None
-        current.route = (RouteReading(global_row["receive_monotonic_ns"] // 1_000_000, route, index,
+        installed = scenario.retask_remaining_at(index) if getattr(scenario, "retask_end", None) is not None else None
+        active_route, active_index = (installed, 0) if installed is not None else (route, index)
+        current.route = (RouteReading(global_row["receive_monotonic_ns"] // 1_000_000, active_route, active_index,
                                       (point[0] - home_ne[0], point[1] - home_ne[1], home - point[2]),
                                       (*home_ne, home), AGL_MIN_M)
-                         if point is not None and 0 <= index < len(route) else None)
+                         if point is not None and 0 <= active_index < len(active_route) else None)
         current.gimbal = None
         sample = hold.session.latest_attitude if hold is not None else None
         if sample is None:
@@ -395,7 +401,51 @@ def demo_perception(package, profile, dem, steps):
         current.gimbal = GimbalReading(received_ns // 1_000_000, readback, geometry.get("angle_range_deg"))
 
     return (ToolRunner(PerceptionSources(route=lambda: current.route, gimbal=lambda: current.gimbal,
-                                         dem=dem, profile=profile)), publish)
+                                         dem=dem, profile=profile,
+                                         injected_target=lambda: current.injected_target)), publish)
+
+
+def evidence_follow_backend(path, *, cadence=False):
+    body = read_object(path)
+    if set(body) != {"action", "params"} or body["action"] != "retask":
+        raise ValueError("evidence-follow fixture must contain one retask")
+    retask = recorded_decisions((body,))
+    sent_retask = False
+
+    def post(request):
+        nonlocal sent_retask
+
+        def continued():
+            return recorded_decisions(({"action": "continue", "params": {}},))(request)
+
+        state = request["state"]
+        event_id = state["latest_event_id"] if cadence else request["event_id"]
+        eligible = (not sent_retask and state["revision"] == 1
+                    and (request.get("trigger") == "cadence") == cadence
+                    and any(event["id"] == event_id and event["type"] == "target_found"
+                            and event["source"] == "fault" for event in state["events"]))
+        perception = request.get("perception", {})
+        if not eligible or not perception:
+            return continued()
+        index = perception["call_index"]
+        results = perception["results"]
+        if any(not row["ok"] or row["source"] != "fault" for row in results):
+            return continued()
+        if index < 2:
+            tool = ("look", "target_status")[index]
+            if tool not in perception["tools"]:
+                return continued()
+            return json.dumps({"schema": TOOL_SCHEMA, "tool": tool, "args": {},
+                               "request_id": request["request_id"], "call_index": index})
+        look, target = results[0]["data"], results[1]["data"]
+        if (look["captured_ms"] != target["captured_ms"] or look["track_id"] != target["track_id"]
+                or not any(item["class"] == "survey_marker" for item in look["detections"])
+                or target["visible"] is not True):
+            return continued()
+        sent_retask = True
+        return retask(request)
+
+    return post
 
 
 def make_scenario(args, mission, steps, record):
@@ -404,8 +454,10 @@ def make_scenario(args, mission, steps, record):
     if not faults and not cadence_s:
         return None
     make_decision = motion_evidence = perception_tick = None
-    if args.decision_port is not None:
-        backend = llama_decisions(args.decision_port, args.sentence)
+    fixture = getattr(args, "recorded_retask", None)
+    if args.decision_port is not None or fixture is not None:
+        backend = (llama_decisions(args.decision_port, args.sentence) if fixture is None
+                   else evidence_follow_backend(fixture, cadence=bool(cadence_s)))
         profile = load_airframe_profile(PROFILE)
         package = mission["scenario_package"]
         motion_evidence = LiveContinueEvidence(package, profile, mission["terrain"], steps,
@@ -413,14 +465,17 @@ def make_scenario(args, mission, steps, record):
                                                assumed_sim=mission.get("assumed_sim"))
 
         extra = {"decision_cadence_s": cadence_s} if cadence_s else {}
-        if getattr(args, "perception_tools", False):
+        if getattr(args, "perception_tools", False) or fixture is not None:
             extra["tool_runner"], perception_tick = demo_perception(package, profile, mission["terrain"], steps)
+        if fixture is not None and cadence_s:
+            extra["recorded_cadence_followup"] = True
 
-        def make_decision(gimbal, emit, episode_id, peer, native=None):
+        def make_decision(gimbal, emit, episode_id, peer, native=None, replace_remaining=None):
             return DecisionTick(package, profile, backend, gimbal, emit,
                                 run_id=episode_id, plan_digest=record["compiled_mission_sha256"],
                                 revision=mission["scenario_revision"], peer=peer,
-                                build_proof=motion_evidence.build_proof, native_port=native, **extra)
+                                build_proof=motion_evidence.build_proof, native_port=native,
+                                replace_remaining=replace_remaining, **extra)
 
     return CollectorScenario(faults, clearance=forward_clearance(steps, mission["terrain"]),
                              make_decision=make_decision, terrain=mission["terrain"],
@@ -496,10 +551,18 @@ def finish_flight(episode, steps, record):
     mavlink = _jsonl(episode / "mavlink.jsonl") or _jsonl(episode / "mavlink.jsonl.gz")
     rows = _jsonl(episode / "steps.jsonl")
     names = [step for step in steps if step.command is not None]
+    replacements = [row for row in mavlink if row.get("message_type") == "scenario_plan_replaced"]
+    prefix_rows = rows
+    prefix_ok = True
+    if replacements:
+        index = replacements[0].get("step_index")
+        prefix_rows = [row for row in rows if not row.get("labels", {}).get("x1_retask")]
+        prefix_ok = (len(replacements) == 1 and type(index) is int and 0 <= index < len(names)
+                     and len(prefix_rows) == index and prefix_rows == rows[:index])
     markers = [row for row in mavlink if row.get("message_type") in {
         "fixed_wing_takeoff_complete", "collector_landing_complete"}]
     observed = {}
-    for step, row in zip(names, rows):
+    for step, row in zip(names, prefix_rows):
         motion = row.get("labels", {}).get("motion")
         waited = row.get("ack", {}).get("motion_wait", {})
         expected = {"reposition": "arrived", "transition": "transitioned", "mc_reposition": "settled"}
@@ -524,7 +587,8 @@ def finish_flight(episode, steps, record):
     if "contingency_scenario" in record:
         scenario_rows = [row for row in mavlink if str(row.get("message_type", "")).startswith("scenario_")]
         record["contingency_scenario"]["markers"] = scenario_rows
-    native = _native_outcome(mavlink, markers, positions, names[len(rows):], record)
+    native = _native_outcome(mavlink, markers, positions,
+                             names[len(prefix_rows):] if not replacements else (), record)
     return_home = bool(observed.get("mc_return_to_home")) or bool(native and native["return_home"])
     record["flight"].update(episode=str(episode), takeoff=takeoff,
                             waypoints_reached=[steps[2].source_step_id] if observed.get("fw_goto_waypoint") else [],
@@ -532,11 +596,18 @@ def finish_flight(episode, steps, record):
                             episode_status=metadata.get("status"), episode_failure=metadata.get("failure"))
     if native is not None:
         record["flight"]["native_handoff"] = native
-    complete = takeoff and landed and metadata.get("status") == "complete" and all(observed.values())
+    complete = takeoff and landed and metadata.get("status") == "complete" and all(observed.values()) and prefix_ok
     if native is not None:
         # The admitted native action replaced the remaining compiled steps; PX4 flew them.
-        return complete and native["confirmed"] and native["landed_by_native"] and (
+        return not replacements and complete and native["confirmed"] and native["landed_by_native"] and (
             native["action"] != "return" or native["return_home"])
+    if replacements or record.get("contingency_scenario", {}).get("recorded_retask_sha256") is not None:
+        from scripts.verify_x1_evidence_follow import verify_evidence_follow
+
+        passed, evidence = verify_evidence_follow(mavlink, rows)
+        record.setdefault("contingency_scenario", {})["evidence_follow"] = evidence
+        record["flight"].update(return_home=passed, waypoints_reached=["approach"] if passed else [])
+        return bool(passed and complete)
     return complete and len(rows) == len(names)
 
 
@@ -585,7 +656,7 @@ def run(args, *, post, launch=fly):
             }
             if cadence_s:
                 record["contingency_scenario"]["decision_cadence_s"] = cadence_s
-            if getattr(args, "perception_tools", False):
+            if getattr(args, "perception_tools", False) or getattr(args, "recorded_retask", None) is not None:
                 record["contingency_scenario"]["perception_tools"] = True
         plugin = getattr(args, "wind_airspeed_plugin", None)
         if plugin is not None:
@@ -602,7 +673,12 @@ def run(args, *, post, launch=fly):
         if assumed_path is not None and (not generate_evidence or not faults
                                          or not getattr(args, "live_evidence_bounds", None)):
             raise ValueError("ASSUMED_SIM requires generation, selected faults and verified site bounds")
-        if assumed_path is not None and not args.plan_only and args.decision_port is None:
+        fixture = getattr(args, "recorded_retask", None)
+        if fixture is not None:
+            if assumed_path is None or tuple(f.kind for f in faults) != ("target_found",):
+                raise ValueError("recorded retask requires the scoped ASSUMED_SIM target_found case")
+            evidence_follow_backend(fixture)  # Validate the fixture before starting SITL.
+        if assumed_path is not None and not args.plan_only and args.decision_port is None and fixture is None:
             raise ValueError("ASSUMED_SIM live runs require the Altair scenario decision backend")
         if generate_evidence and (not (faults or cadence_s) or "x1_live_evidence" in document):
             raise ValueError("--generate-live-evidence requires a decision scenario and a package without x1_live_evidence")
@@ -681,6 +757,8 @@ def run(args, *, post, launch=fly):
         if args.plan_only:
             record["flight"]["status"] = "plan_only"
             return 0
+        if fixture is not None:
+            record["contingency_scenario"]["recorded_retask_sha256"] = hashlib.sha256(fixture.read_bytes()).hexdigest()
         if faults or cadence_s:
             mission.update(scenario_faults=faults, scenario_package=package, scenario_revision=plan.plan_version)
         record["safety"]["observed"] = mission["observed_margins"]
@@ -732,6 +810,7 @@ def main(argv=None):
     parser.add_argument("--live-evidence-bounds", type=Path, metavar="JSON",
                         help="local host-verified hard bounds for the compiled mission")
     parser.add_argument("--output", required=True, type=lambda p: Path(p).resolve(), help="fresh result directory")
+    parser.add_argument("--recorded-retask", type=Path, help="recorded retask for the scoped SIM evidence-follow scenario")
     planner = parser.add_mutually_exclusive_group(required=True)
     planner.add_argument("--recorded-output", type=Path, help="recorded raw planner output (plan-only)")
     planner.add_argument("--checkpoint", type=Path, help="merged, text-only planner GGUF")
@@ -746,10 +825,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not math.isfinite(args.decision_cadence_s) or args.decision_cadence_s < 0:
         parser.error("--decision-cadence-s must be finite and nonnegative")
-    if args.perception_tools and args.decision_port is None:
-        parser.error("--perception-tools requires --decision-port")
-    if args.decision_cadence_s and args.decision_port is None:
-        parser.error("--decision-cadence-s requires --decision-port")
+    if args.decision_port is None and args.recorded_retask is None:
+        if args.perception_tools:
+            parser.error("--perception-tools requires --decision-port")
+        if args.decision_cadence_s:
+            parser.error("--decision-cadence-s requires --decision-port")
     if args.inject_fault and args.contingency_scenario is None:
         parser.error("--inject-fault requires --contingency-scenario")
     if args.decision_port is not None and not (args.contingency_scenario or args.decision_cadence_s):
@@ -760,7 +840,10 @@ def main(argv=None):
         parser.error("--decision-port must be between 1 and 65535")
     if args.decision_port is not None and args.decision_port == args.planner_port:
         parser.error("the standalone decision backend needs a port separate from --planner-port")
-    if args.recorded_output and not args.plan_only:
+    if args.recorded_retask is not None and (args.decision_port is not None or args.checkpoint is not None
+                                             or args.recorded_output is None):
+        parser.error("--recorded-retask requires --recorded-output and excludes a live Altair backend")
+    if args.recorded_output and not args.plan_only and args.recorded_retask is None:
         parser.error("recorded output requires --plan-only or --dry-run")
     if args.checkpoint and not (args.checkpoint.is_file() and args.llama_server and args.llama_server.is_file()):
         parser.error("checkpoint backend requires a local --checkpoint and --llama-server executable")

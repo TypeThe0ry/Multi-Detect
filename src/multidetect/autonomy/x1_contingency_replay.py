@@ -16,7 +16,7 @@ from .x1_contingency_state import GROUPS, SOURCES, X1StateBuilder, sample_value
 
 # The injection timestamp is also the event timestamp; end is exclusive.
 FAULT_GROUPS = {
-    "wind_step": "wind", "battery_drop": "battery", "link_loss": "link", "target_lost": "target",
+    "wind_step": "wind", "battery_drop": "battery", "link_loss": "link", "target_lost": "target", "target_found": "target",
     "obstacle_conflict": "obstacle", "terrain_conflict": "terrain", "gps_degraded": "gps",
     "health_degraded": "ekf", "transition_problem": "vtol",
 }
@@ -54,13 +54,18 @@ def load_faults(path: Path) -> tuple[Fault, ...]:
         start, duration, kind, values = (item[k] for k in ("at_ms", "duration_ms", "type", "values"))
         required = _REQUIRED_VALUES.get(kind, set()) if isinstance(kind, str) else set()
         optional = {"ramp_ms"} if kind == "wind_step" else set()
+        if kind == "target_found" and isinstance(values, dict):
+            optional = values.keys()
         if (not _nonnegative_int(start) or not _nonnegative_int(duration) or not duration
                 or not isinstance(kind, str) or kind not in FAULT_GROUPS or not isinstance(values, dict)
                 or not required <= values.keys() <= (required | optional) or any(v is None for v in values.values())):
             raise ValueError("invalid fault parameters")
         group = FAULT_GROUPS[kind]
         validated = {k: sample_value(group, k, v) for k, v in values.items() if k in required}
-        if "ramp_ms" in values:
+        if kind == "target_found":
+            from multidetect.sim_teacher.x1_scenario_observation import validate_target_found
+            validated = validate_target_found(values)
+        if kind == "wind_step" and "ramp_ms" in values:
             ramp = values["ramp_ms"]
             if type(ramp) not in (int, float) or not 0 <= ramp or ramp * 2 > duration:
                 raise ValueError("wind_step ramp_ms must be finite and in [0, duration_ms / 2]")
@@ -160,6 +165,15 @@ def replay_states(mavlink: Path, *, mission_id: str, revision: int = 1, every_ms
                 snapshot = builder.snapshot(tick, mission_id=mission_id, revision=revision)
                 for fault in faults:
                     if fault.at_ms <= tick < fault.end_ms:
+                        if fault.kind == "target_found":
+                            from multidetect.sim_teacher.x1_scenario_observation import project_target_found
+                            observation = project_target_found(fault.values, observed_ms=fault.at_ms,
+                                                               now_ms=tick, end_ms=fault.end_ms)
+                            if observation is not None:
+                                snapshot["perception"] = observation
+                                snapshot["telemetry"][fault.group] = {
+                                    **observation["target_status"], "age_ms": observation["age_ms"], "source": "fault"}
+                            continue
                         baseline = snapshot["telemetry"][fault.group] or {}
                         # Preserve same-tick base fields only; don't refresh stale
                         # ancillary fields under the synthetic source/age.

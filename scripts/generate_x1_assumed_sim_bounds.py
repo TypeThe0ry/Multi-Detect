@@ -16,6 +16,7 @@ DEM_SHA = "4bb6d4a0d3bf3bd6adaf512af722135bbf99448907161a328326a0d620a97cae"
 PROFILE_SHA = "b3faa1b755017d6269f90ffb919c2fde407cb8d5b941d7b497094419f9aa7266"
 BASE_SHA = "9bb15aa3de6a3937a723430be6e968c9ac38564003616e0ede5630b3a49f4f56"
 SCOPES = {
+    "target_found": "a0499238a83ee19872d46b592313d1883d0e2df861d8b618c7ebe3fbf44b54bd",
     "battery_drop": "11e617b8bba7fc931fb72070ab6c850d4f81d8f694868b5c7d8496ac7e2c0f61",
     "link_loss": "f825effdde8a264e2d7d005e61f62b6b913f702638b9599896911d5152e2ced1",
     "wind_step": "5500bcd114c41250745dac58ff3d21b45baf4fd53b1ae73b6e436c00c765aff3",
@@ -80,6 +81,11 @@ def generate(*, mode, world, image, profile_path):
         "scope": dict(mode=mode, world=world, image=image, image_id=IMAGE_ID, world_sha256=WORLD_SHA,
                       dem_sha256=DEM_SHA, profile_sha256=PROFILE_SHA, base_mission_sha256=BASE_SHA,
                       scenarios=SCOPES),
+        "airborne_retask": assumed({"vertical_tracking_m": 10, "orbit_tracking_m": 40,
+                                    "fw_tracking_m": 55, "max_ground_speed_mps": 21,
+                                    "finding_error_m": 12, "fw_s": 40, "orbit_entry_s": 28,
+                                    "transition_s": 12, "mc_s": 90, "landing_s": 85},
+            "仅供 evidence-follow。进出盘旋与过渡按全航向扫掠计算，限时与无后续写入由 collector 检查。"),
         "dem_error_m": assumed(dem_error, "全站残差 9.14 m（走廊 5.41 m）加 2×1 m sigma 后向上取整为 12 m，作为 SIM 硬界假设。"),
         "landing_pad": assumed({"radius_m": 16, "elevation_error_m": dem_error + 1},
             "20 m 内切圆内留 4 m 径向余量，DEM 12 m 假设另加 1 m 覆盖台面与局部地形起伏。"),

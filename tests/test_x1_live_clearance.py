@@ -392,7 +392,9 @@ def test_assumed_sim_replay(terrain, profile, monkeypatch, tmp_path, fault_kind,
 def test_iowa_mc_return_battery_replay(terrain, profile, monkeypatch, case, available_energy_wh):  # noqa: F811
     fixture = Path(__file__).with_name("fixtures") / "x1_iowa_mc_return_battery.json"
     archived = json.loads(fixture.read_bytes())
-    path = demo.ROOT / "configs/simulation/x1-assumed-sim-bounds-iowa.json"
+    # The archived episode ran with the bounds file of that day; keep a byte-identical copy so later
+    # additions to the repository bounds (e.g. evidence-follow) do not invalidate the replay.
+    path = Path(__file__).with_name("fixtures") / "x1_assumed_sim_bounds_iowa_archived.json"
     assert hashlib.sha256(path.read_bytes()).hexdigest() == archived["bounds_sha256"]
     raw = json.loads(path.read_bytes())
     battery = raw["battery"]["value"]

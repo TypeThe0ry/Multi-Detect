@@ -1190,7 +1190,7 @@ def collector_overrides(collector, mission, *, x1_heading_deg=None):
             return super().arm_and_takeoff(absolute_up)
 
         def execute(self, action):
-            nonlocal offboard_active
+            nonlocal offboard_active, fw_pass_tangent
             if (x1_heading_deg is not None and isinstance(action, MotionCommand)
                     and action.kind == "transition" and action.mode == "FW"):
                 reader = self.telemetry_reader
@@ -1207,6 +1207,24 @@ def collector_overrides(collector, mission, *, x1_heading_deg=None):
                         align, reader, cruise_mps=8.0)["waited"] != "settled":
                     raise RuntimeError("X1 could not settle on the planned outbound heading")
                 collector._progress("x1_departure_aligned", heading_deg=x1_heading_deg)
+            if (isinstance(action, MotionCommand) and action.kind == "orbit"
+                    and "x1_retask_timeout_s" in action.metadata):
+                requested_ns = time.monotonic_ns()
+                result = super().execute(action)
+                if result.status != "success":
+                    return result
+                mode = collector._wait_px4_mode(self.telemetry_reader, AUTO_LOITER_MODE,
+                                                timeout_s=5.0, after_ns=requested_ns)
+                if not mode["confirmed"]:
+                    raise RuntimeError("PX4 did not confirm AUTO.LOITER for the retask orbit")
+                # Keep streaming the last legitimate FW path until PX4 confirms
+                # the orbit owns guidance. No second command is used to force it.
+                if offboard_active:
+                    offboard_streamer.stop()
+                    offboard_active = False
+                fw_pass_tangent = None
+                result.ack["px4_orbit_mode"] = mode
+                return result
             if not isinstance(action, MotionCommand) or action.kind not in {"reposition", "mc_reposition", "mc_hold"}:
                 if offboard_active and isinstance(action, MotionCommand) and action.kind == "transition":
                     _check_offboard_mode(collector, self.telemetry_reader, offboard_streamer)
@@ -1235,8 +1253,11 @@ def collector_overrides(collector, mission, *, x1_heading_deg=None):
             if collector._flight_state_snapshot(reader.state)["vtol_state"] != 4:
                 raise RuntimeError("long-range Offboard path requires confirmed VTOL fixed-wing mode")
             started = self._clock()
-            start = (self._geo_reference()[1] if x1_heading_deg is not None
-                     else self.previous_fw_target or self._position())
+            if "x1_retask_timeout_s" in action.metadata:
+                start = self._position()
+            else:
+                start = (self._geo_reference()[1] if x1_heading_deg is not None
+                         else self.previous_fw_target or self._position())
             target = action.target_ned
             dn, de = target[0] - start[0], target[1] - start[1]
             length = math.hypot(dn, de)

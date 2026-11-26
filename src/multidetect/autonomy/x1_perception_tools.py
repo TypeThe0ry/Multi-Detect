@@ -128,6 +128,35 @@ class TargetReading:
 
 
 @dataclass(frozen=True, slots=True)
+class InjectedTargetReading:
+    """Synthetic scenario measurement; never report detector or tracker provenance."""
+
+    captured_ms: int
+    track_id: str
+    label: str
+    bearing_deg: float
+    elevation_deg: float
+    position_wgs84_amsl: tuple[float, float, float]
+    error_bound_m: float
+
+    def data(self, tool):
+        stamp = _stamp(self.captured_ms)
+        track_id = require_token(self.track_id)
+        if tool == "look":
+            return {"captured_ms": stamp, "track_id": track_id, "truncated": False,
+                    "detections": [{"class": require_token(self.label),
+                                    "bearing_deg": _value(self.bearing_deg, -180, 180),
+                                    "elevation_deg": _value(self.elevation_deg, -90, 90)}]}
+        if tool != "target_status":
+            raise ValueError("unsupported injected target tool")
+        lat, lon, alt = self.position_wgs84_amsl
+        return {"captured_ms": stamp, "track_id": track_id, "visible": True,
+                "last_seen_age_ms_at_snapshot": 0,
+                "position_wgs84_amsl": [_value(lat, -90, 90), _value(lon, -180, 180), _value(alt, -500, 10_000)],
+                "error_bound_m": _value(self.error_bound_m, 1e-12, 1000)}
+
+
+@dataclass(frozen=True, slots=True)
 class RouteReading:
     captured_ms: int
     steps: tuple[X1MissionStep, ...]
@@ -163,6 +192,7 @@ class PerceptionSources:
     battery: Callable[[], BatteryReading | None] | None = None
     dem: LocalDemGrid | None = None
     profile: AirframeProfile | None = None
+    injected_target: Callable[[], InjectedTargetReading | None] | None = None
 
 
 def _read(reader, reason):
@@ -456,6 +486,7 @@ class ToolReply:
     wire: str | bytes
     deadline_ms: int
     observations_valid_through_ms: int | None
+    injected_results: tuple[dict, ...] = ()
 
     def check_fresh(self, now_ms):
         if now_ms >= self.deadline_ms:
@@ -549,6 +580,8 @@ class ToolRunner:
                 "results": [result.wire(now, self._max_age_ms) for result in results],
             }
             sent_ok = tuple(row["ok"] for row in message["perception"]["results"])
+            injected = tuple(deepcopy(row) for row in message["perception"]["results"]
+                             if row["ok"] and row["source"] == "fault")
             try:
                 raw = self._backend.call(
                     lambda message=message: backend(message), deadline, self._clock
@@ -589,7 +622,7 @@ class ToolRunner:
                      if was_ok),
                     default=None,
                 )
-                final = ToolReply(raw, deadline, valid_through)
+                final = ToolReply(raw, deadline, valid_through, injected)
                 final.check_fresh(self._clock())
                 return final
             if reply.get("schema") != TOOL_SCHEMA:
@@ -604,9 +637,18 @@ class ToolRunner:
 
     def _read_tool(self, tool, deadline):
         read, source = _READERS[tool]
+
+        def read_sample():
+            reader = self._sources.injected_target
+            injected = reader() if reader is not None and tool in {"look", "target_status"} else None
+            if injected is not None:
+                return injected.data(tool), (injected.captured_ms,), "fault"
+            data, stamps = read(self._sources)
+            return data, stamps, source
+
         try:
-            data, stamps = self._tool.call(
-                lambda: read(self._sources),
+            data, stamps, source = self._tool.call(
+                read_sample,
                 min(deadline, self._clock() + self._per_call_ms),
                 self._clock,
             )

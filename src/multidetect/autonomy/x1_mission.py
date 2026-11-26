@@ -240,3 +240,92 @@ def build_x1_mission_steps(
         )),
         X1MissionStep("vtol_land", finish_id),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class X1AirborneStep(X1MissionStep):
+    gimbal_target_ned: tuple[float, float, float] | None = None
+
+
+def lower_airborne_suffix(package, plan, frame, *, terrain, profile, limits, finding=None):
+    """Lower only the requested success path. Failed primitives stop route writes."""
+    home = tuple(package.document['home'])
+    home_z = terrain.sample_local(*home).elevation_m
+    start = frame.position_ne_amsl
+    if start is None:
+        raise X1PlanError('retask_entry_unverified', 'missing fresh position')
+    height = start[2] - home_z
+    steps = []
+
+    def emit(source, primitive, command, gimbal=None):
+        steps.append(X1AirborneStep(primitive, source, command, gimbal_target_ned=gimbal))
+
+    def point(ref):
+        if ref == 'home':
+            return home
+        if ref == "finding:1" and finding is not None:
+            return finding
+        if ref in package.document['places']:
+            return package.refs[ref]
+        raise X1PlanError('retask_reference_unavailable', ref)
+
+    def target(ne, step):
+        nonlocal height
+        area = package.document["operating_area"]
+        context = package.document["x1_planning"]
+        if (math.dist(ne, home) > context["max_distance_from_home_m"]
+                or any(not bounds["north_min_m"] <= ne[0] <= bounds["north_max_m"]
+                       or not bounds["east_min_m"] <= ne[1] <= bounds["east_max_m"]
+                       for bounds in (area, context["corridor"]))):
+            raise X1PlanError("retask_geofence", "requested waypoint outside the admitted envelope")
+        ground_z = terrain.sample_local(*ne).elevation_m
+        if "altitude_agl_m" in step.params:
+            height = ground_z + step.params["altitude_agl_m"] - home_z
+        n, e = (a - b for a, b in zip(ne, home, strict=True))
+        return (n, e, -height), (n, e, home_z - ground_z)
+
+    def goto(step, ne, *, fw):
+        ned, _ = target(ne, step)
+        emit(step.id, step.skill, MotionCommand(
+            'reposition' if fw else 'mc_reposition', target_ned=ned,
+            speed_mps=profile.cruise_airspeed_mps if fw else MC_RETURN_SPEED_MPS,
+            mode="FW" if fw else "MC",
+            metadata={"long_range_home_relative": True, "x1_retask_timeout_s": limits["fw_s" if fw else "mc_s"]},
+            fly_through_radius_m=FW_PASS_CROSS_M if fw else None,
+        ))
+
+    for step in plan.steps:
+        if step.skill in {'fw_goto_waypoint', 'x1_mc_reposition'}:
+            goto(step, point(step.params['target_ref']), fw=step.skill == 'fw_goto_waypoint')
+        elif step.skill == 'x1_search_leg':
+            route = package.refs[step.params['route_ref']]
+            if not 2 <= len(route) <= 4:
+                raise X1PlanError('retask_search_leg_count', 'search requires two to four waypoints')
+            for ne in route:
+                goto(step, ne, fw=True)
+        elif step.skill in {'loiter_observe', 'gimbal_stare_at'}:
+            if step.skill == "gimbal_stare_at" and not frame.retask_gimbal_ready:
+                raise X1PlanError("retask_gimbal_unavailable", "runner cannot track a point")
+            ned, ground = target(point(step.params["target_ref"]), step)
+            emit(step.id, step.skill, MotionCommand(
+                'orbit', target_ned=ned, mode='FW', speed_mps=profile.cruise_airspeed_mps,
+                radius_m=step.params['radius_m'], duration_s=step.params['duration_s'],
+                metadata={"long_range_home_relative": True, "x1_retask_timeout_s": limits["orbit_entry_s"] + step.params["duration_s"]},
+            ), ground if step.skill == 'gimbal_stare_at' else None)
+        elif step.skill == 'back_transition':
+            emit(step.id, step.skill, MotionCommand(
+                "transition", mode="MC", reason="back_transition",
+                metadata={"x1_retask_timeout_s": limits["transition_s"]},
+            ))
+        elif step.skill == 'return_home':
+            emit(step.id, 'mc_return_to_home', MotionCommand(
+                'mc_reposition', target_ned=(0.0, 0.0, -height), speed_mps=MC_RETURN_SPEED_MPS,
+                mode="MC", reason="hover_return_to_home", metadata={"x1_retask_timeout_s": limits["mc_s"]},
+            ))
+        else:
+            raise X1PlanError('retask_skill_not_supported', step.skill)
+    # This primitive is the terminal half of the requested return_home skill.
+    emit(plan.steps[-1].id, "vtol_land", MotionCommand(
+        "land", mode="MC", metadata={"x1_retask_timeout_s": limits["landing_s"]},
+    ))
+    return tuple(steps)

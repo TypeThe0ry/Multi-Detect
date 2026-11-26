@@ -30,6 +30,13 @@ X1_SKILLS = {
                          "duration_s": "x1_duration"}, "orbit while looking at the named point with the gimbal"),
     "back_transition": ({}, "return to multicopter mode before nominal recovery"),
 }
+# Airborne retask grammar. Keep it separate from the nominal prompt and schema.
+# The runtime lowerer resolves route_ref to a package route of 2–4 waypoints.
+X1_AIRBORNE_SKILLS = {
+    "x1_search_leg": ({"route_ref": "x1_route_ref"}, "fly a named package route of 2–4 waypoints"),
+    "x1_mc_reposition": ({"target_ref": "x1_target_ref", "altitude_agl_m": "x1_agl"},
+                         "move in multicopter mode to a named POI or home"),
+}
 X1_OBSERVATION = frozenset({"loiter_observe", "find_object_then_return", "gimbal_stare_at"})
 X1_PARAM_KEYS = {"x1_agl": "altitude_agl_m", "x1_radius": "observation_radius_m",
                  "x1_duration": "observation_duration_s"}
@@ -171,6 +178,11 @@ def x1_static_violations(plan: MissionPlan, package: MissionPackage, capabilitie
 
     if X1_CAPABILITY not in capabilities:
         add("X1_CAPABILITY", None, "X1 simulation planner is not enabled on the resolved airframe")
+        return findings
+    for step in plan.steps:
+        if step.skill in X1_AIRBORNE_SKILLS:
+            add("X1_AIRBORNE_ONLY", step.id, f"{step.skill} is only available in an airborne retask")
+    if findings:
         return findings
     doc = package.document
     area = doc["operating_area"]
