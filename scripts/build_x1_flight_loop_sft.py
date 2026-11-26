@@ -36,7 +36,7 @@ from multidetect.autonomy.x1_perception_tools import (
 from multidetect.sim_teacher.x1_live_clearance import LiveContinueEvidence
 from multidetect.sim_teacher.x1_retask import AirborneRouteSlot
 
-from multidetect.autonomy.mission_package import load_mission_package
+from scripts.run_x1_autonomy_demo import load_sim_replay_package
 from multidetect.autonomy.mission_plan import validate_mission_plan
 from multidetect.autonomy.motion_intent import resolve_airframe_profile
 from multidetect.autonomy.serialization import canonical_json, canonical_sha256, strict_json_loads
@@ -316,7 +316,7 @@ class Replay:
             key: {**entry["value"], "entry": [*entry["value"]["entry"][:4], 175, 195]}
             for key, entry in assumptions["suffixes"].items()
         }
-        self.package = load_mission_package(
+        self.package = load_sim_replay_package(
             {
                 "mission_id": run_id,
                 "home": [0, 0],
@@ -359,8 +359,6 @@ class Replay:
                     "suffixes": suffixes,
                 },
             },
-            mode="sim",
-            allow_assumed_sim=True,
         )
         plan = validate_mission_plan(
             {

@@ -42,7 +42,9 @@ from multidetect.sim_teacher.x1_live_evidence_builder import build_live_evidence
 from multidetect.sim_teacher.x1_scenario import (  # noqa: E402
     SUPPORTED, CollectorScenario, load_schedule, schedule_sha256, wind_server_config,
 )
-from multidetect.sim_teacher.x1_scenario_decision import DecisionTick, llama_decisions, recorded_decisions  # noqa: E402
+from multidetect.sim_teacher.x1_scenario_decision import (  # noqa: E402
+    QUIET_CADENCE_FLIGHT_STATE_REASONS, DecisionTick, llama_decisions, recorded_decisions,
+)
 from multidetect.sim_teacher.x1_scenario_observation import injected_target_reading  # noqa: E402
 from scripts import generate_x1_assumed_sim_bounds as assumptions  # noqa: E402
 from scripts.realworld import long_range_flight as long_range  # noqa: E402
@@ -71,6 +73,11 @@ def _finite(value, counter):
     if isinstance(value, (list, tuple)):
         return [_finite(item, counter) for item in value]
     return value
+
+
+def load_sim_replay_package(document: dict):
+    """Load a synthetic ASSUMED_SIM package for offline CPU replay and data generation (never a vehicle path)."""
+    return load_mission_package(document, mode="sim", allow_assumed_sim=True)
 
 
 def write_result(path: Path, value: dict) -> None:
@@ -585,7 +592,40 @@ def finish_flight(episode, steps, record):
     })
     record["markers"].extend(markers)
     if "contingency_scenario" in record:
-        scenario_rows = [row for row in mavlink if str(row.get("message_type", "")).startswith("scenario_")]
+        from collections import Counter
+
+        scenario_rows = []
+        quiet_rejected = Counter()
+        summary_stamp_ns = None
+        for row in mavlink:
+            kind = str(row.get("message_type", ""))
+            if not kind.startswith("scenario_"):
+                continue
+            if (kind == "scenario_decision_receipt" and row.get("trigger") == "cadence"
+                    and row.get("action") == "continue" and row.get("status") == "rejected"
+                    and row.get("reason") in QUIET_CADENCE_FLIGHT_STATE_REASONS):
+                quiet_rejected[row["reason"]] += 1
+                summary_stamp_ns = row.get("receive_monotonic_ns", summary_stamp_ns)
+                continue
+            if kind == "scenario_decision_cadence_summary":
+                for reason, count in (row.get("by_reason") or {}).items():
+                    if isinstance(reason, str) and type(count) is int and count > 0:
+                        quiet_rejected[reason] += count
+                summary_stamp_ns = row.get("receive_monotonic_ns", summary_stamp_ns)
+                continue
+            scenario_rows.append(row)
+        if quiet_rejected:
+            summary = {
+                "message_type": "scenario_decision_cadence_summary",
+                "quiet_continue_rejected_count": sum(quiet_rejected.values()),
+                "by_reason": dict(quiet_rejected),
+                "receive_monotonic_ns": summary_stamp_ns,
+            }
+            scenario_rows.append(summary)
+            record["contingency_scenario"]["quiet_cadence_rejected_continue"] = {
+                "count": summary["quiet_continue_rejected_count"],
+                "by_reason": summary["by_reason"],
+            }
         record["contingency_scenario"]["markers"] = scenario_rows
     native = _native_outcome(mavlink, markers, positions,
                              names[len(prefix_rows):] if not replacements else (), record)

@@ -642,14 +642,16 @@ class CollectorScenario:
                 if self.transport._get_param(parameter) != expected:
                     raise RuntimeError(f"ASSUMED_SIM battery readback mismatch for {parameter}")
 
-    def _fresh_sample(self, name, max_age_ms=1500, *, state=None):
+    def _fresh_sample(self, name, max_age_ms=1500, *, state=None, now_ns=None):
         from .streams import MavlinkReader
 
         if state is None:
             state = self.reader.latest_control_state()
+        if now_ns is None:
+            now_ns = time.monotonic_ns()
         received = state.received_monotonic_ns.get(name)
         message = state.get(name)
-        if received is None or message is None or not 0 <= time.monotonic_ns() - received <= max_age_ms * 1_000_000:
+        if received is None or message is None or not 0 <= now_ns - received <= max_age_ms * 1_000_000:
             return None
         row = MavlinkReader._mapping(message)
         system, component = self.target_peer
@@ -679,7 +681,7 @@ class CollectorScenario:
         self.worker.check()
 
     def tick(self, index, gimbal, *, lifecycle=None, step_boundary=False, retask_gimbal_ready=False,
-             _boundary_waits=2):
+             _boundary_waits=3):
         from multidetect.autonomy.x1_contingency_executor import RuntimeFrame
         from multidetect.autonomy.x1_contingency_state import VTOL_STATES
 
@@ -697,13 +699,13 @@ class CollectorScenario:
             return
         self.last_observed_boot_ms = boot_ms
         state = self.reader.latest_control_state()
-        wind_types = ("ATTITUDE", "LOCAL_POSITION_NED", "GLOBAL_POSITION_INT")
-        samples = {name: row for name in (*MAVLINK_TYPES, *wind_types)
-                   if (row := self._fresh_sample(name, state=state)) is not None}
-        if self.gimbal is not None:
-            self.gimbal.hold = gimbal
         now_ns = time.monotonic_ns()
         now = now_ns // 1_000_000
+        wind_types = ("ATTITUDE", "LOCAL_POSITION_NED", "GLOBAL_POSITION_INT")
+        samples = {name: row for name in (*MAVLINK_TYPES, *wind_types)
+                   if (row := self._fresh_sample(name, state=state, now_ns=now_ns)) is not None}
+        if self.gimbal is not None:
+            self.gimbal.hold = gimbal
         estimated = self.wind_estimator.update(samples, now_ns=now_ns)
         wind = WindReading.from_wind_cov(samples.get("WIND_COV", {}), now_ns) or estimated
         heartbeat, vtol = samples.get("HEARTBEAT", {}), samples.get("EXTENDED_SYS_STATE", {})
@@ -720,13 +722,15 @@ class CollectorScenario:
         terrain = self.transport.terrain_observation() if any(f.kind == "terrain_conflict" for f in self.faults) else None
         if terrain is not None:
             observations.append(("terrain", terrain, "terrain"))
+        retask_enabled = getattr(self.motion_evidence, "retask_bounds", None) is not None
         detection_ready = any(f.kind == "target_found" for f in self.faults)
-        if getattr(self.motion_evidence, "retask_bounds", None) is not None:
-            # Take the one synthetic camera sample at the end of the admitted
-            # FW leg, within the active fault window. Early/late timeouts still
-            # leave the base plan alone. No Gazebo pose or target truth is read.
-            position = self._motion_position(samples.get("GLOBAL_POSITION_INT"))
-            detection_ready = (index in (1, 2) and position is not None and
+        if retask_enabled:
+            # Take the one synthetic camera sample at the serial boundary at the
+            # end of the admitted FW leg, within the active fault window. Early/late
+            # timeouts still leave the base plan alone. No Gazebo pose or target truth is read.
+            position = self._motion_position(self._fresh_sample(
+                "GLOBAL_POSITION_INT", max_age_ms=MOTION_SAMPLE_MAX_AGE_MS, state=state, now_ns=now_ns))
+            detection_ready = (step_boundary and index == 2 and vtol.get("vtol_state") == 4 and position is not None and
                                math.dist(position[:2], self.motion_evidence.builder.outbound[:2]) <= 28)
             detection_ready |= self._observed_detection_ms is not None
         perception = self.transport.perception_report(now) if detection_ready else None
@@ -740,7 +744,7 @@ class CollectorScenario:
         if self.decision is not None:
             # Original-route proofs cannot attest to a replacement trajectory.
             motion_index = index if lifecycle is None and self.retask_end is None else None
-            point, remaining_energy_wh, remaining_time_s = self._motion_data(motion_index, boot_ms, state)
+            point, remaining_energy_wh, remaining_time_s = self._motion_data(motion_index, boot_ms, state, now_ns=now_ns)
             vtol_state = VTOL_STATES.get(vtol.get("vtol_state"))
             holds = (self.motion_evidence.hold_sites(motion_index, vtol_state)
                      if motion_index is not None and self.motion_evidence is not None
@@ -751,12 +755,12 @@ class CollectorScenario:
             if estimate is not None and self.terrain is not None:
                 finding = self.terrain.local_from_wgs84(estimate["lat_deg"], estimate["lon_deg"])
             frame = RuntimeFrame(
-                frame_id=time.monotonic_ns(), t_ms=now, mission_id=self.decision.mission_id,
+                frame_id=now_ns, t_ms=now, mission_id=self.decision.mission_id,
                 revision=self.decision.revision, event_id=0,
                 px4_failsafe=True if sys_status in {5, 6, 8} else False if sys_status == 4 else None,
                 armed_in_air=(type(base_mode) is int and bool(base_mode & 128) and vtol.get("landed_state") == 2),
-                vtol_state=vtol_state, agl_m=self._home_height_m(state=state),
-                airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples, state=state),
+                vtol_state=vtol_state, agl_m=self._home_height_m(state=state, now_ns=now_ns),
+                airspeed_mps=self._airspeed_mps(samples), position_ok=self._position_ok(samples, state=state, now_ns=now_ns),
                 hold_sites=holds,
                 gimbal_available=gimbal is not None and not gimbal.awaiting_readback,
                 position_ne_amsl=point, active_motion_index=motion_index,
@@ -772,17 +776,15 @@ class CollectorScenario:
                 and boot_ms - timeline.origin < self.faults[self.last_event_index].end_ms)
             # The selected wind is current or unknown, not a generic cached observation.
             mav_rows = (samples[name] for name in MAVLINK_TYPES if name != "WIND_COV" and name in samples)
-            retask_enabled = getattr(self.motion_evidence, "retask_bounds", None) is not None
             extra = {"step_boundary": step_boundary} if retask_enabled else {}
             if perception is not None:
                 extra["perception"] = perception
             cadence = {}
             if self.cadence_steps:
                 cadence = {
-                    "mission_progress": self._mission_progress(index, lifecycle, state, frame),
+                    "mission_progress": self._mission_progress(index, lifecycle, state, frame, now_ns=now_ns),
                     "mode": (base_mode, heartbeat.get("custom_mode"), vtol.get("landed_state")),
-                    "cadence_active": (type(base_mode) is int and bool(base_mode & 128)
-                                       and vtol.get("landed_state") in {2, 3, 4}),
+                    "cadence_active": frame.px4_failsafe is False and frame.armed_in_air is True,
                 }
             if self.perception_tick is not None:
                 self.perception_tick(self, index, samples, gimbal, boot_ms, frame.position_ok, perception=perception)
@@ -792,9 +794,11 @@ class CollectorScenario:
                 self._retask_entry_mode = base_mode, heartbeat.get("custom_mode"), vtol.get("landed_state")
             self._after_decision()
             if (_boundary_waits and step_boundary and index == 2 and perception is not None and event_current
-                    and retask_enabled and self.decision.pending is not None):
-                # A fast reply may be scheduled here. Budget one turn for the
-                # event and one for a recorded cadence follow-up, with fresh evidence.
+                    and retask_enabled and self.retask_end is None and self.decision.future is not None
+                    and frame.px4_failsafe is False and frame.armed_in_air is True):
+                # A fast reply may be scheduled here. Budget one turn to drain a
+                # preempted cadence call, one for the event, and one for a recorded
+                # cadence follow-up, with fresh evidence.
                 done, _ = wait((self.decision.future,), timeout=0.05)
                 if done:
                     self.tick(index, gimbal, step_boundary=True, retask_gimbal_ready=retask_gimbal_ready,
@@ -806,7 +810,7 @@ class CollectorScenario:
                         and fault.at_ms <= boot_ms - timeline.origin < fault.end_ms
                         for i, fault in enumerate(self.faults)))
 
-    def _mission_progress(self, index, lifecycle, state, frame):
+    def _mission_progress(self, index, lifecycle, state, frame, *, now_ns=None):
         from multidetect.autonomy.x1_contingency_state import mission_navigation
 
         # The collector executes the command-bearing steps between its takeoff and landing.
@@ -843,7 +847,7 @@ class CollectorScenario:
                          if item.command is not None and item.command.target_ned is not None), None)
         if lifecycle == "approach":
             waypoint = (0.0, 0.0)  # Landing is at the end of the fixed MC return to home.
-        local = self._fresh_sample("LOCAL_POSITION_NED", max_age_ms=MOTION_SAMPLE_MAX_AGE_MS, state=state)
+        local = self._fresh_sample("LOCAL_POSITION_NED", max_age_ms=MOTION_SAMPLE_MAX_AGE_MS, state=state, now_ns=now_ns)
         distance, home_distance, eta = mission_navigation(local, waypoint)
         return {"step_index": step_index, "step_id": step.source_step_id, "primitive": step.primitive,
                 "phase": phase, "remaining_plan_sha256": canonical_sha256({
@@ -922,19 +926,19 @@ class CollectorScenario:
                 raise TimeoutError(f"X1 native {native.action} did not land within {timeout_s:.0f} s")
             sleep(0.1)
 
-    def _home_height_m(self, *, state=None):
+    def _home_height_m(self, *, state=None, now_ns=None):
         """Height above the SITL home point (flat launch pad), from fresh GLOBAL_POSITION_INT."""
-        alt = (self._fresh_sample("GLOBAL_POSITION_INT", state=state) or {}).get("relative_alt")
+        alt = (self._fresh_sample("GLOBAL_POSITION_INT", state=state, now_ns=now_ns) or {}).get("relative_alt")
         return alt / 1000.0 if type(alt) is int else None
 
-    def _motion_data(self, index, boot_ms, state):
+    def _motion_data(self, index, boot_ms, state, *, now_ns=None):
         """Read motion evidence from the same trusted snapshot used for this tick."""
         age = MOTION_SAMPLE_MAX_AGE_MS
-        global_position = self._fresh_sample("GLOBAL_POSITION_INT", max_age_ms=age, state=state)
+        global_position = self._fresh_sample("GLOBAL_POSITION_INT", max_age_ms=age, state=state, now_ns=now_ns)
         point = self._motion_position(global_position)
         if self.motion_evidence is None:
             return point, None, None
-        local = self._fresh_sample("LOCAL_POSITION_NED", max_age_ms=age, state=state)
+        local = self._fresh_sample("LOCAL_POSITION_NED", max_age_ms=age, state=state, now_ns=now_ns)
         local_boot = (local or {}).get("time_boot_ms")
         global_boot = (global_position or {}).get("time_boot_ms")
         timeline = self.worker.timeline
@@ -953,7 +957,7 @@ class CollectorScenario:
             point = self.motion_evidence.check_entry(index, point, local)
         else:
             point = None
-        battery = self._fresh_sample("BATTERY_STATUS", max_age_ms=age, state=state)
+        battery = self._fresh_sample("BATTERY_STATUS", max_age_ms=age, state=state, now_ns=now_ns)
         if self.motion_evidence.assumed_sim is not None:
             # BATTERY_STATUS has no source time; the reader stamps it with its wire clock.
             wire_boot = state.vehicle_time_boot_ms
@@ -984,10 +988,10 @@ class CollectorScenario:
         speed = (samples.get("VFR_HUD") or {}).get("airspeed")
         return float(speed) if type(speed) in (int, float) and math.isfinite(speed) else None
 
-    def _position_ok(self, samples, *, state=None):
+    def _position_ok(self, samples, *, state=None, now_ns=None):
         """True only with a 3D GPS fix and a fresh local position; never inferred otherwise."""
         fix = (samples.get("GPS_RAW_INT") or {}).get("fix_type")
-        if self._fresh_sample("LOCAL_POSITION_NED", state=state) is None or type(fix) is not int:
+        if self._fresh_sample("LOCAL_POSITION_NED", state=state, now_ns=now_ns) is None or type(fix) is not int:
             return None
         return fix >= 3
 
