@@ -65,6 +65,10 @@ PYTHONPATH=src:. PYTHONUTF8=1 /data/projects/Multi-Detect-env/Multi-Detect/.venv
 
 `--prepare-only` 只编译任务并写矩阵输入。需要重试中断单元时，先把原单元目录移动到同一运行目录的另外一个证据位置，再带同一组输入使用 `--resume`。可加 `--cell` 单独重试。每次分析选一个新的输出目录。
 
+候选启动器在 `/opt/px4-gazebo` 下显式传入 `-s etc/init.d-posix/rcS`，该目录就是 PX4 rootfs；因此 console 中的 `./fs/log/...ulg` 实际位于 `/opt/px4-gazebo/fs/log/`。探针在武装前确认该目录中只有一份非空 ULog，在确认解除武装并停止 logger 后、容器移除前将同一文件直接复制到 `container-evidence/px4-ulog`。现有 collector 的复制逻辑不变，仍会尝试旧路径；以 `index.json` 中的 `ulog_files` 判断是否成功归档。
+
 分析以原始 ULog 的 Navigator 和 VTOL 状态划分七段，交叉核验 MAVLink 命令与时钟、Home、RTL 参数以及触地和解除武装。sidecar 记录分段耗时、相对证明扫掠盒的水平和垂直误差、后转损失、距 Home 的触地点偏差、滚转角、空速、地速、升降速度、加速度、角速度及 SOC 推算的耗能。每个拟议上界记录逐运行值、极值运行 ID、中位数和公式。对每项取观测最大值，加 `max(观测最大值 × 20%, 该量绝对余量)`，再应用 proof 的必要下限并向上取三位小数。如果最大值超过 `max(2 × 中位数, 中位数 + 4 × 绝对余量)`，拒绝整个清单。要求所有声明单元齐全且至少 16 个有效运行、85 m 无风样本覆盖四个航向象限、相邻放电档的实测入口 SOC 中位数至少差三个百分点，以及风、遥测、航迹和机型限制检查全部通过。
+
+离线诊断可用 `--allow-partial` 跳过没有单元目录的未飞单元；这些单元仍计入声明矩阵，因此结果继续拒绝注册，直到完整矩阵满足规则。默认严格模式会逐项报告 `probe_missing`。已完成但没有归档 ULog 的单元会明确报告 `ulog_missing`。
 
 退出 `2` 并生成 `NAME.validation.json` 时，查看 `refusals` 与逐单元测量结果。两项功率界限要求有实测电压和电流。目前候选提交的 `BatterySimulator.cpp` 发布 `current_a=-1`，因此预期只能得到诊断 sidecar。`SOC × 72 Wh` 给出合成电池的耗能估计。满足所有条件时才会生成 `NAME.json`，其 scope 哈希覆盖采样网格和资产，`status=reviewed` 表明通过该网格规则。Case C 的 wind_step 使用 `8 N / -4 E m/s` 及不同事件时序，需要独立的范围证据和审阅。

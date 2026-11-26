@@ -1,7 +1,9 @@
 """CPU-only fixtures. No simulator, container, serial link or GPU calls."""
 import json
 import math
+import shutil
 import struct
+from pathlib import Path, PurePosixPath
 from dataclasses import asdict
 from types import SimpleNamespace
 
@@ -181,11 +183,117 @@ def test_analyze_serialized_matrix_writes_exact_bound(tmp_path, monkeypatch):
     assert trial["energy_used_wh_from_soc"] == pytest.approx(0.648)
     assert len(report["derivations"]["fw_peak_power_w"]["values_by_run_id"]) == len(CELLS)
 
+    partial_root = tmp_path / "partial-matrix"
+    partial_root.mkdir()
+    shutil.copyfile(root / "matrix.json", partial_root / "matrix.json")
+    shutil.copytree(root / CELLS[0].id, partial_root / CELLS[0].id)
+    partial_out = tmp_path / "partial-analysis"
+    assert analysis.analyze(partial_root, partial_out, "probe", allow_partial=True) == 2
+    partial = demo.read_object(partial_out / "probe.validation.json")
+    assert list(partial["observations"]) == [CELLS[0].id]
+    assert partial["skipped_unflown_cells"] == [c.id for c in CELLS[1:]]
+    assert not (partial_out / "probe.json").exists()
+
 
 def test_refuses_missing_runs():
     bound, report = analysis.evaluate(CELLS, [_run(CELLS[0])], analysis.load_airframe_profile(demo.PROFILE), INPUTS, [])
     assert bound is None and report["status"] == "refused"
     assert any("at least 16" in reason for reason in report["refusals"])
+
+
+@pytest.mark.parametrize("missing", ["index", "empty_list", "missing_file", "empty_file"])
+def test_analysis_reports_missing_ulog_and_allows_partial_cells(tmp_path, monkeypatch, missing):
+    root = tmp_path / "matrix"
+    root.mkdir()
+    probe.json_file(root / "matrix.json", {**analysis.META, "inputs": INPUTS, "cells": [asdict(c) for c in CELLS]})
+    monkeypatch.setattr(analysis, "load_local_dem_grid", lambda _: FlatTerrain())
+    cell = CELLS[0]
+    meta, _, _ = _fixture(cell)
+    run_dir = root / cell.id
+    episode = run_dir / "evidence"
+    evidence = episode / "container-evidence"
+    evidence.mkdir(parents=True)
+    probe.json_file(run_dir / "probe.json", meta)
+    probe.json_file(run_dir / "episode.json", {"episode": "evidence"})
+    probe.json_file(episode / "episode.json", {"status": "complete", "simulator_image": probe.IMAGE,
+                                               "px4_profile": "main"})
+    if missing != "index":
+        listing = [] if missing == "empty_list" else ["container-evidence/flight.ulg"]
+        probe.json_file(evidence / "index.json", {"ulog_files": listing})
+    if missing == "empty_file":
+        (evidence / "flight.ulg").touch()
+    # This directory exists but was not properly captured; partial mode must not hide it.
+    (root / CELLS[1].id).mkdir()
+
+    strict_output = tmp_path / "strict"
+    assert analysis.analyze(root, strict_output, "probe") == 2
+    strict = demo.read_object(strict_output / "probe.validation.json")
+    assert strict["refusals"][0] == f"{cell.id}: ulog_missing"
+    assert strict["refusals"][1:-1] == [f"{c.id}: probe_missing" for c in CELLS[1:]]
+    assert not (strict_output / "probe.json").exists()
+
+    partial_output = tmp_path / "partial"
+    assert analysis.main(["--mode", "sim", "--matrix", str(root), "--output", str(partial_output),
+                          "--name", "probe", "--allow-partial"]) == 2
+    partial = demo.read_object(partial_output / "probe.validation.json")
+    assert partial["refusals"] == [f"{cell.id}: ulog_missing", f"{CELLS[1].id}: probe_missing",
+                                   strict["refusals"][-1]]
+    assert partial["skipped_unflown_cells"] == [c.id for c in CELLS[2:]]
+    assert partial["status"] == "refused" and not (partial_output / "probe.json").exists()
+
+
+def test_probe_copies_same_prearm_ulog_after_disarm(tmp_path, monkeypatch):
+    events = []
+    source = PurePosixPath("/opt/px4-gazebo/fs/log/2026-11-26/10_48_34.ulg")
+    _, _, ulog_bytes = _fixture(CELLS[0])
+    readback = {"verified": True}
+    scenario = probe._Probe("sim", cell=CELLS[0], faults=(), terrain=FlatTerrain(), hold=None, params=None,
+                            guard=None, episode_root=tmp_path)
+    scenario.docker, scenario.container, scenario.episode_dir = "docker", "owned-sim", tmp_path / "episode"
+    scenario._readback = lambda: readback
+    scenario.record = lambda row: events.append(row["message_type"])
+    scenario.check = lambda: None
+    scenario.clock = lambda: 1000
+    scenario.native = SimpleNamespace(poll=lambda: "confirmed", confirmed=lambda action: action == "return",
+                                      landed=lambda: True, history=[])
+    scenario._sample = lambda: ({"base_mode": 0}, {}, None, 1000)
+    scenario.rtl_sent = True
+
+    def command(*argv):
+        events.append(argv)
+        if argv[0] == "find":
+            assert argv[1] == str(source.parent.parent)
+            return str(source) + "\n"
+        return ""
+
+    def copy(argv, **_):
+        assert argv[:3] == ["docker", "cp", f"owned-sim:{source}"]
+        assert Path(argv[-1]).suffix == ".partial"
+        events.append("copy")
+        Path(argv[-1]).write_bytes(ulog_bytes)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    scenario.transport = SimpleNamespace(prepare=lambda _: None, command=command)
+    monkeypatch.setattr(probe.subprocess, "run", copy)
+    scenario.prepare()
+    assert scenario.finish_native(1, check=lambda: None)["disarmed"] is True
+    assert events == ["scenario_fw_rtl_readback", (probe.LOGGER, "on"),
+                      ("find", str(probe.ULOG_ROOT), "-type", "f", "-name", "*.ulg", "-size", "+0c", "-print"),
+                      "fw_rtl_probe_disarmed", (probe.LOGGER, "stop"), "copy", "fw_rtl_probe_ulog_copied"]
+    archive = scenario.episode_dir / "container-evidence/px4-ulog"
+    assert list(archive.iterdir()) == [archive / source.name]
+    assert (archive / source.name).read_bytes() == ulog_bytes
+
+
+def test_failed_ulog_copy_does_not_publish_partial_bytes(tmp_path, monkeypatch):
+    def copy(argv, **_):
+        Path(argv[-1]).write_bytes(b"partial")
+        return SimpleNamespace(returncode=1, stdout="", stderr="source vanished")
+
+    monkeypatch.setattr(probe.subprocess, "run", copy)
+    with pytest.raises(RuntimeError, match="source vanished"):
+        probe._copy_ulog("docker", "owned-sim", probe.ULOG_ROOT / "flight.ulg", tmp_path)
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_refuses_outlier_and_missing_current():
@@ -211,7 +319,7 @@ def test_non_sim_refused_before_output_or_launch(mode, tmp_path):
     with pytest.raises(ValueError, match="explicit --mode sim"):
         probe.run(args, launch=lambda *_: pytest.fail("launcher was called"))
     with pytest.raises(ValueError, match="explicit --mode sim"):
-        probe._Probe(mode, cell=None, faults=(), terrain=None, hold=None, params=None, guard=None)
+        probe._Probe(mode, cell=None, faults=(), terrain=None, hold=None, params=None, guard=None, episode_root=None)
     assert not output.exists()
 
 

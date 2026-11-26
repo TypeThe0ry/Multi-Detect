@@ -10,11 +10,12 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 import time
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from multidetect.autonomy.mission_package import load_mission_package
 from multidetect.sim_teacher.x1_fw_native_rtl import PX4_RTL_COMMIT, _POSITIVE, _REQUIRED
@@ -35,6 +36,8 @@ CAPACITY_WH = 72.0
 MIN_RUNS = 16
 RAMP_MS = 4000
 LOGGER = "/opt/px4-gazebo/bin/px4-logger"
+# -s selects rcS explicitly, so PX4 keeps the launch workdir as its rootfs.
+ULOG_ROOT = PurePosixPath("/opt/px4-gazebo/fs/log")
 CRUISE_INDEX = 1
 
 
@@ -82,19 +85,42 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def _copy_ulog(docker, container, source, destination):
+    # Stage outside the collector's *.ulg glob until Docker has copied a complete file.
+    destination.mkdir(parents=True, exist_ok=True)
+    target = destination / source.name
+    pending = target.with_suffix(".partial")
+    try:
+        result = subprocess.run([docker, "cp", f"{container}:{source}", str(pending)],
+                                capture_output=True, text=True, timeout=90, check=False)
+        if result.returncode:
+            raise RuntimeError(f"ULog copy failed ({result.returncode}): {(result.stderr or result.stdout).strip()}")
+        if pending.stat().st_size == 0:
+            raise RuntimeError(f"ULog copy is empty: {source}")
+        pending.rename(target)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"ULog copy timed out: {source}") from exc
+    finally:
+        pending.unlink(missing_ok=True)
+    return target
+
+
 class _Probe(CollectorScenario):
     """Only constructed by the measurement CLI; never installed in production or demo."""
 
-    def __init__(self, mode, *, cell, faults, terrain, hold, params, guard):
+    def __init__(self, mode, *, cell, faults, terrain, hold, params, guard, episode_root):
         require_sim(mode)
         super().__init__(faults, clearance=lambda *_: None, terrain=terrain)
         self.cell, self.site_hold, self.params, self.guard = cell, hold, params, guard
+        self.episode_root = episode_root
         self.hold_boot_ms = None
         self.rtl_sent = False
         self.wind_target_boot_ms = None
 
     def bind(self, docker, container, world, reader, connection, record, episode_id, *, clock):
         super().bind(docker, container, world, reader, connection, record, episode_id, clock=clock)
+        self.docker, self.container = docker, container
+        self.episode_dir = self.episode_root / episode_id
         if math.hypot(*wind_baseline(world)[1]) > 0.01:
             raise RuntimeError("probe requires a calm Iowa SDF baseline")
         if self.faults:
@@ -130,6 +156,17 @@ class _Probe(CollectorScenario):
         if not self.prearm["verified"]:
             raise RuntimeError("probe candidate prearm parameter or commit mismatch")
         self.transport.command(LOGGER, "on")  # Override arm/disarm logging in this owned container.
+        # Remember the single full log before arming, not whichever file is newest at shutdown.
+        deadline = time.monotonic() + 15
+        while True:
+            paths = self.transport.command("find", str(ULOG_ROOT), "-type", "f", "-name", "*.ulg",
+                                           "-size", "+0c", "-print").splitlines()
+            if len(paths) == 1:
+                self.ulog_source = PurePosixPath(paths[0])
+                break
+            if paths or time.monotonic() >= deadline:
+                raise RuntimeError(f"expected one nonempty prearm ULog in {ULOG_ROOT}, found {len(paths)}")
+            time.sleep(0.2)
 
     def start(self):
         # Start the existing sim-time wind ramp only after the native hold is confirmed.
@@ -216,8 +253,13 @@ class _Probe(CollectorScenario):
                     if post != self.prearm:
                         raise RuntimeError("probe configuration changed after arming")
                     self.record({"message_type": "fw_rtl_probe_disarmed", "basis": BASIS, "boot_ms": boot, **post})
-                    # Stop and flush the logger before the collector copies the file.
+                    # Stop and flush after disarm, before the collector stops/removes the container.
                     self.transport.command(LOGGER, "stop")
+                    archive = _copy_ulog(self.docker, self.container, self.ulog_source,
+                                         self.episode_dir / "container-evidence/px4-ulog")
+                    self.record({"message_type": "fw_rtl_probe_ulog_copied", "source": str(self.ulog_source),
+                                 "path": archive.relative_to(self.episode_dir).as_posix(),
+                                 "bytes": archive.stat().st_size})
                     return {"status": "landed", "method": "native_return", "landed_state": 1,
                             "disarmed": True, "native_handoff": self.native.history}
             sleep(0.05)
@@ -277,7 +319,8 @@ def _prepare(args, cell, out, site, inputs):
                   "east_mps": cell.wind_mps * math.sin(theta), "down_mps": 0, "ramp_ms": RAMP_MS}}]})
         faults = load_schedule(schedule, ("wind_step",))
     probe = _Probe(args.mode, cell=cell, faults=faults, terrain=site.terrain, hold=hold,
-                   params=params, guard=mission["x1_cruise_guard"])
+                   params=params, guard=mission["x1_cruise_guard"],
+                   episode_root=Path(collector_plan.out) / "episodes")
     record = {"basis": BASIS, "mode": args.mode, "image_id": IMAGE, "px4_commit": PX4_RTL_COMMIT,
               "cell": asdict(cell), "run_id": cell.id, "hold": hold, "inputs": inputs,
               "pad": [*home_ne, pad_amsl], "dem": str(site.dem_path), "scenario": site.scenario_id}
