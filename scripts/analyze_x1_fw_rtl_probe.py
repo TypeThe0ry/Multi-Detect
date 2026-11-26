@@ -488,7 +488,7 @@ def _within(parent, relative):
     return path
 
 
-def analyze(root, out, name):
+def analyze(root, out, name, *, allow_partial=False):
     expected = demo.read_object(root / "matrix.json")
     need(all(expected.get(k) == v for k, v in META.items()), "not an immutable ASSUMED_SIM measurement matrix")
     cells = [Cell(**item) for item in expected["cells"]]
@@ -499,12 +499,22 @@ def analyze(root, out, name):
     need(inputs["world_sha256"] == demo.assumptions.WORLD_SHA and inputs["dem_sha256"] == demo.assumptions.DEM_SHA
          and inputs["airframe_sha256"] == digest(demo.PROFILE), "world/DEM/profile identity mismatch")
     profile = load_airframe_profile(demo.PROFILE)
-    runs, errors = [], []
+    runs, errors, skipped = [], [], []
     seen = set()
     for cell in cells:
+        run_dir = root / cell.id
         try:
-            run_dir = root / cell.id
             meta = demo.read_object(run_dir / "probe.json")
+        except FileNotFoundError:
+            if allow_partial and not run_dir.exists():
+                skipped.append(cell.id)
+            else:
+                errors.append(f"{cell.id}: probe_missing")
+            continue
+        except (OSError, ValueError) as exc:
+            errors.append(f"{cell.id}: {exc}")
+            continue
+        try:
             need(meta["cell"] == asdict(cell) and meta["run_id"] == cell.id and meta["inputs"] == inputs
                  and meta["scenario"] == demo.assumptions.WORLD
                  and all(meta.get(k) == v for k, v in META.items()), "run identity mismatch")
@@ -514,9 +524,16 @@ def analyze(root, out, name):
             end = demo.read_object(episode / "episode.json")
             need(end.get("status") == "complete" and end.get("simulator_image") == IMAGE
                  and end.get("px4_profile") == "main", "episode did not complete under the pinned candidate/main profile")
-            evidence = demo.read_object(episode / "container-evidence" / "index.json")
-            ulog_name, = evidence["ulog_files"]
-            ulog = _within(episode, ulog_name)
+            try:
+                evidence = demo.read_object(episode / "container-evidence" / "index.json")
+            except FileNotFoundError as exc:
+                raise ValueError("ulog_missing") from exc
+            ulog_files = evidence.get("ulog_files", [])
+            need(isinstance(ulog_files, list), "invalid ULog index")
+            need(ulog_files, "ulog_missing")
+            need(len(ulog_files) == 1, "expected exactly one ULog")
+            ulog = _within(episode, ulog_files[0])
+            need(ulog.is_file() and ulog.stat().st_size > 0, "ulog_missing")
             mav = episode / "mavlink.jsonl"
             if not mav.is_file():
                 mav = episode / "mavlink.jsonl.gz"
@@ -532,6 +549,8 @@ def analyze(root, out, name):
         except (OSError, KeyError, TypeError, ValueError, IndexError, struct.error) as exc:
             errors.append(f"{cell.id}: {exc}")
     raw, report = evaluate(cells, runs, profile, inputs, errors)
+    if allow_partial:
+        report["skipped_unflown_cells"] = skipped
     out.mkdir(parents=True)
     sidecar = out / f"{name}.validation.json"
     json_file(sidecar, report)
@@ -548,11 +567,13 @@ def main(argv=None):
     parser.add_argument("--matrix", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--name", default="x1-fw-rtl")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="skip absent cell directories for diagnostics; full coverage is still required for a manifest")
     args = parser.parse_args(argv)
     try:
         require_sim(args.mode)
         need(args.name.isascii() and args.name.replace("-", "").replace("_", "").isalnum(), "invalid output name")
-        return analyze(args.matrix.resolve(), args.output, args.name)
+        return analyze(args.matrix.resolve(), args.output, args.name, allow_partial=args.allow_partial)
     except (OSError, ValueError, TypeError, KeyError) as exc:
         parser.exit(2, f"FW RTL analysis: {exc}\n")
 
