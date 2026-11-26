@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import struct
 import math
@@ -18,10 +19,12 @@ from multidetect.autonomy.airframe_profile import load_airframe_profile
 from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.autonomy.x1_motion_proof import LandingPad
 from multidetect.sim_teacher.x1_fw_native_rtl import FwRtlBounds, _PHASES, _POSITIVE, _REQUIRED, suffix_power_w
+from multidetect.sim_teacher.x1_native_handoff import IOWA_FW_AIRSPEED_PARAMETERS
 from multidetect.terrain_dem import load_local_dem_grid
 from scripts.analyze_px4_ulog import _parse_internal
 from scripts.measure_x1_fw_rtl import (
-    BASIS, CAPACITY_WH, IMAGE, MIN_RUNS, PX4_RTL_COMMIT, Cell, demo, digest, json_file, matrix, require_sim,
+    BASIS, CAPACITY_WH, CASE_C_HOLD_WINDOW_MS, CASE_C_SCHEDULE_SHA256, COVERAGE_MINIMUM_REPLICATES, IMAGE,
+    MATRIX_SCHEMA, MIN_RUNS, PX4_RTL_COMMIT, Cell, demo, digest, json_file, matrix, require_sim,
 )
 
 # PX4 53afcc82 rtl_direct.h / rtl_direct.cpp: LOITER_DOWN and LOITER_HOLD
@@ -51,10 +54,105 @@ PAD_RADIUS_M = 16
 PAD_ERROR_M = 13
 DEM_ERROR_M = 12
 META = {"basis": BASIS, "mode": "sim", "image_id": IMAGE, "px4_commit": PX4_RTL_COMMIT}
+ESTIMATED_MINUTES = {"core": 6, "climb": 7, "alternate-loiter": 6, "case-c": 9}
+CASE_C_WIND = {"north_mps": 8, "east_mps": -4, "down_mps": 0, "ramp_ms": 4000}
+CASE_C_SCHEDULE = {"schema": "x1.contingency.faults.v1", "faults": [
+    {"at_ms": 21000, "duration_ms": 9500, "type": "wind_step", "values": CASE_C_WIND},
+]}
+# The included Gazebo airspeed SDF has no noise element; do not attribute
+# physical/gust excursions to noise. Allow one logged float32 ULP at 18 m/s.
+TAS_TOLERANCE_MPS = 2 ** -19
+
+
+def expected_pins(cell):
+    return {**_REQUIRED, "RTL_RETURN_ALT": cell.return_alt, "SIM_BAT_DRAIN": 1800,
+            "SIM_BAT_MIN_PCT": 50, "SIM_BAT1_DRAIN": cell.drain_s, "SIM_BAT1_MIN_PCT": 50}
+
+
+def validate_matrix(expected):
+    need(expected.get("schema") == MATRIX_SCHEMA, "requires matrix.v2; re-fly the complete matrix under the new pins")
+    need(expected.get("coverage_minimum_replicates") == COVERAGE_MINIMUM_REPLICATES, "wrong coverage replicate minimums")
+    need(canonical_sha256(expected.get("case_c_schedule")) == canonical_sha256(CASE_C_SCHEDULE)
+         and expected["inputs"].get("case_c_schedule_sha256") == CASE_C_SCHEDULE_SHA256,
+         "wrong archived Case C schedule or byte hash")
+    cells = [Cell(**item) for item in expected["cells"]]
+    need(expected["cells"] == [asdict(cell) for cell in cells], "matrix cells must declare all fields")
+    core = [c for c in cells if c.family == "core"]
+    need(core, "matrix lacks core cells")
+    axes = [sorted({getattr(c, f) for c in core}) for f in ("offset_s", "wind_mps", "drain_s", "cruise_agl_m")]
+    need(cells == matrix(*axes, max(c.repeat for c in core)) and len({c.id for c in cells}) == len(cells),
+         "matrix missing cells or not in canonical order")
+    pins = expected["cell_parameter_pins"]
+    need(set(pins) == {c.id for c in cells}, "matrix parameter pins do not cover exactly the declared cells")
+    for c in cells:
+        validate_pins(pins[c.id], c)
+    return cells, pins
+
+
+def validate_pins(pins, cell):
+    wanted = expected_pins(cell)
+    need(isinstance(pins, dict) and set(pins) == set(wanted)
+         and all(number(pins[k]) == v for k, v in wanted.items()),
+         f"{cell.id}: incomplete or incorrect exact parameter pins")
+
+
+def check_airspeed(rows, ceiling):
+    values = [number(r["true_airspeed_m_s"]) for r in rows]
+    sources = sorted({r["airspeed_source"] for r in rows})
+    need(values and all(v > 0 for v in values) and all(s in {0, 1, 2, 3, 4} for s in sources),
+         "invalid FW true airspeed")
+    peak = max(values)
+    need(peak <= ceiling + TAS_TOLERANCE_MPS,
+         f"FW true airspeed {peak:.9f} m/s exceeds profile ceiling {ceiling:g} m/s "
+         f"+ {TAS_TOLERANCE_MPS:.9g} m/s logging tolerance")
+    return values, sources
+
+
+def check_climb_orbit(cell, target, radius, return_z, activation_point, hold, params):
+    fallback = cell.family == "alternate-loiter"
+    centre = activation_point if fallback else hold["centre"]
+    expected_radius = params["NAV_LOITER_RAD"] if fallback else hold["radius_m"]
+    need(math.dist(target[:2], centre[:2]) <= 3 and abs(target[2] - return_z) <= 2
+         and abs(abs(number(radius)) - expected_radius) <= 0.1,
+         "unexpected climb orbit center, altitude or radius")
+    return "activation_point" if fallback else "established_hold"
+
+
+def case_c_witness(marker, hold_request, dispatch, publishes):
+    injected, restored = marker("scenario_injected"), marker("scenario_restored")
+    origin = number(injected["origin_boot_ms"])
+    need(marker("scenario_clock_started")["origin_boot_ms"] == origin, "Case C route clock origin mismatch")
+    request = number(hold_request["boot_ms"])
+    lo, hi = CASE_C_HOLD_WINDOW_MS
+    inj_t, rst_t = (number(r["observed_boot_ms"]) for r in (injected, restored))
+    for row, offset in ((injected, 21000), (restored, 30500)):
+        applied = row["applied"]
+        need(row["fault"] == "wind_step" and row["fault_index"] == 0 and row["values"] == CASE_C_WIND
+             and row["scheduled_offset_ms"] == offset and row["origin_boot_ms"] == origin
+             and applied["ramp_ms"] == 4000 and applied["readback"] == "publish_only"
+             and math.dist(applied["target_enu_mps"], [-4, 8, 0]) <= 0.02
+             and math.hypot(*applied["baseline_enu_mps"]) <= 0.01, "Case C wind timeline differs from archived scope")
+    need(21000 <= inj_t - origin and lo <= request - origin < hi and inj_t <= request
+         and restored["reason"] == "window_end" and math.hypot(*restored["applied"]["enu_mps"]) <= 0.01
+         and 30500 <= rst_t - origin and rst_t <= dispatch["clock_ms"], "Case C Hold/RTL outside archived wind window")
+    fractions = [number(r["fraction"]) for r in publishes]
+    stamps = [number(r["boot_ms"]) - origin for r in publishes]
+    peak_index = fractions.index(1) if 1 in fractions else 0
+    need(len(fractions) >= 3 and fractions[0] == 0 and peak_index > 0 and fractions[-1] < 1
+         and all(a <= b for a, b in zip(fractions[:peak_index], fractions[1:peak_index + 1]))
+         and all(a >= b for a, b in zip(fractions[peak_index:], fractions[peak_index + 1:]))
+         and all(a <= b for a, b in zip(stamps, stamps[1:]))
+         and all(21000 <= t <= rst_t - origin and 0 <= f <= 1 and r["readback"] == "publish_only"
+                 and math.dist(r["enu_mps"], [-4*f, 8*f, 0]) <= 0.02
+                 and (f != 1 or 25000 <= t <= 27500)
+                 for r, t, f in zip(publishes, stamps, fractions, strict=True)),
+         "Case C lacks witnessed wind ramp, full vector or ramp-down")
+
+
 UNVERIFIED = [
     "Grid interpolation, untested heading/wind directions, gust timing, SOC and sample-to-send latency.",
-    "The 4-6 m/s hold ramp is not Case C's 8 N/-4 E m/s command/window or target_found/cadence.",
-    "Climb fallback with a different orbit, alternate/passing-plane triggers and routes not seen in the logs.",
+    "Case C replicas reproduce the wind/Hold/RTL kinematic scope; no target_found, decision cadence or production admission proof.",
+    "Climb/alternate-loiter coverage is limited to the declared entry and return altitude; unobserved triggers remain unverified.",
     "FW_R_LIM, navigator acceptance and MC controller settings are not trajectory or timing bounds.",
     "SOC * 72 Wh estimates synthetic depletion only; it does not identify instantaneous propulsion power.",
     "Independent site obstacles/geofence, DEM uncertainty, geometry admissibility and reserve-time/energy proof.",
@@ -95,16 +193,17 @@ def mav_witness(rows, cell, meta):
     need(arming.get("basis") == BASIS and all(r.get("verified") is True
          and r.get("observed_px4_commits") == [PX4_RTL_COMMIT]
          and r.get("observed_parameters") == params for r in (arming, post)), "prearm/post-disarm readback mismatch")
-    descend = _REQUIRED["RTL_DESCEND_ALT"]
-    need(abs(number(params.get("RTL_DESCEND_ALT")) - descend) <= 1e-6,
-         f"RTL_DESCEND_ALT readback {params.get('RTL_DESCEND_ALT')} differs from prearm pin {descend} m")
-    need(set(params) == {*_REQUIRED, *_POSITIVE, "SIM_BAT_DRAIN", "SIM_BAT_MIN_PCT",
-                         "SIM_BAT1_DRAIN", "SIM_BAT1_MIN_PCT"}
-         and all(abs(number(params[k]) - v) <= 1e-6 for k, v in _REQUIRED.items())
-         and all(number(params[k]) > 0 for k in _POSITIVE)
-         and [params[k] for k in ("SIM_BAT_DRAIN", "SIM_BAT_MIN_PCT", "SIM_BAT1_DRAIN", "SIM_BAT1_MIN_PCT")]
-         == [1800, 50, cell.drain_s, 50], "wrong native or battery parameters")
-    for action, command, submode in (("loiter", 34, 3), ("return", 20, 5)):
+    pins = meta["parameter_pins"]
+    validate_pins(pins, cell)
+    positive = set(_POSITIVE) - set(pins)
+    need(set(params) == set(pins) | positive, "incomplete native/battery parameter readback")
+    for k, v in pins.items():
+        need(abs(number(params[k]) - v) <= 1e-6, f"parameter readback does not match pin: {k}")
+    for k in positive:
+        need(number(params[k]) > 0, f"parameter readback is not positive: {k}")
+    alternate = cell.family == "alternate-loiter"
+    actions = (("return", 20, 5),) if alternate else (("loiter", 34, 3), ("return", 20, 5))
+    for action, command, submode in actions:
         sent = one(rows, lambda r: r.get("message_type") == "scenario_native_command"
                    and r.get("action") == action, f"{action} dispatch")
         confirmed = one(rows, lambda r: r.get("message_type") == "scenario_native_handoff"
@@ -113,26 +212,35 @@ def mav_witness(rows, cell, meta):
              and confirmed["observed_mode"] == [4, submode] and confirmed["command"] == command,
              f"{action} did not reach confirmed native mode")
         if action == "return":
-            need(sent["params"] == [0] * 7 and sent["mode_before"] == [4, 3], "RTL was rewritten or not from Hold")
+            need(sent["params"] == [0] * 7 and sent["mode_before"] == ([6, 0] if alternate else [4, 3]),
+                 "RTL was rewritten or was not from the declared mode")
         else:
             target = meta["hold"]
             need(sent["mode_before"] == [6, 0] and sent["params"] == [target["radius_m"], target["speed_mps"],
                  0, 0, *target["lat_lon"], target["centre"][2]], "orbit target differs from probe plan")
     handoffs = [r for r in rows if r.get("message_type") == "scenario_native_command"]
-    need([r["action"] for r in handoffs] == ["loiter", "return"], "unexpected native action")
-    marker("fw_rtl_probe_hold_request")
-    hold = marker("fw_rtl_probe_hold_confirmed")
+    need([r["action"] for r in handoffs] == [a for a, _, _ in actions], "unexpected native action")
     dispatch = marker("fw_rtl_probe_dispatch")
-    offset = number(dispatch["clock_ms"]) - number(hold["boot_ms"])
     need(dispatch["basis"] == BASIS and dispatch["motion_proof"] is False
-         and abs(number(dispatch["boot_ms"]) - dispatch["clock_ms"]) <= 500
-         and hold["boot_ms"] == dispatch["hold_boot_ms"] and 0 <= offset - 1000 * cell.offset_s <= 500,
+         and dispatch.get("family", "core") == cell.family
+         and abs(number(dispatch["boot_ms"]) - number(dispatch["clock_ms"])) <= 500,
          "dispatch outside probe clock contract")
+    if alternate:
+        need(not any(r.get("message_type") in {"fw_rtl_probe_hold_request", "fw_rtl_probe_hold_confirmed"}
+                     for r in rows) and dispatch.get("hold_boot_ms") is None, "alternate-loiter must enter from FW cruise")
+    else:
+        request = marker("fw_rtl_probe_hold_request")
+        hold = marker("fw_rtl_probe_hold_confirmed")
+        offset = dispatch["clock_ms"] - number(hold["boot_ms"])
+        need(number(request["boot_ms"]) <= hold["boot_ms"] and hold["boot_ms"] == dispatch["hold_boot_ms"]
+             and 0 <= offset - 1000 * cell.offset_s <= 500, "dispatch outside probe Hold offset")
     need(marker("collector_landing_complete")["disarmed"] is True, "collector did not observe disarm")
     need(not any(r.get("message_type") in ("scenario_error", "scenario_missed", "scenario_restore_error") for r in rows),
          "scenario transport reported an error")
     publishes = [r for r in rows if r.get("message_type") == "fw_rtl_probe_wind_publish"]
-    if cell.wind_mps:
+    if cell.family == "case-c":
+        case_c_witness(marker, request, dispatch, publishes)
+    elif cell.wind_mps:
         bearing = math.radians(meta["inputs"]["wind_toward_deg"])
         enu = (cell.wind_mps * math.sin(bearing), cell.wind_mps * math.cos(bearing), 0)
         ramp = [r for r in publishes if hold["boot_ms"] <= number(r["boot_ms"]) <= dispatch["clock_ms"]]
@@ -357,7 +465,7 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
     vehicle_status = topic("vehicle_status")
     _assert_parameter_log(raw_ulog, mav, prearm, vehicle_status)
     readback = prearm["observed_parameters"]
-    params = {k: readback[k] for k in (*_REQUIRED, *_POSITIVE)}
+    params = {k: readback[k] for k in {*_REQUIRED, *_POSITIVE, "RTL_RETURN_ALT"}}
 
     command_sample = number(dispatch["boot_ms"]) * 1000
     post_us = number(post["boot_ms"]) * 1000
@@ -423,6 +531,9 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
     need(math.dist(start, _position(topic("vehicle_global_position").near(command_sample, 350_000), terrain)) <= 8,
          "MAVLink position disagrees with nearest ULog sample")
     hold = meta["hold"]
+    climb_orbit = None
+    need(cell.family not in ("climb", "alternate-loiter") or 0 in states, "coverage cell did not enter CLIMBING")
+    activation_point = _position(topic("vehicle_global_position").near(activation, 350_000), terrain)
     return_z = max(start[2], home[2] + params["RTL_RETURN_ALT"])
     descend_z = min(return_z, home[2] + params["RTL_DESCEND_ALT"])
     for row in nav:
@@ -434,8 +545,7 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
         target = (*terrain.local_from_wgs84(*_vector(row, ("latitude", "longitude"))), number(row["altitude"]))
         reference = (*home[:2], return_z if phase == 1 else home[2] if phase == 6 else descend_z)
         if phase == 0:
-            need(min(math.dist(target[:2], p[:2]) for p in (start, hold["centre"])) <= 3
-                 and abs(target[2] - return_z) <= 2, "unexpected climb orbit")
+            climb_orbit = check_climb_orbit(cell, target, row["loiter_radius"], return_z, activation_point, hold, params)
         else:
             need(math.dist(target[:2], reference[:2]) <= 1.5 and abs(target[2] - reference[2]) <= 2,
                  "alternate rally, approach, avoidance or incorrect home/altitude")
@@ -447,7 +557,10 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
            "hold": hold, "home": home, "pad": pad, "start": start}
     zero = dict.fromkeys(FLOOR_OPEN, 0)
     times = [(starts[i + 1] - starts[i]) / 1e6 for i in range(7)]
-    geometry = sweep_for(_manifest("probe", params, zero, times), run, profile)
+    geometry_run = run
+    if cell.family == "alternate-loiter":
+        geometry_run = {**run, "hold": {**hold, "centre": activation_point, "radius_m": params["NAV_LOITER_RAD"]}}
+    geometry = sweep_for(_manifest("probe", params, zero, times), geometry_run, profile)
     need(geometry is not None, "entry, pad and turn-radius geometry incompatible with proof")
 
     global_pos, local_pos = topic("vehicle_global_position"), topic("vehicle_local_position")
@@ -455,10 +568,11 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
     need(all(r["xy_valid"] and r["z_valid"] and r["v_xy_valid"] and r["v_z_valid"] for r in velocity),
          "position/velocity estimate invalid during RTL")
     attitude = topic("vehicle_attitude").coverage(command_sample, starts[4], 200_000)
-    airspeeds = topic("airspeed_validated").coverage(activation, starts[4], 600_000)
-    air = [number(r["true_airspeed_m_s"]) for r in airspeeds]
-    air_sources = sorted({r["airspeed_source"] for r in airspeeds})
-    need(all(v > 0 for v in air) and all(s in {0, 1, 2, 3, 4} for s in air_sources), "invalid FW true airspeed")
+    airspeed = topic("airspeed_validated")
+    airspeed.coverage(activation, transition, 600_000)
+    # Include the command/activation interval and the physical FW interval if
+    # the Navigator transition item preceded the actual transition.
+    air, air_sources = check_airspeed(airspeed.window(command_sample, transition), profile.max_airspeed_mps)
     omega = topic("vehicle_angular_velocity").coverage(command_sample, land, 200_000)
     batteries = topic("battery_status").coverage(command_sample, land, 500_000)
     socs = [number(r["remaining"]) for r in batteries]
@@ -513,7 +627,7 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
                          ("hover_peak_power_w", [w for r, w in zip(batteries, powers, strict=True) if r["timestamp"] >= starts[4]])):
         values[key] = max(samples) if samples and all(w is not None for w in samples) else None
     run.update({"observations": values, "phase_time_s": times, "state_sequence": states, "raw_state_sequence": raw_states,
-                "phase_starts_us": [starts[i] for i in range(8)], "disarm_us": disarm,
+                "climb_orbit": climb_orbit, "phase_starts_us": [starts[i] for i in range(8)], "disarm_us": disarm,
                 "vtol_transition_observed_s": (hover - transition) / 1e6,
                 "entry_heading_deg": _fw_angles(topic("vehicle_attitude").near(command_sample, 200_000))[1],
                 "positions": positions, "input_to_send_s": (sent - command_sample) / 1e6,
@@ -571,30 +685,69 @@ def _assumed_power_derivations(profile, profile_sha256):
     }
 
 
-def evaluate(cells, runs, profile, inputs, errors):
+def matrix_coverage(cells, runs):
+    admitted = {r["run_id"] for r in runs}
+    families = {}
+    for name, minutes in ESTIMATED_MINUTES.items():
+        declared = [c.id for c in cells if c.family == name]
+        families[name] = {"planned": len(declared), "minimum_replicates": COVERAGE_MINIMUM_REPLICATES.get(name),
+                          "admitted_cells": [ident for ident in declared if ident in admitted],
+                          "missing_cells": [ident for ident in declared if ident not in admitted],
+                          "estimated_minutes_per_cell": minutes}
+    minutes = sum(f["planned"] * f["estimated_minutes_per_cell"] for f in families.values())
+    return {"planned_cells": len(cells), "estimated_minutes_no_retries": minutes,
+            "estimated_hours_no_retries": minutes / 60, "families": families}
+
+
+def evaluate(cells, runs, profile, inputs, errors, *, matrix_record=None):
     refusals = list(errors)
     ids = [r["run_id"] for r in runs]
     if len(ids) < MIN_RUNS or len(ids) != len(set(ids)) or set(ids) != {c.id for c in cells}:
         refusals.append(f"need every declared matrix cell exactly once and at least {MIN_RUNS} valid runs")
-    scope = canonical_sha256({"probe": "x1-fw-rtl.v1", "inputs": inputs, "cells": [asdict(c) for c in cells]})
+    # A single runtime manifest must have one exact RTL_RETURN_ALT. Extra
+    # families are required evidence, but cannot calibrate that core manifest.
+    scope = canonical_sha256(matrix_record if matrix_record is not None else
+                             {"probe": "x1-fw-rtl.v2", "inputs": inputs, "cells": [asdict(c) for c in cells]})
     report = {**META, "scope": scope, "status": "refused", "rule": {
         "minimum_runs": MIN_RUNS, "relative_margin": 0.20, "formula": "ceil_mm(max(floor, observed_max + max(20% of observed_max, absolute_margin)))",
         "variation": "unconditioned metrics reject if max > max(2*median, median + 4*absolute_margin)",
         "conditioned_variation": "four geometric metrics use fixed declared conditions and reject positive "
                                  "leave-one-out median residuals > 4*absolute_margin or insufficient bin coverage; "
                                  "never discard observed extrema from envelope bounds",
-        "scope": "probe grid only; not a case-C registration scope",
+        "scope": "core Hold grid only; diagnostic coverage families cannot authorize alternate or Case C registration",
+        "airspeed": {"ceiling_mps": profile.max_airspeed_mps, "tolerance_mps": TAS_TOLERANCE_MPS,
+                     "basis": "Gazebo airspeed model has no configured noise; one binary32 ULP at 18 m/s",
+                     "window": "dispatch sample through physical FW-to-MC transition start"},
         "power_fallback": "only for a power metric with no valid measured peaks across the runs"},
         "refusals": refusals, "source_assumptions_unverified": UNVERIFIED, "observations": {
             r["run_id"]: {k: v for k, v in r.items() if k != "positions"} for r in runs}, "derivations": {}}
+    report["coverage"] = matrix_coverage(cells, runs)
+    report["case_c_measured"] = {"run_ids": report["coverage"]["families"]["case-c"]["admitted_cells"],
+                                 "registration_verified": False}
+    if not runs:
+        return None, report
+    declared = {c.id: c for c in cells}
+    common = None
+    for r in runs:
+        cell = declared.get(r["run_id"])
+        params = r["params"]
+        equivalent = {k: v for k, v in params.items() if k != "RTL_RETURN_ALT"}
+        if common is None:
+            common = equivalent
+        if (cell is None or params.get("RTL_RETURN_ALT") != cell.return_alt or equivalent != common
+                or (matrix_record is not None and set(params) != {*_REQUIRED, *_POSITIVE, "RTL_RETURN_ALT"})):
+            refusals.append(f"{r['run_id']}: native parameters vary beyond declared RTL_RETURN_ALT")
+    all_runs = runs
+    runs = [r for r in all_runs if r["run_id"] in declared and declared[r["run_id"]].family == "core"]
+    cells = [c for c in cells if c.family == "core"]
     if not runs:
         return None, report
     params = runs[0]["params"]
-    if any(r["params"] != params for r in runs):
-        refusals.append("native parameters vary across the matrix")
-    if any(not r["wind_verified"] for r in runs):
+    ids = [r["run_id"] for r in runs]
+    if any(not r["wind_verified"] for r in all_runs):
         refusals.append("EKF wind estimate does not corroborate the requested wind")
-    if any(r["cell"]["wind_mps"] and not set(r["px4_airspeed_sources"]) <= {1, 2, 3} for r in runs):
+    if any((r["cell"]["wind_mps"] or r["cell"].get("family") == "case-c")
+           and not set(r["px4_airspeed_sources"]) <= {1, 2, 3} for r in all_runs):
         refusals.append("windy FW airspeed was not consistently sensor-backed; EKF wind corroboration is not independent")
     dry85 = [r for r in runs if r["cell"]["wind_mps"] == 0 and r["cell"]["cruise_agl_m"] == 85]
     if len({int(r["entry_heading_deg"] // 90) for r in dry85}) != 4:
@@ -606,13 +759,15 @@ def evaluate(cells, runs, profile, inputs, errors):
     report["entry_soc_median_by_drain_s"] = centers
     if len(centers) < 2 or any(b - a < 0.03 for a, b in zip(list(centers.values()), list(centers.values())[1:])):
         refusals.append("adjacent drain levels did not yield entry SOC medians spaced by 3 percentage points")
-    if any(r["soc_floor_reached"] for r in runs):
+    if any(r["soc_floor_reached"] for r in all_runs):
         refusals.append("SOC reaches the SIM floor; depletion is censored")
-    if any(min(v for v in r["phase_min_agl_m"][:5] if v is not None) - DEM_ERROR_M < 40 for r in runs):
+    if any(min(v for v in r["phase_min_agl_m"][:5] if v is not None) - DEM_ERROR_M < 40 for r in all_runs):
         refusals.append("observed FW/transition clearance fails 40 m AGL after DEM uncertainty")
-    if any(r["landing_offset_from_home_m"] + math.dist(r["home"][:2], r["pad"][:2]) > PAD_RADIUS_M for r in runs):
+    if any(r["landing_offset_from_home_m"] + math.dist(r["home"][:2], r["pad"][:2]) > PAD_RADIUS_M for r in all_runs):
         refusals.append("touchdown outside conservative pad radius")
 
+    if any(number(r["airspeed_mps"][1]) > profile.max_airspeed_mps + TAS_TOLERANCE_MPS for r in all_runs):
+        refusals.append("FW true airspeed sample exceeds the profile ceiling")
     by_metric = {name: {r["run_id"]: r["observations"].get(name) for r in runs} for name in FLOOR_OPEN}
     by_metric.update({phase: {r["run_id"]: r["phase_time_s"][i] for r in runs} for i, phase in enumerate(_PHASES)})
     floors = {"max_ground_speed_mps": profile.max_airspeed_mps, "max_bank_deg": params["FW_R_LIM"],
@@ -649,7 +804,7 @@ def evaluate(cells, runs, profile, inputs, errors):
             refusals.append(f"{key}: excessive variation/outlier, see run IDs")
     for key in ("airspeed_mps", "energy_used_wh_from_soc", "transition_altitude_loss_m", "landing_offset_from_home_m",
                 "vtol_transition_observed_s", "input_to_send_s", "landing_entry_speed_mps", "entry_soc", "landing_soc"):
-        report.setdefault("metrics_by_run_id", {})[key] = {r["run_id"]: r[key] for r in runs}
+        report.setdefault("metrics_by_run_id", {})[key] = {r["run_id"]: r[key] for r in all_runs}
     report["parameter_derivation"] = {k: {"value": v, "run_ids": ids, "source": "ULog parameter timeline at arming plus verified prearm and post-disarm PX4 readback"}
                                       for k, v in params.items()}
     if refusals:
@@ -666,6 +821,7 @@ def evaluate(cells, runs, profile, inputs, errors):
             refusals.append(f"{r['run_id']}: conservative seven-segment sweep does not contain observations")
     if refusals:
         return None, report
+    report["fw_airspeed_parameters"] = {key: params[key] for key in IOWA_FW_AIRSPEED_PARAMETERS}
     report["status"] = "reviewed"  # automated rule review for this measured scope only
     return raw, report
 
@@ -679,15 +835,12 @@ def _within(parent, relative):
 def analyze(root, out, name, *, allow_partial=False):
     expected = demo.read_object(root / "matrix.json")
     need(all(expected.get(k) == v for k, v in META.items()), "not an immutable ASSUMED_SIM measurement matrix")
-    cells = [Cell(**item) for item in expected["cells"]]
-    need(cells and cells == matrix(*[sorted({getattr(cell, field) for cell in cells}) for field in
-                                    ("offset_s", "wind_mps", "drain_s", "cruise_agl_m")],
-                                  max(cell.repeat for cell in cells)), "matrix missing cells or not in canonical order")
+    cells, pins = validate_matrix(expected)
     inputs = expected["inputs"]
     need(inputs["world_sha256"] == demo.assumptions.WORLD_SHA and inputs["dem_sha256"] == demo.assumptions.DEM_SHA
          and inputs["airframe_sha256"] == digest(demo.PROFILE), "world/DEM/profile identity mismatch")
     profile = load_airframe_profile(demo.PROFILE)
-    runs, errors, skipped = [], [], []
+    runs, errors, skipped, reflight = [], [], [], {}
     seen = set()
     for cell in cells:
         run_dir = root / cell.id
@@ -706,6 +859,12 @@ def analyze(root, out, name, *, allow_partial=False):
             need(meta["cell"] == asdict(cell) and meta["run_id"] == cell.id and meta["inputs"] == inputs
                  and meta["scenario"] == demo.assumptions.WORLD
                  and all(meta.get(k) == v for k, v in META.items()), "run identity mismatch")
+            validate_pins(meta["parameter_pins"], cell)
+            need(meta["parameter_pins"] == pins[cell.id], "probe pins differ from the matrix declaration")
+            if cell.family == "case-c":
+                schedule = run_dir / "wind.json"
+                need(digest(schedule) == CASE_C_SCHEDULE_SHA256
+                     and meta["case_c_schedule"] == expected["case_c_schedule"], "Case C staged schedule changed")
             terrain = load_local_dem_grid(meta["dem"])
             need(terrain.source_sha256 == inputs["dem_sha256"], "DEM bytes changed")
             episode = _within(run_dir, demo.read_object(run_dir / "episode.json")["episode"])
@@ -725,18 +884,25 @@ def analyze(root, out, name, *, allow_partial=False):
             mav = episode / "mavlink.jsonl"
             if not mav.is_file():
                 mav = episode / "mavlink.jsonl.gz"
-            hashes = {"mavlink_sha256": digest(mav), "ulog_sha256": digest(ulog), "probe_sha256": digest(run_dir / "probe.json")}
-            need(hashes["ulog_sha256"] not in seen, "duplicate ULog bytes across cells")
-            seen.add(hashes["ulog_sha256"])
             raw_ulog = ulog.read_bytes()
+            ulog_sha = hashlib.sha256(raw_ulog).hexdigest()
             parsed = _parse_internal(raw_ulog, ulog)
+            dropouts = [warning for warning in parsed.warnings if warning.startswith("dropout message at ")]
+            if dropouts:
+                reflight[cell.id] = {"reason": "ulog_dropout", "warnings": dropouts, "ulog_sha256": ulog_sha}
             need(not parsed.warnings, f"ULog contains dropout or parse errors: {parsed.warnings[:3]}")
+            need(ulog_sha not in seen, "duplicate ULog bytes across cells")
+            seen.add(ulog_sha)
+            hashes = {"mavlink_sha256": digest(mav), "ulog_sha256": ulog_sha, "probe_sha256": digest(run_dir / "probe.json")}
             result = extract_run(meta, read_mavlink(mav), {k: v.rows for k, v in parsed.topics.items()}, terrain, profile, raw_ulog)
             result["evidence"] = {"mavlink": str(mav), "ulog": str(ulog), **hashes}
             runs.append(result)
         except (OSError, KeyError, TypeError, ValueError, IndexError, struct.error) as exc:
             errors.append(f"{cell.id}: {exc}")
-    raw, report = evaluate(cells, runs, profile, inputs, errors)
+    raw, report = evaluate(cells, runs, profile, inputs, errors, matrix_record=expected)
+    report["matrix_schema"] = MATRIX_SCHEMA
+    report["matrix_sha256"] = digest(root / "matrix.json")
+    report["reflight_cells"] = reflight
     if allow_partial:
         report["skipped_unflown_cells"] = skipped
     out.mkdir(parents=True)

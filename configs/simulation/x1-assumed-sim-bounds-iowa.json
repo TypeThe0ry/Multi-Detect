@@ -306,10 +306,13 @@
       "MPC_XY_CRUISE": 5.0,
       "MPC_Z_V_AUTO_DN": 1.5,
       "MPC_LAND_SPEED": 0.7,
-      "NAV_ACC_RAD": 2.0
+      "NAV_ACC_RAD": 2.0,
+      "FW_AIRSPD_MIN": 12,
+      "FW_AIRSPD_TRIM": 15,
+      "FW_AIRSPD_MAX": 18
     },
     "basis": "ASSUMED_SIM",
-    "justification": "预武装设置并读回。Iowa FW 盘旋目标为 home 上方 73 m，低于 85 m 巡航，给 40 m 净空和 12 m DEM 误差留名义余量。PX4 以返航高度封顶，实际轨迹仍须验证。MC 直返 home 不走锥形降高，零等待时跳过下降盘旋并直接 LAND，5 m/s 平飞、1.5/0.7 m/s 下降，2 m 到点半径。"
+    "justification": "预武装设置并读回。Iowa FW 盘旋目标为 home 上方 73 m，低于 85 m 巡航，给 40 m 净空和 12 m DEM 误差留名义余量。PX4 以返航高度封顶，实际轨迹仍须验证。MC 直返 home 不走锥形降高，零等待时跳过下降盘旋并直接 LAND，5 m/s 平飞、1.5/0.7 m/s 下降，2 m 到点半径。FW 读回机型校准空速 MIN/TRIM/MAX=12/15/18 m/s；18 m/s 是设定值上限参数，不替代实测真空速门禁。"
   },
   "native": {
     "return": {
@@ -436,7 +439,7 @@
           ]
         },
         "basis": "ASSUMED_SIM",
-        "justification": "航点上空 80 m 半径、15 m/s 的 DO_ORBIT；进圆不超过 60 s 加 120 s 驻留，跟踪与风漂移另加 40 m、垂向 12 m，两倍盘旋功率；到期前由 collector 强制重新请求。"
+        "justification": "航点上空 80 m 半径的 DO_ORBIT，15 m/s 为机型校准配平空速；进圆不超过 60 s 加 120 s 驻留，跟踪与风漂移另加 40 m、垂向 12 m，两倍盘旋功率；到期前由 collector 强制重新请求。"
       },
       "hold:mc-here": {
         "value": {

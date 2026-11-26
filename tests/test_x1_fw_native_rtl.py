@@ -38,7 +38,8 @@ def bounds(scope):
                 "RTL_LAND_DELAY": 0, "RTL_APPR_FORCE": 0, "RTL_PLD_MD": 0, "MPC_XY_CRUISE": 5,
                 "MPC_Z_V_AUTO_DN": 1.5, "MPC_LAND_SPEED": 0.7, "NAV_ACC_RAD": 2,
                 "RTL_RETURN_ALT": 60, "RTL_DESCEND_ALT": 73, "RTL_LOITER_RAD": 80,
-                "NAV_LOITER_RAD": 80, "VT_B_TRANS_DUR": 4, "VT_B_DEC_MSS": 2, "FW_R_LIM": 35},
+                "NAV_LOITER_RAD": 80, "VT_B_TRANS_DUR": 4, "VT_B_DEC_MSS": 2, "FW_R_LIM": 35,
+                "FW_AIRSPD_MIN": 12, "FW_AIRSPD_TRIM": 15, "FW_AIRSPD_MAX": 18},
         fw_tracking_m=20, fw_vertical_m=3, fw_acceptance_m=10, move_to_land_vertical_m=2,
         transition_vertical_m=4, mc_tracking_m=12, mc_vertical_m=2, landing_tracking_m=4,
         landing_vertical_m=2, max_ground_speed_mps=27, phase_time_s=(15, 50, 30, 20, 5, 45, 110),
@@ -116,7 +117,22 @@ def test_fw_rtl_envelope(inputs, profile, terrain, monkeypatch, case, reason):
         assert not proof.geofence_clear and proof.terrain_margin_m > 0
 
 
-@pytest.mark.parametrize("readback", ["matches", "commit", "parameter", "legacy_descend"])
+@pytest.mark.parametrize(("pin", "value"), [
+    ("FW_AIRSPD_MIN", 11), ("FW_AIRSPD_TRIM", 16), ("FW_AIRSPD_MAX", 23), ("FW_AIRSPD_MAX", None),
+])
+def test_fw_rtl_bounds_require_profile_speed_pins(profile, pin, value):
+    rt = bounds(iowa.SCOPES["wind_step"])
+    assert rt.valid_for(rt.scope, profile)
+    params = dict(rt.params)
+    if value is None:
+        del params[pin]
+    else:
+        params[pin] = value
+    assert not replace(rt, params=params).valid_for(rt.scope, profile)
+
+
+@pytest.mark.parametrize("readback", ["matches", "commit", "parameter", "legacy_descend",
+                                      "airspeed_min", "airspeed_trim", "airspeed_max"])
 def test_candidate_requires_exact_prearm_readback(readback):
     rt = bounds("a" * 64)
     records = []
@@ -125,6 +141,8 @@ def test_candidate_requires_exact_prearm_readback(readback):
         observed["RTL_LAND_DELAY"] = -1
     if readback == "legacy_descend":
         observed["RTL_DESCEND_ALT"] = 30
+    if readback.startswith("airspeed_"):
+        observed["FW_AIRSPD_" + readback.removeprefix("airspeed_").upper()] += 1
     scenario = CollectorScenario((), clearance=None, motion_evidence=SimpleNamespace(assumed_sim=assumed(rt), fw_rtl=rt))
     scenario.record = records.append
     scenario.transport = SimpleNamespace(
@@ -138,6 +156,8 @@ def test_candidate_requires_exact_prearm_readback(readback):
         with pytest.raises(RuntimeError, match="commit or parameter readback mismatch"):
             scenario.prepare()
     assert records[-1]["verified"] is (readback == "matches")
+    if readback == "matches":
+        assert records[-1]["observed_parameters"] == rt.params
 
 
 @pytest.mark.parametrize(("trigger", "home_case"), [

@@ -20,6 +20,10 @@ def test_committed_assumptions_reproduce():
     assert PATH.read_text(encoding="utf-8") == json.dumps(generated, ensure_ascii=False, indent=2) + "\n"
     assert generated["dem_error_m"]["value"] >= 10
     assert generated["battery_capacity_wh"]["value"] == 72
+    pins = generated["px4_native_parameters"]["value"]
+    assert {k: v for k, v in pins.items() if k.startswith("FW_AIRSPD_")} == {
+        "FW_AIRSPD_MIN": 12, "FW_AIRSPD_TRIM": 15, "FW_AIRSPD_MAX": 18,
+    }
     for entry in [generated[key] for key in ("dem_error_m", "landing_pad", "battery", "battery_capacity_wh")] + list(
             generated["suffixes"].values()):
         assert entry["basis"] == "ASSUMED_SIM" and len(entry["justification"].splitlines()) == 1
@@ -232,6 +236,11 @@ def test_suite_model_reaches_scoped_sim_boundary(iowa_base, tmp_path, monkeypatc
         assert current["validator"]["verdict"] == "accepted"
         assert mission["scenario_package"].document["x1_live_evidence"]["basis"] == generator.BASIS
         assert ("airborne_retask" in mission["assumed_sim"]) == (case.fault == "target_found")
+        params = dict(collector_plan.extra_sim_params)
+        assert {k: float(v) for k, v in params.items() if k.startswith("FW_AIRSPD_")} == {
+            "FW_AIRSPD_MIN": 12, "FW_AIRSPD_TRIM": 15, "FW_AIRSPD_MAX": 18,
+        }
+        assert "RTL_RETURN_ALT" not in mission["assumed_sim"]["parameters"]
         scenario_run = demo.make_scenario(args, mission, steps, current)
         tick = scenario_run.make_decision(None, lambda _: None, "cpu", (1, 1))
         scenario_run.decision = tick

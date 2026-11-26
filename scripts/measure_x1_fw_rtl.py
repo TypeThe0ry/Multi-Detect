@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import struct
 import subprocess
 import sys
 import time
@@ -25,6 +26,7 @@ from multidetect.sim_teacher.x1_native_handoff import (
 from multidetect.sim_teacher.x1_scenario import CollectorScenario, load_schedule, wind_baseline, wind_server_config
 from multidetect.target_geolocation import wgs84_forward_from_ned
 from scripts import run_x1_autonomy_demo as demo
+from scripts.analyze_px4_ulog import _parse_internal
 
 IMAGE = "sha256:6ef7805c139866d61a2f20c7c260a789179aff984522654069e273ab3ab8aa79"
 BASIS = "ASSUMED_SIM"
@@ -39,12 +41,28 @@ LOGGER = "/opt/px4-gazebo/bin/px4-logger"
 # -s selects rcS explicitly, so PX4 keeps the launch workdir as its rootfs.
 ULOG_ROOT = PurePosixPath("/opt/px4-gazebo/fs/log")
 CRUISE_INDEX = 1
+MATRIX_SCHEMA = "x1.fw-rtl-probe.matrix.v2"
+COVERAGE_MINIMUM_REPLICATES = {"climb": 2, "alternate-loiter": 2, "case-c": 2}
+CASE_C_SCHEDULE_SHA256 = "3a08c7d235adc95948ac66876af5b9b98d3aa5822d642962cb8a2d8ed6547fa7"
+# Archived Case C command at route +25.440 s; the fault window ends at +30.500 s.
+CASE_C_HOLD_WINDOW_MS = (25_440, 30_500)
+RETRYABLE_ADMISSION = ("x1_gpu_unavailable", "one-minute load", "x1_start_load_exceeded",
+                       "timed out waiting for mavlink_heartbeat", "SITL slots busy", "GiB free to start",
+                       "existing wide-area flight on requested slots", "horizon stabilization did not settle")
+
+
+class RetryableCell(RuntimeError):
+    """Evidence is preserved, but a fresh attempt can recover this cell."""
+
+
+class AttemptsExhausted(RuntimeError):
+    """Skip this cell for now, but never report the matrix as complete."""
 
 
 def _probe_parameters(cell):
-    # Exact pins (including RTL_DESCEND_ALT) are written before arm. Positive
-    # image/controller defaults are observed without overriding them.
-    params = {**dict.fromkeys(_POSITIVE), **_REQUIRED, "SIM_BAT_DRAIN": 1800, "SIM_BAT_MIN_PCT": 50,
+    # Write the exact safety and per-cell pins before arm. Other positive
+    # image/controller values are witnessed but not overridden.
+    params = {**dict.fromkeys(_POSITIVE), **_REQUIRED, "RTL_RETURN_ALT": cell.return_alt, "SIM_BAT_DRAIN": 1800, "SIM_BAT_MIN_PCT": 50,
               "SIM_BAT1_DRAIN": cell.drain_s, "SIM_BAT1_MIN_PCT": 50}
     settings = tuple((k, str(v)) for k, v in params.items() if v is not None and k not in {"VT_TYPE", "SYS_AUTOSTART"})
     return params, settings
@@ -62,10 +80,13 @@ class Cell:
     drain_s: int
     cruise_agl_m: int
     repeat: int
+    family: str = "core"
+    return_alt: int = 60  # metres above PX4 Home, not AGL
 
     @property
     def id(self):
-        return f"o{self.offset_s}-w{self.wind_mps}-b{self.drain_s}-a{self.cruise_agl_m}-r{self.repeat}"
+        suffix = f"o{self.offset_s}-w{self.wind_mps}-b{self.drain_s}-a{self.cruise_agl_m}-r{self.repeat}"
+        return suffix if self.family == "core" else f"{self.family}-{suffix}"
 
 
 def matrix(offsets, winds, drains, altitudes, repeats):
@@ -80,8 +101,18 @@ def matrix(offsets, winds, drains, altitudes, repeats):
             or type(repeats) is not int or not 1 <= repeats <= 5):
         raise ValueError("need >=4 hold offsets (8–100 s), calm and 4–6 m/s, >=2 drains (300–3600 s),"
                          " >=2 cruise altitudes (75–100 m, one at 85 m), and 1–5 repeats")
-    return [Cell(*values) for values in itertools.product(
+    core = [Cell(*values) for values in itertools.product(
         sorted(offsets), sorted(winds), sorted(drains), sorted(altitudes), range(1, repeats + 1))]
+    # CLIMBING has two distinct centres depending on the active setpoint. Both
+    # families force a climb, at the archive's 85 m nominal approach altitude.
+    return core + [Cell(offset, 0, 1800, 85, repeat, family, return_alt)
+                   for family, offset, return_alt in (("climb", 39, 100), ("alternate-loiter", 0, 100),
+                                                      ("case-c", 167, 60))
+                   for repeat in range(1, COVERAGE_MINIMUM_REPLICATES[family] + 1)]
+
+
+def _exact_pins(cell):
+    return {key: value for key, value in _probe_parameters(cell)[0].items() if value is not None}
 
 
 def json_file(path, value):
@@ -125,6 +156,7 @@ class _Probe(CollectorScenario):
         self.hold_boot_ms = None
         self.rtl_sent = False
         self.wind_target_boot_ms = None
+        self.route_origin_boot_ms = None
 
     def bind(self, docker, container, world, reader, connection, record, episode_id, *, clock):
         super().bind(docker, container, world, reader, connection, record, episode_id, clock=clock)
@@ -178,8 +210,18 @@ class _Probe(CollectorScenario):
             time.sleep(0.2)
 
     def start(self):
-        # Start the existing sim-time wind ramp only after the native hold is confirmed.
-        pass
+        # Case C uses the original route-start clock, not the later Hold clock.
+        # Core wind starts on confirmation and persists until disarm.
+        if self.cell.family == "case-c":
+            super().start()
+            self.route_origin_boot_ms = self.worker.timeline.origin
+
+    def _dispatch(self, point, boot, clock):
+        self.rtl_sent = True
+        self.record({"message_type": "fw_rtl_probe_dispatch", "basis": BASIS,
+                     "motion_proof": False, "boot_ms": boot, "hold_boot_ms": self.hold_boot_ms,
+                     "position": point, "clock_ms": clock, "family": self.cell.family})
+        self.native.rtl()  # Exactly NAV_RETURN_TO_LAUNCH(0,0,0,0,0,0,0).
 
     def _sample(self):
         state = self.reader.latest_control_state()
@@ -194,7 +236,7 @@ class _Probe(CollectorScenario):
         if lifecycle is not None or self.native_active or index < CRUISE_INDEX:
             return
         if index > CRUISE_INDEX:
-            raise RuntimeError("missing FW cruise probe trigger; no later route action admitted")
+            raise RetryableCell("missing FW cruise probe trigger; no later route action admitted")
         hb, ext, point, boot = self._sample()
         if (point is None or boot is None or not hb.get("base_mode", 0) & 128
                 or hb.get("system_status") != 4 or ext.get("vtol_state") != 4 or ext.get("landed_state") != 2
@@ -217,8 +259,23 @@ class _Probe(CollectorScenario):
             return
         if not self.guard(ned):
             return
+        clock = self.clock()
+        if self.cell.family == "case-c":
+            lo, hi = CASE_C_HOLD_WINDOW_MS
+            if clock is None or self.route_origin_boot_ms is None:
+                return
+            elapsed = clock - self.route_origin_boot_ms
+            if elapsed >= hi:
+                raise RetryableCell("Case C missed its guarded Hold window")
+            if elapsed < lo or not self.markers or abs(clock - boot) > 500:
+                return
+        if self.cell.family == "alternate-loiter" and (clock is None or abs(clock - boot) > 500):
+            return
         if not self.native.claim():
-            raise RuntimeError("could not claim exclusive route ownership")  # Irreversibly stops the route writer before DO_ORBIT.
+            raise RuntimeError("could not claim exclusive route ownership")
+        if self.cell.family == "alternate-loiter":
+            self._dispatch(point, boot, clock)
+            return
         self.record({"message_type": "fw_rtl_probe_hold_request", "boot_ms": boot, "position": point})
         target = self.site_hold
         self.native.loiter_at(target["lat_lon"], target["radius_m"], target["centre"][2], speed=target["speed_mps"])
@@ -235,7 +292,7 @@ class _Probe(CollectorScenario):
             if not self.rtl_sent and self.native.confirmed("loiter") and clock is not None:
                 if self.hold_boot_ms is None:
                     self.hold_boot_ms = clock
-                    if self.faults:
+                    if self.faults and self.cell.family != "case-c":
                         super().start()
                     self.record({"message_type": "fw_rtl_probe_hold_confirmed", "boot_ms": clock})
                 elapsed = clock - self.hold_boot_ms
@@ -248,14 +305,12 @@ class _Probe(CollectorScenario):
                             or abs(math.dist(point[:2], centre[:2]) - self.site_hold["radius_m"])
                                > self.site_hold["padding_ne_m"] - self.site_hold["radius_m"]
                             or abs(point[2] - centre[2]) > self.site_hold["padding_alt_m"]):
-                        raise RuntimeError("no fresh, legal FW Hold sample at the probe offset")
+                        raise RetryableCell("no fresh, legal FW Hold sample at the probe offset")
                     if self.faults and (self.wind_target_boot_ms is None or self.wind_target_boot_ms > clock):
                         raise RuntimeError("full wind vector was not published before the probe offset")
-                    self.rtl_sent = True
-                    self.record({"message_type": "fw_rtl_probe_dispatch", "basis": BASIS,
-                                 "motion_proof": False, "boot_ms": boot, "hold_boot_ms": self.hold_boot_ms,
-                                 "position": point, "clock_ms": clock})
-                    self.native.rtl()  # Exactly NAV_RETURN_TO_LAUNCH(0,0,0,0,0,0,0).
+                    if self.cell.family == "case-c" and self.transport.wind_written:
+                        raise RetryableCell("Case C wind was not restored before the RTL dispatch")
+                    self._dispatch(point, boot, clock)
             if self.native.confirmed("return") and self.native.landed() and type(hb.get("base_mode")) is int:
                 if not hb["base_mode"] & 128 and boot is not None:
                     post = self._readback()
@@ -318,7 +373,13 @@ def _prepare(args, cell, out, site, inputs):
     collector_plan = replace(collector_plan, extra_sim_params=settings, keep_px4_ulog=True,
                              seed=cell.repeat, px4_profile="main")
     faults = ()
-    if cell.wind_mps:
+    if cell.family == "case-c":
+        schedule = out / "wind.json"
+        schedule.write_bytes(args.case_c_schedule.read_bytes())
+        if digest(schedule) != inputs["case_c_schedule_sha256"]:
+            raise ValueError("Case C schedule changed during staging")
+        faults = load_schedule(schedule, ("wind_step",))
+    elif cell.wind_mps:
         theta = math.radians(args.wind_toward_deg)
         schedule = out / "wind.json"
         json_file(schedule, {"schema": "x1.contingency.faults.v1", "faults": [{"type": "wind_step",
@@ -329,8 +390,10 @@ def _prepare(args, cell, out, site, inputs):
                    params=params, guard=mission["x1_cruise_guard"],
                    episode_root=Path(collector_plan.out) / "episodes")
     record = {"basis": BASIS, "mode": args.mode, "image_id": IMAGE, "px4_commit": PX4_RTL_COMMIT,
-              "cell": asdict(cell), "run_id": cell.id, "hold": hold, "inputs": inputs,
+              "cell": asdict(cell), "run_id": cell.id, "hold": hold, "inputs": inputs, "parameter_pins": _exact_pins(cell),
               "pad": [*home_ne, pad_amsl], "dem": str(site.dem_path), "scenario": site.scenario_id}
+    if cell.family == "case-c":
+        record["case_c_schedule"] = demo.read_object(schedule)
     return collector_plan, steps, mission, probe, record
 
 
@@ -379,21 +442,102 @@ def _launch(args, plan, steps, mission, probe, out):
                                              policy_override=demo.MissionPolicy(steps, -20), x1_scenario=probe)
 
 
-def _completed_probe(out):
-    pointer = out / "episode.json"
-    if not pointer.is_file():
-        return False
-    episode = (out / demo.read_object(pointer)["episode"]).resolve()
+def _cell_evidence_error(out):
+    """Return the archived evidence defect, or None for a clean completed cell."""
+    try:
+        episode = (out / demo.read_object(out / "episode.json")["episode"]).resolve()
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        return f"missing or unreadable episode pointer: {exc}"
     if not episode.is_relative_to(out.resolve()):
         raise ValueError("episode path escaped its matrix cell")
-    return demo.read_object(episode / "episode.json").get("status") == "complete"
+    try:
+        if demo.read_object(episode / "episode.json").get("status") != "complete":
+            return "episode status is not complete"
+        ulogs = demo.read_object(episode / "container-evidence/index.json").get("ulog_files")
+        if not isinstance(ulogs, list) or len(ulogs) != 1:
+            return "expected exactly one ULog in the capture index"
+        ulog = (episode / ulogs[0]).resolve()
+    except (OSError, TypeError, ValueError) as exc:
+        return f"incomplete episode capture index: {exc}"
+    if not ulog.is_relative_to(episode):
+        raise ValueError("ULog path escaped its episode")
+    try:
+        warnings = _parse_internal(ulog.read_bytes(), ulog).warnings
+    except (OSError, ValueError, struct.error) as exc:
+        return f"missing or unreadable ULog: {exc}"
+    if warnings:
+        return "; ".join(warnings[:3])
+    return None
+
+
+def _retryable(exc):
+    return any(isinstance(error, (RetryableCell, BlockingIOError, TimeoutError))
+               or (isinstance(error, (ValueError, RuntimeError))
+                   and any(marker in str(error) for marker in RETRYABLE_ADMISSION))
+               for error in (exc, exc.__cause__))
+
+
+def _run_cell(args, cell, out, site, inputs, launch):
+    archive = args.output / "failed-evidence"
+    attempts = (re.fullmatch(rf"{re.escape(cell.id)}\.try([0-9]+)", path.name)
+                for path in archive.glob(f"{cell.id}.try*"))
+    used = max((int(match[1]) for match in attempts if match), default=0)
+
+    def preserve(reason):
+        nonlocal used
+        archive.mkdir(exist_ok=True)
+        used += 1
+        dest = archive / f"{cell.id}.try{used:02}"
+        out.rename(dest)
+        json_file(dest / "probe-reflight.json", {"cell": cell.id, "attempt": used,
+                                                "status": "reflight_required", "reason": reason})
+        print(f"{cell.id}: retained attempt {used} at {dest}: {reason}", file=sys.stderr)
+
+    def retry_or_exhaust():
+        if used >= args.max_attempts:
+            raise AttemptsExhausted(f"{cell.id}: exhausted {args.max_attempts} attempts; evidence in {archive}")
+        time.sleep(args.retry_delay_s)
+
+    if out.exists():
+        reason = _cell_evidence_error(out)
+        if reason is None:
+            return
+        if args.max_attempts == 1:
+            raise ValueError(f"incomplete cell at {out}: {reason}; use --max-attempts to preserve and retry")
+        preserve(reason)
+        retry_or_exhaust()
+    if used >= args.max_attempts:
+        raise AttemptsExhausted(f"{cell.id}: exhausted {args.max_attempts} attempts; evidence in {archive}")
+    while True:
+        out.mkdir()
+        plan, steps, mission, probe, record = _prepare(args, cell, out, site, inputs)
+        json_file(out / "probe.json", record)
+        if args.prepare_only:
+            return
+        try:
+            episode = launch(args, plan, steps, mission, probe, out)
+            json_file(out / "episode.json", {"episode": str(episode.resolve().relative_to(out.resolve()))})
+            reason = _cell_evidence_error(out)
+            if reason is not None:
+                raise RetryableCell(f"incomplete cell evidence: {reason}")
+            return
+        except (OSError, ValueError, RuntimeError) as exc:
+            if args.max_attempts == 1 or not _retryable(exc):
+                raise
+            preserve(f"{type(exc).__name__}: {exc}")
+            retry_or_exhaust()
 
 
 def run(args, *, launch=_launch):
     require_sim(args.mode)
     cells = matrix(args.offsets_s, args.winds_mps, args.drains_s, args.altitudes_agl_m, args.repeats)
+    if not 1 <= args.max_attempts <= 12 or not 0 <= args.retry_delay_s <= 3600:
+        raise ValueError("--max-attempts must be 1–12 and --retry-delay-s 0–3600")
     if not 0 <= args.wind_toward_deg < 360:
         raise ValueError("wind bearing must be a finite direction toward which wind blows [0, 360)")
+    if digest(args.case_c_schedule) != CASE_C_SCHEDULE_SHA256:
+        raise ValueError("Case C requires the byte-identical archived wind schedule")
+    case_c_schedule = demo.read_object(args.case_c_schedule)
     receipt = demo.read_object(args.image_check)
     if any(receipt.get(k) != v for k, v in {"image_id": IMAGE, "px4_commit": PX4_RTL_COMMIT,
                                            "basis": BASIS, "status": "static_verified"}.items()):
@@ -406,9 +550,12 @@ def run(args, *, launch=_launch):
               "recorded_plan_sha256": digest(args.recorded_plan), "mission_package_sha256": digest(args.mission_package),
               "wind_plugin_sha256": digest(args.wind_plugin), "wind_toward_deg": args.wind_toward_deg,
               "capture_script_sha256": digest(Path(__file__)),
+              "case_c_schedule_sha256": CASE_C_SCHEDULE_SHA256,
               "gazebo_server_sha256": digest(ROOT / "simulation/gazebo/server-wide-area.config")}
-    matrix_record = {"basis": BASIS, "mode": "sim", "image_id": IMAGE, "px4_commit": PX4_RTL_COMMIT,
-                     "inputs": inputs, "cells": [asdict(c) for c in cells]}
+    matrix_record = {"schema": MATRIX_SCHEMA, "basis": BASIS, "mode": "sim", "image_id": IMAGE,
+                     "px4_commit": PX4_RTL_COMMIT, "inputs": inputs, "cells": [asdict(c) for c in cells],
+                     "coverage_minimum_replicates": COVERAGE_MINIMUM_REPLICATES, "case_c_schedule": case_c_schedule,
+                     "cell_parameter_pins": {cell.id: _exact_pins(cell) for cell in cells}}
     selected = [cell for cell in cells if args.cell is None or cell.id == args.cell]
     if not selected:
         raise ValueError(f"unknown matrix cell: {args.cell}")
@@ -418,37 +565,35 @@ def run(args, *, launch=_launch):
     else:
         args.output.mkdir(parents=True)
         json_file(args.output / "matrix.json", matrix_record)
-    for cell in selected:
-        out = args.output / cell.id
-        if args.resume and out.exists():
-            if _completed_probe(out):
-                continue
-            raise ValueError(f"incomplete cell at {out}; preserve its evidence outside the cell path before retrying")
-        out.mkdir()
-        plan, steps, mission, probe, record = _prepare(args, cell, out, site, inputs)
-        json_file(out / "probe.json", record)
-        if args.prepare_only:
-            continue
-        episode = launch(args, plan, steps, mission, probe, out)
-        json_file(out / "episode.json", {"episode": str(episode.resolve().relative_to(out.resolve()))})
-        if demo.read_object(episode / "episode.json").get("status") != "complete":
-            raise RuntimeError(f"probe did not complete: {episode}")
+    with (args.output / ".probe.lock").open("ab") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        exhausted = []
+        for cell in selected:
+            try:
+                _run_cell(args, cell, args.output / cell.id, site, inputs, launch)
+            except AttemptsExhausted as exc:
+                exhausted.append(str(exc))
+        if exhausted:
+            raise RuntimeError("; ".join(exhausted))
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", required=True, choices=("sim",))
     parser.add_argument("--slot", required=True, type=int, choices=demo.SLOTS)
-    for name in ("image-check", "mission-package", "recorded-plan", "wind-plugin", "output"):
+    for name in ("image-check", "mission-package", "recorded-plan", "wind-plugin", "case-c-schedule", "output"):
         parser.add_argument(f"--{name}", required=True, type=Path)
     parser.add_argument("--offsets-s", type=int, nargs="+", default=[30, 39, 48, 57])
-    parser.add_argument("--winds-mps", type=int, nargs="+", default=[0, 4, 6])
+    parser.add_argument("--winds-mps", type=int, nargs="+", default=[0, 6])
     parser.add_argument("--drains-s", type=int, nargs="+", default=[600, 1800])
-    parser.add_argument("--altitudes-agl-m", type=int, nargs="+", default=[85, 95])
+    parser.add_argument("--altitudes-agl-m", type=int, nargs="+", default=[75, 85])
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--wind-toward-deg", type=float, default=333.435, help="toward bearing, clockwise from north")
     parser.add_argument("--cell", help="run one declared cell ID while retaining the complete expected matrix")
     parser.add_argument("--resume", action="store_true", help="run missing cells in an identical matrix")
+    parser.add_argument("--max-attempts", type=int, default=1,
+                        help="total attempts per cell (1–12); >1 archives failed evidence and retries")
+    parser.add_argument("--retry-delay-s", type=int, default=120, help="seconds before each automatic retry (0–3600)")
     parser.add_argument("--prepare-only", action="store_true", help="validate and stage inputs without container/GPU access")
     args = parser.parse_args(argv)
     try:

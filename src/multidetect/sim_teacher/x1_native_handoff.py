@@ -29,6 +29,9 @@ from multidetect.onboard_runtime.fw_vtol_commands import (
 # MC direct-to-home RTL with no land delay skips the descent loiter.
 IOWA_RTL_DESCEND_ALT_M = 73
 
+# SIM 4051 profile, applied before arm; not a guarantee on measured true airspeed.
+IOWA_FW_AIRSPEED_PARAMETERS = {"FW_AIRSPD_MIN": 12, "FW_AIRSPD_TRIM": 15, "FW_AIRSPD_MAX": 18}
+
 MAV_CMD_DO_SET_MODE = 176
 MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1
 ACK_ACCEPTED = frozenset({0, 5})  # MAV_RESULT_ACCEPTED, MAV_RESULT_IN_PROGRESS

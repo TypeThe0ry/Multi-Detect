@@ -14,7 +14,8 @@ def reviewed_pair(tmp_path):
     scope = setup.assumptions.SCOPES["wind_step"]
     raw = asdict(bounds(scope))
     validation = json.dumps({"basis": "ASSUMED_SIM", "status": "reviewed", "scope": scope,
-                             "image_id": raw["image_id"], "px4_commit": setup.PX4_RTL_COMMIT})
+                             "image_id": raw["image_id"], "px4_commit": setup.PX4_RTL_COMMIT,
+                             "fw_airspeed_parameters": {"FW_AIRSPD_MIN": 12, "FW_AIRSPD_TRIM": 15, "FW_AIRSPD_MAX": 18}})
     raw["validation_sha256"] = hashlib.sha256(validation.encode()).hexdigest()
     path = tmp_path / "wind_step.json"
     path.write_text(json.dumps(raw))
@@ -49,7 +50,8 @@ def test_sim_register_pair_is_byte_identical_and_never_overwrites(tmp_path, revi
         setup.register("sim", reviewed_pair, output)
 
 
-@pytest.mark.parametrize("corruption", ["hash", "unproved_phase", "assessment_pending", "legacy_descend"])
+@pytest.mark.parametrize("corruption", ["hash", "unproved_phase", "assessment_pending", "legacy_descend",
+                                       "manifest_overspeed", "assessment_missing_pins", "assessment_overspeed"])
 def test_registration_rejects_incomplete_or_tampered_evidence(tmp_path, reviewed_pair, monkeypatch, corruption):
     monkeypatch.setattr(setup, "verify", lambda *_: pytest.fail("bad proof attempted Docker inspection"))
     field = json.loads(reviewed_pair.read_bytes())
@@ -60,9 +62,16 @@ def test_registration_rejects_incomplete_or_tampered_evidence(tmp_path, reviewed
         field.pop("phase_time_s")
     elif corruption == "legacy_descend":
         field["params"]["RTL_DESCEND_ALT"] = 30
+    elif corruption == "manifest_overspeed":
+        field["params"]["FW_AIRSPD_MAX"] = 23
     else:
         raw = json.loads(validation.read_bytes())
-        raw["status"] = "blocked"
+        if corruption == "assessment_missing_pins":
+            del raw["fw_airspeed_parameters"]
+        elif corruption == "assessment_overspeed":
+            raw["fw_airspeed_parameters"]["FW_AIRSPD_MAX"] = 23
+        else:
+            raw["status"] = "blocked"
         data = json.dumps(raw).encode()
         validation.write_bytes(data)
         field["validation_sha256"] = hashlib.sha256(data).hexdigest()

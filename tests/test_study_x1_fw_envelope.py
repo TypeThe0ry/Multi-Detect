@@ -52,3 +52,44 @@ def test_phase_trace_keeps_only_real_samples_and_brackets_endpoints():
 def test_missing_ulog_raises():
     with pytest.raises(ValueError, match='invalid ULog header'):
         study.read_positions(b'', 0, 1)
+
+
+def test_study_v2_rejects_archive_before_reading_geometry(tmp_path):
+    from scripts import analyze_x1_fw_rtl_probe as analysis
+
+    matrix = tmp_path / 'matrix'
+    matrix.mkdir()
+    study.save(matrix / 'matrix.json', {**analysis.META, 'cells': []})
+    sidecar = tmp_path / 'sidecar.json'
+    study.save(sidecar, {})
+    with pytest.raises(ValueError, match='requires matrix.v2'):
+        study.study_matrix(tmp_path / 'out', matrix, sidecar)
+    assert not (tmp_path / 'out').exists()
+
+
+def test_study_v2_no_results_keeps_case_c_separate(tmp_path):
+    from scripts import analyze_x1_fw_rtl_probe as analysis
+    from test_x1_fw_rtl_airspeed_analysis import manifest
+
+    matrix = tmp_path / 'matrix'
+    matrix.mkdir()
+    record = manifest()
+    study.save(matrix / 'matrix.json', record)
+    cells, _ = analysis.validate_matrix(record)
+    _, sidecar = analysis.evaluate(cells, [], analysis.load_airframe_profile(analysis.demo.PROFILE),
+                                   record['inputs'], [], matrix_record=record)
+    sidecar.update(matrix_schema=analysis.MATRIX_SCHEMA, matrix_sha256=analysis.digest(matrix / 'matrix.json'),
+                   reflight_cells={cells[-1].id: {'reason': 'ulog_dropout'}})
+    sidecar_path = tmp_path / 'sidecar.json'
+    study.save(sidecar_path, sidecar)
+    out = tmp_path / 'out'
+    result = study.study_matrix(out, matrix, sidecar_path)
+    assert result['core'] == result['alternate_loiter'] == result['climb'] == {}
+    assert result['case_c_measured'] == {'registration_verified': False, 'rows': {}}
+    assert result['case_c_archived_counterfactual']['measured_rtl'] is False
+    assert result['reflight_cells'] == sidecar['reflight_cells']
+    assert (out / 'x1-fw-envelope-per-cell.csv').read_text() == 'run_id,family,phase\n'
+    sidecar['matrix_sha256'] = '0' * 64
+    study.save(sidecar_path, sidecar)
+    with pytest.raises(ValueError, match='different capture matrix'):
+        study.study_matrix(tmp_path / 'bad', matrix, sidecar_path)

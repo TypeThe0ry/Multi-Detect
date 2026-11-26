@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from multidetect.sim_teacher.x1_fw_native_rtl import suffix_power_w
-from multidetect.sim_teacher.x1_native_handoff import IOWA_RTL_DESCEND_ALT_M
+from multidetect.sim_teacher.x1_native_handoff import IOWA_FW_AIRSPEED_PARAMETERS, IOWA_RTL_DESCEND_ALT_M
 
 BASIS = "ASSUMED_SIM"
 WORLD = "rw_farm_iowa_w6km__clear_noon"
@@ -111,8 +111,9 @@ def generate(*, mode, world, image, profile_path):
         "px4_native_parameters": assumed({"RTL_TYPE": 0, "RTL_CONE_ANG": 0, "RTL_LAND_DELAY": 0,
                                           "RTL_DESCEND_ALT": IOWA_RTL_DESCEND_ALT_M,
                                           "MPC_XY_CRUISE": xy_cruise, "MPC_Z_V_AUTO_DN": 1.5,
-                                          "MPC_LAND_SPEED": 0.7, "NAV_ACC_RAD": acceptance},
-            "预武装设置并读回。Iowa FW 盘旋目标为 home 上方 73 m，低于 85 m 巡航，给 40 m 净空和 12 m DEM 误差留名义余量。PX4 以返航高度封顶，实际轨迹仍须验证。MC 直返 home 不走锥形降高，零等待时跳过下降盘旋并直接 LAND，5 m/s 平飞、1.5/0.7 m/s 下降，2 m 到点半径。"),
+                                          "MPC_LAND_SPEED": 0.7, "NAV_ACC_RAD": acceptance,
+                                          **IOWA_FW_AIRSPEED_PARAMETERS},
+            "预武装设置并读回。Iowa FW 盘旋目标为 home 上方 73 m，低于 85 m 巡航，给 40 m 净空和 12 m DEM 误差留名义余量。PX4 以返航高度封顶，实际轨迹仍须验证。MC 直返 home 不走锥形降高，零等待时跳过下降盘旋并直接 LAND，5 m/s 平飞、1.5/0.7 m/s 下降，2 m 到点半径。FW 读回机型校准空速 MIN/TRIM/MAX=12/15/18 m/s；18 m/s 是设定值上限参数，不替代实测真空速门禁。"),
         "native": {
             "return": {"3": assumed(suffix(mc_entry, [*native_inbound, landing], False),
                 "PX4 MC RTL 以读回的 5 m/s 直飞 home：440 m 留 110 s、末段 45 m 留 20 s，保持当前高度后原地 LAND，85 s 覆盖 84 m 下降；FW RTL 绕 home 盘旋降高，未建模，拒绝。")},
@@ -126,7 +127,7 @@ def generate(*, mode, world, image, profile_path):
                     "padding_ne_m": orbit_radius + 40, "padding_alt_m": 12, "duration_s": 180,
                     "peak_power_w": fw_power, "dynamics": dynamics,
                     "airspeed": [p["min_airspeed_mps"], p["max_airspeed_mps"]]},
-                    "航点上空 80 m 半径、15 m/s 的 DO_ORBIT；进圆不超过 60 s 加 120 s 驻留，跟踪与风漂移另加 40 m、垂向 12 m，两倍盘旋功率；到期前由 collector 强制重新请求。"),
+                    "航点上空 80 m 半径的 DO_ORBIT，15 m/s 为机型校准配平空速；进圆不超过 60 s 加 120 s 驻留，跟踪与风漂移另加 40 m、垂向 12 m，两倍盘旋功率；到期前由 collector 强制重新请求。"),
                 "hold:mc-here": assumed({
                     "mode": "mc", "steps": [3], "entry": mc_entry, "max_entry_speed_mps": 12,
                     "padding_ne_m": 20, "padding_alt_m": 5, "duration_s": 120, "peak_power_w": motion_power,
