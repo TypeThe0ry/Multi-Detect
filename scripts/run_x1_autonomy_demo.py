@@ -14,6 +14,7 @@ import time
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from threading import Lock
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -204,9 +205,17 @@ def compile_plan(package, post, record):
     return plan, capabilities
 
 
-def prepare(package, plan, capabilities, site, *, output, slot):
+def prepare(package, plan, capabilities, site, *, output, slot, nominal_mc=False):
     """Bind the validated mission to the site's DEM and the collector's SIM inputs."""
-    view, adapted, radius = one_waypoint_primitives_input(plan, package, capabilities)
+    if nominal_mc:
+        from scripts.x1_closed_loop_mc import build_mc_steps
+
+        context = package.document["x1_planning"]
+        radius = context["max_distance_from_home_m"]
+        view = replace(package, document={**package.document, "operating_area": {
+            **package.document["operating_area"], **context["corridor"]}})
+    else:
+        view, adapted, radius = one_waypoint_primitives_input(plan, package, capabilities)
     profile = load_airframe_profile(PROFILE)
     home_ne = tuple(view.document["home"])
     if math.dist(home_ne, site.terrain.local_from_wgs84(site.home.latitude_deg, site.home.longitude_deg)) > 0.01:
@@ -224,7 +233,10 @@ def prepare(package, plan, capabilities, site, *, output, slot):
     if (radius > site_policy["maximum_mission_radius_m"] or
             radius + math.hypot(*center_ne) > site_policy["geofence_radius_m"]):
         raise X1PlanError("SITE_FENCE", "package radius exceeds the site geofence")
-    steps = build_x1_mission_steps(view, plan=adapted, terrain=site.terrain, profile=profile, mission_radius_m=radius)
+    if nominal_mc:
+        steps = build_mc_steps(view, plan, site.terrain, profile, radius)
+    else:
+        steps = build_x1_mission_steps(view, plan=adapted, terrain=site.terrain, profile=profile, mission_radius_m=radius)
     height = steps[0].takeoff_height_m
     if not site_policy["minimum_relative_altitude_m"] <= height <= site_policy["maximum_relative_altitude_m"]:
         raise X1PlanError("SITE_ALTITUDE", "planned altitude exceeds the site relative altitude limits")
@@ -240,7 +252,7 @@ def prepare(package, plan, capabilities, site, *, output, slot):
         "capture_interval_sim_s": site.source["capture_interval_sim_s"],
         "max_wall_s": site.source.get("max_wall_s", 14400.0),
     }
-    cruise = steps[2].command
+    cruise = steps[1 if nominal_mc else 2].command
     observed_margins = {"sample_count": 0, "minimum_margins_m": {}}
 
     def observe_cruise(position):
@@ -254,7 +266,8 @@ def prepare(package, plan, capabilities, site, *, output, slot):
 
     mission = {"airframe": AIRFRAME, "source": source, "targets": [cruise.target_ned],
                "geometry": SimpleNamespace(home=site.home, takeoff_altitude_m=height),
-               "terrain": site.terrain, "x1_cruise_guard": observe_cruise, "observed_margins": observed_margins}
+               "terrain": site.terrain, "x1_cruise_guard": observe_cruise, "observed_margins": observed_margins,
+               "nominal_mc": nominal_mc}
     with long_range._preview_slot(slot):
         (output / "flight").mkdir(parents=True, exist_ok=True)
         collector_plan = long_range.collection_plan(site.scenario, output / "flight", slot, mission)
@@ -289,7 +302,8 @@ def cruise_guard(margins, safety):
 class MissionPolicy:
     controls_vtol_transition = True
 
-    def __init__(self, steps, pitch):
+    def __init__(self, steps, pitch, *, nominal_mc=False):
+        self.vtol_hover_mission = nominal_mc
         self.commands = iter(step.command for step in steps if step.command is not None)
         self.cruise_gimbal_target = {"pitch": pitch, "yaw": 0.0, "roll": 0.0}
         self.gimbal_mode = "lock"
@@ -366,7 +380,7 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
     return load_mission_package(document, mode="sim"), assumed_bounds, state
 
 
-def demo_perception(package, profile, dem, steps):
+def demo_perception(package, profile, dem, steps, *, max_calls=3):
     """Publish readbacks and labelled SIM fixtures, never collector vehicle ports."""
     from scripts.collect_sim_teacher_episodes import _gimbal_readback
 
@@ -410,7 +424,7 @@ def demo_perception(package, profile, dem, steps):
 
     return (ToolRunner(PerceptionSources(route=lambda: current.route, gimbal=lambda: current.gimbal,
                                          dem=dem, profile=profile,
-                                         injected_target=lambda: current.injected_target)), publish)
+                                         injected_target=lambda: current.injected_target), max_calls=max_calls), publish)
 
 
 def evidence_follow_backend(path, *, cadence=False):
@@ -464,17 +478,30 @@ def make_scenario(args, mission, steps, record):
     make_decision = motion_evidence = perception_tick = None
     fixture = getattr(args, "recorded_retask", None)
     if args.decision_port is not None or fixture is not None:
-        backend = (llama_decisions(args.decision_port, args.sentence) if fixture is None
+        audit_path = getattr(args, "decision_audit", None)
+        audit_sink = None
+        if audit_path is not None:
+            lock = Lock()
+
+            def audit_sink(row):
+                with lock, audit_path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(row, allow_nan=False) + "\n")
+        backend = (llama_decisions(args.decision_port, args.sentence, audit=audit_sink) if fixture is None
                    else evidence_follow_backend(fixture, cadence=bool(cadence_s)))
         profile = load_airframe_profile(PROFILE)
         package = mission["scenario_package"]
-        motion_evidence = LiveContinueEvidence(package, profile, mission["terrain"], steps,
-                                               scope=record["contingency_scenario"]["motion_scope_sha256"],
-                                               assumed_sim=mission.get("assumed_sim"))
+        if not mission.get("nominal_mc"):
+            motion_evidence = LiveContinueEvidence(package, profile, mission["terrain"], steps,
+                                                   scope=record["contingency_scenario"]["motion_scope_sha256"],
+                                                   assumed_sim=mission.get("assumed_sim"))
 
-        extra = {"decision_cadence_s": cadence_s} if cadence_s else {}
+        extra = {"decision_cadence_s": cadence_s, "audit": audit_sink,
+                 "target_cadence_only": getattr(args, "target_cadence_only", False)}
         if getattr(args, "perception_tools", False) or fixture is not None:
-            extra["tool_runner"], perception_tick = demo_perception(package, profile, mission["terrain"], steps)
+            tool_options = ({"max_calls": args.decision_tool_budget}
+                            if getattr(args, "decision_tool_budget", None) is not None else {})
+            extra["tool_runner"], perception_tick = demo_perception(
+                package, profile, mission["terrain"], steps, **tool_options)
         if fixture is not None and cadence_s:
             extra["recorded_cadence_followup"] = True
 
@@ -482,7 +509,8 @@ def make_scenario(args, mission, steps, record):
             return DecisionTick(package, profile, backend, gimbal, emit,
                                 run_id=episode_id, plan_digest=record["compiled_mission_sha256"],
                                 revision=mission["scenario_revision"], peer=peer,
-                                build_proof=motion_evidence.build_proof, native_port=native,
+                                build_proof=motion_evidence.build_proof if motion_evidence is not None else None,
+                                native_port=native,
                                 replace_remaining=replace_remaining, **extra)
 
     return CollectorScenario(faults, clearance=forward_clearance(steps, mission["terrain"]),
@@ -550,7 +578,8 @@ def fly(args, collector_plan, steps, mission, record):
                     record["flight"]["status"] = "started"
                     write_result(args.output / "result.json", record)
                     return collector.run_episode(plan, Path(plan.truth), 0, land_after_route=True,
-                                                 policy_override=MissionPolicy(steps, args.gimbal_pitch_deg),
+                                                 policy_override=MissionPolicy(steps, args.gimbal_pitch_deg,
+                                                                               nominal_mc=mission.get("nominal_mc", False)),
                                                  **({"x1_scenario": scenario} if scenario is not None else {}))
 
 
@@ -558,6 +587,7 @@ def finish_flight(episode, steps, record):
     from scripts.smoke_airframe_flight import _jsonl, _mav_value
 
     metadata = read_object(episode / "episode.json")
+    nominal_mc = record.get("nominal_mc", False)
     mavlink = _jsonl(episode / "mavlink.jsonl") or _jsonl(episode / "mavlink.jsonl.gz")
     rows = _jsonl(episode / "steps.jsonl")
     names = [step for step in steps if step.command is not None]
@@ -575,14 +605,26 @@ def finish_flight(episode, steps, record):
     for step, row in zip(names, prefix_rows):
         motion = row.get("labels", {}).get("motion")
         waited = row.get("ack", {}).get("motion_wait", {})
-        expected = {"reposition": "arrived", "transition": "transitioned", "mc_reposition": "settled"}
+        expected = {"reposition": "arrived", "transition": "transitioned", "mc_reposition": "settled",
+                    "mc_hold": "settled"}
         observed[step.primitive] = (row.get("outcome", {}).get("status") == "success"
                                     and motion == step.command.to_dict()
                                     and waited.get("waited") == expected[step.command.kind]
                                     and (step.primitive != "fw_goto_waypoint" or bool(waited.get("x1_passage"))))
+        if nominal_mc:
+            after = row.get("obs_after", {})
+            altitude = (after.get("pose") or {}).get("alt_m")
+            state = after.get("flight_state") or {}
+            observed[step.primitive] &= (state.get("vtol_state") == 3 and state.get("landed_state") == 2
+                                          and type(altitude) in (float, int) and math.isfinite(altitude)
+                                          and abs(altitude + step.command.target_ned[2]) <= 5)
         record["markers"].append({"primitive": step.primitive, "plan_step_id": step.source_step_id,
                                   "motion_wait": waited, "confirmed": observed[step.primitive]})
-    takeoff = any(r["message_type"] == "fixed_wing_takeoff_complete" for r in markers)
+    takeoff = any(r["message_type"] == "fixed_wing_takeoff_complete"
+                  and (not nominal_mc or r.get("flight_state", {}).get("vtol_state") == 3) for r in markers)
+    mc_only_confirmed = not nominal_mc or (metadata.get("vtol_hover_mission") is True and not any(
+        str(row.get("message_type", "")).upper() == "EXTENDED_SYS_STATE" and _mav_value(row, "vtol_state") in {1, 2, 4}
+        for row in mavlink))
     landed = any(r["message_type"] == "collector_landing_complete"
                  and r.get("flight_state", {}).get("landed_state") == 1
                  and r.get("flight_state", {}).get("vtol_state") == 3 for r in markers)
@@ -633,13 +675,17 @@ def finish_flight(episode, steps, record):
     native = _native_outcome(mavlink, markers, positions,
                              names[len(prefix_rows):] if not replacements else (), record)
     return_home = bool(observed.get("mc_return_to_home")) or bool(native and native["return_home"])
-    record["flight"].update(episode=str(episode), takeoff=takeoff,
-                            waypoints_reached=[steps[2].source_step_id] if observed.get("fw_goto_waypoint") else [],
+    waypoints = [step.source_step_id for step in names
+                 if step.primitive in {"fw_goto_waypoint", "mc_goto_waypoint"} and observed.get(step.primitive)]
+    record["flight"].update(episode=str(episode), takeoff=takeoff, waypoints_reached=waypoints,
                             return_home=return_home, landing=landed, steps=observed,
                             episode_status=metadata.get("status"), episode_failure=metadata.get("failure"))
     if native is not None:
         record["flight"]["native_handoff"] = native
-    complete = takeoff and landed and metadata.get("status") == "complete" and all(observed.values()) and prefix_ok
+    complete = (takeoff and landed and metadata.get("status") == "complete" and all(observed.values())
+                and prefix_ok and mc_only_confirmed)
+    if nominal_mc:
+        record["flight"]["mc_only_confirmed"] = mc_only_confirmed
     if native is not None:
         # The admitted native action replaced the remaining compiled steps; PX4 flew them.
         return not replacements and complete and native["confirmed"] and native["landed_by_native"] and (
@@ -732,9 +778,21 @@ def run(args, *, post, launch=fly):
             raise ValueError("--generate-live-evidence requires a decision scenario and a package without x1_live_evidence")
         package = load_mission_package({**document, "task_text": args.sentence}, mode="sim")
         record["mission_package_sha256"] = canonical_sha256(package.document)
-        plan, caps = compile_plan(package, post, record)
+        nominal_mc = getattr(args, "nominal_mc", False)
+        prepare_options = {}
+        if nominal_mc:
+            from scripts.x1_closed_loop_mc import compile_mc_plan
+
+            if faults or assumed_path is not None or fixture is not None or not cadence_s:
+                raise ValueError("nominal MC demo requires a cadence-only scenario")
+            plan, caps = compile_mc_plan(package, post, record)
+            record["nominal_mc"] = True
+            prepare_options["nominal_mc"] = True
+        else:
+            plan, caps = compile_plan(package, post, record)
         site = load_site(args.world, args.scenario)
-        collector_plan, steps, safety, mission = prepare(package, plan, caps, site, output=args.output, slot=args.slot)
+        collector_plan, steps, safety, mission = prepare(package, plan, caps, site, output=args.output,
+                                                         slot=args.slot, **prepare_options)
         record["prepared"] = {"collector": asdict(collector_plan), "steps": [asdict(step) for step in steps],
                               "world_sdf": str(site.world_sdf), "world_sha256": site.world_sha256,
                               "dem_path": str(site.dem_path), "dem_sha256": site.terrain.source_sha256,
@@ -857,7 +915,7 @@ def run(args, *, post, launch=fly):
         print(result)
 
 
-def main(argv=None):
+def main(argv=None, *, shared_post=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sentence", required=True)
     parser.add_argument("--world", required=True, help="site name, e.g. rw_farm_iowa_w6km")
@@ -869,6 +927,9 @@ def main(argv=None):
                         help="replace stock Gazebo AirSpeed for a selected wind_step (default: off)")
     parser.add_argument("--decision-port", type=int, metavar="PORT",
                         help="local onboard Altair llama-server port for live contingency requests")
+    parser.add_argument("--decision-audit", type=Path, help="append exact decision turns and receipts to JSONL")
+    parser.add_argument("--decision-tool-budget", type=int, choices=range(4),
+                        help="cap perception calls without extending the decision deadline")
     parser.add_argument("--decision-cadence-s", type=float, default=0, metavar="SECONDS",
                         help="steady-cruise interval in host seconds, halved outside cruise (0 disables)")
     parser.add_argument("--mission-package", required=True, type=Path, help="site references and constraints, without a plan")
@@ -891,6 +952,8 @@ def main(argv=None):
     parser.add_argument("--slot", type=int, choices=SLOTS, default=7)
     parser.add_argument("--gimbal-pitch-deg", type=float, default=-56.0)
     parser.add_argument("--perception-tools", action="store_true", help="opt in to Altair read-only decision tools")
+    parser.add_argument("--target-cadence-only", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--nominal-mc", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--plan-only", "--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if not math.isfinite(args.decision_cadence_s) or args.decision_cadence_s < 0:
@@ -908,7 +971,16 @@ def main(argv=None):
         parser.error("--live-evidence-bounds requires --generate-live-evidence")
     if args.decision_port is not None and not 1 <= args.decision_port <= 65535:
         parser.error("--decision-port must be between 1 and 65535")
-    if args.decision_port is not None and args.decision_port == args.planner_port:
+    if args.decision_audit is not None and (args.decision_port is None or args.decision_audit.exists()):
+        parser.error("--decision-audit requires --decision-port and a fresh JSONL path")
+    if args.target_cadence_only and not (shared_post is not None and args.decision_cadence_s
+                                         and args.inject_fault == ["target_found"]):
+        parser.error("--target-cadence-only requires the suite's cadence and target_found case")
+    if args.nominal_mc and shared_post is None:
+        parser.error("--nominal-mc is scoped to the X1 closed-loop suite")
+    if args.decision_tool_budget is not None and not args.perception_tools:
+        parser.error("--decision-tool-budget requires --perception-tools")
+    if args.decision_port is not None and args.decision_port == args.planner_port and shared_post is None:
         parser.error("the standalone decision backend needs a port separate from --planner-port")
     if args.recorded_retask is not None and (args.decision_port is not None or args.checkpoint is not None
                                              or args.recorded_output is None):
@@ -920,7 +992,8 @@ def main(argv=None):
     if (not math.isfinite(args.planner_timeout_s) or args.planner_timeout_s <= 0
             or not math.isfinite(args.gimbal_pitch_deg) or not -90 <= args.gimbal_pitch_deg <= 0):
         parser.error("expected a positive timeout and gimbal pitch between -90 and 0 degrees")
-    post = recorded_backend(args.recorded_output) if args.recorded_output else checkpoint_backend(args)
+    post = (recorded_backend(args.recorded_output) if args.recorded_output
+            else shared_post if shared_post is not None else checkpoint_backend(args))
     try:
         return run(args, post=post)
     except FileExistsError as exc:
