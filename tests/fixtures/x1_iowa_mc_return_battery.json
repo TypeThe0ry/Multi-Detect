@@ -1,0 +1,92 @@
+{
+  "episode": "episode-0000-bb570d3d",
+  "bounds_sha256": "40c444c442df63f6fbfdbd8aa605a9ef75ac216ae4db96c387a6bf42472da029",
+  "request": {
+    "tick_monotonic_ns": 645750965986634,
+    "pose_boot_ms": 114416,
+    "wire_boot_ms": 114424,
+    "battery_at_wire_boot_ms": 114240,
+    "battery": {
+      "mavpackettype": "BATTERY_STATUS",
+      "id": 0,
+      "battery_function": 1,
+      "type": 1,
+      "temperature": 32767,
+      "voltages": [
+        16103,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535
+      ],
+      "current_battery": -1,
+      "current_consumed": 0,
+      "energy_consumed": -1,
+      "battery_remaining": 95,
+      "time_remaining": 2461,
+      "charge_state": 1,
+      "voltages_ext": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "mode": 0,
+      "fault_bitmask": 0,
+      "_source_system": 1,
+      "_source_component": 1,
+      "message_type": "BATTERY_STATUS",
+      "receive_monotonic_ns": 645750779865370,
+      "receive_wall_time": 1795657771.7570672
+    }
+  },
+  "reply": {
+    "tick_monotonic_ns": 645750988564660,
+    "pose_boot_ms": 114432,
+    "wire_boot_ms": 114448,
+    "battery_at_wire_boot_ms": 114440,
+    "battery": {
+      "mavpackettype": "BATTERY_STATUS",
+      "id": 0,
+      "battery_function": 1,
+      "type": 1,
+      "temperature": 32767,
+      "voltages": [
+        16103,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535,
+        65535
+      ],
+      "current_battery": -1,
+      "current_consumed": 0,
+      "energy_consumed": -1,
+      "battery_remaining": 95,
+      "time_remaining": 2471,
+      "charge_state": 1,
+      "voltages_ext": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "mode": 0,
+      "fault_bitmask": 0,
+      "_source_system": 1,
+      "_source_component": 1,
+      "message_type": "BATTERY_STATUS",
+      "receive_monotonic_ns": 645750988045135,
+      "receive_wall_time": 1795657771.9652467
+    }
+  }
+}
