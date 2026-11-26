@@ -28,6 +28,7 @@ class FlatTerrain:
 
 PARAMS = {**probe._REQUIRED, "RTL_RETURN_ALT": 80, "RTL_DESCEND_ALT": 66, "RTL_LOITER_RAD": 80,
           "NAV_LOITER_RAD": 80, "VT_B_TRANS_DUR": 2, "VT_B_DEC_MSS": 2, "FW_R_LIM": 35}
+FIXTURES = Path(__file__).with_name("fixtures")
 INPUTS = {"world_sha256": demo.assumptions.WORLD_SHA, "dem_sha256": demo.assumptions.DEM_SHA,
           "airframe_sha256": probe.digest(demo.PROFILE), "wind_toward_deg": 0}
 CELLS = probe.matrix([30, 39, 48, 57], [0, 4], [600, 1800], [85, 95], 1)
@@ -42,6 +43,102 @@ def _param(key, value):
     kind, fmt = ("float", "f") if isinstance(value, float) else ("int32_t", "i")
     name = f"{kind} {key}".encode()
     return _frame("P", bytes([len(name)]) + name + struct.pack("<" + fmt, value))
+
+
+@pytest.fixture
+def pilot_parameter_evidence():
+    # Trimmed from matrix1/o30-w0-b600-a85-r1 (episode-0000-a5568093).
+    # The ULog retains tracked P records and vehicle_status F/A/D frames in
+    # original order; the JSONL retains the readback and clock witnesses.
+    raw = (FIXTURES / "x1_fw_rtl_pilot_prearm.ulg").read_bytes()
+    mav = analysis.read_mavlink(FIXTURES / "x1_fw_rtl_pilot_prearm.mavlink.jsonl")
+    marker = next(row for row in mav if row["message_type"] == "scenario_fw_rtl_readback")
+    return raw, mav, marker
+
+
+def _assert_pilot_pins(raw, mav, marker):
+    parsed = _parse_internal(raw)
+    assert not parsed.warnings
+    statuses = analysis.Topic({"vehicle_status": parsed.topics["vehicle_status"].rows}, "vehicle_status")
+    analysis._assert_parameter_log(raw, mav, marker, statuses)
+
+
+def _insert_before_last_status(raw, frames, *, records_from_end=1):
+    offset = 16
+    data_offsets = []
+    while offset < len(raw):
+        size, kind = struct.unpack_from("<Hc", raw, offset)
+        if kind == b"D":
+            data_offsets.append(offset)
+        offset += 3 + size
+    pos = data_offsets[-records_from_end]
+    return raw[:pos] + frames + raw[pos:]
+
+
+def test_boot_ulog_accepts_pilot_prearm_pins_and_same_value_rewrite(pilot_parameter_evidence):
+    raw, mav, marker = pilot_parameter_evidence
+    _assert_pilot_pins(raw, mav, marker)
+    _assert_pilot_pins(_insert_before_last_status(raw, _param("RTL_TYPE", 0)), mav, marker)
+
+
+def test_boot_ulog_rejects_changed_pin_during_flight(pilot_parameter_evidence):
+    raw, mav, marker = pilot_parameter_evidence
+    # Insert the mutation immediately after the first armed sample, before disarm.
+    with pytest.raises(ValueError, match="tracked parameter changed at or after arming: RTL_TYPE"):
+        _assert_pilot_pins(_insert_before_last_status(raw, _param("RTL_TYPE", 1)), mav, marker)
+
+
+@pytest.mark.parametrize("placement", ["missing", "after_arming"])
+def test_boot_ulog_rejects_parameter_never_established_before_arming(pilot_parameter_evidence, placement):
+    raw, mav, marker = pilot_parameter_evidence
+    first, pinned = _param("RTL_TYPE", 1), _param("RTL_TYPE", 0)
+    assert raw.count(first) == 1 and raw.count(pinned) == 2
+    missing = raw.replace(first, b"").replace(pinned, b"")
+    if placement == "after_arming":
+        missing = _insert_before_last_status(missing, pinned)
+    with pytest.raises(ValueError, match="tracked parameter never established before arming: RTL_TYPE"):
+        _assert_pilot_pins(missing, mav, marker)
+
+
+def test_boot_ulog_accepts_omitted_default_only_with_matching_verified_readback(pilot_parameter_evidence):
+    raw, mav, marker = pilot_parameter_evidence
+    pinned = _param("FW_R_LIM", 35.0)
+    assert raw.count(pinned) == 1
+    missing = raw.replace(pinned, _frame("Q", b"\x01" + pinned[3:]))
+    _assert_pilot_pins(missing, mav, marker)
+    with pytest.raises(ValueError, match="missing verified pre-arm MAVLink readback"):
+        _assert_pilot_pins(missing, mav, {**marker, "verified": False})
+    with pytest.raises(ValueError, match="ULog parameter at arming disagrees with pinned PX4 readback: FW_R_LIM"):
+        values = {**marker["observed_parameters"], "FW_R_LIM": 36.0}
+        _assert_pilot_pins(missing, mav, {**marker, "observed_parameters": values})
+
+
+def test_boot_ulog_rejects_change_straddling_arming(pilot_parameter_evidence):
+    raw, mav, marker = pilot_parameter_evidence
+    uncertain = _insert_before_last_status(raw, _param("RTL_TYPE", 1), records_from_end=2)
+    with pytest.raises(ValueError, match="tracked parameter change cannot be placed before arming: RTL_TYPE"):
+        _assert_pilot_pins(uncertain, mav, marker)
+
+
+def test_boot_ulog_rejects_prearm_value_disagreeing_with_readback(pilot_parameter_evidence):
+    raw, mav, marker = pilot_parameter_evidence
+    with pytest.raises(ValueError, match="ULog parameter at arming disagrees with pinned PX4 readback: RTL_TYPE"):
+        _assert_pilot_pins(raw.replace(_param("RTL_TYPE", 0), b""), mav, marker)
+
+
+def test_boot_ulog_rejects_readback_after_arming(pilot_parameter_evidence):
+    raw, mav, marker = pilot_parameter_evidence
+    # After the MAVLink boot clock crosses the ULog arm time but before the
+    # first MAVLink heartbeat that reports being armed.
+    late = {**marker, "receive_monotonic_ns": mav[-2]["receive_monotonic_ns"] + 1}
+    with pytest.raises(ValueError, match="MAVLink parameter readback at or after ULog arming"):
+        _assert_pilot_pins(raw, [mav[0], *mav[2:-1], late, mav[-1]], late)
+
+
+def test_boot_ulog_rejects_unbracketed_readback(pilot_parameter_evidence):
+    raw, mav, marker = pilot_parameter_evidence
+    with pytest.raises(ValueError, match="cannot establish MAVLink parameter readback before ULog arming"):
+        _assert_pilot_pins(raw, mav[:4] + mav[5:], marker)
 
 
 def _ulog(topics, params):
@@ -84,8 +181,15 @@ def _fixture(cell, *, current=12, clock_error=0, invalid_state=False, tracking_o
     def marker(kind, **values):
         return {"message_type": kind, **values}
 
+    def clock(kind, ns, **values):
+        return marker(kind, _source_system=1, _source_component=1, receive_monotonic_ns=ns, **values)
+
     hold_ms = entry // 1000 - cell.offset_s * 1000
-    mav = [marker("scenario_fw_rtl_readback", **readback), marker("fw_rtl_probe_hold_request"),
+    mav = [clock("LOCAL_POSITION_NED", 1000, time_boot_ms=entry // 1000 - 210),
+           marker("scenario_fw_rtl_readback", receive_monotonic_ns=2000, **readback),
+           clock("HEARTBEAT", 3000, base_mode=29),
+           clock("LOCAL_POSITION_NED", 4000, time_boot_ms=entry // 1000 - 190),
+           marker("fw_rtl_probe_hold_request"),
            marker("scenario_native_command", action="loiter", command=34, ack_result=0, mode_before=[6, 0],
                   params=[80, 15, 0, 0, *hold["lat_lon"], elevation]),
            marker("scenario_native_handoff", action="loiter", command=34, status="confirmed", observed_mode=[4, 3]),
@@ -128,6 +232,7 @@ def _fixture(cell, *, current=12, clock_error=0, invalid_state=False, tracking_o
             alt -= tracking_outlier
         rows = [stamped(stamp, nav_state=5 if stamp >= rtl else 3, nav_state_timestamp=rtl,
                         arming_state=2 if 0 <= t < 10_000_000 else 1, vehicle_type=2 if t < 7_000_000 else 1,
+                        system_id=1, component_id=1,
                         failsafe=0, in_transition_mode=int(4_000_000 <= t < 7_000_000), in_transition_to_fw=0),
                 stamped(stamp, lat=lat0 + local_x / 100_000, lon=lon0, alt=alt, dead_reckoning=0),
                 stamped(stamp, vx=15, vy=0, vz=1, ax=0, ay=0, az=0, xy_valid=1, z_valid=1, v_xy_valid=1, v_z_valid=1),
