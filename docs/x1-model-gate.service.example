@@ -1,0 +1,12 @@
+[Unit]
+Description=Run X1 model gate for a pinned local export
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/projects/Multi-Detect-env/Multi-Detect
+Environment=RTF_MATRIX_START_LOAD_MAX=60
+EnvironmentFile=/etc/x1-model-gate.conf
+ExecStart=/data/projects/Multi-Detect-env/Multi-Detect/scripts/x1_model_gate.sh ${X1_GATE_GGUF} --sha256 ${X1_GATE_SHA256}
+TimeoutStartSec=infinity
+KillMode=mixed
+TimeoutStopSec=60s

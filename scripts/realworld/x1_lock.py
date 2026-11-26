@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import fcntl
+import os
+import stat
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
 LOCK = Path("/run/lock/md-x1-resume.lock")
 FLIGHT_WAIT = 120
+FLIGHT_LOCK_FD_ENV = "MULTIDETECT_X1_FLIGHT_LOCK_FD"
 POLL_SECONDS = 0.25
 TEMPFAIL = 75
 
@@ -67,15 +70,17 @@ def world_phase(lock):
 
 @contextmanager
 def flight_lock(lock, *, wait=FLIGHT_WAIT, shared=False):
-    """Wait for a cooperative world worker, with a bounded nonblocking poll."""
+    """Yield the locked stream, optionally waiting for a cooperative world worker."""
     mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
     with lock.open("a") as stream:
         if not try_lock(stream, mode):
             if not held(sidecar(lock, "world-owner")):
                 # Close the race where the world worker died during contention.
-                if not try_lock(stream, mode):
+                if wait <= 0 or not try_lock(stream, mode):
                     raise LockBusy(f"X1 lock held: {lock}")
             else:
+                if wait <= 0:
+                    raise LockBusy(f"timed out after {wait:g}s waiting for X1 lock: {lock}")
                 deadline = time.monotonic() + wait
                 with sidecar(lock, "flight-request").open("a") as request:
                     # Concurrent observers can probe with shared locks. Only a
@@ -87,7 +92,39 @@ def flight_lock(lock, *, wait=FLIGHT_WAIT, shared=False):
                         if remaining <= 0:
                             raise LockBusy(f"timed out after {wait:g}s waiting for X1 lock: {lock}")
                         time.sleep(min(remaining, POLL_SECONDS))
-        yield
+        yield stream
+
+
+@contextmanager
+def demo_flight_lock(lock):
+    """Use the gate's inherited exclusive lock or acquire a standalone shared lock."""
+    inherited = os.environ.get(FLIGHT_LOCK_FD_ENV)
+    if inherited is None:
+        with flight_lock(lock, shared=True):
+            yield
+        return
+
+    error = f"invalid {FLIGHT_LOCK_FD_ENV} handoff for {lock}"
+    try:
+        if not inherited.isascii() or not inherited.isdecimal():
+            raise ValueError("expected a decimal file descriptor")
+        fd = int(inherited)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or not os.path.samestat(info, lock.stat()):
+            raise ValueError("descriptor does not match the lock file")
+        fdinfo = Path(f"/proc/self/fdinfo/{fd}").read_text(encoding="ascii")
+        if not any(line.startswith("lock:") and line.split()[2:5] == ["FLOCK", "ADVISORY", "WRITE"]
+                   for line in fdinfo.splitlines()):
+            # A matching inode alone could be an unlocked, independently opened fd.
+            raise ValueError("descriptor does not already hold an exclusive flock")
+    except (OSError, OverflowError, ValueError) as exc:
+        raise ValueError(f"{error}: {exc}") from exc
+
+    if not try_lock(fd):
+        raise LockBusy(f"X1 inherited lock held by another description: {lock}")
+    # The gate owns this open file description. Closing or unlocking it here
+    # would invalidate reuse in this process or release the gate's flock.
+    yield
 
 
 @contextmanager

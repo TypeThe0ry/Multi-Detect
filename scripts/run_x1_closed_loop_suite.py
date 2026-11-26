@@ -57,6 +57,7 @@ class Case:
     return_home: bool = True
     nominal_mc: bool = False
     max_quiet_actions: int = 0
+    gate_checks: tuple[str, ...] = ()
 
 
 CASES = (
@@ -67,15 +68,20 @@ CASES = (
     Case("ramped-wind", "fw", ("continue",), 0, 2, 300, 900, "wind_step",
          str(ARCHIVE / "faults-fw-wind.json")),
     # "mc" is the fault/decision phase of the Iowa FW mission, not the nominal MC route.
-    Case("mc-link-loss", "mc", ("return",), 0, 0, 300, 900, "link_loss",
-         "configs/simulation/x1-native-handoff-faults-v1.json", assumed=True),
+    Case("mc-link-loss", "mc", ("return",), 0, 1, 300, 900, "link_loss",
+         "configs/simulation/x1-native-handoff-faults-v1.json", assumed=True,
+         gate_checks=("event_tool_first",)),
     Case("mc-battery-drop", "mc", ("return", "land-now"), 0, 1, 300, 900, "battery_drop",
-         "configs/simulation/x1-mc-battery-faults-v1.json", assumed=True, return_home=False),
+         "configs/simulation/x1-mc-battery-faults-v1.json", assumed=True, return_home=False,
+         gate_checks=("event_tool_first", "battery_structure")),
     Case("evidence-follow-event", "fw", ("retask",), 0, 3, 420, 1200, "target_found",
-         EVIDENCE_FAULTS, assumed=True),
+         EVIDENCE_FAULTS, assumed=True,
+         gate_checks=("event_tool_first", "retask_structure", "retask_timing")),
     Case("evidence-follow-cadence", "fw", ("retask",), 1, 3, 420, 1200, "target_found",
-         EVIDENCE_FAULTS, assumed=True, trigger="cadence"),
-    Case("quiet-cadence", "steady", ("continue",), 4, 0, 300, 900),
+         EVIDENCE_FAULTS, assumed=True, trigger="cadence",
+         gate_checks=("retask_structure", "retask_timing")),
+    Case("quiet-cadence", "steady", ("continue",), 4, 0, 300, 900,
+         gate_checks=("unnecessary_actions",)),
 )
 
 
@@ -330,8 +336,39 @@ def work_command(spec_path):
     return [sys.executable, str(Path(__file__).resolve()), "--worker", str(spec_path)]
 
 
+def retask_validator(attempt, result, *, assumed):
+    from multidetect.autonomy.serialization import canonical_sha256
+    from scripts.run_x1_autonomy_demo import load_sim_package
+
+    path = attempt / "flight/mission-package.json"
+    if path.is_file():
+        document = read_json(path)
+        if canonical_sha256(document) != result.get("mission_package_sha256"):
+            raise ValueError("generated retask validation package does not match flight digest")
+        package = load_sim_package(document, assumed=assumed)
+    else:
+        package = None
+
+    def validate(plan, request):
+        if package is None:
+            return "generated flight mission package is missing"
+        if package.mission_id != request.get("state", {}).get("mission_id"):
+            return "generated flight mission package does not match the request mission"
+        try:
+            package.validate_plan(plan)
+        except ValueError as exc:
+            return str(exc)
+        return None
+
+    return validate
+
+
 def run_case(case, args, root, env, *, command_factory=work_command, server_alive=lambda: True):
     from scripts.x1_closed_loop_harvest import harvest
+    from scripts.realworld.x1_lock import FLIGHT_LOCK_FD_ENV
+
+    lock_fd = env.get(FLIGHT_LOCK_FD_ENV)
+    pass_fds = () if lock_fd is None else (int(lock_fd),)
 
     path = root / case.id
     path.mkdir()
@@ -358,7 +395,7 @@ def run_case(case, args, root, env, *, command_factory=work_command, server_aliv
         timed_out = False
         with (attempt / "runner.log").open("wb") as log:
             proc = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                    start_new_session=True)
+                                    start_new_session=True, pass_fds=pass_fds)
             try:
                 write_json(attempt / "process.json", {"pid": proc.pid, "argv": argv})
                 remaining = max(0, deadline - time.monotonic())
@@ -374,8 +411,14 @@ def run_case(case, args, root, env, *, command_factory=work_command, server_aliv
         result = next(iter(artifacts.values()), {})
         trace, trace_errors = read_trace(attempt / "decisions.jsonl")
         _, expected_by_request = case_requests(case, trace)
-        failures, metrics = harvest(trace, case_id=case.id, attempt=index, fault=case.fault,
-                                    expected_by_request=expected_by_request)
+        failures, metrics = harvest(
+            trace, case_id=case.id, attempt=index, fault=case.fault,
+            expected_by_request=expected_by_request,
+            event_tool_first="event_tool_first" in case.gate_checks,
+            check_retask_timing=True,
+            check_battery_structure="battery_structure" in case.gate_checks,
+            validate_retask=retask_validator(attempt, result, assumed=case.assumed) if trace else None,
+        )
         all_failures.extend(failures)
         checks, scores = check_flight(case, result, trace)
         checks["audit_complete"] = (not trace_errors and bool(trace) and not any(metrics.get(key) for key in
@@ -434,6 +477,11 @@ def summarize(root, records, failures, error=None):
         "Retask 安装率": ("retasks_installed", "retasks_proposed"),
         "安静巡航多余动作率": ("quiet_unnecessary_actions", "quiet_cruise_turns"),
         "Schema 合法率": ("schema_valid", "turns_sent"),
+        "请求标识回显率": ("identity_valid", "turns_sent"),
+        "事件工具优先": ("event_tool_first_compliant", "event_tool_first_required"),
+        "Retask 结构合法率": ("retasks_structure_valid", "retasks_proposed"),
+        "Retask 时机合规率": ("retasks_timing_valid", "retasks_timing_checked"),
+        "低电量结构合法率": ("battery_structure_valid", "battery_structure_checked"),
         "决策超时率": ("deadline_missed", None),
     }
     for label, (numerator, denominator) in ratios.items():
@@ -441,6 +489,7 @@ def summarize(root, records, failures, error=None):
         total = metrics[denominator] if denominator is not None else metrics["deadline_missed"] + metrics["deadline_on_time"]
         value = f"{count}/{total} ({count / total:.1%})" if total else "无样本"
         markdown.append(f"| {label} | {value} |")
+    markdown.append(f"| 执行器证据范围拒绝 | {metrics['evidence_scope_rejections']} |")
     for label, key in (("逐轮延时直方图 (ms)", "turn_latency_ms_histogram"),
                        ("未通过原因", "failure_reason_counts")):
         markdown.append(f"| {label} | `{json.dumps(metrics[key], separators=(',', ':'))}` |")

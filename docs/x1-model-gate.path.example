@@ -1,0 +1,9 @@
+[Unit]
+Description=Optional X1 model gate trigger
+
+[Path]
+PathChanged=/data/scratch/cx/altair/x1-gate-trigger/ready
+Unit=x1-model-gate.service
+
+[Install]
+WantedBy=multi-user.target

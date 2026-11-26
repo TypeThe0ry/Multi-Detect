@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "thresholds": {
+    "schema_validity": {"min": 1.0},
+    "identity_echo": {"min": 1.0},
+    "unnecessary_actions": {"max": 0},
+    "deadline_miss_rate": {"lt": 0.01},
+    "turn_latency_over_5000_rate": {"lt": 0.01},
+    "event_tool_first": {"min": 1.0},
+    "retask_structure": {"min": 1.0},
+    "retask_timing": {"min": 1.0},
+    "battery_structure": {"min": 1.0}
+  }
+}
