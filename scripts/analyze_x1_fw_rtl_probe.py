@@ -139,7 +139,9 @@ class Topic:
         self.name = name
         self.rows = [r for r in topics.get(name, ()) if not battery or r.get("id") == 1]
         self.stamps = [number(r["timestamp"]) for r in self.rows]
-        need(all(b > a for a, b in zip(self.stamps, self.stamps[1:])), f"non-monotonic {name}")
+        # uORB topics can carry several messages with the same microsecond stamp (internal commands, multiple
+        # writers); this analysis only uses windows and gap checks, so time must not run backwards but may repeat.
+        need(all(b >= a for a, b in zip(self.stamps, self.stamps[1:])), f"time runs backwards in {name}")
 
     def window(self, start, end):
         return self.rows[bisect_left(self.stamps, start):bisect_right(self.stamps, end)]
