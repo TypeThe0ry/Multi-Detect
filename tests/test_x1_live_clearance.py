@@ -1,6 +1,9 @@
 """CPU replay of CollectorScenario against current (response-time) PX4 samples."""
+import hashlib
+import json
 from collections import deque
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -50,7 +53,7 @@ def _document(terrain):
 
 
 def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True, fw=False,
-             fault_kind="link_loss", package_override=None, assumed_sim=None):
+             fault_kind="link_loss", package_override=None, assumed_sim=None, archived_battery=None):
     doc = _document(terrain)
     evidence = doc["x1_live_evidence"]
     step = 1 if fw else 3
@@ -87,9 +90,14 @@ def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True,
     elif case == "wrong_terminal":
         suffix["legs"][-1]["end"] = [4, 0, 100]
     package = package_override(package, doc) if package_override is not None else load_mission_package(doc, mode="sim")
+    if archived_battery is not None:
+        # Use the same envelope and clearance builder with portable route geometry.
+        doc["x1_live_evidence"]["native"] = {"return": {"3": suffix}}
+        package = load_mission_package(doc, mode="sim", allow_assumed_sim=True)
+    choice = "return" if archived_battery is not None else "continue"
     now = [10_000]
     monkeypatch.setattr(x1_scenario.time, "monotonic_ns", lambda: now[0] * MS)
-    monkeypatch.setattr(demo, "llama_decisions", lambda *_: recorded_decisions(({"action": "continue", "params": {}},)))
+    monkeypatch.setattr(demo, "llama_decisions", lambda *_: recorded_decisions(({"action": choice, "params": {}},)))
     monkeypatch.setattr(demo, "load_airframe_profile", lambda _: profile)
     if cpu_replay:
         def replay(*args, **kwargs):
@@ -115,7 +123,8 @@ def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True,
     reader = SimpleNamespace(state=MavlinkState())
     reader.latest_control_state = lambda: reader.state
     boot = [now[0]]
-    scenario.bind(None, None, None, reader, SimpleNamespace(target_system=1, target_component=1), receipts.append,
+    component = 0 if archived_battery is not None else 1
+    scenario.bind(None, None, None, reader, SimpleNamespace(target_system=1, target_component=component), receipts.append,
                   "live-replay", clock=lambda: boot[0])
     scenario.worker.timeline = SimpleNamespace(origin=9000)
     if fault_kind == "link_loss":
@@ -195,11 +204,33 @@ def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True,
             rows["HEARTBEAT"]["system_status"] = 5
         elif fault == "fw_airspeed":
             rows["VFR_HUD"]["airspeed"] = 13
-        reader.state = MavlinkState()
+        reader.state = MavlinkState(vehicle_time_boot_ms=now_ms)
         for name, row in rows.items():
             reader.state.received_monotonic_ns[name] = (now_ms - (501 if name == stale else 0)) * MS
             reader.state.received_vehicle_ms[name] = now_ms - (501 if fault == "stale_battery_sim" else 0)
             reader.state.messages[name] = {"_source_system": 1, "_source_component": 1, **row}
+        if archived_battery is not None:
+            phase = archived_battery["request" if fault is None else "reply"]
+            battery = phase["battery"].copy()
+            if fault == "battery_20":
+                battery["battery_remaining"] = 20
+            if "BATTERY_STATUS" in rows:
+                receipt_age = phase["tick_monotonic_ns"] - battery["receive_monotonic_ns"]
+                if stale != "BATTERY_STATUS":
+                    reader.state.received_monotonic_ns["BATTERY_STATUS"] -= receipt_age
+                pose, wire = phase["pose_boot_ms"], phase["wire_boot_ms"]
+                reader.state.vehicle_time_boot_ms = now_ms + wire - pose
+                reader.state.received_vehicle_ms["BATTERY_STATUS"] = now_ms + phase["battery_at_wire_boot_ms"] - pose
+                if fault == "stale_battery_sim":
+                    reader.state.received_vehicle_ms["BATTERY_STATUS"] = reader.state.vehicle_time_boot_ms - 501
+                elif fault == "future_battery_sim":
+                    reader.state.received_vehicle_ms["BATTERY_STATUS"] = reader.state.vehicle_time_boot_ms + 1
+                elif fault == "skewed_wire_clock":
+                    reader.state.vehicle_time_boot_ms = now_ms + 501
+                elif fault == "regressed_wire_clock":
+                    reader.state.vehicle_time_boot_ms = now_ms - 20
+                    reader.state.received_vehicle_ms["BATTERY_STATUS"] = now_ms - 501
+                reader.state.messages["BATTERY_STATUS"] = battery
         scenario.tick(step, None)
 
     try:
@@ -214,6 +245,8 @@ def exercise(terrain, profile, monkeypatch, *, case="complete", cpu_replay=True,
     assert len(requests) == len(results) == 1, receipts
     assert requests[0]["request"]["request_id"] == results[0]["request_id"]
     assert requests[0]["request"]["state"]["events"][-1]["type"] == fault_kind
+    if archived_battery is not None:
+        assert requests[0]["request"]["state"]["telemetry"]["battery"]["pct"] == 95
     return results[0], built, scenario.decision.replay_commands
 
 
@@ -349,3 +382,58 @@ def test_assumed_sim_replay(terrain, profile, monkeypatch, tmp_path, fault_kind,
         assert proof.available_energy_wh == 0
     if case == "complete":
         assert proof.available_energy_wh == pytest.approx(64.08)
+
+
+@pytest.mark.parametrize(("case", "available_energy_wh"), [
+    ("complete", 65.52), ("battery_20", 11.52), ("missing_battery", None),
+    ("stale_battery", None), ("stale_battery_sim", None), ("future_battery_sim", None),
+    ("skewed_wire_clock", None), ("regressed_wire_clock", None),
+])
+def test_iowa_mc_return_battery_replay(terrain, profile, monkeypatch, case, available_energy_wh):  # noqa: F811
+    fixture = Path(__file__).with_name("fixtures") / "x1_iowa_mc_return_battery.json"
+    archived = json.loads(fixture.read_bytes())
+    path = demo.ROOT / "configs/simulation/x1-assumed-sim-bounds-iowa.json"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == archived["bounds_sha256"]
+    raw = json.loads(path.read_bytes())
+    battery = raw["battery"]["value"]
+    state = {"sha256": archived["bounds_sha256"], "capacity_wh": raw["battery_capacity_wh"]["value"]}
+
+    def package_override(_package, doc):
+        doc["budget"]["battery_capacity_wh"] = state["capacity_wh"]
+        evidence = doc["x1_live_evidence"]
+        evidence.update(basis="ASSUMED_SIM", assumed_bounds_sha256=state["sha256"])
+        evidence["battery"] = {"max_voltage_v": battery["max_voltage_v"],
+                               "soc_error_pct": battery["nominal_soc_error_pct"],
+                               "consumption_error_wh": battery["consumption_error_wh"]}
+        return load_mission_package(doc, mode="sim", allow_assumed_sim=True)
+
+    receipt, [(_, _, proof)], commands = exercise(
+        terrain, profile, monkeypatch, case=case, package_override=package_override,
+        assumed_sim=state, archived_battery=archived,
+    )
+    assert receipt["action"] == "return"
+    if case == "complete":
+        assert (receipt["status"], receipt["reason"], commands) == ("sent_unconfirmed", "readback_required", [("rtl",)])
+    else:
+        assert (receipt["status"], receipt["reason"], commands) == ("rejected", "energy_or_reserve_limit", [])
+    if available_energy_wh is None:
+        assert proof.available_energy_wh is None
+    else:
+        assert proof.available_energy_wh == pytest.approx(available_energy_wh)
+
+
+@pytest.mark.parametrize(("target_component", "expected"), [(0, 1), (1, 1), (42, 42)])
+def test_bind_keeps_explicit_component_and_filters_foreign_telemetry(monkeypatch, target_component, expected):
+    monkeypatch.setattr(SitlScenarioTransport, "in_container", lambda *args, **kwargs: None)
+    monkeypatch.setattr(x1_scenario.time, "monotonic_ns", lambda: MS)
+    state = MavlinkState(received_monotonic_ns={"BATTERY_STATUS": MS})
+    reader = SimpleNamespace(latest_control_state=lambda: state)
+    scenario = x1_scenario.CollectorScenario((), clearance=lambda *_: None)
+    scenario.bind(None, None, None, reader, SimpleNamespace(target_system=1, target_component=target_component),
+                  lambda _: None, "peer-replay", clock=lambda: 1)
+    assert scenario.target_peer == (1, expected)
+    state.messages["BATTERY_STATUS"] = {"_source_system": 1, "_source_component": expected,
+                                        "id": 0, "battery_remaining": 95}
+    assert scenario.battery_pct() == 95
+    state.messages["BATTERY_STATUS"]["_source_component"] = 255
+    assert scenario.battery_pct() is None

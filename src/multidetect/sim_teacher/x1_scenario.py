@@ -13,9 +13,10 @@ from dataclasses import asdict
 from pathlib import Path
 from threading import Event, Lock, Thread
 
-from multidetect.autonomy.x1_contingency_replay import Fault, load_faults
 from multidetect.autonomy.serialization import canonical_sha256
+from multidetect.autonomy.x1_contingency_replay import Fault, load_faults
 from multidetect.autonomy.x1_wind_estimate import WindEstimator, WindReading
+from multidetect.px4_mission import PX4_AUTOPILOT_COMPONENT_ID
 
 from .x1_live_clearance import MOTION_SAMPLE_MAX_AGE_MS
 from .x1_native_handoff import NativeHandoffPort, RouteWriteGate
@@ -525,7 +526,9 @@ class CollectorScenario:
         from collections import deque
 
         self.reader, self.clock, self.record = reader, clock, record
-        self.target_peer = connection.target_system, connection.target_component
+        # HEARTBEAT can resolve the system while pymavlink still targets all components.
+        component = connection.target_component
+        self.target_peer = (connection.target_system, PX4_AUTOPILOT_COMPONENT_ID if component == 0 else component)
         self.markers = deque()
         wind = wind_baseline(world) if any(f.kind == "wind_step" for f in self.faults) else None
         self.transport = SitlScenarioTransport.in_container(
@@ -813,11 +816,16 @@ class CollectorScenario:
             point = None
         battery = self._fresh_sample("BATTERY_STATUS", max_age_ms=age, state=state)
         if self.motion_evidence.assumed_sim is not None:
-            # BATTERY_STATUS has no source time. Bound its age against the PX4
-            # clock as seen at receipt, in addition to the normal receive-age check.
+            # BATTERY_STATUS has no source time; the reader stamps it with its wire clock.
+            wire_boot = state.vehicle_time_boot_ms
             stamp = state.received_vehicle_ms.get("BATTERY_STATUS")
-            if not clock_valid or type(stamp) is not int or not 0 <= max(local_boot, boot_ms) - stamp <= age:
+            if not clock_valid or type(wire_boot) is not int or not 0 < wire_boot < 2**32 or type(stamp) is not int:
                 battery = None
+            else:
+                route_boot = max(local_boot, boot_ms)
+                # An out-of-order wire stamp must not make the sample younger.
+                if abs(wire_boot - route_boot) > age or not 0 <= max(wire_boot, route_boot) - stamp <= age:
+                    battery = None
         return point, self.motion_evidence.remaining_energy_wh(battery), remaining_time
 
     def _motion_position(self, row):
