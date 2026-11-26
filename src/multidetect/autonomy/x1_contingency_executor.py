@@ -114,6 +114,7 @@ class RuntimeFrame:
     retask_finding_ne: tuple[float, float] | None = None
     retask_finding_error_m: float | None = None
     retask_gimbal_ready: bool = False
+    installed_plan_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +147,8 @@ class MotionProof:
     # Minimum predicted AGL over any transition in the certified trajectory.
     min_transition_agl_m: float | None = None
     basis: str | None = None
+    plan_revision: int | None = None
+    plan_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +239,11 @@ class X1Envelope:
                 return "invalid_mission_plan_for_package"
         if proof is None or proof.frame_id != frame.frame_id or proof.decision_digest != d.digest:
             return "missing_or_unbound_motion_proof"
+        if action == "continue" and (frame.installed_plan_sha256 is not None
+                                     or proof.plan_sha256 is not None or proof.plan_revision is not None):
+            if (frame.installed_plan_sha256 is None or proof.plan_sha256 != frame.installed_plan_sha256
+                    or proof.plan_revision != frame.revision or d.revision != frame.revision):
+                return "missing_or_unbound_motion_proof"
         evidence_basis = package.document.get("x1_live_evidence", {}).get("basis")
         if proof.basis != evidence_basis or (proof.basis is not None and (
             proof.basis != "ASSUMED_SIM" or package.mode != "sim"
@@ -252,7 +260,9 @@ class X1Envelope:
             proof.min_transition_agl_m, p.transition.minimum_height_m
         ):
             return "predicted_transition_agl_limit"
-        if action in {"return", "land-now", "retask"} and proof.landing_site_clear is not True:
+        needs_landing = action in {"return", "land-now", "retask"} or (
+            action == "continue" and frame.installed_plan_sha256 is not None)
+        if needs_landing and proof.landing_site_clear is not True:
             return "landing_site_unverified"
         # An immediate local landing may spend the energy reserve. Powering a
         # return trip must leave it intact, even if that trip ends in landing.

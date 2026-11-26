@@ -535,6 +535,7 @@ class CollectorScenario:
         self._observed_detection_ms = None
         if getattr(motion_evidence, "retask_bounds", None) is not None:
             motion_evidence.stage_retask = self.retask.stage
+            motion_evidence.installed_at = self.retask.installed_at
 
     @property
     def retask_end(self):
@@ -742,12 +743,13 @@ class CollectorScenario:
             observations.append(("target", perception["target_status"], perception["source"]))
             self._observed_detection_ms = perception["t_ms"]
         if self.decision is not None:
-            # Original-route proofs cannot attest to a replacement trajectory.
-            motion_index = index if lifecycle is None and self.retask_end is None else None
-            point, remaining_energy_wh, remaining_time_s = self._motion_data(motion_index, boot_ms, state, now_ns=now_ns)
+            motion_index, installed_sha, installed_key = self._continue_motion_context(index, lifecycle)
+            evidence_kwargs = {"installed_key": installed_key} if installed_key is not None else {}
+            point, remaining_energy_wh, remaining_time_s = self._motion_data(
+                motion_index, boot_ms, state, now_ns=now_ns, **evidence_kwargs)
             vtol_state = VTOL_STATES.get(vtol.get("vtol_state"))
             holds = (self.motion_evidence.hold_sites(motion_index, vtol_state)
-                     if motion_index is not None and self.motion_evidence is not None
+                     if motion_index is not None and installed_sha is None and self.motion_evidence is not None
                      and hasattr(self.motion_evidence, "hold_sites") else {})
             hold_current = self._hold_events(now, events)
             estimate = perception["detection"]["position_estimate"] if perception is not None else None
@@ -770,6 +772,7 @@ class CollectorScenario:
                 retask_finding_ne=finding,
                 retask_finding_error_m=estimate["error_bound_m"] if estimate is not None else None,
                 retask_gimbal_ready=retask_gimbal_ready,
+                installed_plan_sha256=installed_sha,
             )
             event_current = hold_current or (
                 timeline is not None and self.last_event_index is not None and boot_ms is not None
@@ -931,7 +934,16 @@ class CollectorScenario:
         alt = (self._fresh_sample("GLOBAL_POSITION_INT", state=state, now_ns=now_ns) or {}).get("relative_alt")
         return alt / 1000.0 if type(alt) is int else None
 
-    def _motion_data(self, index, boot_ms, state, *, now_ns=None):
+    def _continue_motion_context(self, index, lifecycle):
+        if self.retask_end is None:
+            return index if lifecycle is None else None, None, None
+        sha = self.decision.plan_digest
+        route = self.retask.installed_at(index) if lifecycle is None else None
+        if route is None or route.revision != self.decision.revision or route.plan_sha256 != sha:
+            return None, sha, None
+        return index, sha, ("installed-continue", route.revision, sha, index)
+
+    def _motion_data(self, index, boot_ms, state, *, now_ns=None, installed_key=None):
         """Read motion evidence from the same trusted snapshot used for this tick."""
         age = MOTION_SAMPLE_MAX_AGE_MS
         global_position = self._fresh_sample("GLOBAL_POSITION_INT", max_age_ms=age, state=state, now_ns=now_ns)
@@ -954,7 +966,10 @@ class CollectorScenario:
             remaining_time = self.motion_evidence.remaining_time_s(max(local_boot, boot_ms))
         if (index is not None and clock_valid and type(global_boot) is int and 0 < global_boot < 2**32
                 and abs(local_boot - global_boot) <= age):
-            point = self.motion_evidence.check_entry(index, point, local)
+            if installed_key is None:
+                point = self.motion_evidence.check_entry(index, point, local)
+            else:
+                point = self.motion_evidence.check_entry(index, point, local, installed_key=installed_key)
         else:
             point = None
         battery = self._fresh_sample("BATTERY_STATUS", max_age_ms=age, state=state, now_ns=now_ns)

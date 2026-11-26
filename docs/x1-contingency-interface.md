@@ -134,6 +134,8 @@ CPU 回放使用 `recorded_decisions(...)`、`DecisionTick(..., gimbal_port=None
 
 收到 Altair 回包的串行 tick 读取同一个 PX4 快照。当前位置使用来自目标对端、接收不超过 500 ms 的 `GLOBAL_POSITION_INT` 和 `LOCAL_POSITION_NED`。两者启动时钟相差不得超过 500 ms。经纬度与海拔转换到 runner 已加载的 DEM 坐标系，并核对当前编译步骤、入口位置和本地速度。证明从该位置起步，逐段验证扫掠体到回家着陆，包括当前位置、前方地形、DEM 高程误差和障碍覆盖。运动证明继续使用当下的帧编号和已解码决策摘要。成功的回执是 `action=continue / status=continued / reason=no_new_command`。
 
+在已授权的 Iowa `ASSUMED_SIM` 路径成功安装 `retask` 后，原路线的 `suffixes` 几何不再用于 `continue`。collector 从串行路线槽读取当前原语和剩余的已安装指令，保留安装时解析出的目标、找点误差和限时，并从新遥测位置构建证明，不重新降低计划或移动航点。盘旋同时覆盖进入段与带跟踪余量的完整圆盘；后过渡覆盖所有退出航向的有界位移；正向路径证明到经核验的回家着陆点。扫掠仍须通过任务包运行区、走廊、禁飞区、DEM 与误差上界、障碍覆盖及终端着陆检查，能量与时间下界仍取自当前遥测。`MotionProof` 另外绑定已安装计划的 SHA-256 和运行修订号，与宿主当前状态任一不符即拒绝；这不是 Altair 请求中的剩余进度摘要。未能定位当前已安装原语、遥测过期、覆盖缺失或盘旋越出走廊时不发新指令。该路径不扩大 `ASSUMED_SIM` 的适用范围，不更改 FW 空速门槛，也不将 `continue` 变成备用动作。
+
 SIM 任务包可以由任务方提供 `x1_live_evidence`。这是宿主证据，不进入 Altair 的规划上下文。缺失、结构不正确或绑定不符会使实时 `continue` 保持拒绝。字段如下。
 
 | 字段 | 证据契约 |
