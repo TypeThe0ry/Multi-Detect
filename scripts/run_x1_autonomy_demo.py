@@ -82,6 +82,9 @@ def load_sim_replay_package(document: dict):
     return load_mission_package(document, mode="sim", allow_assumed_sim=True)
 
 
+ASSUMED_SIM_FLAG = "--assumed-sim-bounds"  # exported for the SIM-only suite driver; the literal stays in this file
+
+
 def write_result(path: Path, value: dict) -> None:
     temp = path.with_suffix(".tmp")
     counter = [0]
@@ -486,7 +489,8 @@ def make_scenario(args, mission, steps, record):
             def audit_sink(row):
                 with lock, audit_path.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(row, allow_nan=False) + "\n")
-        backend = (llama_decisions(args.decision_port, args.sentence, audit=audit_sink) if fixture is None
+        backend = (llama_decisions(args.decision_port, args.sentence, **({} if audit_sink is None else {"audit": audit_sink}))
+                   if fixture is None
                    else evidence_follow_backend(fixture, cadence=bool(cadence_s)))
         profile = load_airframe_profile(PROFILE)
         package = mission["scenario_package"]

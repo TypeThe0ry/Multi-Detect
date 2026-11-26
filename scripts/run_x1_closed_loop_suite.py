@@ -215,7 +215,9 @@ def run_worker(spec):
     x1_site_evidence.write_bounds(bounds, preflight, read_json(Path(args["site_inventory"])))
     common += ["--live-evidence-bounds", str(bounds)]
     if case["assumed"]:
-        common += ["--assumed-sim-bounds", str(ROOT / ASSUMED)]
+        from scripts.run_x1_autonomy_demo import ASSUMED_SIM_FLAG
+
+        common += [ASSUMED_SIM_FLAG, str(ROOT / ASSUMED)]
     return demo.main([*common, "--decision-audit", str(output / "decisions.jsonl"),
                       "--output", str(output / "flight")], shared_post=post)
 
