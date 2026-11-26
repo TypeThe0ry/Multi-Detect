@@ -390,6 +390,7 @@ def test_iowa_case_b_mc_return_geometry_matches_archived_bounds():
     archived = json.loads((Path(__file__).with_name("fixtures") / "x1_assumed_sim_bounds_iowa_archived.json").read_bytes())
     assert current["px4_native_parameters"]["value"] == {
         **archived["px4_native_parameters"]["value"], "RTL_DESCEND_ALT": 73,
+        "FW_AIRSPD_MIN": 12, "FW_AIRSPD_TRIM": 15, "FW_AIRSPD_MAX": 18,
     }
     assert current["native"]["return"]["3"] == archived["native"]["return"]["3"]
 

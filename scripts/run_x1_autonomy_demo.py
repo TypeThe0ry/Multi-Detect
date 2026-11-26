@@ -876,15 +876,19 @@ def run(args, *, post, launch=fly):
                             or any(assumed["parameters"].get(k, v) != v for k, v in fw_rtl.params.items())):
                         raise ValueError("FW RTL needs a separately reviewed image, matching scope, profile and native pins")
                     validation = fw_rtl_path.with_suffix(".validation.json")
-                    if hashlib.sha256(validation.read_bytes()).hexdigest() != fw_rtl.validation_sha256:
+                    validation_raw = validation.read_bytes()
+                    if hashlib.sha256(validation_raw).hexdigest() != fw_rtl.validation_sha256:
                         raise ValueError("FW RTL validation record hash mismatch")
+                    if not fw_rtl.matches_validation(strict_json_loads(validation_raw.decode("utf-8"), name=str(validation))):
+                        raise ValueError("FW RTL validation record does not match the reviewed scope and airspeed pins")
                     assumed["fw_rtl"] = fw_rtl
                     record["contingency_scenario"]["fw_rtl_host_manifest"] = {
                         "sha256": hashlib.sha256(fw_raw).hexdigest(), "px4_commit": fw_rtl.px4_commit,
                         "path": str(fw_rtl_path.resolve()), "image_id": fw_rtl.image_id,
                         "validation_sha256": fw_rtl.validation_sha256, "validation_path": str(validation.resolve()),
                     }
-                    # Extra FW-specific values are measured, not changed. In
+                    # FW airspeed pins are already in assumed["parameters"]. Extra
+                    # manifest-only parameters are measured, not changed. In
                     # particular do not alter the shared MC RTL return altitude.
                 collector_plan = replace(collector_plan, extra_sim_params=(
                     *collector_plan.extra_sim_params,

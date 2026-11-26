@@ -194,13 +194,13 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 
 后缀只覆盖已编译的 `continue` 路径。受控的试验 runner 在路线步骤失败时停止后续路线写入，PX4 保持原生保底。
 
-原生动作的假设单列在 `native` 与 `px4_native_parameters` 中，各带 `basis` 与 `justification`。预武装时设置并读回 `RTL_TYPE=0`、`RTL_CONE_ANG=0`、`RTL_LAND_DELAY=0`、`MPC_XY_CRUISE=5`、`MPC_Z_V_AUTO_DN=1.5`、`MPC_LAND_SPEED=0.7`、`NAV_ACC_RAD=2`，与电池参数一起核对。
+原生动作的假设单列在 `native` 与 `px4_native_parameters` 中，各带 `basis` 与 `justification`。预武装时设置并读回 `RTL_TYPE=0`、`RTL_CONE_ANG=0`、`RTL_LAND_DELAY=0`、`RTL_DESCEND_ALT=73`、`FW_AIRSPD_MIN=12`、`FW_AIRSPD_TRIM=15`、`FW_AIRSPD_MAX=18`、`MPC_XY_CRUISE=5`、`MPC_Z_V_AUTO_DN=1.5`、`MPC_LAND_SPEED=0.7`、`NAV_ACC_RAD=2`，与电池参数一起核对。
 
 | 假设 | 内容 |
 | --- | --- |
 | MC `return`（步骤 3） | PX4 MC RTL 按 5 m/s 直飞 home 并保持当前高度，到点后原地 LAND。440 m 留 110 s，末段 45 m 留 20 s，下降 85 s，按机型最高功率计。 |
 | MC `land-now`（步骤 3） | 只在 home 着陆圆内且留出 5 m 余量时可用，85 s，最高功率。 |
-| `hold:yard-orbit`（FW，步骤 1） | 航点 (320, 0) 上空巡航高度，半径 80 m，15 m/s 的 `DO_ORBIT`。水平余量 120 m，垂向 12 m，进入加驻留 180 s，两倍盘旋功率。 |
+| `hold:yard-orbit`（FW，步骤 1） | 航点 (320, 0) 上空巡航高度，以 `DO_ORBIT` 设置 80 m 半径；15 m/s 是机型的校准配平空速，不是固定翼 orbit 命令的速度覆盖。水平余量 120 m，垂向 12 m，进入加驻留 180 s，两倍盘旋功率。 |
 | `hold:mc-here`（MC，步骤 3） | 原地 AUTO.LOITER，水平 20 m、垂向 5 m，120 s，最高功率。 |
 
 `configs/simulation/x1-native-handoff-faults-v1.json` 在 MC 回家段放一个 50–58 s 的 `link_loss` 窗口，范围摘要以 `link_loss:mc_return` 登记，用于原生 `return` 的验收。`configs/simulation/x1-mc-battery-faults-v1.json` 另登记同一航线的 50–62 s 电池窗口；此绑定不提供低电量放行。17% 的 `battery_drop` 仍不是固定翼返航特例：未建立证明仍拒绝；即使有证明，17% × 72 Wh 也低于 14.8 Wh 的返航储备。接管后仍不能 `continue`/`retask`。
@@ -213,12 +213,18 @@ Altair 请求 `return {}`，执行器只接受或拒绝。准入后仍发送同�
 
 只对审阅过的 PX4 提交 `53afcc82b2a51a90424ff7e2c35583e491587eb5` 建模。尾座机 4051、`VT_TYPE=0`，`RTL_TYPE=0`，无改选目的地的 rally/approach 或避障绕行，`RTL_APPR_FORCE=0`、`RTL_PLD_MD=0`。`rtl.cpp` 的 FW 返航高度为当前高度与 `home + RTL_RETURN_ALT` 的较大者；`rtl_direct.cpp` 保留已建立的盘旋或使用激活点盘旋爬升，随后获取 home 周围的 `RTL_LOITER_RAD` 轨道，盘旋降至 `min(返航高度, home + RTL_DESCEND_ALT)`。Iowa 在武装前写入并读回 `RTL_DESCEND_ALT=73 m`，约 85 m AGL 的 FW 巡航仍高于盘旋目标。关闭 MC 距离锥并保持 `RTL_LAND_DELAY=0`。FW 不额外驻留，Case B 的 MC 直返仍在到达 home 后跳过下降盘旋并直接 `LAND`。`MOVE_TO_LAND` 按地速和 `VT_B_DEC_MSS` 扩大接收半径且**不检查高度**。尾座机按俯仰角或 `VT_B_TRANS_DUR` 切到 MC，再移至 home 上方并开始降落；还须核对 `MPC_XY_CRUISE`、`MPC_Z_V_AUTO_DN`、`MPC_LAND_SPEED`、`NAV_ACC_RAD` 等，不把设定值当作实际速度保证。
 
+PX4 `53afcc82` 的 `rtl_direct.cpp` 在 RTL 激活时重置巡航空速；`mission_block.cpp` 将该值传给定位设定点，`FixedWingModeManager.cpp` 对非正值使用默认空速。`navigator_main.cpp` 的固定翼 `DO_ORBIT` 分支使用 `param1` 或 `NAV_LOITER_RAD` 决定半径，不读取 `param2` 指定速度。`PerformanceModel.cpp` 以 `FW_AIRSPD_TRIM` 为基准、以 `FW_AIRSPD_MIN` 计算负载/襟翼修正后的下限；`FwLateralLongitudinalControl.cpp` 以 `FW_AIRSPD_MAX` 限制校准空速设定值，但在防失速下限超过上限时优先下限，并使用 EAS/TAS 转换。参数读回不是实测真空速保证；实测真空速超过机型 18 m/s 加独立估算的传感器噪声容差时，拒绝该批证据，不抬高机型上限。
+
+**这是预武装可复现性约束，不是动力学修复。** 归档格 `o39-w6-b1800-a85-r1` 的原始 ULog `P` 已记录生效值 `MAX=18`、`MIN=12`、`TRIM=15`、`FW_WIND_ARSP_SC=0`；`Q` 的 `0x01` 系统默认值 `MAX=20`、`MIN=10` 并非本趟生效值。旧矩阵仍记录了约 23 m/s 的真空速峰值；不能把它归因于编译默认值，也不能从新 pin 推断复飞将合规。`FW_WIND_ARSP_SC=0` 只关闭额外的风估计下限增量，不关闭航向/最低地速引导。降低 TRIM 仅影响使用默认目标、且未被引导或防失速下限抬高的阶段；降低 MAX 只能降低名义 CAS/EAS 设定值上限，实际 TAS 还取决于 EAS/TAS 比值、跟踪误差和瞬态。没有同步日志证据前不调整 TRIM/MAX，不降低 MIN 或更改 PX4 防失速行为。
+
+建议按阶段对齐 `airspeed_validated` 的 CAS/TAS/来源、TECS 的空速目标与响应、风估计、滚转、爬降和过渡边界；必要时与独立的 SIM 真值或独立校验的皮托记录交叉验证。若后续独立数据能约束 EAS/TAS 比值上界 `r` 和正向 TAS 跟踪误差上界 `e`，可用 `(18 − e)/r` 筛选名义 CAS/EAS 上限候选；这不是新 pin 值，不能绕过防失速下限、航向可行性或真空速验收。噪声容差仅用于测量误差，不吸收飞行瞬态、日志缺口或未解释的超速。
+
 扫掠从实时位置覆盖 Hold 全圆及捕获转弯、返航连接、home 盘旋下降、转入 `MOVE_TO_LAND`、后过渡漂移、MC 回中和从残余速度状态开始的着陆。`FW_R_LIM` 和机型空速上界只给出转弯半径的可行性下限，跟踪、垂直偏离和阶段完成时间仍须由实测限定。功率缺少有效电流时，SIM 审阅可采用 Iowa 后缀模型的 344 W FW、750 W 后转及 MC 上界，并在验证记录中标为 `ASSUMED_SIM`。扫掠超出任务走廊、围栏、障碍覆盖或 DEM 误差后的高度余量，或无法在剩余时间、能量及现有返航储备内完成时，均拒绝。末段整个落点包络必须落在测量过的 pad 内；仍使用现有 40 m 空中 AGL 下限。
 
 **Case C 变体 SITL 验收（本文档未运行）**
 
 1. 基线归档为 `/data/scratch/cx-wc-sampling/.tmp/iowa-native-handoff.AonhPrm1/live-wind_step-hold`。其镜像运行的是 PX4 `83c4f4e580558816f0e398918f66358988004696`（`v1.18.0-beta2`），不会被本证明认可。先单独提交并审阅包含上述 `53afcc82…` 的不可变候选镜像；核对 4051、固件构建来源、无其他 RTL 分支、配方和电池模型、不会在武装后更改的完整参数快照，以及同一任务、DEM、障碍清单、风注入与皮托插件。不要替换既有 Iowa 镜像标签或证据记录，也不要把 CPU 夹具作为实测证据。
-2. 用候选镜像的独立证据覆盖所有准入航向和风、采样到命令的间隔、轨道捕获及 `MOVE_TO_LAND` 高度偏差、过渡漂移和高度损失、MC 残余横向速度至触地的偏差，以及每阶段最迟完成时间。将依据保存为宿主 `NAME.validation.json`，逐项标明实测 `MEASURED_SIM` 或两项功率的 `ASSUMED_SIM` 推导，由审阅者核对并把 SHA-256 和相同任务的 `motion_scope_sha256`、镜像 ID、实际参数写入 `NAME.json`（字段见 `FwRtlBounds`）。`--fw-rtl-host-manifest NAME.json` 选择该单独镜像；原假设文件仍是范围与基线锚点。运行前核对 `scenario_fw_rtl_readback`，不匹配时不得武装。仅有 source commit、镜像摘要或一次成功飞行不能建立全部边界。
+2. 用候选镜像的独立证据覆盖所有准入航向和风、采样到命令的间隔、轨道捕获及 `MOVE_TO_LAND` 高度偏差、过渡漂移和高度损失、MC 残余横向速度至触地的偏差，以及每阶段最迟完成时间。将依据保存为宿主 `NAME.validation.json`，逐项标明实测 `MEASURED_SIM` 或两项功率的 `ASSUMED_SIM` 推导，由审阅者核对并把 SHA-256 和相同任务的 `motion_scope_sha256`、镜像 ID、实际参数写入 `NAME.json`（字段见 `FwRtlBounds`）。`--fw-rtl-host-manifest NAME.json` 选择该单独镜像；原假设文件仍是范围与基线锚点。`NAME.validation.json` 顶层还须包含 `fw_airspeed_parameters`，以三项经读回与 ULog 核对的值（MIN/TRIM/MAX = 12/15/18 m/s）绑定清单；另记录真空速样本极值、噪声容差的推导与接受/拒绝结果。运行前核对 `scenario_fw_rtl_readback`，不匹配时不得武装；不从覆盖格向公用 MC RTL 写入 `RTL_RETURN_ALT`。仅有 source commit、镜像摘要或一次成功飞行不能建立全部边界。
 3. 在获授权的 SITL lane，以 `.venv-vlm/bin/python` 运行 `scripts/run_x1_autonomy_demo.py`。沿用归档 `result.json` 的原始任务输入、`wind_step` 计划、同一风插件和 `wind_step.site-bounds.json`；参数包括 `--inject-fault wind_step --generate-live-evidence --assumed-sim-bounds configs/simulation/x1-assumed-sim-bounds-iowa.json --live-evidence-bounds CASE.site-bounds.json --fw-rtl-host-manifest NAME.json`。使用新输出目录与已批准的空闲 slot（`MULTIDETECT_SITL_SLOTS >= 3`，不用 slot 3、4）。Case C 回放后端按事件只回放归档中的 `loiter {"hold_ref":"hold:yard-orbit"}` 和 `return {}`，并回显本次票据；不在执行器中编写动作选择规则。
 4. 留存 `result.json`、决策回执、MAVLink 和 PX4 ULog。必须依次看到 `DO_ORBIT` ACK、`AUTO.LOITER (4,3)` 及正确 Hold 目标、返航准入、原样 RTL 与 `AUTO.RTL (4,5)` 的飞控确认。用位置及 setpoint/VTOL 主题核对返回高度、home 盘旋半径/下降、`MOVE_TO_LAND`、FW→MC、回中及下降，并用轨迹与扫掠逐段对拍。最终须观察 `ON_GROUND` 且实际落点在 16 m pad 内，无 Hold 到期和模式替代；任何阶段/证据缺失不可计为通过。
 

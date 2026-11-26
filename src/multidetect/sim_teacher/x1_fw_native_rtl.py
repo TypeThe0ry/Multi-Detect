@@ -8,7 +8,7 @@ from dataclasses import dataclass, fields
 from types import MappingProxyType
 
 from multidetect.autonomy.x1_motion_proof import ExecutionSweep, LandingPad, SweptLeg, _number
-from .x1_native_handoff import IOWA_RTL_DESCEND_ALT_M
+from .x1_native_handoff import IOWA_FW_AIRSPEED_PARAMETERS, IOWA_RTL_DESCEND_ALT_M
 
 # Source reviewed in px4-main, not the 83c4f4e image used by archived case C.
 PX4_RTL_COMMIT = "53afcc82b2a51a90424ff7e2c35583e491587eb5"
@@ -18,6 +18,7 @@ _REQUIRED = {
     "RTL_DESCEND_ALT": IOWA_RTL_DESCEND_ALT_M,
     "MPC_XY_CRUISE": 5, "MPC_Z_V_AUTO_DN": 1.5, "MPC_LAND_SPEED": 0.7,
     "NAV_ACC_RAD": 2,
+    **IOWA_FW_AIRSPEED_PARAMETERS,
 }
 _POSITIVE = ("RTL_RETURN_ALT", "RTL_LOITER_RAD", "NAV_LOITER_RAD",
              "VT_B_TRANS_DUR", "VT_B_DEC_MSS", "FW_R_LIM")
@@ -75,6 +76,17 @@ class FwRtlBounds:
         return cls(**{**raw, "params": MappingProxyType(dict(raw["params"])),
                       "phase_time_s": tuple(raw["phase_time_s"])})
 
+    def matches_validation(self, assessment):
+        """Bind a reviewed sidecar to this manifest's scope and verified speed pins."""
+        expected = {"basis": "ASSUMED_SIM", "status": "reviewed", "scope": self.scope,
+                    "image_id": self.image_id, "px4_commit": self.px4_commit}
+        if not isinstance(assessment, dict) or any(assessment.get(k) != v for k, v in expected.items()):
+            return False
+        pins = assessment.get("fw_airspeed_parameters")
+        return (isinstance(pins, dict) and set(pins) == set(IOWA_FW_AIRSPEED_PARAMETERS)
+                and all(_number(pins[k], v, v) and self.params.get(k) == v
+                        for k, v in IOWA_FW_AIRSPEED_PARAMETERS.items()))
+
     def valid_for(self, scope, profile):
         p = self.params
         return (
@@ -85,6 +97,8 @@ class FwRtlBounds:
             and (profile.subtype, profile.px4_autostart) == ("tailsitter", 4051)
             and isinstance(p, Mapping) and set(p) == {*_REQUIRED, *_POSITIVE}
             and all(_number(p[k], v, v) for k, v in _REQUIRED.items())
+            and (p["FW_AIRSPD_MIN"], p["FW_AIRSPD_TRIM"], p["FW_AIRSPD_MAX"])
+            == (profile.min_airspeed_mps, profile.cruise_airspeed_mps, profile.max_airspeed_mps)
             and all(_number(p[k], 0.001) for k in _POSITIVE)
             and p["VT_B_TRANS_DUR"] <= profile.transition.timeout_s
             and len(self.phase_time_s) == len(_PHASES)

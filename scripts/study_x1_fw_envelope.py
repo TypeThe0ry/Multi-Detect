@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from dataclasses import asdict
 from functools import cache
 import gzip
 from hashlib import sha256
@@ -17,6 +18,8 @@ import numpy as np
 from multidetect.autonomy.x1_mission import _terrain_bounds
 from multidetect.terrain_dem import load_local_dem_grid
 from scripts.analyze_px4_ulog import MAGIC, _field_parts, _type_info
+from scripts.analyze_x1_fw_rtl_probe import META, MATRIX_SCHEMA, matrix_coverage, validate_matrix
+from multidetect.autonomy.serialization import canonical_sha256
 
 PHASES = ('fw_climb', 'fw_connector', 'fw_descent', 'fw_to_land', 'transition', 'mc', 'landing')
 REF = Path('/data/scratch/cx-wc-sampling')
@@ -459,11 +462,107 @@ def integrate(out):
         writer.writeheader()
         writer.writerows(records)
 
+def study_matrix(out, matrix_root, sidecar_path):
+    """Take v2 observations only, never transfer legacy per-run boxes or claims."""
+    matrix_root = matrix_root.resolve()
+    matrix_file = matrix_root / 'matrix.json'
+    matrix_bytes, sidecar_bytes = matrix_file.read_bytes(), sidecar_path.read_bytes()
+    manifest, sidecar = json.loads(matrix_bytes), json.loads(sidecar_bytes)
+    cells, pins = validate_matrix(manifest)
+    if (any(manifest.get(k) != v or sidecar.get(k) != v for k, v in META.items())
+            or sidecar.get('matrix_schema') != MATRIX_SCHEMA
+            or sidecar.get('matrix_sha256') != sha256(matrix_bytes).hexdigest()
+            or sidecar.get('scope') != canonical_sha256(manifest)):
+        raise ValueError('sidecar belongs to a different capture matrix')
+    observations = sidecar['observations']
+    by_id = {cell.id: cell for cell in cells}
+    reflight = sidecar['reflight_cells']
+    if (not (observations.keys() | reflight.keys()) <= by_id.keys() or observations.keys() & reflight.keys()
+            or sidecar['coverage'] != matrix_coverage(cells, list(observations.values()))):
+        raise ValueError('inconsistent sidecar coverage or re-flight list')
+
+    # Reuse only prior surveyed site assumptions, not any old flight samples.
+    old = read(ANALYSIS / 'x1-fw-sidecar-proof-30.json')
+    dem_path, dem_hash = next((k, v) for k, v in old['source_paths'].items() if k.endswith('.dem.json'))
+    dem = load_local_dem_grid(dem_path)
+    if dem.source_sha256 != dem_hash or dem_hash != manifest['inputs']['dem_sha256']:
+        raise ValueError('study DEM differs from the matrix')
+    rows = {}
+    for run_id, run in observations.items():
+        cell = by_id[run_id]
+        evidence = run['evidence']
+        ulog = Path(evidence['ulog']).resolve()
+        if (run['run_id'] != run_id or run['cell'] != asdict(cell)
+                or not ulog.is_relative_to((matrix_root / run_id).resolve())
+                or run['params']['RTL_RETURN_ALT'] != pins[run_id]['RTL_RETURN_ALT']):
+            raise ValueError(f'{run_id}: inconsistent cell, ULog or return altitude')
+        raw = ulog.read_bytes()
+        if sha256(raw).hexdigest() != evidence['ulog_sha256']:
+            raise ValueError(f'{run_id}: ULog hash mismatch')
+        starts = run['phase_starts_us']
+        if len(starts) != 8 or starts[0] >= starts[-1] or any(a > b for a, b in zip(starts, starts[1:])):
+            raise ValueError(f'{run_id}: invalid phase times')
+        topics, dropouts = read_positions(raw, starts[0], starts[-1])
+        if dropouts:
+            raise ValueError(f'{run_id}: ULog dropout in sidecar observation; re-flight required')
+        points = np.array([(t, *dem.local_from_wgs84(lat, lon), z)
+                           for t, lat, lon, z, dead in topics['vehicle_global_position'] if not dead])
+        if not points.size or not np.isfinite(points).all():
+            raise ValueError(f'{run_id}: no finite position observations')
+        legs = {}
+        for phase, begin, end in zip(PHASES, starts[:-1], starts[1:], strict=True):
+            if begin == end:
+                legs[phase] = dict(samples=0, max_gap_s=0., duration_s=0.)
+                continue
+            samples, trace = phase_trace(points, begin, end)
+            gap = float(np.diff(trace[:, 0]).max()) / 1e6
+            if gap > .35:
+                raise ValueError(f'{run_id}: trace has telemetry gap in {phase}: {gap}')
+            measured = (sample_extrema(samples[:, 1:], dem, old['corridor'], old['dem_error'], old['mission_radius'])
+                        if len(samples) else {})
+            legs[phase] = dict(measured, samples=len(samples), max_gap_s=gap, duration_s=(end-begin)/1e6)
+        rows[run_id] = {'family': cell.family, 'return_alt_m_above_home': cell.return_alt,
+                        'climb_orbit': run['climb_orbit'], 'airspeed_mps': run['airspeed_mps'], 'leg': legs}
+    result = {
+        'basis': 'SIM_DIAGNOSTIC_ONLY', 'matrix_sha256': sidecar['matrix_sha256'],
+        'sidecar_sha256': sha256(sidecar_bytes).hexdigest(), 'analysis_status': sidecar['status'],
+        'coverage': sidecar['coverage'], 'reflight_cells': reflight, 'refusals': sidecar['refusals'],
+        'core': {k: r for k, r in rows.items() if r['family'] == 'core'},
+        'climb': {k: r for k, r in rows.items() if r['family'] == 'climb'},
+        'alternate_loiter': {k: r for k, r in rows.items() if r['family'] == 'alternate-loiter'},
+        'case_c_measured': {'registration_verified': False,
+                            'rows': {k: r for k, r in rows.items() if r['family'] == 'case-c'}},
+        'case_c_archived_counterfactual': {'scope': old['case_c_scope'], 'measured_rtl': False,
+                                           'note': 'Historical comparison only; not pooled with v2 runs.'},
+    }
+    out.mkdir(parents=True, exist_ok=True)
+    save(out / 'x1-fw-envelope-results.json', result)
+    records = [dict(run_id=k, family=r['family'], phase=phase, **leg)
+               for k, r in rows.items() for phase, leg in r['leg'].items()]
+    with (out / 'x1-fw-envelope-per-cell.csv').open('w', newline='') as stream:
+        fields = list(dict.fromkeys(['run_id', 'family', 'phase', *(k for rec in records for k in rec)]))
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(records)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('out', type=Path)
-    parser.add_argument('--extract', action='store_true')
+    parser.add_argument('--extract', action='store_true', help='extract the archived 32-cell diagnostic')
+    parser.add_argument('--matrix', type=Path, help='matrix.v2 root; requires --sidecar')
+    parser.add_argument('--sidecar', type=Path, help='analyzer validation.json for --matrix')
     args = parser.parse_args()
+    if args.matrix is not None or args.sidecar is not None:
+        if args.matrix is None or args.sidecar is None or args.extract:
+            parser.error('--matrix and --sidecar must be supplied together, without --extract')
+        try:
+            result = study_matrix(args.out, args.matrix, args.sidecar)
+        except (OSError, ValueError, KeyError, TypeError, struct.error) as exc:
+            parser.exit(2, f'FW envelope study: {exc}\n')
+        print(f"Wrote v2 diagnostic for {result['coverage']['planned_cells']} planned cells; no proof registered.")
+        return
     if args.extract:
         extract(args.out)
     integrate(args.out)

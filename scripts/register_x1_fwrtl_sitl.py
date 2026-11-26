@@ -16,6 +16,7 @@ from scripts.run_simulator_docker import SIM_STARTUP_PATCHES, CONTAINER_WORLD, P
 from scripts.run_x1_autonomy_demo import PROFILE, assumptions
 from multidetect.autonomy.serialization import strict_json_loads
 from multidetect.sim_teacher.x1_fw_native_rtl import FwRtlBounds, PX4_RTL_COMMIT, _REQUIRED, _POSITIVE
+from multidetect.sim_teacher.x1_native_handoff import IOWA_FW_AIRSPEED_PARAMETERS
 from multidetect.autonomy.airframe_profile import load_airframe_profile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,6 +108,7 @@ while IFS= read -r file; do sha256sum "$file"; done < /tmp/files
             "px4_binary_sha256": _read_only(image, "sha256sum /opt/px4-gazebo/bin/px4").split()[0],
             "image_inspect": candidate, "inherited_runtime": runtime.splitlines(),
             "airframe_sha256": airframe.splitlines(), "compiled_defaults": {k: defaults[k] for k in sorted(keys)},
+            "fw_airspeed_parameters": dict(IOWA_FW_AIRSPEED_PARAMETERS),
             "startup_prefix_checked": True, "prearm_readback": False}
 
 
@@ -116,14 +118,12 @@ def register(mode, manifest, output_dir):
     bounds = FwRtlBounds.from_host_manifest(strict_json_loads(raw.decode(), name=str(manifest)))
     validation = manifest.with_suffix(".validation.json").read_bytes()
     assessment = strict_json_loads(validation.decode(), name="FW RTL validation")
-    expected_assess = {"basis": "ASSUMED_SIM", "status": "reviewed", "scope": bounds.scope,
-                       "image_id": bounds.image_id, "px4_commit": PX4_RTL_COMMIT}
     pins = assumptions.generate(mode=mode, world=assumptions.WORLD, image=assumptions.IMAGE,
                                 profile_path=PROFILE)["px4_native_parameters"]["value"]
-    if (not isinstance(assessment, dict) or any(assessment.get(k) != v for k, v in expected_assess.items())
-            or hashlib.sha256(validation).hexdigest() != bounds.validation_sha256
+    if (hashlib.sha256(validation).hexdigest() != bounds.validation_sha256
             or bounds.scope not in {*assumptions.scopes_for("wind_step"), *assumptions.scopes_for("target_found")}
             or not bounds.valid_for(bounds.scope, load_airframe_profile(PROFILE))
+            or not bounds.matches_validation(assessment)
             or any(bounds.params[k] != value for k, value in pins.items())):
         raise ValueError("FW RTL needs a separately reviewed ASSUMED_SIM manifest and matching validation")
     verify(mode, bounds.image_id)

@@ -30,8 +30,19 @@ PARAMS = {**probe._REQUIRED, "RTL_RETURN_ALT": 60, "RTL_LOITER_RAD": 80,
           "NAV_LOITER_RAD": 80, "VT_B_TRANS_DUR": 2, "VT_B_DEC_MSS": 2, "FW_R_LIM": 35}
 FIXTURES = Path(__file__).with_name("fixtures")
 INPUTS = {"world_sha256": demo.assumptions.WORLD_SHA, "dem_sha256": demo.assumptions.DEM_SHA,
-          "airframe_sha256": probe.digest(demo.PROFILE), "wind_toward_deg": 0}
-CELLS = probe.matrix([30, 39, 48, 57], [0, 4], [600, 1800], [85, 95], 1)
+          "airframe_sha256": probe.digest(demo.PROFILE), "wind_toward_deg": 0,
+          "case_c_schedule_sha256": probe.CASE_C_SCHEDULE_SHA256}
+ALL_CELLS = probe.matrix([30, 39, 48, 57], [0, 4], [600, 1800], [85, 95], 1)
+CELLS = [c for c in ALL_CELLS if c.family == "core"]
+CASE_C_SCHEDULE_BYTES = b'{\n "schema": "x1.contingency.faults.v1",\n "faults": [\n  {\n   "at_ms": 21000,\n   "duration_ms": 9500,\n   "type": "wind_step",\n   "values": {\n    "north_mps": 8,\n    "east_mps": -4,\n    "down_mps": 0,\n    "ramp_ms": 4000\n   }\n  }\n ]\n}'
+
+
+def _matrix_manifest(cells=ALL_CELLS):
+    return {**analysis.META, "schema": probe.MATRIX_SCHEMA, "inputs": INPUTS,
+            "cells": [asdict(c) for c in cells], "coverage_minimum_replicates": probe.COVERAGE_MINIMUM_REPLICATES,
+            "case_c_schedule": analysis.CASE_C_SCHEDULE,
+            "cell_parameter_pins": {c.id: probe._exact_pins(c) for c in cells}}
+
 SCALAR = {int: ("int32_t", "i"), float: ("double", "d")}
 
 
@@ -165,17 +176,23 @@ def _ulog(topics, params):
 
 def _fixture(cell, *, descend_m=73, current=12, clock_error=0, invalid_state=False, tracking_outlier=0,
              idle_before_land_us=None, idle_command=0):
-    cell_index = CELLS.index(cell)
+    cell_index = ALL_CELLS.index(cell)
     entry = 225_000_000 + 20_000_000 * cell_index
     rtl, land, disarm = entry + 100_000, entry + 9_000_000, entry + 10_000_000
     elevation = 385 + (cell.cruise_agl_m - 85)
     lat0, lon0 = 42.0, -93.0
     hold = {"centre": [320, 0, elevation], "lat_lon": [42.0032, lon0], "radius_m": 80,
             "speed_mps": 15, "padding_alt_m": 12, "padding_ne_m": 120}
+    alternate = cell.family == "alternate-loiter"
+    climbing = alternate or cell.family == "climb"
     start = [240, 0, elevation]
+    return_z = 300 + cell.return_alt if climbing else elevation
     meta = {**analysis.META, "run_id": cell.id, "cell": asdict(cell), "hold": hold, "pad": [0, 0, 300],
-            "inputs": INPUTS, "dem": "unused", "scenario": demo.assumptions.WORLD}
-    params = {**PARAMS, "RTL_DESCEND_ALT": descend_m, "SIM_BAT_DRAIN": 1800, "SIM_BAT_MIN_PCT": 50,
+            "inputs": INPUTS, "dem": "unused", "scenario": demo.assumptions.WORLD,
+            "parameter_pins": probe._exact_pins(cell)}
+    if cell.family == "case-c":
+        meta["case_c_schedule"] = analysis.CASE_C_SCHEDULE
+    params = {**PARAMS, "RTL_RETURN_ALT": cell.return_alt, "RTL_DESCEND_ALT": descend_m, "SIM_BAT_DRAIN": 1800, "SIM_BAT_MIN_PCT": 50,
               "SIM_BAT1_DRAIN": cell.drain_s, "SIM_BAT1_MIN_PCT": 50}
     readback = dict(verified=True, observed_px4_commits=[probe.PX4_RTL_COMMIT], observed_parameters=params, basis=probe.BASIS)
 
@@ -190,18 +207,35 @@ def _fixture(cell, *, descend_m=73, current=12, clock_error=0, invalid_state=Fal
            marker("scenario_fw_rtl_readback", receive_monotonic_ns=2000, **readback),
            clock("HEARTBEAT", 3000, base_mode=29),
            clock("LOCAL_POSITION_NED", 4000, time_boot_ms=entry // 1000 - 190),
-           marker("fw_rtl_probe_hold_request"),
+           marker("fw_rtl_probe_hold_request", boot_ms=hold_ms - 1000, position=start),
            marker("scenario_native_command", action="loiter", command=34, ack_result=0, mode_before=[6, 0],
                   params=[80, 15, 0, 0, *hold["lat_lon"], elevation]),
            marker("scenario_native_handoff", action="loiter", command=34, status="confirmed", observed_mode=[4, 3]),
            marker("fw_rtl_probe_hold_confirmed", boot_ms=hold_ms)]
+    if alternate:
+        mav = mav[:-4]
+    if cell.family == "case-c":
+        origin = hold_ms - 26440
+        wind_applied = {"target_enu_mps": [-4, 8, 0], "baseline_enu_mps": [0, 0, 0],
+                        "ramp_ms": 4000, "readback": "publish_only", "enu_mps": [0, 0, 0]}
+        wind_fields = {"fault": "wind_step", "fault_index": 0, "values": analysis.CASE_C_WIND,
+                       "origin_boot_ms": origin, "applied": wind_applied}
+        mav += [marker("scenario_clock_started", origin_boot_ms=origin),
+                marker("scenario_injected", scheduled_offset_ms=21000, observed_boot_ms=origin + 21000, **wind_fields),
+                marker("scenario_restored", scheduled_offset_ms=30500, observed_boot_ms=origin + 30500,
+                       reason="window_end", **wind_fields)]
+        mav.extend(marker("fw_rtl_probe_wind_publish", boot_ms=origin + t, fraction=f, readback="publish_only",
+                          enu_mps=[-4*f, 8*f, 0])
+                   for t, f in ((21000, 0), (23000, 0.5), (25000, 1), (28500, 0.5)))
     if cell.wind_mps:
         for offset, fraction in ((0, 0), (2000, 0.5), (4000, 1)):
             mav.append(marker("fw_rtl_probe_wind_publish", boot_ms=hold_ms + offset, enu_mps=[0, fraction * cell.wind_mps, 0],
                               fraction=fraction, readback="publish_only"))
     mav += [marker("fw_rtl_probe_dispatch", boot_ms=entry // 1000 + clock_error, clock_ms=entry // 1000,
-                   hold_boot_ms=hold_ms, position=start, motion_proof=False, basis=probe.BASIS),
-            marker("scenario_native_command", action="return", command=20, ack_result=0, mode_before=[4, 3], params=[0] * 7),
+                   hold_boot_ms=None if alternate else hold_ms, position=start, motion_proof=False,
+                   basis=probe.BASIS, family=cell.family),
+            marker("scenario_native_command", action="return", command=20, ack_result=0,
+                   mode_before=[6, 0] if alternate else [4, 3], params=[0] * 7),
             marker("scenario_native_handoff", action="return", command=20, status="confirmed", observed_mode=[4, 5]),
             marker("fw_rtl_probe_disarmed", boot_ms=disarm // 1000, **readback),
             marker("collector_landing_complete", disarmed=True)]
@@ -212,11 +246,15 @@ def _fixture(cell, *, descend_m=73, current=12, clock_error=0, invalid_state=Fal
         return {"timestamp": at, **values}
 
     nav = []
-    for state, delta in ((2, 100_000), (3, 2_000_000), (4, 2_500_000), (5, 3_000_000),
+    if climbing:
+        nav.append(stamped(entry + 110_000, sequence_current=0, nav_cmd=31,
+                           latitude=lat0 + (240 if alternate else 320) / 100_000, longitude=lon0,
+                           altitude=return_z, loiter_radius=80, altitude_is_relative=0))
+    for state, delta in ((2, 500_000 if climbing else 100_000), (3, 2_000_000), (4, 2_500_000), (5, 3_000_000),
                          (6, 4_000_000), (7, 7_000_000), (8, 8_000_000)):
         nav.append(stamped(entry + delta, sequence_current=1 if invalid_state and state == 3 else state,
                            nav_cmd=3000 if state == 6 else 16, latitude=lat0, longitude=lon0,
-                           altitude=elevation if state == 2 else 300 if state == 8 else 300 + descend_m,
+                           altitude=return_z if state == 2 else 300 if state == 8 else 300 + descend_m,
                            loiter_radius=80, altitude_is_relative=0))
     if idle_before_land_us is not None:
         nav.append({**nav[-1], "timestamp": land - idle_before_land_us, "sequence_current": 9, "nav_cmd": idle_command})
@@ -260,14 +298,16 @@ def _run(cell, **kwargs):
 def test_analyze_serialized_matrix_writes_exact_bound(tmp_path, monkeypatch, current):
     root = tmp_path / "matrix"
     root.mkdir()
-    probe.json_file(root / "matrix.json", {**analysis.META, "inputs": INPUTS, "cells": [asdict(c) for c in CELLS]})
+    probe.json_file(root / "matrix.json", _matrix_manifest())
     monkeypatch.setattr(analysis, "load_local_dem_grid", lambda _: FlatTerrain())
-    for cell in CELLS:
+    for cell in ALL_CELLS:
         meta, mav, raw = _fixture(cell, current=current)
         run_dir = root / cell.id
         episode = run_dir / "evidence"
         (episode / "container-evidence").mkdir(parents=True)
         probe.json_file(run_dir / "probe.json", meta)
+        if cell.family == "case-c":
+            (run_dir / "wind.json").write_bytes(CASE_C_SCHEDULE_BYTES)
         probe.json_file(run_dir / "episode.json", {"episode": "evidence"})
         probe.json_file(episode / "episode.json", {"status": "complete", "simulator_image": probe.IMAGE, "px4_profile": "main"})
         probe.json_file(episode / "container-evidence/index.json", {"ulog_files": ["container-evidence/flight.ulg"]})
@@ -282,7 +322,17 @@ def test_analyze_serialized_matrix_writes_exact_bound(tmp_path, monkeypatch, cur
     assert bound.valid_for(report["scope"], analysis.load_airframe_profile(demo.PROFILE))
     assert report["status"] == "reviewed" and report["basis"] == "ASSUMED_SIM"
     assert bound.validation_sha256 == probe.digest(sidecar)
-    assert bound.params["RTL_DESCEND_ALT"] == 73
+    assert bound.params["RTL_DESCEND_ALT"] == 73 and bound.params["RTL_RETURN_ALT"] == 60
+    assert report["fw_airspeed_parameters"] == {"FW_AIRSPD_MIN": 12, "FW_AIRSPD_TRIM": 15, "FW_AIRSPD_MAX": 18}
+    assert all(bound.params[k] == v for k, v in report["fw_airspeed_parameters"].items())
+    assert report["coverage"]["planned_cells"] == 38
+    assert report["coverage"]["estimated_minutes_no_retries"] == 236
+    for name, expected_branch in (("climb", "established_hold"), ("alternate-loiter", "activation_point")):
+        branch = report["coverage"]["families"][name]
+        assert len(branch["admitted_cells"]) == branch["minimum_replicates"] == 2
+        assert {report["observations"][ident]["climb_orbit"] for ident in branch["admitted_cells"]} == {expected_branch}
+    assert len(report["case_c_measured"]["run_ids"]) == 2
+    assert report["case_c_measured"]["registration_verified"] is False
     assert bound.fw_peak_power_w == (216 if current > 0 else 344)
     assert bound.hover_peak_power_w == (216 if current > 0 else 750)
     derivations = report["derivations"]
@@ -315,7 +365,7 @@ def test_analyze_serialized_matrix_writes_exact_bound(tmp_path, monkeypatch, cur
     assert analysis.analyze(partial_root, partial_out, "probe", allow_partial=True) == 2
     partial = demo.read_object(partial_out / "probe.validation.json")
     assert list(partial["observations"]) == [CELLS[0].id]
-    assert partial["skipped_unflown_cells"] == [c.id for c in CELLS[1:]]
+    assert partial["skipped_unflown_cells"] == [c.id for c in ALL_CELLS[1:]]
     assert not (partial_out / "probe.json").exists()
 
 
@@ -388,7 +438,7 @@ def test_refuses_missing_runs():
 def test_analysis_reports_missing_ulog_and_allows_partial_cells(tmp_path, monkeypatch, missing):
     root = tmp_path / "matrix"
     root.mkdir()
-    probe.json_file(root / "matrix.json", {**analysis.META, "inputs": INPUTS, "cells": [asdict(c) for c in CELLS]})
+    probe.json_file(root / "matrix.json", _matrix_manifest())
     monkeypatch.setattr(analysis, "load_local_dem_grid", lambda _: FlatTerrain())
     cell = CELLS[0]
     meta, _, _ = _fixture(cell)
@@ -412,7 +462,7 @@ def test_analysis_reports_missing_ulog_and_allows_partial_cells(tmp_path, monkey
     assert analysis.analyze(root, strict_output, "probe") == 2
     strict = demo.read_object(strict_output / "probe.validation.json")
     assert strict["refusals"][0] == f"{cell.id}: ulog_missing"
-    assert strict["refusals"][1:-1] == [f"{c.id}: probe_missing" for c in CELLS[1:]]
+    assert strict["refusals"][1:-1] == [f"{c.id}: probe_missing" for c in ALL_CELLS[1:]]
     assert not (strict_output / "probe.json").exists()
 
     partial_output = tmp_path / "partial"
@@ -421,7 +471,7 @@ def test_analysis_reports_missing_ulog_and_allows_partial_cells(tmp_path, monkey
     partial = demo.read_object(partial_output / "probe.validation.json")
     assert partial["refusals"] == [f"{cell.id}: ulog_missing", f"{CELLS[1].id}: probe_missing",
                                    strict["refusals"][-1]]
-    assert partial["skipped_unflown_cells"] == [c.id for c in CELLS[2:]]
+    assert partial["skipped_unflown_cells"] == [c.id for c in ALL_CELLS[2:]]
     assert partial["status"] == "refused" and not (partial_output / "probe.json").exists()
 
 
@@ -483,7 +533,11 @@ def test_prearm_settings_pin_descend_alt_and_reject_legacy_readback():
     cell = CELLS[0]
     params, settings = probe._probe_parameters(cell)
     assert params["RTL_DESCEND_ALT"] == 73 and dict(settings)["RTL_DESCEND_ALT"] == "73"
-    assert "RTL_RETURN_ALT" not in dict(settings)
+    assert dict(settings)["RTL_RETURN_ALT"] == "60"
+    assert {k: float(dict(settings)[k]) for k in ("FW_AIRSPD_MIN", "FW_AIRSPD_TRIM", "FW_AIRSPD_MAX")} == {
+        "FW_AIRSPD_MIN": 12, "FW_AIRSPD_TRIM": 15, "FW_AIRSPD_MAX": 18,
+    }
+    assert {c.return_alt for c in ALL_CELLS if c.family in {"climb", "alternate-loiter"}} == {100}
     instance = object.__new__(probe._Probe)
     instance.params = params
     instance.transport = SimpleNamespace(command=lambda *_: f"PX4 git-hash: {probe.PX4_RTL_COMMIT}\n")
@@ -491,7 +545,7 @@ def test_prearm_settings_pin_descend_alt_and_reject_legacy_readback():
         actual = {**PARAMS, **{k: v for k, v in params.items() if v is not None}, "RTL_DESCEND_ALT": altitude}
         instance.transport._get_param = actual.__getitem__
         assert instance._readback()["verified"] is expected
-    with pytest.raises(ValueError, match="RTL_DESCEND_ALT readback 30 differs from prearm pin 73 m"):
+    with pytest.raises(ValueError, match="parameter readback does not match pin: RTL_DESCEND_ALT"):
         _run(cell, descend_m=30)
 
 
@@ -548,24 +602,97 @@ def test_probe_matrix_resume_preserves_completed_cells(tmp_path, monkeypatch):
     receipt = tmp_path / "receipt.json"
     probe.json_file(receipt, {**analysis.META, "status": "static_verified"})
     monkeypatch.setattr(probe, "_prepare", lambda *_: (None, None, None, None, {}))
-    args = SimpleNamespace(mode="sim", offsets_s=[30, 39, 48, 57], winds_mps=[0, 4], drains_s=[600, 1800],
-                           altitudes_agl_m=[85, 95], repeats=1, wind_toward_deg=0, output=output,
-                           prepare_only=False, resume=False, cell=CELLS[0].id, image_check=receipt,
-                           mission_package=source, recorded_plan=source, wind_plugin=source)
+    args = _retry_args(source, output, receipt)
     started = []
 
     def fake_launch(_args, _plan, _steps, _mission, _probe, out):
         started.append(out.name)
         episode = out / "finished"
         episode.mkdir()
-        probe.json_file(episode / "episode.json", {"status": "complete"})
-        return episode
+        return _finished_capture(episode)
 
     probe.run(args, launch=fake_launch)
     assert started == [CELLS[0].id]
     args.resume, args.cell = True, None
     probe.run(args, launch=fake_launch)
-    assert started == [cell.id for cell in CELLS]
+    assert started == [cell.id for cell in ALL_CELLS]
     args.wind_toward_deg = 1
     with pytest.raises(ValueError, match="identical matrix"):
         probe.run(args, launch=lambda *_: pytest.fail("launcher was called"))
+
+
+def _retry_args(source, output, receipt, **extra):
+    # The fixture carries the byte-exact archived schedule, not a fake digest.
+    schedule = source.with_name("faults-fw-wind.json")
+    schedule.write_bytes(CASE_C_SCHEDULE_BYTES)
+    values = dict(mode="sim", offsets_s=[30, 39, 48, 57], winds_mps=[0, 4], drains_s=[600, 1800],
+                  altitudes_agl_m=[85, 95], repeats=1, wind_toward_deg=0, output=output,
+                  prepare_only=False, resume=False, cell=CELLS[0].id, image_check=receipt,
+                  mission_package=source, recorded_plan=source, wind_plugin=source, case_c_schedule=schedule,
+                  max_attempts=1, retry_delay_s=0)
+    return SimpleNamespace(**(values | extra))
+
+
+def _finished_capture(episode, *, dropout=False):
+    capture = episode / "container-evidence"
+    capture.mkdir(exist_ok=True)
+    probe.json_file(episode / "episode.json", {"status": "complete"})
+    probe.json_file(capture / "index.json", {"ulog_files": ["container-evidence/flight.ulg"]})
+    data = MAGIC + b"\x01" + b"\x00" * 8
+    if dropout:
+        data += _frame("O", struct.pack("<H", 47))
+    (capture / "flight.ulg").write_bytes(data)
+    return episode
+
+
+def test_retry_preserves_incomplete_cell_admission_block_and_dropout(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.write_text("input")
+    output = tmp_path / "matrix"
+    receipt = tmp_path / "receipt.json"
+    probe.json_file(receipt, {**analysis.META, "status": "static_verified"})
+    monkeypatch.setattr(demo, "load_site", lambda *_: SimpleNamespace(world_sha256=demo.assumptions.WORLD_SHA,
+                                                                      terrain=FlatTerrain()))
+    monkeypatch.setattr(probe, "_prepare", lambda *_: (None, None, None, None, {}))
+    args = _retry_args(source, output, receipt)
+    with pytest.raises(ValueError, match="host one-minute load"):
+        probe.run(args, launch=lambda *_: (_ for _ in ()).throw(ValueError("host one-minute load blocked")))
+    args.resume, args.max_attempts = True, 4
+    triggered = []
+
+    def launch(_args, _plan, _steps, _mission, _probe, out):
+        triggered.append(out)
+        if len(triggered) == 1:
+            raise RuntimeError("x1_gpu_unavailable")
+        (out / "episode").mkdir()
+        return _finished_capture(out / "episode", dropout=(len(triggered) <= 2))
+
+    probe.run(args, launch=launch)
+    assert len(triggered) == 3
+    archive = output / "failed-evidence"
+    attempts = [demo.read_object(archive / f"{args.cell}.try{i:02}" / "probe-reflight.json") for i in (1, 2, 3)]
+    assert [a["attempt"] for a in attempts] == [1, 2, 3]
+    assert all(a["status"] == "reflight_required" for a in attempts)
+    assert "missing or unreadable episode pointer" in attempts[0]["reason"]
+    assert "x1_gpu_unavailable" in attempts[1]["reason"]
+    assert "47 ms" in attempts[2]["reason"]
+    assert (archive / f"{args.cell}.try03/episode/container-evidence/flight.ulg").is_file()
+    probe.run(args, launch=lambda *_: pytest.fail("clean cell was relaunched"))
+
+
+def test_retry_budget_survives_resume(tmp_path, monkeypatch):
+    monkeypatch.setattr(probe, "_prepare", lambda *_: (None, None, None, None, {}))
+    cell = CELLS[0]
+    args = SimpleNamespace(output=tmp_path, prepare_only=False, max_attempts=2, retry_delay_s=0)
+    out = tmp_path / cell.id
+    hits = []
+
+    def launch(_args, _plan, _steps, _mission, _probe, out):
+        hits.append(out)
+        raise probe.RetryableCell("transient")
+
+    for _ in range(2):
+        with pytest.raises(probe.AttemptsExhausted, match="exhausted 2 attempts"):
+            probe._run_cell(args, cell, out, None, {}, launch)
+    assert len(hits) == 2 and not out.exists()
+    assert sorted(p.name for p in (tmp_path / "failed-evidence").iterdir()) == [f"{cell.id}.try01", f"{cell.id}.try02"]
