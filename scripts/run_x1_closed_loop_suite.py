@@ -123,6 +123,8 @@ class Server:
     def __enter__(self):
         port = self.args.port
         with socket.socket() as sock:
+            # A previous suite's connections may linger in TIME_WAIT; a live listener still fails the bind.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("127.0.0.1", port))
         cuda = self.args.cuda_device
         env = dict(os.environ, CUDA_VISIBLE_DEVICES="" if cuda is None else str(cuda))
