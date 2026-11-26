@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections import deque
+from collections import Counter, deque
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
@@ -25,6 +25,11 @@ from multidetect.autonomy.x1_contingency_state import X1StateBuilder
 from multidetect.autonomy.x1_perception_tools import TOOL_SCHEMA, ToolProtocolError
 
 from .x1_scenario_observation import injected_target_reading
+
+QUIET_CADENCE_FLIGHT_STATE_REASONS = frozenset({
+    "px4_owns_or_flight_state_unknown",
+    "flight_mode_or_position_unverified",
+})
 
 
 def llama_decisions(port, sentence):
@@ -176,6 +181,7 @@ class DecisionTick:
         self.recorded_cadence_followup = recorded_cadence_followup
         self.last_followup_event = 0
         self.recent_receipts = deque(maxlen=4)
+        self.quiet_cadence_rejected_continue = Counter()
         self.last_admission = None
         self.installed_retask = None
 
@@ -366,6 +372,10 @@ class DecisionTick:
         receipt = {"request_id": request["request_id"], "event_id": request["event_id"],
                    "trigger": request.get("trigger", "event"), **asdict(admission)}
         self.recent_receipts.append(receipt)
+        if (request.get("trigger") == "cadence" and admission.action == "continue"
+                and admission.status == "rejected" and admission.reason in QUIET_CADENCE_FLIGHT_STATE_REASONS):
+            self.quiet_cadence_rejected_continue[admission.reason] += 1
+            return
         progress = request.get("mission_progress")
         if progress is not None:
             trace.update(phase=progress["phase"], step_index=progress["step_index"])
@@ -375,6 +385,10 @@ class DecisionTick:
         if self.pending is not None:
             request, _, _, _ = self.pending
             self._finish(request, self.now_ms(), Admission("rejected", "collector_exit"))
+        if self.quiet_cadence_rejected_continue:
+            self._mark("cadence_summary",
+                       quiet_continue_rejected_count=sum(self.quiet_cadence_rejected_continue.values()),
+                       by_reason=dict(self.quiet_cadence_rejected_continue))
         self.pool.shutdown(wait=False, cancel_futures=True)
 
 

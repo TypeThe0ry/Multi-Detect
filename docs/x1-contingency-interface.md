@@ -205,7 +205,7 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 
 ## 持续决策循环（continuous decision loop）
 
-`run_x1_autonomy_demo.py --decision-port PORT --decision-cadence-s SECONDS` 可在无注入故障的任务上启用节拍，也可与 `--contingency-scenario` 一起使用。默认 `0`，只在原事件入口请求 Altair。启用后，collector 在起飞、转场、巡航、回家进近、降落及原生接管等待中轮询；只有收到已武装并处于飞行、起飞或降落状态的 PX4 遥测才发起节拍请求。稳态巡航间隔为 `max(1, SECONDS)` 主机单调时钟秒，其他阶段为其一半。间隔从最近一次提交计算，真实事件可以越过限频。忙碌期间不积累节拍，也不在恢复时补发。
+`run_x1_autonomy_demo.py --decision-port PORT --decision-cadence-s SECONDS` 可在无注入故障的任务上启用节拍，也可与 `--contingency-scenario` 一起使用。默认 `0`，只在原事件入口请求 Altair。启用后，collector 在各飞行阶段继续轮询；只有同一份 `latest_control_state` 快照经同一单调时钟截点核对后，同时确认 PX4 心跳为 `ACTIVE`、已武装且 `EXTENDED_SYS_STATE.landed_state=2`（`IN_AIR`），才提交节拍请求。`TAKEOFF`、`LANDING` 及飞行状态未知时不提交节拍；执行器仍独立复核。稳态巡航间隔为 `max(1, SECONDS)` 主机单调时钟秒，其他合格阶段为其一半。间隔从最近一次提交计算，真实事件可以越过限频。忙碌期间不积累节拍，也不在恢复时补发。
 
 节拍沿用 `x1.contingency.request.v1` 和同一份 `state`，增加顶层 `trigger: "cadence"` 与 `mission_progress`。事件请求保持原 wire 格式。两类请求共用同一 `request_id` 序列。节拍的 `event_id` 是 `2^52 + 请求序号`，用于满足 v1 回包的正整数关联字段。真实事件 ID 从 `1` 起并保留在 `state.events` 和 `state.latest_event_id` 中。Altair 回显顶层的 `request_id`、`event_id` 及 `state` 的 `mission_id`、`revision`。
 
@@ -223,7 +223,7 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 
 启用感知工具后，工具回合保留同一张节拍票据的 `trigger`、合成 `event_id` 和 `mission_progress`。窗口取原票据截止与工具总预算中较早者。新事件撤票后，正在进行的读取或推理可以结束，旧窗口随后停止，不再开启下一回合或提交动作。后端尚未返回时仍占用唯一调用位置。
 
-节拍仍从同一个执行入口经过 MotionProof、适用的 ASSUMED_SIM 证据和原生接管。缺少生命周期子段或当前位置的受证据约束后缀时，`continue` 可收到拒绝回执，已在执行的航线继续。每次节拍只写一条 `scenario_decision_receipt`，带 `trigger`、IDs、阶段、步骤、结果和 `latency_ms`。延迟是从提交到 collector 处理回复或撤票的主机毫秒数。`continue` 无新指令，回执省略原回包和完整证明。原生动作的接管与读回仍有各自证据记录。
+节拍仍从同一个执行入口经过 MotionProof、适用的 ASSUMED_SIM 证据和原生接管。缺少生命周期子段或当前位置的受证据约束后缀时，`continue` 可收到拒绝回执，已在执行的航线继续。一般节拍写一条 `scenario_decision_receipt`，带 `trigger`、IDs、阶段、步骤、结果和 `latency_ms`。延迟是从提交到 collector 处理回复或撤票的主机毫秒数。`continue` 无新指令，回执省略原回包和完整证明。仅节拍 `continue` 的 `px4_owns_or_flight_state_unknown` 和 `flight_mode_or_position_unverified` 拒绝保留在 `recent_receipts` 而不逐条写日志；结束时在 `scenario_decision_cadence_summary` 按原因计数。净空、空速、事件回执及原生接管证据照常记录。
 
 ## in-flight retask and evidence-driven tasking
 
@@ -238,6 +238,8 @@ Altair 可在巡航期间根据新观测提交完整的 **剩余** `MissionPlan 
 
 等待观测帧后、首条替换指令下发前，再用当时的 PX4 模式、VTOL 状态、新鲜位置和预算对照同一个后缀。若归属或模式变化、缺少证据，或复核失败，记录 `collector_x1_retask_dispatch_blocked`，不下发替换指令，不修复计划，也不回退执行旧路线。换装后不会复用旧路线的运动证明。
 
-`target_found` 在故障窗注入一条带 `fault` 来源的观测，包含类别、机体 FRD 方位和俯仰、WGS84 位置、AMSL 高度及误差上界。观测保留首次取样时间。事件与周期请求均通过 #70 的 `ToolRunner` 读 `look` 和 `target_status`；两者遵循工具调用预算、时限与取消规则。`finding:1` 仅在同一张票据实际读取了匹配的 `target_status`、且边界处仍为同一条新鲜、误差有界的观测时可用。`scenario_observation` 只写入审计日志，不发送给模型。换装后，`route_status` 显示已安装的后缀。
+`target_found` 在故障窗提供一条带 `fault` 来源的合成观测，包含类别、机体 FRD 方位和俯仰、WGS84 位置、AMSL 高度及误差上界。仅在启用 Iowa 空中换装证据范围时，collector 等到 FW 原语执行完毕、下一条原语尚未下发的串行边界才首次取样：仍须在注入窗内，且有不超过 500 ms 的位置、处于 FW 模式，并距原航线出航终点不超过 28 m。该边界也是换装准入点；在前一原语提前取样会让同一条读数在准入前过期。观测保留首次取样时间，不把旧读数改成新时间。边界只短等快速回复，每次回复就绪后用新快照复核；未能在边界获准则不下发替换指令。
+
+事件与周期请求均通过 #70 的 `ToolRunner` 读 `look` 和 `target_status`，票据上限 3000 ms、工具窗口上限 2500 ms、读数年龄上限 1000 ms，均不延长。`finding:1` 仅在同一张票据实际读取了匹配的 `target_status`、且边界处仍为同一条新鲜、误差有界的观测时可用。`scenario_observation` 只写入审计日志，不发送给模型。换装后，`route_status` 显示已安装的后缀。
 
 当前准入范围是固定 Iowa `ASSUMED_SIM` 假设及一次空中替换。假设和运动证明均带范围摘要。`evidence-follow` 在 FW 巡航末段报告原航线外的地面标记，recorded backend 请求接近、盘旋观察、后过渡、返航和降落。周期变体在普通周期和 `target_found` 事件票据上回复 `continue`，在标记后的下一张周期票据提交 `retask`；真实新事件仍可抢占周期票据。验收脚本要求同一修订有 FW 穿越、盘旋持续驻留、MC 过渡、回家稳定及落地的 PX4 遥测。Iowa CPU 预检与 SITL 遥测验收分别运行。命令见 lane 的 `.tmp/x1-live-retask-port-REPORT.md`。
