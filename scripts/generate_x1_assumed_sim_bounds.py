@@ -17,7 +17,8 @@ IMAGE_ID = "sha256:871d3f3ea016a585834ce82e2f55c3116b7bf904940db45cbd7b4155de39c
 WORLD_SHA = "4e09aa4febff6b78568201a94bc4552ac5bbc6420f2c128d0784e1845bb9999c"
 DEM_SHA = "4bb6d4a0d3bf3bd6adaf512af722135bbf99448907161a328326a0d620a97cae"
 PROFILE_SHA = "b3faa1b755017d6269f90ffb919c2fde407cb8d5b941d7b497094419f9aa7266"
-BASE_SHA = "9bb15aa3de6a3937a723430be6e968c9ac38564003616e0ede5630b3a49f4f56"
+# Exact Iowa package plus the canonical, validated launch plan.
+BASE_SHA = "e8f9731e9fe511e6f45c4af5ae0402042640b7d6022285379e8f7f74806e7ce2"
 SCOPES = {
     "target_found": "a0499238a83ee19872d46b592313d1883d0e2df861d8b618c7ebe3fbf44b54bd",
     "battery_drop": "11e617b8bba7fc931fb72070ab6c850d4f81d8f694868b5c7d8496ac7e2c0f61",
@@ -25,6 +26,8 @@ SCOPES = {
     "wind_step": "5500bcd114c41250745dac58ff3d21b45baf4fd53b1ae73b6e436c00c765aff3",
     # configs/simulation/x1-native-handoff-faults-v1.json: link loss inside the MC return.
     "link_loss:mc_return": "bc36ef6a6717a37d857722566464124cc4a93be667c39c4bdd1b16d677d78e95",
+    # Same 17% / 12 s battery fault, at 50 s for the Iowa MC return case.
+    "battery_drop:mc_return": "f09ddb15d724e92b8839cc72d8bf0bb683218664b5a2469d2703b4c871ae032a",
 }
 
 

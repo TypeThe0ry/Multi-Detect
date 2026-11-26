@@ -46,6 +46,19 @@ def test_case_table():
             suite.select_cases(names)
 
 
+@pytest.mark.parametrize("name, fault, end_ms", [
+    ("mc-link-loss", "link_loss", 58000), ("mc-battery-drop", "battery_drop", 62000),
+])
+def test_native_cases_use_mc_return_segment_of_iowa_vtol_route(name, fault, end_ms):
+    from scripts import run_x1_autonomy_demo as demo
+
+    case, = suite.select_cases([name])
+    assert case.phase == "mc" and case.assumed and not case.nominal_mc
+    assert case.sentence == suite.SENTENCE and case.fault == fault
+    scheduled, = demo.load_schedule(suite.ROOT / case.schedule, (fault,))
+    assert (scheduled.at_ms, scheduled.end_ms) == (50000, end_ms)
+
+
 def test_harvest_model_wire_and_missing():
     trace = decision_trace(action="return", receipt="rejected")
     rows, metrics = harvest(trace, case_id="quiet-cadence", attempt=1)

@@ -35,7 +35,11 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" \
 
 `continue` 用例允许执行器因当前 MotionProof 不足而安全拒绝。验收仍要求真实 `continue`、相应回执、无额外执行动作及落地。无故障用例的每个适用 cadence tick 都需要满足决定与回执条件。拒绝会进入失败样本。`return`、`land-now`、`retask` 需要执行器接纳及对应的 PX4 或航线安装证据。
 
-MC nominal 编译器仅供套件的 Iowa SIM 用例使用，保留既有 FW 编译路径。MC cadence 仍受执行器 MotionProof 约束。绑定 native／retask 的 `ASSUMED_SIM` 模板要求模型任务包与任务图完整哈希匹配，并核对运动范围、故障窗口、Iowa 场景和镜像。模型改变任务图元数据也可能触发 `blocked_evidence_scope`。新 MC 电池时间窗需要独立作用域证据才能起飞。`--plan-only` 产出待比较的模型任务、base hash 和运动范围。已知的模板绑定不能通过更换失败样本标签来解决。
+`mc-hover-waypoint-return` 是唯一全程 MC 的用例，使用独立的 nominal-MC 编译器；实跑规划给出 `vtol_takeoff → x1_mc_reposition → return_home`。它不在 `ASSUMED_SIM` 范围内。`mc-link-loss` 与 `mc-battery-drop` 的 `mc` 指故障和决策所在的返航阶段。两者与两个 evidence-follow 用例都向模型提交 `Fly over the yard at 85 m AGL, then return home and land.`；模型给出垂直起飞、切 FW、飞越 `poi:yard`、切回 MC、返航落地的五步计划。失链和电池窗口分别是路由时钟 50–58 s 和 50–62 s，均单独绑定在同一 Iowa 航线上；实飞阶段仍按遥测判定，不以窗口推定模式。
+
+`ASSUMED_SIM` 仍要求完整任务包、任务图、运动范围、故障窗口、插件、Iowa SDF/DEM、机型、镜像和经校验的场地边界匹配。只有模型 `goal` 和步骤命名（包括两条分支引用）被规范化；任务原句、报告、技能、参数、顺序、分支拓扑等仍参与绑定。`result.json` 的 `plan_json` 和 `raw_planner_output` 保留模型原文，`canonical_plan` 记录执行侧图。编译步骤、base hash、运动范围及初始决策请求／审计使用同一份规范化图。Altair 飞行中提交的 retask 本身不经改写。重新运行时应从新预检生成站点绑定，不复用旧 base hash。
+
+`mc-battery-drop` 的 17% 注入只获准进入这个 SITL 试验，**不**代表原生动作会获准。观测门限至多 19%，现有故障 SOC 下界再扣 54 个百分点，因此该样本的能量下界为 0 Wh。执行器不能为了验收改发或放行动作；没有满足原生动作和落地证据时，该用例仍报失败。这次范围修订不改变现有通过条件。
 
 ## 结果
 
