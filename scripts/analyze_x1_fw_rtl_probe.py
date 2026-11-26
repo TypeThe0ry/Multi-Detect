@@ -131,7 +131,7 @@ def mav_witness(rows, cell, meta):
              and math.hypot(*restored["applied"]["enu_mps"]) <= 0.01, "missing baseline wind restore publish")
     else:
         need(not publishes, "unexpected wind publish in calm cell")
-    return params, dispatch, post
+    return arming, dispatch, post
 
 
 class Topic:
@@ -139,7 +139,9 @@ class Topic:
         self.name = name
         self.rows = [r for r in topics.get(name, ()) if not battery or r.get("id") == 1]
         self.stamps = [number(r["timestamp"]) for r in self.rows]
-        need(all(b > a for a, b in zip(self.stamps, self.stamps[1:])), f"non-monotonic {name}")
+        # uORB topics can carry several messages with the same microsecond stamp (internal commands, multiple
+        # writers); this analysis only uses windows and gap checks, so time must not run backwards but may repeat.
+        need(all(b >= a for a, b in zip(self.stamps, self.stamps[1:])), f"time runs backwards in {name}")
 
     def window(self, start, end):
         return self.rows[bisect_left(self.stamps, start):bisect_right(self.stamps, end)]
@@ -197,41 +199,149 @@ def _manifest(scope, params, values, times, validation_hash="0" * 64):
             "phase_time_s": times, **values}
 
 
-def _assert_parameter_log(raw, expected):
-    """Logger writes initial P records before data and emits changed P records thereafter."""
-    initial = {}
-    offset, in_data = 16, False
+def _assert_prearm_readback(rows, readback, arm_us, peer):
+    # The legacy marker has host receive time only. Corroborate it with a later
+    # disarmed heartbeat still bounded by that PX4's LOCAL_POSITION_NED boot clock.
+    stamp = readback.get("receive_monotonic_ns")
+    need(readback.get("verified") is True and type(stamp) is int and stamp > 0,
+         "missing verified pre-arm MAVLink readback or receive timestamp")
+    before_ms = None
+    disarmed_ns = None
+    last_boot_ms = 0
+    for row in rows:
+        if (row.get("_source_system"), row.get("_source_component")) != peer:
+            continue
+        received = row.get("receive_monotonic_ns")
+        if type(received) is not int or received <= 0:
+            continue
+        kind = row.get("message_type")
+        if kind == "HEARTBEAT" and type(row.get("base_mode")) is int:
+            if row["base_mode"] & 128:
+                need(received > stamp, "MAVLink parameter readback at or after ULog arming")
+                break
+            if received > stamp:
+                disarmed_ns = received
+        elif kind == "LOCAL_POSITION_NED":
+            boot_ms = row.get("time_boot_ms")
+            if type(boot_ms) is not int or boot_ms <= 0:
+                continue
+            need(boot_ms >= last_boot_ms, "non-monotonic MAVLink boot clock around parameter readback")
+            last_boot_ms = boot_ms
+            if received <= stamp:
+                need((boot_ms + 1) * 1000 <= arm_us, "MAVLink parameter readback at or after ULog arming")
+                before_ms = boot_ms
+            elif before_ms is not None and disarmed_ns is not None and received > disarmed_ns:
+                if before_ms <= boot_ms and (boot_ms + 1) * 1000 <= arm_us:
+                    return
+                break
+    raise ValueError("cannot establish MAVLink parameter readback before ULog arming")
+
+
+def _assert_parameter_log(raw, mav, readback, status):
+    expected = readback["observed_parameters"]
+    armed_index = next((i for i, row in enumerate(status.rows) if row["arming_state"] == 2), None)
+    need(armed_index is not None and armed_index > 0, "ULog lacks an observed disarmed-to-armed boundary")
+    armed = status.rows[armed_index]
+    armed_sample_us = armed["timestamp"]
+    arm_us = armed.get("armed_time", armed_sample_us)
+    need(type(arm_us) is int and status.stamps[armed_index - 1] < arm_us <= armed_sample_us,
+         "invalid ULog arming timestamp")
+    peer = (armed.get("system_id"), armed.get("component_id"))
+    need(all(type(part) is int and 0 < part <= 255 for part in peer), "missing PX4 arming peer in ULog")
+    _assert_prearm_readback(mav, readback, arm_us, peer)
+
+    # P has no timestamp. Project it onto the boot timeline by record order.
+    # Require a later pre-arm D to establish a P as pre-arm; once any D reaches
+    # arming time, an out-of-order older topic sample cannot reopen that window.
+    initial, defaults, updates, formats, subscriptions = {}, {}, defaultdict(list), {}, {}
+    offset, last_prearm_data, first_arm_data = 16, None, None
+    in_data = found_armed_sample = False
     while offset + 3 <= len(raw):
-        size, kind = struct.unpack_from("<Hc", raw, offset)
-        begin = offset + 3
+        pos = offset
+        size, kind = struct.unpack_from("<Hc", raw, pos)
+        begin = pos + 3
         offset = begin + size
         need(offset <= len(raw), "truncated ULog record")
-        if kind == b"D":
+        if kind == b"F" and not found_armed_sample:
+            name, _, fields = raw[begin:offset].partition(b":")
+            formats[name] = fields.startswith(b"uint64_t timestamp;")
+        elif kind == b"A" and not found_armed_sample and size >= 3:
+            msg_id = struct.unpack_from("<H", raw, begin + 1)[0]
+            name, _, fields = raw[begin + 3:offset].partition(b":")
+            subscriptions[msg_id] = (name, formats.get(name, fields.startswith(b"uint64_t timestamp;")))
+        elif kind == b"R" and not found_armed_sample and size == 2:
+            subscriptions.pop(struct.unpack_from("<H", raw, begin)[0], None)
+        elif kind == b"D":
             in_data = True
-        elif kind == b"P":
-            value_pos = begin + 1 + raw[begin]
-            value_type, _, name = raw[begin + 1:value_pos].decode("ascii").partition(" ")
+            if not found_armed_sample and size >= 10:
+                msg_id, stamp = struct.unpack_from("<HQ", raw, begin)
+                name, timed = subscriptions.get(msg_id, (None, False))
+                if timed:
+                    if first_arm_data is None:
+                        if stamp >= arm_us:
+                            first_arm_data = pos
+                        elif stamp > 0:
+                            last_prearm_data = pos
+                    found_armed_sample = name == b"vehicle_status" and stamp == armed_sample_us
+        elif kind in {b"P", b"Q"}:
+            key_pos = begin + (kind == b"Q")
+            need(key_pos < offset, "invalid ULog parameter record")
+            value_pos = key_pos + 1 + raw[key_pos]
+            need(value_pos <= offset, "invalid ULog parameter key length")
+            value_type, _, name = raw[key_pos + 1:value_pos].decode("ascii").partition(" ")
             if name in expected:
                 need(offset == value_pos + 4 and value_type in {"int32_t", "float"}, "invalid ULog parameter record")
-                value = struct.unpack_from("<i" if value_type == "int32_t" else "<f", raw, value_pos)[0]
-                if in_data:
-                    need(name in initial and value == initial[name], f"tracked parameter changed after log start: {name}")
-                else:
+                value = number(struct.unpack_from("<i" if value_type == "int32_t" else "<f", raw, value_pos)[0])
+                if kind == b"Q":
+                    # Q bit 0 is the system default; bit 1 is the current default.
+                    flags = raw[begin]
+                    need(not in_data and flags in (1, 2, 3), f"invalid ULog parameter default: {name}")
+                    for flag in (1, 2):
+                        if flags & flag:
+                            need((name, flag) not in defaults, f"duplicate ULog parameter default: {name}")
+                            defaults[name, flag] = value
+                elif not in_data:
                     need(name not in initial, f"duplicate initial ULog parameter: {name}")
                     initial[name] = value
-    need(offset == len(raw) and in_data and initial.keys() == expected.keys()
-         and all(math.isclose(initial[k], expected[k], rel_tol=0, abs_tol=1e-6) for k in expected),
-         "ULog initial tracked configuration disagrees with PX4 readback")
+                else:
+                    updates[name].append((pos, value))
+    need(offset == len(raw), "truncated ULog record")
+    need(found_armed_sample and last_prearm_data is not None, "cannot locate ULog arming boundary in data records")
+
+    for name, pinned in expected.items():
+        records = updates.get(name, ())
+        value = initial.get(name)
+        late = []
+        for pos, update in records:
+            if pos < last_prearm_data:
+                value = update
+            else:
+                late.append((pos, update))
+        if value is None:
+            # Q alone is not active configuration. Its value must agree with the
+            # verified pre-arm readback, just like any value from a P record.
+            value = defaults.get((name, 2), defaults.get((name, 1)))
+        need(value is not None, f"tracked parameter never established before arming: {name}")
+        need(math.isclose(value, number(pinned), rel_tol=0, abs_tol=1e-6),
+             f"ULog parameter at arming disagrees with pinned PX4 readback: {name}")
+        for pos, update in late:
+            if pos < first_arm_data:
+                need(update == value, f"tracked parameter change cannot be placed before arming: {name}")
+            else:
+                need(update == value, f"tracked parameter changed at or after arming: {name}")
 
 
 def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
     cell = Cell(**meta["cell"])
-    readback, dispatch, post = mav_witness(mav, cell, meta)
-    _assert_parameter_log(raw_ulog, readback)
-    params = {k: readback[k] for k in (*_REQUIRED, *_POSITIVE)}
+    prearm, dispatch, post = mav_witness(mav, cell, meta)
 
     def topic(name):
         return Topic(topics, name, battery=name == "battery_status")
+
+    vehicle_status = topic("vehicle_status")
+    _assert_parameter_log(raw_ulog, mav, prearm, vehicle_status)
+    readback = prearm["observed_parameters"]
+    params = {k: readback[k] for k in (*_REQUIRED, *_POSITIVE)}
 
     command_sample = number(dispatch["boot_ms"]) * 1000
     post_us = number(post["boot_ms"]) * 1000
@@ -239,7 +349,7 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
               lambda r: r["command"] == 20 and r["from_external"] == 1, "native RTL ULog command")
     sent = rtl["timestamp"]
     need(0 <= sent - command_sample <= 1_000_000, "MAVLink sample-to-native RTL clock mismatch")
-    statuses = topic("vehicle_status").window(sent - 500_000, post_us + 500_000)
+    statuses = vehicle_status.window(sent - 500_000, post_us + 500_000)
     entry = next((r for r in statuses if r["nav_state"] == 5 and r["nav_state_timestamp"] >= sent), None)
     need(entry is not None and entry["arming_state"] == 2 and entry["vehicle_type"] == 2,
          "ULog did not enter armed FW RTL")
@@ -251,12 +361,12 @@ def extract_run(meta, mav, topics, terrain, profile, raw_ulog):
     land = next((r["timestamp"] for r in topic("vehicle_land_detected").window(activation, disarm)
                  if r["landed"] == 1), None)
     need(land is not None and land < disarm, "missing ULog touch-down before disarm")
-    need(any(r["arming_state"] != 2 for r in topic("vehicle_status").rows if r["timestamp"] < sent),
+    need(any(r["arming_state"] != 2 for r in vehicle_status.rows if r["timestamp"] < sent),
          "ULog did not capture prearm configuration")
     need(all(r["arming_state"] == 2 for r in statuses if activation <= r["timestamp"] < land),
          "unexpected intermediate disarm")
     need(all(r["nav_state"] == 5 and not r["failsafe"] for r in
-             topic("vehicle_status").coverage(activation, land, 750_000)), "RTL exited or saw a failsafe before landing")
+             vehicle_status.coverage(activation, land, 750_000)), "RTL exited or saw a failsafe before landing")
     transition = next((r["timestamp"] for r in statuses if activation < r["timestamp"] < land
                        and r["in_transition_mode"] and not r["in_transition_to_fw"]), None)
     hover = next((r["timestamp"] for r in statuses if transition is not None and transition < r["timestamp"] < land
@@ -462,7 +572,7 @@ def evaluate(cells, runs, profile, inputs, errors):
     for key in ("airspeed_mps", "energy_used_wh_from_soc", "transition_altitude_loss_m", "landing_offset_from_home_m",
                 "vtol_transition_observed_s", "input_to_send_s", "landing_entry_speed_mps", "entry_soc", "landing_soc"):
         report.setdefault("metrics_by_run_id", {})[key] = {r["run_id"]: r[key] for r in runs}
-    report["parameter_derivation"] = {k: {"value": v, "run_ids": ids, "source": "initial ULog parameter records plus prearm and post-disarm PX4 readback"}
+    report["parameter_derivation"] = {k: {"value": v, "run_ids": ids, "source": "ULog parameter timeline at arming plus verified prearm and post-disarm PX4 readback"}
                                       for k, v in params.items()}
     if refusals:
         return None, report
