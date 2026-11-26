@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from .airframe_profile import AirframeProfile
 from .mission_package import MissionPackage, check_plan_against_package
 from .mission_plan import MissionPlan, validate_mission_plan
+from .x1_mission import X1PlanError
 from .serialization import canonical_sha256, require_sha256, strict_json_loads
 from .x1_contingency_state import STATE_SCHEMA, require_token
 
@@ -109,6 +110,10 @@ class RuntimeFrame:
     # Same-tick lower bounds, accounting for consumption and mission deadlines.
     remaining_energy_wh: float | None = None
     remaining_time_s: float | None = None
+    retask_boundary: bool | None = None
+    retask_finding_ne: tuple[float, float] | None = None
+    retask_finding_error_m: float | None = None
+    retask_gimbal_ready: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +218,8 @@ class X1Envelope:
             elif any(v is not None for v in (hold.lat_deg, hold.lon_deg, hold.alt_amsl_m, hold.radius_m, hold.tangential_speed_mps)):
                 return "mc_hold_must_be_in_place"
         if action == "retask":
+            if frame.retask_boundary is False:
+                return "retask_requires_step_boundary"
             if package.document["oversight_steps"]:
                 return "retask_oversight_not_supported"
             try:
@@ -234,6 +241,9 @@ class X1Envelope:
             proof.basis != "ASSUMED_SIM" or package.mode != "sim"
         )):
             return "motion_proof_basis_mismatch"
+        if (action == "retask" and frame.retask_boundary is True and proof.geofence_clear is not True
+                and proof.required_energy_wh is not None):
+            return "retask_geofence"
         if (proof.geofence_clear is not True or not _number(proof.obstacle_margin_m, 0)
                 or not _number(proof.terrain_margin_m, 0)):
             return "unverified_clearance"
@@ -242,7 +252,7 @@ class X1Envelope:
             proof.min_transition_agl_m, p.transition.minimum_height_m
         ):
             return "predicted_transition_agl_limit"
-        if action in {"return", "land-now"} and proof.landing_site_clear is not True:
+        if action in {"return", "land-now", "retask"} and proof.landing_site_clear is not True:
             return "landing_site_unverified"
         # An immediate local landing may spend the energy reserve. Powering a
         # return trip must leave it intact, even if that trip ends in landing.
@@ -289,12 +299,13 @@ class X1AirbornePlanAdapter:
         skills = [step.skill for step in steps]
         # No ground lifecycle primitive may re-arm or take off in flight.
         if frame.vtol_state == "fw":
-            work = {"fw_goto_waypoint", "loiter_observe", "gimbal_stare_at", "find_object_then_return"}
+            work = {"fw_goto_waypoint", "loiter_observe", "gimbal_stare_at", "find_object_then_return", "x1_search_leg"}
             if not (2 <= len(steps) <= 6 and skills[-2:] == ["back_transition", "return_home"]
                     and set(skills[:-2]) <= work):
                 return "invalid_fw_retask_suffix"
         elif frame.vtol_state == "mc":
-            if skills != ["return_home"]:
+            if not (1 <= len(skills) <= 6 and skills[-1] == "return_home"
+                    and set(skills[:-1]) <= {"x1_mc_reposition"}):
                 return "invalid_mc_retask_suffix"
         else:
             return "transition_interlock"
@@ -430,6 +441,8 @@ class X1ContingencyExecutor:
                 d, frame, proof, self.package, executor_config=getattr(self.mission, "config", None),
                 check_airborne_plan=getattr(self.mission, "check_airborne_plan", None),
             )
+        except X1PlanError as exc:
+            return Admission("rejected", exc.code, d.action)
         except (ValueError, RuntimeError, OSError):
             return Admission("rejected", "proof_or_envelope_error", d.action)
         if reason is not None:
@@ -451,7 +464,13 @@ class X1ContingencyExecutor:
         if action == "continue":
             return Admission("continued", "no_new_command", action)
         if action == "retask":
-            self.mission.apply_onboard_replan(d.plan, expected_version=d.revision)
+            if frame.retask_boundary is True:
+                try:
+                    self.mission.apply_onboard_replan(d.plan, expected_version=d.revision)
+                except ValueError:
+                    return Admission("rejected", "retask_replacement_unavailable", action)
+            else:
+                self.mission.apply_onboard_replan(d.plan, expected_version=d.revision)
             return Admission("installed", "mission_plan_replaced", action)
         result = None
         if action == "return":

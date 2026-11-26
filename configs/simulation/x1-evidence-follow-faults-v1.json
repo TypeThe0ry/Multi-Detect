@@ -1,0 +1,22 @@
+{
+  "schema": "x1.contingency.faults.v1",
+  "faults": [
+    {
+      "at_ms": 14000,
+      "duration_ms": 32000,
+      "type": "target_found",
+      "values": {
+        "track_ref": "track:1",
+        "class": "survey_marker",
+        "bearing_deg": 37,
+        "elevation_deg": -34,
+        "position_estimate": {
+          "lat_deg": 42.01869124007867,
+          "lon_deg": -93.70885302425091,
+          "alt_amsl_m": 314.947,
+          "error_bound_m": 8
+        }
+      }
+    }
+  ]
+}

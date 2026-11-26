@@ -8,7 +8,8 @@ from dataclasses import asdict, dataclass, replace
 
 from multidetect.autonomy.mission_package import number
 from multidetect.autonomy.serialization import canonical_sha256
-from multidetect.autonomy.x1_contingency_executor import HoldSite
+from multidetect.autonomy.x1_contingency_executor import HoldSite, X1AirbornePlanAdapter
+from multidetect.autonomy.x1_mission import X1PlanError, lower_airborne_suffix
 from multidetect.autonomy.x1_motion_proof import ExecutionSweep, LandingPad, SweptLeg, X1MotionProofBuilder
 from multidetect.autonomy.x1_contingency_state import require_token
 from multidetect.target_geolocation import wgs84_forward_from_ned
@@ -232,6 +233,8 @@ class LiveContinueEvidence:
 
     def __init__(self, package, profile, terrain, steps, *, scope, assumed_sim=None):
         self.assumed_sim = assumed_sim
+        self.retask_bounds = (assumed_sim or {}).get("airborne_retask")
+        self.stage_retask = None
         self.budget = package.document["budget"]
         self.suffixes = {}
         self.native_returns, self.native_landings, self.holds = {}, {}, {}
@@ -338,6 +341,8 @@ class LiveContinueEvidence:
         if index in self.native_returns:
             entries.append((("return", index), self.native_returns[index]))
         entries += [(("hold", ref), bound) for ref, bound in sorted(self.holds.items()) if index in bound.steps]
+        if self.retask_bounds is not None and index in (2, 3):
+            entries.append((("retask", index), self.suffixes[index]))
         return entries
 
     def check_entry(self, index, point, local):
@@ -394,6 +399,10 @@ class LiveContinueEvidence:
         index, start = frame.active_motion_index, frame.position_ne_amsl
         action = decision.action
         steady = _SUFFIXES[index][0] if index in _SUFFIXES else None
+        if action == "retask" and self.retask_bounds is not None:
+            return self._retask_proof(decision, frame)
+        if frame.retask_boundary is not None and self.stage_retask is not None and frame.revision > 1:
+            return replace(self.builder.build(decision, frame, None), basis=self.basis)
         if action in {"continue", "return"} and start is not None:
             bound = (self.suffixes if action == "continue" else self.native_returns).get(index)
             if (bound is not None and frame.vtol_state == steady and _contains(bound.entry, start)
@@ -428,3 +437,103 @@ class LiveContinueEvidence:
                 sweep = self._sweep(decision, frame, (leg,), bound, low=low, high=high,
                                     hold_revalidation_enforced=True)
         return replace(self.builder.build(decision, frame, sweep), basis=self.basis)
+
+
+    def _retask_proof(self, decision, frame, *, installed_steps=None):
+        closed = replace(self.builder.build(decision, frame, None), basis=self.basis)
+        index, start = frame.active_motion_index, frame.position_ne_amsl
+        if (self.basis != "ASSUMED_SIM" or frame.retask_boundary is not True or frame.revision != 1
+                or not self._entered(("retask", index), start) or self.stage_retask is None
+                or X1AirbornePlanAdapter.check_airborne_plan(decision.plan, frame) is not None):
+            return closed
+        bound = self.suffixes[index]
+        profile = self.builder.profile
+        if frame.vtol_state == "fw" and (index != 2 or not self._airspeed_ok(frame, *bound.airspeed)):
+            return closed
+        if frame.vtol_state == "mc" and index != 3:
+            return closed
+        self.builder.package.validate_plan(decision.plan)
+        finding = frame.retask_finding_ne
+        error = frame.retask_finding_error_m
+        if finding is not None and (error is None or not 0 < error <= self.retask_bounds["finding_error_m"]):
+            finding = None
+        if installed_steps is None:
+            try:
+                steps = lower_airborne_suffix(
+                    self.builder.package, decision.plan, frame, terrain=self.terrain,
+                    profile=profile, limits=self.retask_bounds, finding=finding)
+            except X1PlanError:
+                raise
+            except ValueError as exc:
+                raise X1PlanError("retask_geometry_unverified", str(exc)) from exc
+        else:
+            # Recheck the connector to the installed commands. Re-lowering here
+            # would move a waypoint whose altitude was inherited at admission.
+            steps = installed_steps
+            if any(step.gimbal_target_ned is not None for step in steps) and not frame.retask_gimbal_ready:
+                raise X1PlanError("retask_gimbal_unavailable", "runner cannot track a point")
+        p = profile.endurance
+        high_power = max(p.hover_power_w, p.climb_power_w, p.descent_power_w)
+        z_margin = self.retask_bounds["vertical_tracking_m"]
+        orbit_tracking = self.retask_bounds["orbit_tracking_m"]
+        home_n, home_e, home_z = self.pad.point
+        point = start
+        incoming = 0.0
+        legs = []
+        anchors = []
+
+        def append(phase, end, width, vertical, seconds, watts):
+            nonlocal point
+            legs.append(SweptLeg(phase, point, end, width, vertical, seconds, watts))
+            anchors.append((phase, end))
+            point = end
+
+        for step in steps:
+            cmd = step.command
+            seconds = cmd.metadata["x1_retask_timeout_s"]
+            is_finding = any(s.id == step.source_step_id and s.params.get("target_ref") == "finding:1"
+                             for s in decision.plan.steps)
+            uncertainty = error if is_finding else 0.0
+            if cmd.kind == "land":
+                append("landing", self.pad.point, 5, 8, seconds, high_power)
+            elif cmd.kind == "transition":
+                # Cover every exit heading from an orbit and the full back-transition time.
+                incoming += self.retask_bounds["max_ground_speed_mps"] * seconds
+                append("transition", point, incoming, z_margin, seconds, high_power)
+            elif cmd.target_ned is not None:
+                n, e, down = cmd.target_ned
+                end = home_n + n, home_e + e, home_z - down
+                if cmd.kind == "reposition":
+                    length = math.dist(point[:2], end[:2])
+                    if length < max(50.0, profile.cruise_airspeed_mps * 3):
+                        raise X1PlanError("retask_fw_leg_too_short", "insufficient entry-to-waypoint distance")
+                    fw_tracking = self.retask_bounds["fw_tracking_m"] + uncertainty
+                    append("fw", end, max(incoming, fw_tracking), z_margin, seconds, 2 * p.loiter_power_w)
+                    incoming = fw_tracking
+                elif cmd.kind == "orbit":
+                    incoming = max(incoming, cmd.radius_m + orbit_tracking + uncertainty)
+                    append("fw", end, incoming, z_margin, seconds, 2 * p.loiter_power_w)
+                else:
+                    # First half of the straight return tube conservatively retains
+                    # entry uncertainty. Narrow the final segment to the held home fix.
+                    if step.primitive == "mc_return_to_home" and incoming > 0:
+                        length = math.dist(point[:2], end[:2])
+                        final = min(45.0, length / 2)
+                        f = final / length if length else 0.0
+                        approach = tuple(b + f * (a - b) for a, b in zip(point, end, strict=True))
+                        append("mc", approach, incoming + 15, z_margin, seconds - 18, high_power)
+                        append("mc", end, incoming * f + 8, z_margin, 18, high_power)
+                    else:
+                        append("mc", end, max(incoming, 15), z_margin, seconds, high_power)
+                    incoming = 15.0
+        low, high = bound.airspeed
+        sweep = self._sweep(decision, frame, legs, bound, low=low, high=high, pad=self.pad,
+                            failure_revalidation_enforced=True)
+        proof = self.builder.build(decision, frame, sweep, retask_anchors=tuple(anchors))
+        if installed_steps is None:
+            self.stage_retask(decision.plan, decision.revision, steps)
+        return replace(proof, basis=self.basis)
+
+    def reprove_installed_retask(self, decision, frame, steps):
+        """Validate the installed suffix again, without staging or mutating it."""
+        return self._retask_proof(decision, frame, installed_steps=steps)

@@ -10,6 +10,7 @@ from collections.abc import Mapping
 STATE_SCHEMA = "x1.contingency.state.v1"
 EVENT_KINDS = frozenset({
     "wind_step", "battery_drop", "link_loss", "link_restored", "target_lost",
+    "target_found",
     "target_reacquired", "obstacle_conflict", "terrain_conflict", "gps_degraded",
     "health_degraded", "transition_problem",
     # Host-raised before an admitted native hold reaches its proven residence bound.

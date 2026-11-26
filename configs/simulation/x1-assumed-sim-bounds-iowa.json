@@ -10,11 +10,28 @@
     "profile_sha256": "b3faa1b755017d6269f90ffb919c2fde407cb8d5b941d7b497094419f9aa7266",
     "base_mission_sha256": "9bb15aa3de6a3937a723430be6e968c9ac38564003616e0ede5630b3a49f4f56",
     "scenarios": {
+      "target_found": "a0499238a83ee19872d46b592313d1883d0e2df861d8b618c7ebe3fbf44b54bd",
       "battery_drop": "11e617b8bba7fc931fb72070ab6c850d4f81d8f694868b5c7d8496ac7e2c0f61",
       "link_loss": "f825effdde8a264e2d7d005e61f62b6b913f702638b9599896911d5152e2ced1",
       "wind_step": "5500bcd114c41250745dac58ff3d21b45baf4fd53b1ae73b6e436c00c765aff3",
       "link_loss:mc_return": "bc36ef6a6717a37d857722566464124cc4a93be667c39c4bdd1b16d677d78e95"
     }
+  },
+  "airborne_retask": {
+    "value": {
+      "vertical_tracking_m": 10,
+      "orbit_tracking_m": 40,
+      "fw_tracking_m": 55,
+      "max_ground_speed_mps": 21,
+      "finding_error_m": 12,
+      "fw_s": 40,
+      "orbit_entry_s": 28,
+      "transition_s": 12,
+      "mc_s": 90,
+      "landing_s": 85
+    },
+    "basis": "ASSUMED_SIM",
+    "justification": "仅供 evidence-follow。进出盘旋与过渡按全航向扫掠计算，限时与无后续写入由 collector 检查。"
   },
   "dem_error_m": {
     "value": 12.0,

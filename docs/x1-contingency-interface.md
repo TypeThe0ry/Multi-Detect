@@ -125,7 +125,7 @@ collector 准入前复查工具窗口和最终模型轮次看到的成功观测�
 | `loiter` | 使用请求中已提供且当前帧未改变的 Hold 站点。MC 原地保持；FW 须覆盖接入和整个盘旋圆盘（含跟踪范围），按现有包络核对指令速度对应的最小转弯半径，以及实测空速、预报空速和坡度上界，并验证地形、障碍与原任务走廊。宿主须能在有界停留期结束前强制重新验证。 |
 | `return` | 须证明实际 PX4 RTL 扫掠体：从当前点经已验证的原航线走廊（FW 含后过渡），到编译出的回家高度和位置，再垂直降落。原任务的 MC 回家航段不能直接代替 RTL。含着陆的能耗上界须在可用 Wh 下界内，并留出任务包与机型两种储备中的较大值；全程耗时上界不得超出剩余时间或任务预算。 |
 | `land-now` | 只允许 MC 在当前水平位置下降。各段都须通过 DEM 和障碍检查，并位于可信着陆区覆盖范围内；只有最后一段允许接地，且须从地形误差上界以上下降。立即着陆可动用能量储备，但仍须证明下降能耗和耗时。 |
-| `retask` | MC 回家、FW 后过渡回家，或 FW 一处任务包已授权航点后过渡回家。新路径使用同一份任务包围栏／走廊及 DEM；尚不支持多航点、观察原语和未验证分支。 |
+| `retask` | 默认回放证明支持 MC 回家或 FW 单航点后过渡回家。Iowa `ASSUMED_SIM` live adapter 可验证有界的多航点与观察后缀。两者均使用原任务包围栏、走廊及 DEM。 |
 | `abort-transition` / `gimbal-retarget` | 前者暂无运动证明；后者仍用原有云台准入，不使用 MotionProof。 |
 
 CPU 回放使用 `recorded_decisions(...)`、`DecisionTick(..., gimbal_port=None, cpu_replay=True, build_proof=...)`。回放后端只把记录的动作和参数绑定到当前请求；扫掠证据由宿主单独提供，并按本次解码的摘要与当前帧编号核对。回放只向 `replay_commands` 写入通过准入的原始动作对应的命令。FW 盘旋的模拟 ACK 仅用于测试代码路径，不是飞控读回，也不能证明实际运动。普通 collector 不启用该选项，且回放模式拒绝接收真实端口。
@@ -157,7 +157,7 @@ SIM 任务包可以由任务方提供 `x1_live_evidence`。这是宿主证据，
 
 宿主验收并取得这些硬界后，可传入 `--live-evidence-bounds /path/to/verified-bounds.json`。文件由 `scope_sha256`、`dem_sha256`、`base_mission_sha256` 和上表的可选证据字段构成。先用同一站点、计划、预算及故障执行一次 `--plan-only --generate-live-evidence` 获取前三个绑定值。runner 检查三者完全匹配。哈希用于适用性校验，硬界的真实性由提供该本地文件的宿主负责。`obstacle_coverage` 和 `obstacles` 一起提供。`landing_pad` 需附 DEM 硬界。生成 `battery` 需要任务包中已有经校准的 `budget.battery_capacity_wh`。只允许为已经验证的飞行阶段提供对应 `suffixes` 条目。
 
-CPU 回放覆盖实时采样、同一执行器的准入和零新增指令。实际 SITL 轨迹需要同一场景的可信机载和任务包证据。collector 现在为 `loiter`、`return`、`land-now` 提供原生接管（见下节），仍不提供换计划（`retask`）执行权限。PX4 原生保底保持原行为。
+CPU 回放覆盖实时采样、同一执行器的准入和零新增指令。实际 SITL 轨迹需要同一场景的可信机载和任务包证据。collector 为 `loiter`、`return`、`land-now` 提供原生接管，并在限定的 SITL 场景提供 `retask`（见后文）。PX4 原生保底保持原行为。
 
 ### SITL collector 的原生接管
 
@@ -224,3 +224,20 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 启用感知工具后，工具回合保留同一张节拍票据的 `trigger`、合成 `event_id` 和 `mission_progress`。窗口取原票据截止与工具总预算中较早者。新事件撤票后，正在进行的读取或推理可以结束，旧窗口随后停止，不再开启下一回合或提交动作。后端尚未返回时仍占用唯一调用位置。
 
 节拍仍从同一个执行入口经过 MotionProof、适用的 ASSUMED_SIM 证据和原生接管。缺少生命周期子段或当前位置的受证据约束后缀时，`continue` 可收到拒绝回执，已在执行的航线继续。每次节拍只写一条 `scenario_decision_receipt`，带 `trigger`、IDs、阶段、步骤、结果和 `latency_ms`。延迟是从提交到 collector 处理回复或撤票的主机毫秒数。`continue` 无新指令，回执省略原回包和完整证明。原生动作的接管与读回仍有各自证据记录。
+
+## in-flight retask and evidence-driven tasking
+
+Altair 可在巡航期间根据新观测提交完整的 **剩余** `MissionPlan v1`。collector 在当前原语结束后、下一个原语发命令前，用新鲜的机载状态审查该后缀。已完成的原语保留。原子换装同时设置起始游标和递增后的运行 `revision`。日志先记 `scenario_decision_receipt`，再记 `scenario_plan_replaced`。与原决策不同的模式、事件或运行修订，以及迟到回复，均不得写入执行槽。周期请求可在机载模式和命令归属稳定时跨一个相邻原语边界，沿用同一请求的时限。
+
+| 场景 | 可接受的后缀 |
+| --- | --- |
+| FW | `fw_goto_waypoint`、`loiter_observe`、`gimbal_stare_at`、`x1_search_leg` 等巡航技能，之后显式 `back_transition → return_home` |
+| MC | 可选 `x1_mc_reposition`，之后显式 `return_home` |
+
+`x1_search_leg` 引用原任务包内含 2–4 个航点的命名路线。`loiter_observe` 由 Altair 指定圆心、半径、驻留时长和高度。云台观察要求托管云台会话就绪。`return_home` 由既有 X1 原语降解为归航和着陆。候选扫掠体必须留在原任务包的围栏与走廊内，满足 DEM/障碍物、AGL、姿态过渡、能量及时间储备、着陆点准入。`retask_geofence`、`energy_or_reserve_limit`、`transition_interlock` 等拒绝回执均对应零新增命令。运行时逐步检查超时与遥测确认。发生执行异常时停止推进后缀，PX4 原生安全行为仍是最后一层。
+
+等待观测帧后、首条替换指令下发前，再用当时的 PX4 模式、VTOL 状态、新鲜位置和预算对照同一个后缀。若归属或模式变化、缺少证据，或复核失败，记录 `collector_x1_retask_dispatch_blocked`，不下发替换指令，不修复计划，也不回退执行旧路线。换装后不会复用旧路线的运动证明。
+
+`target_found` 在故障窗注入一条带 `fault` 来源的观测，包含类别、机体 FRD 方位和俯仰、WGS84 位置、AMSL 高度及误差上界。观测保留首次取样时间。事件与周期请求均通过 #70 的 `ToolRunner` 读 `look` 和 `target_status`；两者遵循工具调用预算、时限与取消规则。`finding:1` 仅在同一张票据实际读取了匹配的 `target_status`、且边界处仍为同一条新鲜、误差有界的观测时可用。`scenario_observation` 只写入审计日志，不发送给模型。换装后，`route_status` 显示已安装的后缀。
+
+当前准入范围是固定 Iowa `ASSUMED_SIM` 假设及一次空中替换。假设和运动证明均带范围摘要。`evidence-follow` 在 FW 巡航末段报告原航线外的地面标记，recorded backend 请求接近、盘旋观察、后过渡、返航和降落。周期变体在普通周期和 `target_found` 事件票据上回复 `continue`，在标记后的下一张周期票据提交 `retask`；真实新事件仍可抢占周期票据。验收脚本要求同一修订有 FW 穿越、盘旋持续驻留、MC 过渡、回家稳定及落地的 PX4 遥测。Iowa CPU 预检与 SITL 遥测验收分别运行。命令见 lane 的 `.tmp/x1-live-retask-port-REPORT.md`。

@@ -1,0 +1,454 @@
+{
+  "basis": "ASSUMED_SIM",
+  "scope": {
+    "mode": "sim",
+    "world": "rw_farm_iowa_w6km__clear_noon",
+    "image": "multidetect/px4-sitl-gazebo:gz-rendering-830-r1-gimbal-horizon4",
+    "image_id": "sha256:871d3f3ea016a585834ce82e2f55c3116b7bf904940db45cbd7b4155de39c55d",
+    "world_sha256": "4e09aa4febff6b78568201a94bc4552ac5bbc6420f2c128d0784e1845bb9999c",
+    "dem_sha256": "4bb6d4a0d3bf3bd6adaf512af722135bbf99448907161a328326a0d620a97cae",
+    "profile_sha256": "b3faa1b755017d6269f90ffb919c2fde407cb8d5b941d7b497094419f9aa7266",
+    "base_mission_sha256": "9bb15aa3de6a3937a723430be6e968c9ac38564003616e0ede5630b3a49f4f56",
+    "scenarios": {
+      "battery_drop": "11e617b8bba7fc931fb72070ab6c850d4f81d8f694868b5c7d8496ac7e2c0f61",
+      "link_loss": "f825effdde8a264e2d7d005e61f62b6b913f702638b9599896911d5152e2ced1",
+      "wind_step": "5500bcd114c41250745dac58ff3d21b45baf4fd53b1ae73b6e436c00c765aff3",
+      "link_loss:mc_return": "bc36ef6a6717a37d857722566464124cc4a93be667c39c4bdd1b16d677d78e95"
+    }
+  },
+  "dem_error_m": {
+    "value": 12.0,
+    "basis": "ASSUMED_SIM",
+    "justification": "全站残差 9.14 m（走廊 5.41 m）加 2×1 m sigma 后向上取整为 12 m，作为 SIM 硬界假设。"
+  },
+  "landing_pad": {
+    "value": {
+      "radius_m": 16,
+      "elevation_error_m": 13.0
+    },
+    "basis": "ASSUMED_SIM",
+    "justification": "20 m 内切圆内留 4 m 径向余量，DEM 12 m 假设另加 1 m 覆盖台面与局部地形起伏。"
+  },
+  "battery_capacity_wh": {
+    "value": 72.0,
+    "basis": "ASSUMED_SIM",
+    "justification": "PX4 SIM airframe 4051 继承 5000 mAh，四节各按 3.6 V 下限计算。"
+  },
+  "battery": {
+    "value": {
+      "nominal_drain_s": 1800,
+      "nominal_floor_pct": 50,
+      "nominal_soc_error_pct": 4,
+      "fault_drain_s": 1,
+      "fault_floor_pct": 17,
+      "fault_soc_error_pct": 54,
+      "max_sample_age_ms": 500,
+      "max_voltage_v": 16.2,
+      "consumption_error_wh": 72.0
+    },
+    "basis": "ASSUMED_SIM",
+    "justification": "1800 s/50% 或故障 1 s/17%，500 ms 内分别向上计 1/50 百分点再留 3/4 点滤波量化余量；上限 4×4.05 V，意外出现计量值时扣满 72 Wh。"
+  },
+  "suffixes": {
+    "1": {
+      "value": {
+        "entry": [
+          45,
+          410,
+          -24,
+          24,
+          392.404,
+          412.404
+        ],
+        "max_entry_speed_mps": 27.0,
+        "legs": [
+          {
+            "phase": "fw",
+            "end": [
+              320.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 19,
+            "padding_alt_m": 10,
+            "duration_s": 55,
+            "peak_power_w": 344.0
+          },
+          {
+            "phase": "transition",
+            "end": [
+              485.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 30,
+            "padding_alt_m": 12,
+            "duration_s": 20.0,
+            "peak_power_w": 750.0
+          },
+          {
+            "phase": "mc",
+            "end": [
+              45.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 30,
+            "padding_alt_m": 12,
+            "duration_s": 72,
+            "peak_power_w": 750.0
+          },
+          {
+            "phase": "mc",
+            "end": [
+              0.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 8,
+            "padding_alt_m": 10,
+            "duration_s": 18,
+            "peak_power_w": 750.0
+          },
+          {
+            "phase": "landing",
+            "end": [
+              0.0,
+              0.0,
+              318.23
+            ],
+            "padding_ne_m": 5,
+            "padding_alt_m": 8,
+            "duration_s": 85,
+            "peak_power_w": 750.0
+          }
+        ],
+        "dynamics": {
+          "max_bank_deg": 35.0,
+          "max_climb_mps": 3.0,
+          "max_descent_mps": 2.0,
+          "max_acceleration_mps2": 2.0,
+          "max_angular_rate_dps": 60.0
+        },
+        "airspeed": [
+          12.0,
+          18.0
+        ],
+        "failure_revalidation_enforced": true
+      },
+      "basis": "ASSUMED_SIM",
+      "justification": "固定北向 320 m 路线，FW 跟踪 19 m，15 m/s 巡航按 55 s 与两倍盘旋功率预算，失败由 runner 阻断后续写入。"
+    },
+    "2": {
+      "value": {
+        "entry": [
+          280,
+          435,
+          -24,
+          24,
+          392.404,
+          412.404
+        ],
+        "max_entry_speed_mps": 27.0,
+        "legs": [
+          {
+            "phase": "transition",
+            "end": [
+              485.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 30,
+            "padding_alt_m": 12,
+            "duration_s": 20.0,
+            "peak_power_w": 750.0
+          },
+          {
+            "phase": "mc",
+            "end": [
+              45.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 30,
+            "padding_alt_m": 12,
+            "duration_s": 72,
+            "peak_power_w": 750.0
+          },
+          {
+            "phase": "mc",
+            "end": [
+              0.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 8,
+            "padding_alt_m": 10,
+            "duration_s": 18,
+            "peak_power_w": 750.0
+          },
+          {
+            "phase": "landing",
+            "end": [
+              0.0,
+              0.0,
+              318.23
+            ],
+            "padding_ne_m": 5,
+            "padding_alt_m": 8,
+            "duration_s": 85,
+            "peak_power_w": 750.0
+          }
+        ],
+        "dynamics": {
+          "max_bank_deg": 35.0,
+          "max_climb_mps": 3.0,
+          "max_descent_mps": 2.0,
+          "max_acceleration_mps2": 2.0,
+          "max_angular_rate_dps": 60.0
+        },
+        "airspeed": [
+          12.0,
+          18.0
+        ],
+        "failure_revalidation_enforced": false
+      },
+      "basis": "ASSUMED_SIM",
+      "justification": "后过渡限 20 s 且向北留出到 485 m 的延伸，水平/垂直余量 30/12 m，返航与下降按 90/85 s、机型最高功率预算。"
+    },
+    "3": {
+      "value": {
+        "entry": [
+          25,
+          485,
+          -24,
+          24,
+          392.404,
+          412.404
+        ],
+        "max_entry_speed_mps": 12,
+        "legs": [
+          {
+            "phase": "mc",
+            "end": [
+              45.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 30,
+            "padding_alt_m": 12,
+            "duration_s": 72,
+            "peak_power_w": 750.0
+          },
+          {
+            "phase": "mc",
+            "end": [
+              0.0,
+              0.0,
+              402.404
+            ],
+            "padding_ne_m": 8,
+            "padding_alt_m": 10,
+            "duration_s": 18,
+            "peak_power_w": 750.0
+          },
+          {
+            "phase": "landing",
+            "end": [
+              0.0,
+              0.0,
+              318.23
+            ],
+            "padding_ne_m": 5,
+            "padding_alt_m": 8,
+            "duration_s": 85,
+            "peak_power_w": 750.0
+          }
+        ],
+        "dynamics": {
+          "max_bank_deg": 35.0,
+          "max_climb_mps": 3.0,
+          "max_descent_mps": 2.0,
+          "max_acceleration_mps2": 2.0,
+          "max_angular_rate_dps": 60.0
+        },
+        "airspeed": null,
+        "failure_revalidation_enforced": false
+      },
+      "basis": "ASSUMED_SIM",
+      "justification": "MC 回航按 8 m/s 目标保留 90 s 覆盖约 485 m，85 s 覆盖约 84 m 下降，使用机型最高功率并检查 5 m 着陆跟踪盒。"
+    }
+  },
+  "px4_native_parameters": {
+    "value": {
+      "RTL_TYPE": 0,
+      "RTL_CONE_ANG": 0,
+      "RTL_LAND_DELAY": 0,
+      "MPC_XY_CRUISE": 5.0,
+      "MPC_Z_V_AUTO_DN": 1.5,
+      "MPC_LAND_SPEED": 0.7,
+      "NAV_ACC_RAD": 2.0
+    },
+    "basis": "ASSUMED_SIM",
+    "justification": "预武装设置并读回：RTL 直返 home 不走锥形降高、MC 到点即 LAND（rtl_direct.cpp MOVE_TO_LOITER→LAND），5 m/s 平飞、1.5/0.7 m/s 下降，2 m 到点半径。"
+  },
+  "native": {
+    "return": {
+      "3": {
+        "value": {
+          "entry": [
+            25,
+            485,
+            -24,
+            24,
+            392.404,
+            412.404
+          ],
+          "max_entry_speed_mps": 12,
+          "legs": [
+            {
+              "phase": "mc",
+              "end": [
+                45.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 30,
+              "padding_alt_m": 12,
+              "duration_s": 110,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "mc",
+              "end": [
+                0.0,
+                0.0,
+                402.404
+              ],
+              "padding_ne_m": 8,
+              "padding_alt_m": 10,
+              "duration_s": 20,
+              "peak_power_w": 750.0
+            },
+            {
+              "phase": "landing",
+              "end": [
+                0.0,
+                0.0,
+                318.23
+              ],
+              "padding_ne_m": 5,
+              "padding_alt_m": 8,
+              "duration_s": 85,
+              "peak_power_w": 750.0
+            }
+          ],
+          "dynamics": {
+            "max_bank_deg": 35.0,
+            "max_climb_mps": 3.0,
+            "max_descent_mps": 2.0,
+            "max_acceleration_mps2": 2.0,
+            "max_angular_rate_dps": 60.0
+          },
+          "airspeed": null,
+          "failure_revalidation_enforced": false
+        },
+        "basis": "ASSUMED_SIM",
+        "justification": "PX4 MC RTL 以读回的 5 m/s 直飞 home：440 m 留 110 s、末段 45 m 留 20 s，保持当前高度后原地 LAND，85 s 覆盖 84 m 下降；FW RTL 绕 home 盘旋降高，未建模，拒绝。"
+      }
+    },
+    "land-now": {
+      "3": {
+        "value": {
+          "max_entry_speed_mps": 2,
+          "padding_ne_m": 5,
+          "padding_alt_m": 8,
+          "duration_s": 85,
+          "peak_power_w": 750.0,
+          "dynamics": {
+            "max_bank_deg": 35.0,
+            "max_climb_mps": 3.0,
+            "max_descent_mps": 2.0,
+            "max_acceleration_mps2": 2.0,
+            "max_angular_rate_dps": 60.0
+          }
+        },
+        "basis": "ASSUMED_SIM",
+        "justification": "AUTO.LAND 原地下降，仅在 home 着陆圆内且留 5 m 跟踪余量时可用；1.5/0.7 m/s 下降 84 m 留 85 s，机型最高功率。"
+      }
+    },
+    "holds": {
+      "hold:yard-orbit": {
+        "value": {
+          "mode": "fw",
+          "steps": [
+            1
+          ],
+          "entry": [
+            45,
+            410,
+            -24,
+            24,
+            392.404,
+            412.404
+          ],
+          "max_entry_speed_mps": 27.0,
+          "centre": [
+            320.0,
+            0.0,
+            402.404
+          ],
+          "radius_m": 80.0,
+          "tangential_speed_mps": 15.0,
+          "padding_ne_m": 120.0,
+          "padding_alt_m": 12,
+          "duration_s": 180,
+          "peak_power_w": 344.0,
+          "dynamics": {
+            "max_bank_deg": 35.0,
+            "max_climb_mps": 3.0,
+            "max_descent_mps": 2.0,
+            "max_acceleration_mps2": 2.0,
+            "max_angular_rate_dps": 60.0
+          },
+          "airspeed": [
+            12.0,
+            18.0
+          ]
+        },
+        "basis": "ASSUMED_SIM",
+        "justification": "航点上空 80 m 半径、15 m/s 的 DO_ORBIT；进圆不超过 60 s 加 120 s 驻留，跟踪与风漂移另加 40 m、垂向 12 m，两倍盘旋功率；到期前由 collector 强制重新请求。"
+      },
+      "hold:mc-here": {
+        "value": {
+          "mode": "mc",
+          "steps": [
+            3
+          ],
+          "entry": [
+            25,
+            485,
+            -24,
+            24,
+            392.404,
+            412.404
+          ],
+          "max_entry_speed_mps": 12,
+          "padding_ne_m": 20,
+          "padding_alt_m": 5,
+          "duration_s": 120,
+          "peak_power_w": 750.0,
+          "dynamics": {
+            "max_bank_deg": 35.0,
+            "max_climb_mps": 3.0,
+            "max_descent_mps": 2.0,
+            "max_acceleration_mps2": 2.0,
+            "max_angular_rate_dps": 60.0
+          }
+        },
+        "basis": "ASSUMED_SIM",
+        "justification": "MC 原地 AUTO.LOITER：8 m/s 按 2 m/s² 制动约 16 m，取 20 m 水平、5 m 垂向余量，驻留 120 s，机型最高功率。"
+      }
+    }
+  }
+}

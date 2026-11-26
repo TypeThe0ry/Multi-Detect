@@ -759,7 +759,8 @@ def test_collector_current_step_routes_first_and_alternating_actions_without_pri
 
     collector = _collector_module()
     source = pathlib.Path(collector.__file__).read_text()
-    start = source.index('                if plan.teacher == "expert_search":', source.index('            for index in range(plan.steps_per_episode):'))
+    start = source.index('                    if plan.teacher == "expert_search":',
+                         source.index('            for index in indices:'))
     end = source.index('                # Non-multirotor onboard policies emit a MotionCommand', start)
     block = textwrap.dedent(source[start:end])
     function = 'def run_one():\n' + textwrap.indent(block, '    ') + '\n    return action, managed_gimbal_action\n'
@@ -975,3 +976,24 @@ def test_unmanaged_explicit_gimbal_primitive_cannot_bypass_io_owner():
     collector = _collector_module()
     with pytest.raises(RuntimeError, match='requires the managed gimbal session'):
         collector._managed_teacher_gimbal_action(ActionPrimitive.gimbal(pitch_deg=0), None, None)
+
+
+def test_x1_retask_deadline_checks_px4_time_and_bubbles_reader_failure():
+    collector = _collector_module()
+    stamps = {"LOCAL_POSITION_NED": {"time_boot_ms": 2000}}
+    reader = SimpleNamespace(state=stamps, raise_if_failed=lambda: None)
+    bound = collector._X1RetaskDeadline(reader, 2)
+    stamps["LOCAL_POSITION_NED"]["time_boot_ms"] = 4000
+    bound.raise_if_failed()
+    assert bound.evidence()["phase_elapsed_sim_s"] == 2
+    stamps["LOCAL_POSITION_NED"]["time_boot_ms"] = 4001
+    with pytest.raises(collector._X1RetaskTimeout, match="retask_phase_timeout"):
+        bound.raise_if_failed()
+    stamps.clear()
+    with pytest.raises(collector._X1RetaskTimeout, match="retask_clock_unavailable"):
+        bound.raise_if_failed()
+    def reader_failed():
+        raise RuntimeError("reader failed")
+    reader.raise_if_failed = reader_failed
+    with pytest.raises(RuntimeError, match="reader failed"):
+        bound.raise_if_failed()

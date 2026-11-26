@@ -1,0 +1,48 @@
+{
+  "action": "retask",
+  "params": {
+    "plan": {
+      "plan_version": 1,
+      "goal": "Inspect the detected survey marker, then return home and land.",
+      "report": [],
+      "steps": [
+        {
+          "id": "approach",
+          "skill": "fw_goto_waypoint",
+          "params": {
+            "target_ref": "finding:1",
+            "altitude_agl_m": 85
+          },
+          "on_success": "observe",
+          "on_fail": "home"
+        },
+        {
+          "id": "observe",
+          "skill": "loiter_observe",
+          "params": {
+            "target_ref": "finding:1",
+            "altitude_agl_m": 85,
+            "radius_m": 65,
+            "duration_s": 14
+          },
+          "on_success": "transition",
+          "on_fail": "home"
+        },
+        {
+          "id": "transition",
+          "skill": "back_transition",
+          "params": {},
+          "on_success": "home",
+          "on_fail": "home"
+        },
+        {
+          "id": "home",
+          "skill": "return_home",
+          "params": {},
+          "on_success": null,
+          "on_fail": null
+        }
+      ]
+    }
+  }
+}

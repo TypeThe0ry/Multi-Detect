@@ -18,7 +18,7 @@ from .serialization import (
     strict_object,
 )
 
-from .x1_plan import X1_CAPABILITY, X1_PARAM_KEYS, X1_SKILLS, x1_param_schema
+from .x1_plan import X1_AIRBORNE_SKILLS, X1_CAPABILITY, X1_PARAM_KEYS, X1_SKILLS, x1_param_schema
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +55,10 @@ SKILLS: dict[str, SkillSpec] = {
 X1_SKILL_SPECS = MappingProxyType({
     skill: _spec(skill, set(params), set(params), "x1_outcome", types=params)
     for skill, (params, _) in X1_SKILLS.items()
+})
+X1_AIRBORNE_SKILL_SPECS = MappingProxyType({
+    skill: _spec(skill, set(params), set(params), "x1_outcome", types=params)
+    for skill, (params, _) in X1_AIRBORNE_SKILLS.items()
 })
 SKILLS = MappingProxyType(SKILLS)
 
@@ -142,6 +146,14 @@ def _param(value: object, kind: str, name: str) -> object:
         if len(text) > 96 or not text.startswith("zone:") or len(text) == len("zone:"):
             raise AutonomyContractError(f"{name} must be a zone reference")
         return text
+    if kind in {"x1_route_ref", "x1_target_ref"}:
+        text = require_text(value, name)
+        if kind == "x1_route_ref":
+            if len(text) > 96 or not text.startswith("route:") or text == "route:":
+                raise AutonomyContractError(f"{name} must be a named package route reference")
+        elif text != "home" and (len(text) > 96 or not text.startswith("poi:") or text == "poi:"):
+            raise AutonomyContractError(f"{name} must be a named POI reference or home")
+        return text
     if kind in {"ref"}:
         text = require_text(value, name)
         if len(text) > 96 or ":" not in text and text != "home":
@@ -222,12 +234,13 @@ def validate_mission_plan(raw: str | bytes | Mapping[str, Any], *, capabilities:
         ids.add(sid)
         skill = require_text(item["skill"], f"steps[{i}].skill")
         spec = SKILLS.get(skill)
-        if skill in X1_SKILL_SPECS:
+        x1_spec = X1_SKILL_SPECS.get(skill) or X1_AIRBORNE_SKILL_SPECS.get(skill)
+        if x1_spec is not None:
             if X1_CAPABILITY not in capabilities:
                 raise AutonomyContractError(f"{skill} requires the X1 simulation planning capability")
             if skill == "gimbal_stare_at" and "gimbal_control" not in capabilities:
                 raise AutonomyContractError("gimbal_stare_at requires gimbal_control")
-            spec = X1_SKILL_SPECS[skill]
+            spec = x1_spec
         if spec is None: raise AutonomyContractError(f"unknown skill {skill!r}")
         if spec.gated and not ({"payload", "payload_drop"} & set(capabilities)):
             raise AutonomyContractError("deliver requires payload capability (payload_drop)")
