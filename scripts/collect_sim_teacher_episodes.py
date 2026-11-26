@@ -5450,6 +5450,7 @@ def _wait_for_stable_mc_hover(
     timeout_s: float = 60.0,
     wall_timeout_s: float = GIMBAL_HOVER_MAX_WALL_S,
     clock: Any = time.monotonic,
+    tick: Any = None,
 ) -> dict[str, Any]:
     wall_started = clock()
     started_boot_ms = reader.state.vehicle_time_boot_ms
@@ -5460,6 +5461,8 @@ def _wait_for_stable_mc_hover(
     last_state: dict[str, Any] = {}
     while clock() - wall_started < wall_timeout_s:
         reader.raise_if_failed()
+        if tick is not None:
+            tick()
         attitude = reader.state.get("ATTITUDE")
         vtol_state = _field(reader.state.get("EXTENDED_SYS_STATE"), "vtol_state", None)
         boot_ms = _field(attitude, "time_boot_ms", reader.state.vehicle_time_boot_ms)
@@ -6309,6 +6312,7 @@ def _wait_airframe_landed(
     after_ns: int | None = None,
     clock: callable = time.monotonic,
     sleep: callable = time.sleep,
+    tick: Any = None,
 ) -> dict[str, Any]:
     """Await fresh touchdown on PX4 time; bound frozen/very slow SITL on host time.
 
@@ -6324,6 +6328,8 @@ def _wait_airframe_landed(
     wall_ceiling_s = max(timeout_s, FW_LAND_HARD_WALL_CEILING_S)
     while True:
         reader.raise_if_failed()
+        if tick is not None:
+            tick()
         wall_now, now = clock(), budget_clock()
         flight = _flight_state_snapshot(reader.state)
         received = getattr(reader.state, "received_monotonic_ns", {})
@@ -8196,10 +8202,17 @@ def run_episode(
                         "parameter_restored": restored,
                     }
 
+                cadence_enabled = x1_scenario is not None and bool(x1_scenario.cadence_steps)
+
+                def _lifecycle_cadence(phase: str) -> None:
+                    x1_scenario.tick(x1_scenario.step, None, lifecycle=phase)
+
                 def _wait_fw_state(phase: str, timeout_s: float) -> bool:
                     nonlocal launch_applied
                     if phase == "land":
-                        _wait_airframe_landed(mav_reader, timeout_s=timeout_s)
+                        cadence_tick = (lambda: _lifecycle_cadence("approach")) if cadence_enabled else None
+                        _wait_airframe_landed(mav_reader, timeout_s=timeout_s, **(
+                            {"tick": cadence_tick} if cadence_tick else {}))
                         return True
                     if phase == "takeoff" and takeoff_method in {"hand", "catapult"}:
                         launch_applied = _apply_gazebo_launch(
@@ -8352,6 +8365,8 @@ def run_episode(
                     wall_ceiling = _sim_teacher_hard_wall_timeout_s()
                     while state_clock() - started_sim < timeout_s and time.monotonic() - started_wall < wall_ceiling:
                         mav_reader.raise_if_failed()
+                        if cadence_enabled and phase == "takeoff":
+                            _lifecycle_cadence("takeoff")
                         if horizon_loop is not None:
                             horizon_loop.check()
                             if phase == "transition_fw" and plan.video_use_sim_time:
@@ -8463,7 +8478,9 @@ def run_episode(
                 )
                 _progress("takeoff_reached", method=takeoff_method)
                 if profile.camera.mount == "gimbal":
-                    hover_stability = _wait_for_stable_mc_hover(mav_reader)
+                    hover_stability = _wait_for_stable_mc_hover(mav_reader, **(
+                        {"tick": lambda: _lifecycle_cadence("takeoff")}
+                        if cadence_enabled else {}))
                     before_sample = _request_fresh_sensor_sample(
                     sensor_reader, mav_reader, timeout_s=sensor_frame_wait_s
                 )

@@ -354,7 +354,8 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
 
 def make_scenario(args, mission, steps, record):
     faults = mission.get("scenario_faults")
-    if not faults:
+    cadence_s = getattr(args, "decision_cadence_s", 0)
+    if not faults and not cadence_s:
         return None
     make_decision = motion_evidence = None
     if args.decision_port is not None:
@@ -366,14 +367,15 @@ def make_scenario(args, mission, steps, record):
                                                assumed_sim=mission.get("assumed_sim"))
 
         def make_decision(gimbal, emit, episode_id, peer, native=None):
+            extra = {"decision_cadence_s": cadence_s} if cadence_s else {}
             return DecisionTick(package, profile, backend, gimbal, emit,
                                 run_id=episode_id, plan_digest=record["compiled_mission_sha256"],
                                 revision=mission["scenario_revision"], peer=peer,
-                                build_proof=motion_evidence.build_proof, native_port=native)
+                                build_proof=motion_evidence.build_proof, native_port=native, **extra)
 
     return CollectorScenario(faults, clearance=forward_clearance(steps, mission["terrain"]),
                              make_decision=make_decision, terrain=mission["terrain"],
-                             motion_evidence=motion_evidence)
+                             motion_evidence=motion_evidence, cadence_steps=steps if cadence_s else ())
 
 
 def _restore_env(name, previous):
@@ -520,14 +522,19 @@ def run(args, *, post, launch=fly):
     result = args.output / "result.json"
     try:
         faults = ()
+        cadence_s = getattr(args, "decision_cadence_s", 0)
         scenario_path = getattr(args, "contingency_scenario", None)
         if scenario_path is not None:
             faults = load_schedule(scenario_path, args.inject_fault)
+        if scenario_path is not None or cadence_s:
             record["contingency_scenario"] = {
-                "path": str(scenario_path), "sha256": schedule_sha256(scenario_path),
+                "path": str(scenario_path) if scenario_path is not None else None,
+                "sha256": schedule_sha256(scenario_path) if scenario_path is not None else None,
                 "clock": "PX4 LOCAL_POSITION_NED.time_boot_ms at first route tick",
                 "faults": [asdict(fault) for fault in faults], "decision_port": args.decision_port,
             }
+            if cadence_s:
+                record["contingency_scenario"]["decision_cadence_s"] = cadence_s
         plugin = getattr(args, "wind_airspeed_plugin", None)
         if plugin is not None:
             if not any(fault.kind == "wind_step" for fault in faults):
@@ -545,8 +552,8 @@ def run(args, *, post, launch=fly):
             raise ValueError("ASSUMED_SIM requires generation, selected faults and verified site bounds")
         if assumed_path is not None and not args.plan_only and args.decision_port is None:
             raise ValueError("ASSUMED_SIM live runs require the Altair scenario decision backend")
-        if generate_evidence and (not faults or "x1_live_evidence" in document):
-            raise ValueError("--generate-live-evidence requires selected faults and a package without x1_live_evidence")
+        if generate_evidence and (not (faults or cadence_s) or "x1_live_evidence" in document):
+            raise ValueError("--generate-live-evidence requires a decision scenario and a package without x1_live_evidence")
         package = load_mission_package({**document, "task_text": args.sentence}, mode="sim")
         record["mission_package_sha256"] = canonical_sha256(package.document)
         plan, caps = compile_plan(package, post, record)
@@ -556,7 +563,7 @@ def run(args, *, post, launch=fly):
                               "world_sdf": str(site.world_sdf), "world_sha256": site.world_sha256,
                               "dem_path": str(site.dem_path), "dem_sha256": site.terrain.source_sha256,
                               "slot": args.slot, "image": IMAGE}
-        if faults:
+        if faults or cadence_s:
             record["contingency_scenario"]["motion_scope_sha256"] = clearance_scope(
                 steps, faults, profile_sha256=hashlib.sha256(PROFILE.read_bytes()).hexdigest(),
                 world_sha256=site.world_sha256, image=IMAGE,
@@ -622,7 +629,7 @@ def run(args, *, post, launch=fly):
         if args.plan_only:
             record["flight"]["status"] = "plan_only"
             return 0
-        if faults:
+        if faults or cadence_s:
             mission.update(scenario_faults=faults, scenario_package=package, scenario_revision=plan.plan_version)
         record["safety"]["observed"] = mission["observed_margins"]
         try:
@@ -664,6 +671,8 @@ def main(argv=None):
                         help="replace stock Gazebo AirSpeed for a selected wind_step (default: off)")
     parser.add_argument("--decision-port", type=int, metavar="PORT",
                         help="local onboard Altair llama-server port for live contingency requests")
+    parser.add_argument("--decision-cadence-s", type=float, default=0, metavar="SECONDS",
+                        help="steady-cruise interval in host seconds, halved outside cruise (0 disables)")
     parser.add_argument("--mission-package", required=True, type=Path, help="site references and constraints, without a plan")
     parser.add_argument("--generate-live-evidence", action="store_true",
                         help="attach scenario-bound SIM evidence and save the generated package (default: off)")
@@ -682,8 +691,14 @@ def main(argv=None):
     parser.add_argument("--gimbal-pitch-deg", type=float, default=-56.0)
     parser.add_argument("--plan-only", "--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    if (args.inject_fault or args.decision_port is not None) and args.contingency_scenario is None:
-        parser.error("--inject-fault and --decision-port require --contingency-scenario")
+    if not math.isfinite(args.decision_cadence_s) or args.decision_cadence_s < 0:
+        parser.error("--decision-cadence-s must be finite and nonnegative")
+    if args.decision_cadence_s and args.decision_port is None:
+        parser.error("--decision-cadence-s requires --decision-port")
+    if args.inject_fault and args.contingency_scenario is None:
+        parser.error("--inject-fault requires --contingency-scenario")
+    if args.decision_port is not None and not (args.contingency_scenario or args.decision_cadence_s):
+        parser.error("--decision-port requires --contingency-scenario or --decision-cadence-s")
     if args.live_evidence_bounds is not None and not args.generate_live_evidence:
         parser.error("--live-evidence-bounds requires --generate-live-evidence")
     if args.decision_port is not None and not 1 <= args.decision_port <= 65535:
