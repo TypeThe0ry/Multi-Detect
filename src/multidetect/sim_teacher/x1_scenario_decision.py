@@ -7,6 +7,7 @@ from collections import deque
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
+from threading import Event
 from types import SimpleNamespace
 from urllib.request import Request, urlopen
 
@@ -20,17 +21,27 @@ from multidetect.autonomy.x1_contingency_executor import (
     X1Envelope,
 )
 from multidetect.autonomy.x1_contingency_state import X1StateBuilder
+from multidetect.autonomy.x1_perception_tools import TOOL_SCHEMA, ToolProtocolError
 
 
 def llama_decisions(port, sentence):
     def post(request):
+        tools = ""
+        if "perception" in request:
+            tools = (
+                f" If you need one more observation and perception.tools lists its name, you may instead "
+                f"return one {TOOL_SCHEMA} JSON object with schema, tool, args={{}}, request_id and "
+                "call_index (echo perception.call_index). The next request has the same state and ordered "
+                "tool results. Treat ok=false as unavailable, never as a negative observation. "
+                "When the evidence is sufficient or no calls remain, return an action object."
+            )
         body = {"model": "local", "temperature": 0, "max_tokens": 512, "messages": [
             {"role": "system", "content": (
                 f"You are the onboard Altair planner. Return one {DECISION_SCHEMA} JSON object with "
                 "schema, request_id, event_id, mission_id, revision, action and params. Echo the current "
                 "IDs from the request and state (event_id comes from the request, not latest_event_id). Actions: continue/return/land-now/abort-transition with "
                 "empty params, loiter with hold_ref, retask with plan, gimbal-retarget with pitch_deg and "
-                "yaw_deg. Select only a defensible action given the observations and available evidence.")},
+                "yaw_deg. Select only a defensible action given the observations and available evidence." + tools)},
             {"role": "user", "content": json.dumps({"task": sentence, "request": request})},
         ]}
         req = Request(f"http://127.0.0.1:{port}/v1/chat/completions", json.dumps(body).encode(),
@@ -134,6 +145,8 @@ class DecisionTick:
         self.mission_id = package.mission_id
         self.revision = revision
         self.backend, self.record, self.now_ms = backend, record, now_ms
+        self.tool_runner = tool_runner
+        self.tool_cancel = None
         self.run_id, self.plan_digest = run_id, plan_digest
         self.build_proof = build_proof
         evidence = package.document.get("x1_live_evidence", {})
@@ -203,7 +216,7 @@ class DecisionTick:
         # reply, then give the current event first use of the single worker.
         if self.future is not None and self.future.done():
             self.future = None
-        if self.future is not None:
+        if self.future is not None or (self.tool_runner is not None and self.tool_runner.backend_busy):
             return
         interval_s = max(1, self.cadence_s) * (1 if phase == "cruise" else 0.5)
         cadence_due = (self.cadence_s > 0 and cadence_active and mission_progress is not None
@@ -220,7 +233,12 @@ class DecisionTick:
             self._mark("request", request=request)
         self.last_submit_ms = now
         self.pending = request, holds, signature
-        self.future = self.pool.submit(self.backend, request)
+        if self.tool_runner is None:
+            self.future = self.pool.submit(self.backend, request)
+        else:
+            self.tool_cancel = Event()
+            self.future = self.pool.submit(self.tool_runner.run_window, request, self.backend,
+                                           request["deadline_ms"], cancelled=self.tool_cancel)
 
     def _apply_reply(self, request, offered, frame, now):
         proof = None
@@ -231,7 +249,19 @@ class DecisionTick:
             return proof
 
         try:
-            wire = self.future.result()
+            reply = self.future.result()
+            if self.tool_runner is not None:
+                reply.check_fresh(now)
+                wire = reply.wire
+            else:
+                wire = reply
+        except ToolProtocolError as exc:
+            reason = str(exc)
+            receipt_reason = "decision_timeout" if reason == "window_timeout" else "tool_protocol_error"
+            self._finish(request, now, Admission("rejected", receipt_reason))
+            self._mark("error", request_id=request["request_id"], trigger=request.get("trigger", "event"),
+                       error=type(exc).__name__, reason=reason)
+            return
         except TimeoutError:
             self._finish(request, now, Admission("rejected", "decision_timeout"))
             return
@@ -254,6 +284,9 @@ class DecisionTick:
         self._finish(request, now, admission, **trace)
 
     def _finish(self, request, now, admission, **trace):
+        if self.tool_cancel is not None:
+            self.tool_cancel.set()
+            self.tool_cancel = None
         self.executor.discard_request(request["request_id"])
         self.pending = None
         receipt = {"request_id": request["request_id"], "event_id": request["event_id"],

@@ -27,7 +27,10 @@ from multidetect.autonomy.mission_package import (  # noqa: E402
 from multidetect.autonomy.mission_plan import PlanDecision  # noqa: E402
 from multidetect.autonomy.mission_planner import compile_mission_plan, plan_json_schema  # noqa: E402
 from multidetect.autonomy.serialization import canonical_sha256, strict_json_loads  # noqa: E402
-from multidetect.autonomy.x1_mission import X1PlanError, build_x1_mission_steps  # noqa: E402
+from multidetect.autonomy.x1_mission import AGL_MIN_M, X1PlanError, build_x1_mission_steps  # noqa: E402
+from multidetect.autonomy.x1_perception_tools import (  # noqa: E402
+    GimbalReading, PerceptionSources, RouteReading, ToolRunner,
+)
 from multidetect.autonomy.x1_plan import (  # noqa: E402
     X1_CAPABILITY, one_waypoint_primitives_input, x1_planner_context,
 )
@@ -352,12 +355,55 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
     return load_mission_package(document, mode="sim"), assumed_bounds, state
 
 
+def demo_perception(package, profile, dem, steps):
+    """Publish only existing readbacks; the model worker cannot see the collector ports."""
+    from scripts.collect_sim_teacher_episodes import _gimbal_readback
+
+    current = SimpleNamespace(route=None, gimbal=None)
+    home_ne = tuple(package.document["home"])
+    home = dem.sample_local(*home_ne).elevation_m
+    geometry = profile.camera.gimbal
+    # Collector indices address the policy's command iterator, not lifecycle steps.
+    route = tuple(step for step in steps if step.command is not None or step.primitive == "vtol_land")
+
+    def publish(scenario, index, samples, hold, boot_ms, position_ok):
+        global_row = samples.get("GLOBAL_POSITION_INT")
+        stamp = global_row.get("time_boot_ms") if global_row else None
+        live_position = (position_ok is True and not scenario.native_active and type(stamp) is int
+                         and type(boot_ms) is int and 0 < stamp <= boot_ms <= stamp + 1_000)
+        try:
+            point = scenario._motion_position(global_row) if live_position else None
+        except ValueError:
+            point = None
+        current.route = (RouteReading(global_row["receive_monotonic_ns"] // 1_000_000, route, index,
+                                      (point[0] - home_ne[0], point[1] - home_ne[1], home - point[2]),
+                                      (*home_ne, home), AGL_MIN_M)
+                         if point is not None and 0 <= index < len(route) else None)
+        current.gimbal = None
+        sample = hold.session.latest_attitude if hold is not None else None
+        if sample is None:
+            return
+        status, received_ns = sample
+        stamp = status.get("time_boot_ms") if isinstance(status, dict) else getattr(status, "time_boot_ms", None)
+        if (type(received_ns) is not int or type(boot_ms) is not int
+                or type(stamp) is not int or not 0 < stamp <= boot_ms <= stamp + 1_000):
+            return
+        # Shared readback aligns vehicle pose to the gimbal device time. It does not poll or command.
+        readback = _gimbal_readback(hold.reader, status, hold.target,
+                                    yaw_correction_deg=hold.yaw_correction_deg,
+                                    gazebo_body_joints=hold.gazebo_body_joints)
+        current.gimbal = GimbalReading(received_ns // 1_000_000, readback, geometry.get("angle_range_deg"))
+
+    return (ToolRunner(PerceptionSources(route=lambda: current.route, gimbal=lambda: current.gimbal,
+                                         dem=dem, profile=profile)), publish)
+
+
 def make_scenario(args, mission, steps, record):
     faults = mission.get("scenario_faults")
     cadence_s = getattr(args, "decision_cadence_s", 0)
     if not faults and not cadence_s:
         return None
-    make_decision = motion_evidence = None
+    make_decision = motion_evidence = perception_tick = None
     if args.decision_port is not None:
         backend = llama_decisions(args.decision_port, args.sentence)
         profile = load_airframe_profile(PROFILE)
@@ -366,8 +412,11 @@ def make_scenario(args, mission, steps, record):
                                                scope=record["contingency_scenario"]["motion_scope_sha256"],
                                                assumed_sim=mission.get("assumed_sim"))
 
+        extra = {"decision_cadence_s": cadence_s} if cadence_s else {}
+        if getattr(args, "perception_tools", False):
+            extra["tool_runner"], perception_tick = demo_perception(package, profile, mission["terrain"], steps)
+
         def make_decision(gimbal, emit, episode_id, peer, native=None):
-            extra = {"decision_cadence_s": cadence_s} if cadence_s else {}
             return DecisionTick(package, profile, backend, gimbal, emit,
                                 run_id=episode_id, plan_digest=record["compiled_mission_sha256"],
                                 revision=mission["scenario_revision"], peer=peer,
@@ -375,7 +424,8 @@ def make_scenario(args, mission, steps, record):
 
     return CollectorScenario(faults, clearance=forward_clearance(steps, mission["terrain"]),
                              make_decision=make_decision, terrain=mission["terrain"],
-                             motion_evidence=motion_evidence, cadence_steps=steps if cadence_s else ())
+                             motion_evidence=motion_evidence, cadence_steps=steps if cadence_s else (),
+                             perception_tick=perception_tick)
 
 
 def _restore_env(name, previous):
@@ -535,6 +585,8 @@ def run(args, *, post, launch=fly):
             }
             if cadence_s:
                 record["contingency_scenario"]["decision_cadence_s"] = cadence_s
+            if getattr(args, "perception_tools", False):
+                record["contingency_scenario"]["perception_tools"] = True
         plugin = getattr(args, "wind_airspeed_plugin", None)
         if plugin is not None:
             if not any(fault.kind == "wind_step" for fault in faults):
@@ -689,10 +741,13 @@ def main(argv=None):
     parser.add_argument("--planner-timeout-s", type=float, default=180.0)
     parser.add_argument("--slot", type=int, choices=SLOTS, default=7)
     parser.add_argument("--gimbal-pitch-deg", type=float, default=-56.0)
+    parser.add_argument("--perception-tools", action="store_true", help="opt in to Altair read-only decision tools")
     parser.add_argument("--plan-only", "--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if not math.isfinite(args.decision_cadence_s) or args.decision_cadence_s < 0:
         parser.error("--decision-cadence-s must be finite and nonnegative")
+    if args.perception_tools and args.decision_port is None:
+        parser.error("--perception-tools requires --decision-port")
     if args.decision_cadence_s and args.decision_port is None:
         parser.error("--decision-cadence-s requires --decision-port")
     if args.inject_fault and args.contingency_scenario is None:
