@@ -8632,7 +8632,7 @@ def run_episode(
                                          "phase": phase, "owner": x1_scenario.route_gate.owner,
                                          "refused_route_writes": list(x1_scenario.route_gate.blocked),
                                          "receive_monotonic_ns": time.monotonic_ns()})
-                _progress("x1_route_superseded", step=index, phase=phase)
+                _progress("x1_route_superseded", step=index, route_phase=phase)
 
             fw_phase = X1FwPhase()
             for index in range(plan.steps_per_episode):
