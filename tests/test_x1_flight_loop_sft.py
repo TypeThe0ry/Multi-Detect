@@ -77,6 +77,14 @@ def test_oracle_final_actions_and_real_envelope(windows):
     assert window.turns[-1][1]["action"] == "continue"
 
 
+def test_link_loss_returns_immediately_without_grace_window(windows):
+    window, _, _ = windows["link_return"]
+    request, _ = window.turns[-1]
+    fresh = deepcopy(request)
+    fresh["state"]["telemetry"]["link"]["heartbeat_age_ms"] = 1015
+    assert policy(fresh)["action"] == "return"
+
+
 def test_perception_is_real_ordered_and_failure_is_unavailable(windows):
     expected = {
         "target_found": ["look", "target_status", "route_status"],
