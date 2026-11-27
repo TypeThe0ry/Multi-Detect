@@ -204,8 +204,7 @@ def policy(request):
 
     link = tel["link"] or {}
     if (
-        link.get("gcs") == "down"
-        and link.get("heartbeat_age_ms", 0) >= 5000
+        link.get("gcs") == "down"  # link_loss_policy return_now: no grace window
         and energy is not None
         and energy >= 28
     ):
