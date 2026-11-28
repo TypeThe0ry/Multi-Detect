@@ -8,9 +8,9 @@
     "world_sha256": "4e09aa4febff6b78568201a94bc4552ac5bbc6420f2c128d0784e1845bb9999c",
     "dem_sha256": "4bb6d4a0d3bf3bd6adaf512af722135bbf99448907161a328326a0d620a97cae",
     "profile_sha256": "b3faa1b755017d6269f90ffb919c2fde407cb8d5b941d7b497094419f9aa7266",
-    "base_mission_sha256": "a16d3ddc1646ef3105814880b7a02ba033cc0348d9e82aa2810bbfa46f788191",
+    "base_mission_sha256": "c961ba8528d1a1037b9e6c8107ea64c6d450c76f1c751087a31750d459d7c874",
     "scenarios": {
-      "nominal": "48f994e28a8227b6cb73b615ffd77ed73796a63569017d58b702e1110615c494"
+      "nominal": "e99505bc148821ab334123cbaac136792b498aaea33f007315b3b5729253fd3d"
     }
   },
   "airborne_retask": {
