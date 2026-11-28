@@ -77,9 +77,10 @@ def _finite(value, counter):
     return value
 
 
-def load_sim_package(document: dict, *, assumed: bool):
+def load_sim_package(document: dict, *, assumed: bool, max_distance_m: float | None = None):
     """Load a SIM mission package, accepting the ASSUMED_SIM marker only when the SIM-only suite asks for it."""
-    return load_mission_package(document, mode="sim", allow_assumed_sim=assumed)
+    return load_mission_package(document, mode="sim", allow_assumed_sim=assumed,
+                                assumed_sim_max_distance_m=max_distance_m)
 
 
 def load_sim_replay_package(document: dict):
@@ -376,16 +377,38 @@ def forward_clearance(steps, dem):
     return clearance
 
 
+def verified_assumed_radius(path):
+    """Require the generated long-range template before preflight can use its radius."""
+    raw = read_object(path)
+    radius = assumptions.envelope_max_distance(raw)
+    if radius is not None:
+        expected = assumptions.generate_long_range(mode="sim", world=assumptions.WORLD, image=IMAGE,
+                                                   profile_path=PROFILE)
+        if canonical_sha256(raw) != canonical_sha256(expected):
+            raise ValueError("ASSUMED_SIM requires the exact Iowa long-range bounds template")
+    return radius
+
+
 def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds, scope, base_digest):
     """Authorize the generated template only against a verified SITL run and its site inventory."""
     data = path.read_bytes()
     raw = strict_json_loads(data.decode("utf-8"), name=str(path))
-    expected = assumptions.generate(mode=package.mode, world=site.scenario_id,
-                                    image=collector_plan.image, profile_path=PROFILE)
+    long_range = "assumed_sim_envelope" in raw
+    generate = assumptions.generate_long_range if long_range else assumptions.generate
+    expected = generate(mode=package.mode, world=site.scenario_id,
+                        image=collector_plan.image, profile_path=PROFILE)
     fault = faults[0].kind if len(faults) == 1 else None
+    valid_scopes = (assumptions.long_range_scopes_for(fault) if long_range
+                    else assumptions.scopes_for(fault))
+    expected_base = assumptions.LONG_RANGE_BASE_SHA if long_range else assumptions.BASE_SHA
+    envelope = None
+    if long_range:
+        envelope = raw["assumed_sim_envelope"]["max_distance_from_home_m"]
+        if package.document["x1_planning"]["max_distance_from_home_m"] != envelope:
+            raise ValueError("ASSUMED_SIM long-range mission does not match its SITL envelope")
     if (canonical_sha256(raw) != canonical_sha256(expected) or site.world_sha256 != assumptions.WORLD_SHA
             or site.terrain.source_sha256 != assumptions.DEM_SHA
-            or base_digest != assumptions.BASE_SHA or scope not in assumptions.scopes_for(fault)
+            or base_digest != expected_base or scope not in valid_scopes
             or set(site_bounds or ()) != {"scope_sha256", "dem_sha256", "base_mission_sha256",
                                           "obstacle_coverage", "obstacles"}):
         raise ValueError("ASSUMED_SIM requires the exact Iowa route, fault schedule and verified site bounds")
@@ -412,7 +435,8 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
                       "suffixes": {key: entry["value"] for key, entry in raw["suffixes"].items()},
                       "native": {section: {key: entry["value"] for key, entry in entries.items()}
                                  for section, entries in raw["native"].items()}}
-    return load_mission_package(document, mode="sim"), assumed_bounds, state
+    return load_mission_package(document, mode="sim", allow_assumed_sim=long_range,
+                                assumed_sim_max_distance_m=envelope), assumed_bounds, state
 
 
 def demo_perception(package, profile, dem, steps, *, max_calls=3):
@@ -716,6 +740,11 @@ def finish_flight(episode, steps, record):
     record["flight"].update(episode=str(episode), takeoff=takeoff, waypoints_reached=waypoints,
                             return_home=return_home, landing=landed, steps=observed,
                             episode_status=metadata.get("status"), episode_failure=metadata.get("failure"))
+    if takeoff and landed:
+        stamps = {row["message_type"]: row.get("sim_time_s") for row in markers}
+        start, end = (stamps.get(key) for key in ("fixed_wing_takeoff_complete", "collector_landing_complete"))
+        if all(type(stamp) in (int, float) and math.isfinite(stamp) for stamp in (start, end)) and end >= start:
+            record["flight"]["takeoff_complete_to_landing_sim_s"] = end - start
     if native is not None:
         record["flight"]["native_handoff"] = native
     complete = (takeoff and landed and metadata.get("status") == "complete" and all(observed.values())
@@ -800,9 +829,12 @@ def run(args, *, post, launch=fly):
             assumed_path is None or tuple(f.kind for f in faults) not in {("wind_step",), ("target_found",)}
         ):
             raise ValueError("FW RTL host manifest requires a scoped ASSUMED_SIM wind_step or target_found scenario")
-        if assumed_path is not None and (not generate_evidence or not faults
-                                         or not getattr(args, "live_evidence_bounds", None)):
-            raise ValueError("ASSUMED_SIM requires generation, selected faults and verified site bounds")
+        envelope_max_distance = None
+        if assumed_path is not None:
+            envelope_max_distance = verified_assumed_radius(assumed_path)
+        if assumed_path is not None and not args.plan_only and (
+                not generate_evidence or not getattr(args, "live_evidence_bounds", None)):
+            raise ValueError("ASSUMED_SIM requires generation and verified site bounds")
         fixture = getattr(args, "recorded_retask", None)
         if fixture is not None:
             if assumed_path is None or tuple(f.kind for f in faults) != ("target_found",):
@@ -812,7 +844,9 @@ def run(args, *, post, launch=fly):
             raise ValueError("ASSUMED_SIM live runs require the Altair scenario decision backend")
         if generate_evidence and (not (faults or cadence_s) or "x1_live_evidence" in document):
             raise ValueError("--generate-live-evidence requires a decision scenario and a package without x1_live_evidence")
-        package = load_mission_package({**document, "task_text": args.sentence}, mode="sim")
+        package = load_mission_package({**document, "task_text": args.sentence}, mode="sim",
+                                       allow_assumed_sim=assumed_path is not None,
+                                       assumed_sim_max_distance_m=envelope_max_distance)
         record["mission_package_sha256"] = canonical_sha256(package.document)
         nominal_mc = getattr(args, "nominal_mc", False)
         prepare_options = {}
@@ -859,7 +893,7 @@ def run(args, *, post, launch=fly):
                 else:
                     bounds = read_object(bounds_path)
             provenance = {}
-            if assumed_path is not None:
+            if assumed_path is not None and not args.plan_only:
                 if not bounds_path.name.endswith(x1_site_evidence.BOUNDS_SUFFIX):
                     raise ValueError("ASSUMED_SIM requires verified .site-bounds.json geometry")
                 package, bounds, assumed = load_assumed_sim(
@@ -908,11 +942,12 @@ def run(args, *, post, launch=fly):
                 base_mission_sha256=base_digest,
                 surveyed_bounds=bounds,
             )
-            if assumed_path is not None and missing:
+            if assumed_path is not None and not args.plan_only and missing:
                 raise ValueError(f"incomplete ASSUMED_SIM evidence: {', '.join(missing)}")
             evidence.update(provenance)
             package = load_mission_package({**package.document, "x1_live_evidence": evidence}, mode="sim",
-                                           allow_assumed_sim=assumed_path is not None)
+                                           allow_assumed_sim=assumed_path is not None,
+                                           assumed_sim_max_distance_m=envelope_max_distance)
             generated_path = args.output / "mission-package.json"
             write_result(generated_path, package.document)
             record["mission_package_sha256"] = canonical_sha256(package.document)

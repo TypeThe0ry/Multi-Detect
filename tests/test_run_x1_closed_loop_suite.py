@@ -37,7 +37,9 @@ def test_case_table():
     args, rows = suite.parse_args(["--list-cases", "--case", "quiet-cadence", "--case", "ramped-wind"])
     assert args.slots == (7, 6, 5)
     assert [r.id for r in rows] == ["ramped-wind", "quiet-cadence"]
-    assert len(suite.CASES) == 8
+    assert len(suite.CASES) == 10
+    assert len(suite.select_cases([])) == 8
+    assert len(suite.parse_args(["--list-cases"])[1]) == 10
     assert {r.phase for r in suite.CASES} == {"mc", "fw", "steady"}
     for row in suite.CASES:
         assert 0 <= row.tool_budget <= 3 and 0 < row.expected_s < row.budget_s
@@ -45,6 +47,69 @@ def test_case_table():
     for names in (["bad"], ["quiet-cadence", "quiet-cadence"]):
         with pytest.raises(ValueError):
             suite.select_cases(names)
+
+
+def test_long_range_cases_use_sitl_only_envelope():
+    from scripts import run_x1_autonomy_demo as demo
+
+    for name in ("long-range-transect", "long-range-wind"):
+        case, = suite.select_cases([name])
+        assert case.assumed and case.assumed_bounds == suite.LONG_RANGE_BOUNDS
+        assert case.mission_package == suite.LONG_RANGE_PACKAGE
+        assert case.sentence == suite.LONG_RANGE_SENTENCE
+        assert case.phase == "fw" and case.cadence_s >= 1
+        assert case.budget_s >= 1800 and case.expected_s < case.budget_s
+        assert case.min_airborne_s == 600
+    wind, = suite.select_cases(["long-range-wind"])
+    scheduled, = demo.load_schedule(suite.ROOT / wind.schedule, ("wind_step",))
+    assert scheduled.kind == "wind_step" and scheduled.end_ms - scheduled.at_ms >= 15000
+
+
+def test_long_range_bounds_reproduce_and_stay_sitl_only(tmp_path):
+    from pathlib import Path
+
+    from scripts import generate_x1_assumed_sim_bounds as generator
+    from scripts import run_x1_autonomy_demo as demo
+
+    document = generator.generate_long_range(mode="sim", world=generator.WORLD, image=generator.IMAGE,
+                                             profile_path=demo.PROFILE)
+    committed = Path(suite.ROOT / suite.LONG_RANGE_BOUNDS).read_text(encoding="utf-8")
+    assert committed == json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+    assert document["assumed_sim_envelope"] == {
+        "basis": "ASSUMED_SIM", "scope": "SITL-only", "max_distance_from_home_m": 4000.0,
+    }
+    assert demo.verified_assumed_radius(suite.ROOT / suite.LONG_RANGE_BOUNDS) == 4000.0
+    tampered = tmp_path / "assumed.json"
+    tampered.write_text(json.dumps({**document, "suffixes": {}}))
+    with pytest.raises(ValueError, match="exact Iowa long-range bounds template"):
+        demo.verified_assumed_radius(tampered)
+    assert generator.envelope_max_distance(generator.generate(
+        mode="sim", world=generator.WORLD, image=generator.IMAGE, profile_path=demo.PROFILE)) is None
+    assert set(document["suffixes"]) == {"1"}
+    with pytest.raises(ValueError, match="SITL-only ceiling"):
+        generator.envelope_max_distance({**document, "assumed_sim_envelope": {
+            "basis": "ASSUMED_SIM", "scope": "SITL-only", "max_distance_from_home_m": 4001.0}})
+
+
+def test_long_range_package_needs_the_assumed_flag():
+    from multidetect.autonomy.mission_package import load_mission_package
+
+    document = json.loads((suite.ROOT / suite.LONG_RANGE_PACKAGE).read_text(encoding="utf-8"))
+    document["task_text"] = suite.LONG_RANGE_SENTENCE
+    with pytest.raises(ValueError, match="pilot envelope"):
+        load_mission_package(document, mode="sim")
+    with pytest.raises(ValueError, match="pilot envelope"):
+        load_mission_package(document, mode="sim", allow_assumed_sim=True)
+    package = load_mission_package(document, mode="sim", allow_assumed_sim=True,
+                                   assumed_sim_max_distance_m=4000.0)
+    assert package.document["x1_planning"]["max_distance_from_home_m"] == 4000.0
+    assert package.assumed_sim_max_distance_m == 4000.0
+    for mode in (None, "replay", "hil", "flight"):
+        with pytest.raises(ValueError, match="authorized SITL scenario runner"):
+            load_mission_package(document, mode=mode, allow_assumed_sim=True,
+                                 assumed_sim_max_distance_m=4000.0)
+    with pytest.raises(ValueError, match="authorized SITL scenario runner"):
+        load_mission_package(document, mode="sim", assumed_sim_max_distance_m=4000.0)
 
 
 @pytest.mark.parametrize("name, fault, end_ms", [
@@ -98,6 +163,20 @@ def test_outcomes_require_phase_observation_and_action():
     assert suite.check_flight(mc, result, trace)[0]["executor_effect"]
     result["flight"]["native_handoff"]["confirmed"] = False
     assert not suite.check_flight(mc, result, trace)[0]["executor_effect"]
+
+
+def test_long_range_requires_simulated_airborne_time_waypoint_and_repeated_cadence():
+    case, = suite.select_cases(["long-range-transect"])
+    result = fixture_flight()
+    trace = decision_trace()
+    checks, _ = suite.check_flight(case, result, trace)
+    for key in ("min_airborne_time", "waypoint_reached", "repeated_cadence"):
+        assert not checks[key]
+    result["flight"].update(takeoff_complete_to_landing_sim_s=599.9, waypoints_reached=["w"])
+    assert not suite.check_flight(case, result, trace)[0]["min_airborne_time"]
+    result["flight"]["takeoff_complete_to_landing_sim_s"] = 600
+    second = json.loads(json.dumps(trace).replace("case:1", "case:2"))
+    assert all(suite.check_flight(case, result, trace + second)[0].values())
 
 
 def test_cadence_counts_model_proposal_even_without_executor_action():
@@ -255,6 +334,43 @@ def test_worker_reuses_model_reply_and_applies_evidence_flags(tmp_path, monkeypa
     assert "--plan-only" in runs[0] and "--target-cadence-only" in runs[0]
     assert "--recorded-output" not in runs[1] and "--recorded-retask" not in runs[1]
     assert "--assumed-sim-bounds" in runs[1] and "--decision-audit" in runs[1]
+
+
+def test_long_range_worker_uses_only_its_own_assumed_bounds(tmp_path, monkeypatch):
+    from dataclasses import asdict
+
+    from scripts import run_x1_autonomy_demo as demo
+    from scripts.realworld import x1_site_evidence
+
+    case = suite.select_cases(["long-range-transect"])[0]
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text('{}')
+    spec = {"case": asdict(case), "slot": 5, "attempt_dir": str(tmp_path), "args": {
+        "port": 9999, "planner_timeout_s": 3, "checkpoint": "fake.gguf", "llama_server": "fake-llama",
+        "mission_package": "context.json", "site_inventory": str(inventory), "plan_only": False}}
+    runs = []
+
+    def fake_http(port, endpoint, body, *, timeout):
+        return {"choices": [{"message": {"content": "model-wire"}}]}
+
+    def fake_demo(argv, shared_post):
+        runs.append(argv)
+        output = Path(argv[argv.index("--output") + 1])
+        output.mkdir()
+        (output / "result.json").write_text('{}')
+        return 0
+
+    monkeypatch.setattr(x1_site_evidence, "write_bounds", lambda *args: None)
+    monkeypatch.setattr(suite, "local_json", fake_http)
+    monkeypatch.setattr(demo, "main", fake_demo)
+    assert suite.run_worker(spec) == 0
+    assert len(runs) == 2
+    for argv in runs:
+        # Exactly one flag per run: the long-range bounds, never the default Iowa one.
+        assert argv.count("--assumed-sim-bounds") == 1
+        bounds = Path(argv[argv.index("--assumed-sim-bounds") + 1]).name
+        assert bounds == Path(suite.LONG_RANGE_BOUNDS).name
+        assert Path(argv[argv.index("--mission-package") + 1]).name == Path(suite.LONG_RANGE_PACKAGE).name
 
 
 def test_retask_installation_bound_to_expected_trigger():

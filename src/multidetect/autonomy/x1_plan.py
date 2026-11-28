@@ -122,7 +122,13 @@ def _number(value: Any) -> float:
     return require_real(value, "X1 context value")
 
 
-def validate_x1_context(raw: Any, area: Mapping) -> dict:
+# SITL-only ceiling for the explicitly assumed Iowa long-range case. It is only
+# reachable when the ASSUMED_SIM runner supplies a validated bounds template;
+# the onboard pilot envelope above is never changed.
+ASSUMED_SIM_MAX_DISTANCE_M = 4000.0
+
+
+def validate_x1_context(raw: Any, area: Mapping, *, assumed_sim_max_distance_m: float | None = None) -> dict:
     """Accept only host-owned, explicitly bounded geometry in a mission package."""
     if not isinstance(raw, Mapping) or set(raw) != {
         "world", "max_distance_from_home_m", "corridor", "terrain_rel_home_m",
@@ -132,7 +138,13 @@ def validate_x1_context(raw: Any, area: Mapping) -> dict:
         raise ValueError("X1 requires an rw_* simulation world")
     config, _ = _limits()
     max_distance = _number(raw["max_distance_from_home_m"])
-    if not 0 < max_distance <= config["max_distance_from_home_m"]:
+    limit = config["max_distance_from_home_m"]
+    if assumed_sim_max_distance_m is not None:
+        widened = _number(assumed_sim_max_distance_m)
+        if not limit < widened <= ASSUMED_SIM_MAX_DISTANCE_M:
+            raise ValueError("X1 assumed SIM envelope exceeds the SITL-only ceiling")
+        limit = widened
+    if not 0 < max_distance <= limit:
         raise ValueError("X1 maximum home distance exceeds the pilot envelope")
     rect = raw["corridor"]
     if not isinstance(rect, Mapping) or set(rect) != set(_CORRIDOR_KEYS):
@@ -187,7 +199,8 @@ def x1_static_violations(plan: MissionPlan, package: MissionPackage, capabilitie
     doc = package.document
     area = doc["operating_area"]
     try:
-        context = validate_x1_context(doc.get("x1_planning"), area)
+        context = validate_x1_context(doc.get("x1_planning"), area,
+                                      assumed_sim_max_distance_m=package.assumed_sim_max_distance_m)
     except ValueError as exc:
         add("X1_CONTEXT", None, str(exc))
         return findings

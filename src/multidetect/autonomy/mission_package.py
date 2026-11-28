@@ -74,6 +74,8 @@ class MissionPackage:
     refs: dict[str, Any]
     plan: MissionPlan | None
     mode: str | None = None
+    # SITL-only wide envelope authorized by an exact ASSUMED_SIM bounds template.
+    assumed_sim_max_distance_m: float | None = None
 
     @property
     def mission_id(self) -> str:
@@ -769,6 +771,7 @@ def load_mission_package(
     mode: str | None = None,
     flight_mode: bool | None = None,
     allow_assumed_sim: bool = False,
+    assumed_sim_max_distance_m: float | None = None,
 ) -> MissionPackage:
     if isinstance(raw, Path):
         raw = strict_json_loads(raw.read_text(encoding="utf-8"), name="mission package")
@@ -780,6 +783,10 @@ def load_mission_package(
     key_path = key_path or operator_key_path
     if mode is not None and (not isinstance(mode, str) or not mode.strip()):
         raise ValueError("mode must be non-empty text")
+    if assumed_sim_max_distance_m is not None and (
+        mode != "sim" or allow_assumed_sim is not True or flight_mode or require_signature or key or key_path
+    ):
+        raise ValueError("the assumed SIM envelope requires the authorized SITL scenario runner")
     if flight_mode is not None and not isinstance(flight_mode, bool):
         raise ValueError("flight_mode must be boolean")
     # Any explicit flight/real mode is fail-closed.  A configured key also
@@ -896,7 +903,9 @@ def load_mission_package(
     if "x1_planning" in obj or X1_CAPABILITY in capabilities:
         if mode_requires_signature or flight_mode or X1_CAPABILITY not in capabilities:
             raise ValueError("x1_planning is a simulation-only package option requiring airframe:x1")
-        obj["x1_planning"] = validate_x1_context(obj.get("x1_planning"), area)
+        obj["x1_planning"] = validate_x1_context(
+            obj.get("x1_planning"), area, assumed_sim_max_distance_m=assumed_sim_max_distance_m,
+        )
     if "x1_live_evidence" in obj:
         if (mode != "sim" or require_signature or flight_mode or X1_CAPABILITY not in capabilities
                 or not isinstance(obj["x1_live_evidence"], Mapping)):
@@ -988,7 +997,8 @@ def load_mission_package(
     )
     if plan is None and not task:
         raise ValueError("mission package needs task_text or plan")
-    package = MissionPackage(obj, refs, plan, mode=mode)
+    package = MissionPackage(obj, refs, plan, mode=mode,
+                             assumed_sim_max_distance_m=assumed_sim_max_distance_m)
     if plan is not None:
         package.validate_plan(plan)
         if "x1_planning" in obj:

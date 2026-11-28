@@ -41,6 +41,7 @@ def shareable(kind, name):
             or (kind == "C" and name.lower() == "sunshine" and SUNSHINE_COMPUTE_MARKER.exists())
             or (kind == "C" and is_fluidx3d(name) and FLUIDX3D_MARKER.exists()))
 
+ALLOW_GPUS_ENV = "MULTIDETECT_SIM_ALLOW_GPUS"
 UNAVAILABLE = "x1_gpu_unavailable"
 
 
@@ -54,6 +55,18 @@ def gpu_ids(value):
     if not re.fullmatch(r"[0-3](,[0-3])*", value):
         raise ValueError(f"invalid GPU list {value!r}")
     return set(map(int, value.split(",")))
+
+
+def allowed_gpus():
+    """The SITL launch allow list, or None when the workstation left it unset."""
+    raw = os.environ.get(ALLOW_GPUS_ENV)
+    if raw is None or not raw.strip():
+        return None
+    # Match the launcher's comma-separated CUDA ordinals, including whitespace.
+    values = [item.strip() for item in raw.split(",")]
+    if not all(item.isdecimal() for item in values):
+        raise ValueError(f"{ALLOW_GPUS_ENV} must contain only GPU numbers")
+    return {int(item) for item in values}
 
 
 def training_registry(root):
@@ -204,12 +217,17 @@ def select(status, *, indices=ORDER, expected_uuid=None, skip_leased=False):
     root = KEEPALIVE
     rejected = {}
     selection = best_shared = None
+    allowed = allowed_gpus()
+    candidates = tuple(index for index in indices if allowed is None or index in allowed)
+    for index in indices:
+        if allowed is not None and index not in allowed:
+            rejected[index] = [f"gpu_not_allowed:{ALLOW_GPUS_ENV}"]
     try:
         occupied = training_occupancy(root)
     except errors as exc:
         rejected["keepalive"] = [f"training_occupancy_unknown:{exc}"]
     else:
-        for index in indices:
+        for index in candidates:
             reasons = []
             try:
                 uuid, memory, util, shared, reasons = live_gpu(index)
@@ -238,6 +256,7 @@ def select(status, *, indices=ORDER, expected_uuid=None, skip_leased=False):
             selection = best_shared[1]
     record = {"state": "READY" if selection else "WAITING", "timestamp": batch.now(),
               "gpu_index": None, "gpu_uuid": None, "gpu_reason": UNAVAILABLE, "gpu_shared_processes": [],
+              "allowed_gpus": None if allowed is None else sorted(allowed),
               "blocked_gpus": {str(index): reasons for index, reasons in rejected.items()},
               **(selection or {})}
     status.parent.mkdir(parents=True, exist_ok=True)

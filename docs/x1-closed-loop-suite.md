@@ -68,12 +68,18 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" \
 | `evidence-follow-event` | 0 / 3 | `target_found` 事件票据、按 oracle 优先调用工具、证据齐备后的合法 retask 安装记录、证据航线和落地 | 7 / 20 分钟 |
 | `evidence-follow-cadence` | 1 / 3 | `target_found` 进入 cadence 请求，retask 安装和落地 | 7 / 20 分钟 |
 | `quiet-cadence` | 4 / 0 | 只有周期请求，零额外动作、返航落地 | 5 / 15 分钟 |
+| `long-range-transect` | 10 / 0 | 单航点约 3.5 km 去程、巡航 cadence 持续决策、零额外动作、返航落地 | 14 / 30 分钟 |
+| `long-range-wind` | 10 / 0 | 同一单航点航线，巡航 cadence 持续决策，中途注入 `wind_step` 并观测、恢复、返航落地 | 14 / 30 分钟 |
 
 `continue` 用例允许执行器因当前 MotionProof 不足而安全拒绝。验收要求真实 `continue`、相应回执、无额外执行动作及落地。无故障用例的每个适用 cadence tick 都需要满足决定与回执条件。证据范围拒绝记录保留原始回执。`return`、`land-now`、`retask` 需要执行器接纳及对应的 PX4 或航线安装证据。
 
 `mc-hover-waypoint-return` 是唯一全程 MC 的用例，使用独立的 nominal-MC 编译器；实跑规划给出 `vtol_takeoff → x1_mc_reposition → return_home`。它不在 `ASSUMED_SIM` 范围内。`mc-link-loss` 与 `mc-battery-drop` 的 `mc` 指故障和决策所在的返航阶段。两者与两个 evidence-follow 用例都向模型提交 `Fly over the yard at 85 m AGL, then return home and land.`；模型给出垂直起飞、切 FW、飞越 `poi:yard`、切回 MC、返航落地的五步计划。失链和电池窗口分别是路由时钟 50–58 s 和 50–62 s，均单独绑定在同一 Iowa 航线上；实飞阶段仍按遥测判定，不以窗口推定模式。
 
 `ASSUMED_SIM` 仍要求完整任务包、任务图、运动范围、故障窗口、插件、Iowa SDF/DEM、机型、镜像和经校验的场地边界匹配。只有模型 `goal` 和步骤命名（包括两条分支引用）被规范化；任务原句、报告、技能、参数、顺序、分支拓扑等仍参与绑定。`result.json` 的 `plan_json` 和 `raw_planner_output` 保留模型原文，`canonical_plan` 记录执行侧图。编译步骤、base hash、运动范围及初始决策请求／审计使用同一份规范化图。Altair 飞行中提交的 retask 本身不经改写。重新运行时应从新预检生成站点绑定，不复用旧 base hash。
+
+`long-range-transect` 与 `long-range-wind` 使用独立任务包 `configs/simulation/x1-longrange-mission.json`，只有一个东北向航点 `poi:far-marker`（home 约 3.5 km，仍位于 6 km 世界的方形边界内），模型给出 `vtol_takeoff → fw_transition → fw_goto_waypoint → back_transition → return_home`。二者都带 `assumed=True`，读取独立的 `configs/simulation/x1-assumed-sim-bounds-iowa-longrange.json`；该文件只在 `ASSUMED_SIM` 入口被校验，声明 `SITL-only` 且把 `max_distance_from_home_m` 放宽到 4000 m，`configs/onboard/x1-planner.json` 的 1500 m 真机包线保持不变。不带该标志加载同一任务包仍会被 1500 m 上限拒绝。`long-range-wind` 的 `wind_step` 窗口在 `configs/simulation/x1-longrange-wind-faults-v1.json`。巡航 `continue` 仍必须通过既有 MotionProof 与能量/时间预算；本用例不新增多段走廊证明。
+
+两个长航程用例需要用 `--case` 显式选中。验收要求航点通过、返航落地、两轮以上巡航 cadence 决策，以及 PX4 仿真时钟从起飞完成到落地至少 600 秒。当前 3,465 m 航线按现有机型预算约需 146.8 Wh，可用能量为 59.2 Wh，预检会以 `X1_ENERGY` 拒绝。航点位于东北方向，正北 3.5 km 会越出当前 Iowa 方形场地。
 
 `mc-battery-drop` 的 17% 注入只获准进入这个 SITL 试验，**不**代表原生动作会获准。观测门限至多 19%，现有故障 SOC 下界再扣 54 个百分点，因此该样本的能量下界为 0 Wh。执行器不能为了验收改发或放行动作；没有满足原生动作和落地证据时，该用例仍报失败。这次范围修订不改变现有通过条件。
 
