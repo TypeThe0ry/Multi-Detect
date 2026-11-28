@@ -957,7 +957,28 @@ def run(args, *, post, launch=fly):
                     site_bounds=bounds, scope=record["contingency_scenario"]["motion_scope_sha256"],
                     base_digest=base_digest,
                 )
-                if fw_rtl_path is not None:
+                if fw_rtl_path is not None and mission.get("corridor_lowering") is not None:
+                    try:
+                        fw_raw = fw_rtl_path.read_bytes()
+                        fw_rtl = FwRtlBounds.from_host_manifest(strict_json_loads(fw_raw, name=str(fw_rtl_path)))
+                        validation = fw_rtl_path.with_suffix(".validation.json")
+                        validation_raw = validation.read_bytes()
+                        scope = record["contingency_scenario"]["motion_scope_sha256"]
+                        if (not fw_rtl.valid_for(scope, load_airframe_profile(PROFILE), corridor=True)
+                                or fw_rtl.image_id == assumed["image_id"]
+                                or any(assumed["parameters"].get(k, v) != v for k, v in fw_rtl.params.items())
+                                or not fw_rtl.reviewed_corridor(validation_raw, assumed_sha256=assumed["sha256"])):
+                            raise ValueError("missing applicable reviewed corridor RTL v2 evidence")
+                    except (OSError, ValueError) as exc:
+                        record["contingency_scenario"]["fw_rtl_corridor_refusal"] = str(exc)
+                    else:
+                        assumed.update(fw_rtl=fw_rtl, fw_rtl_review=validation_raw)
+                        record["contingency_scenario"]["fw_rtl_host_manifest"] = {
+                            "sha256": hashlib.sha256(fw_raw).hexdigest(), "px4_commit": fw_rtl.px4_commit,
+                            "path": str(fw_rtl_path.resolve()), "image_id": fw_rtl.image_id,
+                            "validation_sha256": fw_rtl.validation_sha256, "validation_path": str(validation.resolve()),
+                        }
+                elif fw_rtl_path is not None:
                     fw_raw = fw_rtl_path.read_bytes()
                     fw_rtl = FwRtlBounds.from_host_manifest(strict_json_loads(fw_raw.decode("utf-8"), name=str(fw_rtl_path)))
                     scope = record["contingency_scenario"]["motion_scope_sha256"]
@@ -996,7 +1017,7 @@ def run(args, *, post, launch=fly):
                 package, terrain=site.terrain,
                 scope_sha256=record["contingency_scenario"]["motion_scope_sha256"],
                 base_mission_sha256=base_digest,
-                surveyed_bounds=bounds,
+                surveyed_bounds=bounds, corridor=mission.get("corridor_lowering"),
             )
             if assumed_path is not None and not args.plan_only and missing:
                 raise ValueError(f"incomplete ASSUMED_SIM evidence: {', '.join(missing)}")
