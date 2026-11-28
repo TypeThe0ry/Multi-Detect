@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+
+from multidetect.autonomy.x1_plan import _segment_distance
 from dataclasses import replace
 from pathlib import Path
 
@@ -427,3 +429,23 @@ def test_failure_revalidation_is_required_on_every_leg(terrain, profile, index):
         decision, frame,
         _sweep(lowering, terrain, decision, frame, position[:2], index, failure=False)
     ).geofence_clear is False
+
+
+def test_turn_pad_is_a_circle_not_a_square(terrain, profile):  # noqa: F811
+    package = _package({"poi:a": [800.0, 800.0], "poi:b": [800.0, 1600.0]})
+    lowering = _lowering(package, ["poi:a", "poi:b", "home"], terrain, profile)
+    builder = _builder(package, terrain, profile, lowering)
+    _, pads = builder._corridor_segments()
+    assert pads
+    centre, pad = pads[0]
+    # Inside the square (|dn|,|de| <= pad) but beyond the circle (distance > pad) and off every tube.
+    offset = pad * 0.99
+    box = (centre[0] + offset - 0.1, centre[0] + offset + 0.1,
+           centre[1] + offset - 0.1, centre[1] + offset + 0.1, 0.0, 1.0)
+    assert math.dist((box[0], box[2]), centre) > pad
+    segments, _ = builder._corridor_segments()
+    far_from_tubes = all(
+        builder_distance > width for builder_distance, width in (
+            (_segment_distance(a, b, (centre[0] + offset, centre[1] + offset)), w) for a, b, w in segments))
+    assert far_from_tubes
+    assert builder._in_corridor_union((box,)) is False

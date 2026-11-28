@@ -117,6 +117,13 @@ def _corners(box):
     return tuple((n, e) for n in box[:2] for e in box[2:4])
 
 
+def _corridor_box_samples(box):
+    """Corners, edge midpoints and centre of a box (corridor mode only; stricter than corners)."""
+    n0, n1, e0, e1, *_ = box
+    n_mid, e_mid = (n0 + n1) / 2.0, (e0 + e1) / 2.0
+    return (*_corners(box), (n_mid, e0), (n_mid, e1), (n0, e_mid), (n1, e_mid), (n_mid, e_mid))
+
+
 def _box_distance(box, point):
     n0, n1, e0, e1, *_ = box
     n, e = point
@@ -287,9 +294,9 @@ class X1MotionProofBuilder:
         """Every box corner must lie in the union of leg tubes and vertex turn pads."""
         segments, pads = self._corridor_segments()
         for box in boxes:
-            for n, e in _corners(box):
-                if any(abs(n - centre[0]) <= pad and abs(e - centre[1]) <= pad
-                       for centre, pad in pads):
+            # Corners alone can miss a concave union, so edge midpoints and the centre must pass too.
+            for n, e in _corridor_box_samples(box):
+                if any(math.dist((n, e), centre) <= pad for centre, pad in pads):
                     continue
                 if min(_segment_distance(start, end, (n, e)) - width
                        for start, end, width in segments) > 1e-9:
