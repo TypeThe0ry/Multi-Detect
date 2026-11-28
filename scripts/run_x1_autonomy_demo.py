@@ -33,7 +33,7 @@ from multidetect.autonomy.x1_perception_tools import (  # noqa: E402
     TOOL_SCHEMA, GimbalReading, PerceptionSources, RouteReading, ToolRunner,
 )
 from multidetect.autonomy.x1_plan import (  # noqa: E402
-    X1_CAPABILITY, one_waypoint_primitives_input, x1_planner_context,
+    X1_CAPABILITY, corridor_primitives_input, one_waypoint_primitives_input, x1_planner_context,
 )
 from multidetect.terrain_dem import LocalDemGrid, load_local_dem_grid  # noqa: E402
 from multidetect.sim_teacher.x1_live_clearance import (  # noqa: E402
@@ -77,9 +77,10 @@ def _finite(value, counter):
     return value
 
 
-def load_sim_package(document: dict, *, assumed: bool):
+def load_sim_package(document: dict, *, assumed: bool, max_distance_m: float | None = None):
     """Load a SIM mission package, accepting the ASSUMED_SIM marker only when the SIM-only suite asks for it."""
-    return load_mission_package(document, mode="sim", allow_assumed_sim=assumed)
+    return load_mission_package(document, mode="sim", allow_assumed_sim=assumed,
+                                assumed_sim_max_distance_m=max_distance_m)
 
 
 def load_sim_replay_package(document: dict):
@@ -242,9 +243,15 @@ def compiled_mission_digest(package, plan):
 
 def prepare(package, plan, capabilities, site, *, output, slot, nominal_mc=False):
     """Bind the validated mission to the site's DEM and the collector's SIM inputs."""
+    corridor = package.assumed_sim_corridor is not None and len(plan.steps) > 5
     if nominal_mc:
         from scripts.x1_closed_loop_mc import build_mc_steps
 
+        context = package.document["x1_planning"]
+        radius = context["max_distance_from_home_m"]
+        view = replace(package, document={**package.document, "operating_area": {
+            **package.document["operating_area"], **context["corridor"]}})
+    elif corridor:
         context = package.document["x1_planning"]
         radius = context["max_distance_from_home_m"]
         view = replace(package, document={**package.document, "operating_area": {
@@ -270,6 +277,10 @@ def prepare(package, plan, capabilities, site, *, output, slot, nominal_mc=False
         raise X1PlanError("SITE_FENCE", "package radius exceeds the site geofence")
     if nominal_mc:
         steps = build_mc_steps(view, plan, site.terrain, profile, radius)
+    elif corridor:
+        lowering = corridor_primitives_input(plan, view, capabilities, terrain=site.terrain,
+                                             profile=profile, mission_radius_m=radius)
+        steps = lowering.steps
     else:
         steps = build_x1_mission_steps(view, plan=adapted, terrain=site.terrain, profile=profile, mission_radius_m=radius)
     height = steps[0].takeoff_height_m
@@ -303,6 +314,8 @@ def prepare(package, plan, capabilities, site, *, output, slot, nominal_mc=False
                "geometry": SimpleNamespace(home=site.home, takeoff_altitude_m=height),
                "terrain": site.terrain, "x1_cruise_guard": observe_cruise, "observed_margins": observed_margins,
                "nominal_mc": nominal_mc}
+    if corridor:
+        mission["corridor_lowering"] = lowering
     with long_range._preview_slot(slot):
         (output / "flight").mkdir(parents=True, exist_ok=True)
         collector_plan = long_range.collection_plan(site.scenario, output / "flight", slot, mission)
@@ -376,19 +389,82 @@ def forward_clearance(steps, dem):
     return clearance
 
 
+def verified_assumed_radius(path):
+    """Require the generated long-range template before preflight can use its radius."""
+    raw = read_object(path)
+    radius = assumptions.envelope_max_distance(raw)
+    if radius is not None:
+        expected = assumptions.generate_long_range(mode="sim", world=assumptions.WORLD, image=IMAGE,
+                                                   profile_path=PROFILE)
+        if canonical_sha256(raw) != canonical_sha256(expected):
+            raise ValueError("ASSUMED_SIM requires the exact Iowa long-range bounds template")
+    return radius
+
+
+def verified_assumed_corridor(path):
+    """Require the generated corridor template and return its envelope and bounds."""
+    raw = read_object(path)
+    radius = assumptions.envelope_max_distance(raw)
+    bounds = assumptions.corridor_bounds(raw)
+    if radius is None or bounds is None:
+        raise ValueError("ASSUMED_SIM requires the exact Iowa corridor bounds template")
+    expected = assumptions.generate_corridor(mode="sim", world=assumptions.WORLD, image=IMAGE,
+                                             profile_path=PROFILE)
+    if canonical_sha256(raw) != canonical_sha256(expected):
+        raise ValueError("ASSUMED_SIM requires the exact Iowa corridor bounds template")
+    return radius, bounds
+
+
+CORRIDOR_BINDING_ERROR = "ASSUMED_SIM requires the exact Iowa corridor bounds template"
+
+
+def matches_assumed_corridor_plan(*, fault, scope, base_digest):
+    return base_digest == assumptions.CORRIDOR_BASE_SHA and scope in assumptions.corridor_scopes_for(fault)
+
+
 def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds, scope, base_digest):
     """Authorize the generated template only against a verified SITL run and its site inventory."""
     data = path.read_bytes()
     raw = strict_json_loads(data.decode("utf-8"), name=str(path))
-    expected = assumptions.generate(mode=package.mode, world=site.scenario_id,
-                                    image=collector_plan.image, profile_path=PROFILE)
+    corridor = "assumed_sim_corridor" in raw
+    long_range = not corridor and "assumed_sim_envelope" in raw
+    if corridor:
+        generate = assumptions.generate_corridor
+    elif long_range:
+        generate = assumptions.generate_long_range
+    else:
+        generate = assumptions.generate
+    expected = generate(mode=package.mode, world=site.scenario_id,
+                        image=collector_plan.image, profile_path=PROFILE)
     fault = faults[0].kind if len(faults) == 1 else None
+    if corridor:
+        binding_matches = matches_assumed_corridor_plan(fault=fault, scope=scope, base_digest=base_digest)
+        bounds = assumptions.corridor_bounds(raw)
+    elif long_range:
+        binding_matches = scope in assumptions.long_range_scopes_for(fault) and base_digest == assumptions.LONG_RANGE_BASE_SHA
+        bounds = None
+    else:
+        binding_matches = scope in assumptions.scopes_for(fault) and base_digest == assumptions.BASE_SHA
+        bounds = None
+    envelope = None
+    if corridor:
+        envelope = assumptions.envelope_max_distance(raw)
+        if envelope is None:
+            raise ValueError("the assumed SIM corridor requires the assumed SIM envelope")
+    elif long_range:
+        envelope = raw["assumed_sim_envelope"]["max_distance_from_home_m"]
+    if (envelope is not None
+            and package.document["x1_planning"]["max_distance_from_home_m"] != envelope):
+        raise ValueError("ASSUMED_SIM long-range mission does not match its SITL envelope")
+    template_error = (
+        CORRIDOR_BINDING_ERROR if corridor
+        else "ASSUMED_SIM requires the exact Iowa route, fault schedule and verified site bounds")
     if (canonical_sha256(raw) != canonical_sha256(expected) or site.world_sha256 != assumptions.WORLD_SHA
             or site.terrain.source_sha256 != assumptions.DEM_SHA
-            or base_digest != assumptions.BASE_SHA or scope not in assumptions.scopes_for(fault)
+            or not binding_matches
             or set(site_bounds or ()) != {"scope_sha256", "dem_sha256", "base_mission_sha256",
                                           "obstacle_coverage", "obstacles"}):
-        raise ValueError("ASSUMED_SIM requires the exact Iowa route, fault schedule and verified site bounds")
+        raise ValueError(template_error)
     battery = raw["battery"]["value"]
     if battery["max_sample_age_ms"] != MOTION_SAMPLE_MAX_AGE_MS:
         raise ValueError("ASSUMED_SIM battery sample delay differs from the runtime gate")
@@ -412,7 +488,9 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
                       "suffixes": {key: entry["value"] for key, entry in raw["suffixes"].items()},
                       "native": {section: {key: entry["value"] for key, entry in entries.items()}
                                  for section, entries in raw["native"].items()}}
-    return load_mission_package(document, mode="sim"), assumed_bounds, state
+    return load_mission_package(document, mode="sim", allow_assumed_sim=long_range or corridor,
+                                assumed_sim_max_distance_m=envelope,
+                                assumed_sim_corridor=bounds), assumed_bounds, state
 
 
 def demo_perception(package, profile, dem, steps, *, max_calls=3):
@@ -527,9 +605,10 @@ def make_scenario(args, mission, steps, record):
         profile = load_airframe_profile(PROFILE)
         package = mission["scenario_package"]
         if not mission.get("nominal_mc"):
+            corridor_options = {"corridor": mission["corridor_lowering"]} if "corridor_lowering" in mission else {}
             motion_evidence = LiveContinueEvidence(package, profile, mission["terrain"], steps,
                                                    scope=record["contingency_scenario"]["motion_scope_sha256"],
-                                                   assumed_sim=mission.get("assumed_sim"))
+                                                   assumed_sim=mission.get("assumed_sim"), **corridor_options)
 
         extra = {"decision_cadence_s": cadence_s, "audit": audit_sink,
                  "target_cadence_only": getattr(args, "target_cadence_only", False)}
@@ -638,24 +717,30 @@ def finish_flight(episode, steps, record):
     markers = [row for row in mavlink if row.get("message_type") in {
         "fixed_wing_takeoff_complete", "collector_landing_complete"}]
     observed = {}
+    corridor_route = sum(step.primitive == "fw_goto_waypoint" for step in names) > 1
+    corridor_waypoints = []
     for step, row in zip(names, prefix_rows):
         motion = row.get("labels", {}).get("motion")
         waited = row.get("ack", {}).get("motion_wait", {})
         expected = {"reposition": "arrived", "transition": "transitioned", "mc_reposition": "settled",
                     "mc_hold": "settled"}
-        observed[step.primitive] = (row.get("outcome", {}).get("status") == "success"
-                                    and motion == step.command.to_dict()
-                                    and waited.get("waited") == expected[step.command.kind]
-                                    and (step.primitive != "fw_goto_waypoint" or bool(waited.get("x1_passage"))))
+        confirmed = (row.get("outcome", {}).get("status") == "success"
+                     and motion == step.command.to_dict()
+                     and waited.get("waited") == expected[step.command.kind]
+                     and (step.primitive != "fw_goto_waypoint" or bool(waited.get("x1_passage"))))
         if nominal_mc:
             after = row.get("obs_after", {})
             altitude = (after.get("pose") or {}).get("alt_m")
             state = after.get("flight_state") or {}
-            observed[step.primitive] &= (state.get("vtol_state") == 3 and state.get("landed_state") == 2
-                                          and type(altitude) in (float, int) and math.isfinite(altitude)
-                                          and abs(altitude + step.command.target_ned[2]) <= 5)
+            confirmed &= (state.get("vtol_state") == 3 and state.get("landed_state") == 2
+                          and type(altitude) in (float, int) and math.isfinite(altitude)
+                          and abs(altitude + step.command.target_ned[2]) <= 5)
+        if corridor_route and step.primitive == "fw_goto_waypoint" and confirmed:
+            corridor_waypoints.append(step.source_step_id)
+        # A later passage must not overwrite an earlier failed passage.
+        observed[step.primitive] = confirmed and (not corridor_route or observed.get(step.primitive, True))
         record["markers"].append({"primitive": step.primitive, "plan_step_id": step.source_step_id,
-                                  "motion_wait": waited, "confirmed": observed[step.primitive]})
+                                  "motion_wait": waited, "confirmed": confirmed})
     takeoff = any(r["message_type"] == "fixed_wing_takeoff_complete"
                   and (not nominal_mc or r.get("flight_state", {}).get("vtol_state") == 3) for r in markers)
     mc_only_confirmed = not nominal_mc or (metadata.get("vtol_hover_mission") is True and not any(
@@ -711,11 +796,17 @@ def finish_flight(episode, steps, record):
     native = _native_outcome(mavlink, markers, positions,
                              names[len(prefix_rows):] if not replacements else (), record)
     return_home = bool(observed.get("mc_return_to_home")) or bool(native and native["return_home"])
-    waypoints = [step.source_step_id for step in names
-                 if step.primitive in {"fw_goto_waypoint", "mc_goto_waypoint"} and observed.get(step.primitive)]
+    waypoints = corridor_waypoints if corridor_route else [
+        step.source_step_id for step in names
+        if step.primitive in {"fw_goto_waypoint", "mc_goto_waypoint"} and observed.get(step.primitive)]
     record["flight"].update(episode=str(episode), takeoff=takeoff, waypoints_reached=waypoints,
                             return_home=return_home, landing=landed, steps=observed,
                             episode_status=metadata.get("status"), episode_failure=metadata.get("failure"))
+    if takeoff and landed:
+        stamps = {row["message_type"]: row.get("sim_time_s") for row in markers}
+        start, end = (stamps.get(key) for key in ("fixed_wing_takeoff_complete", "collector_landing_complete"))
+        if all(type(stamp) in (int, float) and math.isfinite(stamp) for stamp in (start, end)) and end >= start:
+            record["flight"]["takeoff_complete_to_landing_sim_s"] = end - start
     if native is not None:
         record["flight"]["native_handoff"] = native
     complete = (takeoff and landed and metadata.get("status") == "complete" and all(observed.values())
@@ -800,9 +891,17 @@ def run(args, *, post, launch=fly):
             assumed_path is None or tuple(f.kind for f in faults) not in {("wind_step",), ("target_found",)}
         ):
             raise ValueError("FW RTL host manifest requires a scoped ASSUMED_SIM wind_step or target_found scenario")
-        if assumed_path is not None and (not generate_evidence or not faults
-                                         or not getattr(args, "live_evidence_bounds", None)):
-            raise ValueError("ASSUMED_SIM requires generation, selected faults and verified site bounds")
+        envelope_max_distance = None
+        corridor_options = {}
+        if assumed_path is not None:
+            if "assumed_sim_corridor" in read_object(assumed_path):
+                envelope_max_distance, bounds = verified_assumed_corridor(assumed_path)
+                corridor_options = {"assumed_sim_corridor": bounds}
+            else:
+                envelope_max_distance = verified_assumed_radius(assumed_path)
+        if assumed_path is not None and not args.plan_only and (
+                not generate_evidence or not getattr(args, "live_evidence_bounds", None)):
+            raise ValueError("ASSUMED_SIM requires generation and verified site bounds")
         fixture = getattr(args, "recorded_retask", None)
         if fixture is not None:
             if assumed_path is None or tuple(f.kind for f in faults) != ("target_found",):
@@ -812,7 +911,9 @@ def run(args, *, post, launch=fly):
             raise ValueError("ASSUMED_SIM live runs require the Altair scenario decision backend")
         if generate_evidence and (not (faults or cadence_s) or "x1_live_evidence" in document):
             raise ValueError("--generate-live-evidence requires a decision scenario and a package without x1_live_evidence")
-        package = load_mission_package({**document, "task_text": args.sentence}, mode="sim")
+        package = load_mission_package({**document, "task_text": args.sentence}, mode="sim",
+                                       allow_assumed_sim=assumed_path is not None,
+                                       assumed_sim_max_distance_m=envelope_max_distance, **corridor_options)
         record["mission_package_sha256"] = canonical_sha256(package.document)
         nominal_mc = getattr(args, "nominal_mc", False)
         prepare_options = {}
@@ -859,7 +960,7 @@ def run(args, *, post, launch=fly):
                 else:
                     bounds = read_object(bounds_path)
             provenance = {}
-            if assumed_path is not None:
+            if assumed_path is not None and not args.plan_only:
                 if not bounds_path.name.endswith(x1_site_evidence.BOUNDS_SUFFIX):
                     raise ValueError("ASSUMED_SIM requires verified .site-bounds.json geometry")
                 package, bounds, assumed = load_assumed_sim(
@@ -867,7 +968,28 @@ def run(args, *, post, launch=fly):
                     site_bounds=bounds, scope=record["contingency_scenario"]["motion_scope_sha256"],
                     base_digest=base_digest,
                 )
-                if fw_rtl_path is not None:
+                if fw_rtl_path is not None and mission.get("corridor_lowering") is not None:
+                    try:
+                        fw_raw = fw_rtl_path.read_bytes()
+                        fw_rtl = FwRtlBounds.from_host_manifest(strict_json_loads(fw_raw, name=str(fw_rtl_path)))
+                        validation = fw_rtl_path.with_suffix(".validation.json")
+                        validation_raw = validation.read_bytes()
+                        scope = record["contingency_scenario"]["motion_scope_sha256"]
+                        if (not fw_rtl.valid_for(scope, load_airframe_profile(PROFILE), corridor=True)
+                                or fw_rtl.image_id == assumed["image_id"]
+                                or any(assumed["parameters"].get(k, v) != v for k, v in fw_rtl.params.items())
+                                or not fw_rtl.reviewed_corridor(validation_raw, assumed_sha256=assumed["sha256"])):
+                            raise ValueError("missing applicable reviewed corridor RTL v2 evidence")
+                    except (OSError, ValueError) as exc:
+                        record["contingency_scenario"]["fw_rtl_corridor_refusal"] = str(exc)
+                    else:
+                        assumed.update(fw_rtl=fw_rtl, fw_rtl_review=validation_raw)
+                        record["contingency_scenario"]["fw_rtl_host_manifest"] = {
+                            "sha256": hashlib.sha256(fw_raw).hexdigest(), "px4_commit": fw_rtl.px4_commit,
+                            "path": str(fw_rtl_path.resolve()), "image_id": fw_rtl.image_id,
+                            "validation_sha256": fw_rtl.validation_sha256, "validation_path": str(validation.resolve()),
+                        }
+                elif fw_rtl_path is not None:
                     fw_raw = fw_rtl_path.read_bytes()
                     fw_rtl = FwRtlBounds.from_host_manifest(strict_json_loads(fw_raw.decode("utf-8"), name=str(fw_rtl_path)))
                     scope = record["contingency_scenario"]["motion_scope_sha256"]
@@ -906,13 +1028,14 @@ def run(args, *, post, launch=fly):
                 package, terrain=site.terrain,
                 scope_sha256=record["contingency_scenario"]["motion_scope_sha256"],
                 base_mission_sha256=base_digest,
-                surveyed_bounds=bounds,
+                surveyed_bounds=bounds, corridor=mission.get("corridor_lowering"),
             )
-            if assumed_path is not None and missing:
+            if assumed_path is not None and not args.plan_only and missing:
                 raise ValueError(f"incomplete ASSUMED_SIM evidence: {', '.join(missing)}")
             evidence.update(provenance)
             package = load_mission_package({**package.document, "x1_live_evidence": evidence}, mode="sim",
-                                           allow_assumed_sim=assumed_path is not None)
+                                           allow_assumed_sim=assumed_path is not None,
+                                           assumed_sim_max_distance_m=envelope_max_distance, **corridor_options)
             generated_path = args.output / "mission-package.json"
             write_result(generated_path, package.document)
             record["mission_package_sha256"] = canonical_sha256(package.document)

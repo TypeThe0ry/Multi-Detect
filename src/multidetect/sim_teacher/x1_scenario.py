@@ -568,8 +568,19 @@ class CollectorScenario:
                     and heartbeat.get("system_status") == 4 and type(mode[1]) is int
                     and mode == self._retask_entry_mode and vtol_state == admitted.vtol_state
                     and self.decision.revision == admitted.revision + 1):
-                point, energy, remaining_time = self._motion_data(index, boot_ms, state)
-                now_ns = time.monotonic_ns()
+                if getattr(self.motion_evidence, "corridor", None) is not None:
+                    now_ns = time.monotonic_ns()
+                    wind_samples = {name: row for name in ("WIND_COV", "ATTITUDE", "LOCAL_POSITION_NED",
+                                                           "GLOBAL_POSITION_INT", "VFR_HUD", "SYS_STATUS",
+                                                           "EXTENDED_SYS_STATE")
+                                    if (row := self._fresh_sample(name, state=state, now_ns=now_ns)) is not None}
+                    estimated = self.wind_estimator.update(wind_samples, now_ns=now_ns)
+                    wind = WindReading.from_wind_cov(wind_samples.get("WIND_COV", {}), now_ns) or estimated
+                    point, energy, remaining_time = self._motion_data(
+                        index, boot_ms, state, now_ns=now_ns, corridor_wind=wind)
+                else:
+                    point, energy, remaining_time = self._motion_data(index, boot_ms, state)
+                    now_ns = time.monotonic_ns()
                 frame = replace(admitted, frame_id=now_ns, t_ms=now_ns // 1_000_000,
                                 position_ne_amsl=point, remaining_energy_wh=energy,
                                 remaining_time_s=remaining_time, airspeed_mps=self._airspeed_mps(samples),
@@ -767,9 +778,11 @@ class CollectorScenario:
         if self.decision is not None:
             motion_index, installed_sha, installed_key = self._continue_motion_context(index, lifecycle)
             evidence_kwargs = {"installed_key": installed_key} if installed_key is not None else {}
+            wind_kwargs = ({"corridor_wind": wind}
+                           if getattr(self.motion_evidence, "corridor", None) is not None else {})
             hold_is_current = self._hold_events(now, events)
             point, remaining_energy_wh, remaining_time_s = self._motion_data(
-                motion_index, boot_ms, state, now_ns=now_ns, **evidence_kwargs)
+                motion_index, boot_ms, state, now_ns=now_ns, **evidence_kwargs, **wind_kwargs)
             vtol_state = VTOL_STATES.get(vtol.get("vtol_state"))
             hold_kwargs = {**evidence_kwargs, "point": point} if installed_key is not None else {}
             holds = (self.motion_evidence.hold_sites(motion_index, vtol_state, **hold_kwargs)
@@ -917,8 +930,15 @@ class CollectorScenario:
             return
         if admission.action == "loiter" and proof is not None and type(proof.required_time_s) in (int, float):
             # The executor decoded and admitted this exact wire; it names the hold.
-            self.hold = {"hold_ref": json.loads(wire)["params"]["hold_ref"],
-                         "deadline_ms": admitted_ms + int(proof.required_time_s * 1000),
+            hold_ref = json.loads(wire)["params"]["hold_ref"]
+            residence = proof.required_time_s
+            if getattr(self.motion_evidence, "corridor", None) is not None:
+                residence = self.motion_evidence.hold_residence_s(hold_ref)
+                if residence is None:
+                    self.native_failure = "hold_residence_unverified"
+                    return
+            self.hold = {"hold_ref": hold_ref,
+                         "deadline_ms": admitted_ms + int(residence * 1000),
                          "revalidation_requested": False}
         elif admission.action in {"return", "land-now"}:
             self.hold = None
@@ -967,7 +987,7 @@ class CollectorScenario:
             return None, sha, None
         return index, sha, ("installed-continue", route.revision, sha, index)
 
-    def _motion_data(self, index, boot_ms, state, *, now_ns=None, installed_key=None):
+    def _motion_data(self, index, boot_ms, state, *, now_ns=None, installed_key=None, corridor_wind=None):
         """Read motion evidence from the same trusted snapshot used for this tick."""
         age = MOTION_SAMPLE_MAX_AGE_MS
         global_position = self._fresh_sample("GLOBAL_POSITION_INT", max_age_ms=age, state=state, now_ns=now_ns)
@@ -1003,6 +1023,8 @@ class CollectorScenario:
                         entry.update(confirmed_hold_ref=self.hold["hold_ref"], observed_home=self._motion_position({
                             "lat": home.get("latitude"), "lon": home.get("longitude"), "alt": home_z,
                         }))
+            if getattr(self.motion_evidence, "corridor", None) is not None:
+                entry["corridor_wind"] = corridor_wind
             point = self.motion_evidence.check_entry(index, point, local, **entry)
         else:
             point = None

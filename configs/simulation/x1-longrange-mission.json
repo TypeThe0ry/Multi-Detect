@@ -1,0 +1,56 @@
+{
+  "mission_id": "x1-longrange-site",
+  "risk_level": "low",
+  "link_loss_policy": {
+    "action": "return_now"
+  },
+  "home": [
+    0.0,
+    0.0
+  ],
+  "places": {
+    "poi:far-marker": [
+      2450,
+      2450
+    ]
+  },
+  "zones": {},
+  "routes": {},
+  "ref_labels": {
+    "poi:far-marker": "东北远标 / far north-east marker"
+  },
+  "capabilities": [
+    "airframe:x1",
+    "gimbal_control"
+  ],
+  "oversight_steps": [],
+  "operating_area": {
+    "north_min_m": -3000.0,
+    "north_max_m": 3000.0,
+    "east_min_m": -3000.0,
+    "east_max_m": 3000.0,
+    "min_altitude_m": 15.0,
+    "max_altitude_m": 145.0
+  },
+  "budget": {
+    "time_s": 2400.0,
+    "reserve_time_s": 240.0,
+    "energy_wh": 200.0,
+    "reserve_energy_wh": 20.0
+  },
+  "x1_planning": {
+    "world": "rw_farm_iowa_w6km__clear_noon",
+    "max_distance_from_home_m": 4000.0,
+    "corridor": {
+      "north_min_m": -600.0,
+      "north_max_m": 3000.0,
+      "east_min_m": -600.0,
+      "east_max_m": 3000.0
+    },
+    "terrain_rel_home_m": [
+      -25.0,
+      25.0
+    ]
+  },
+  "heartbeat_timeout_s": 5.0
+}

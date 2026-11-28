@@ -9832,7 +9832,9 @@ def run_episode(
             if land_result.get("end_reason") in _EPISODE_RESOURCE_STOP_REASONS:
                 recorder.meta["end_reason"] = land_result["end_reason"]
             land_result["flight_state"] = _flight_state_snapshot(mav_reader.state)
-            recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result})
+            landing_stamp_ns = _pose_sim_stamp_ns(mav_reader.state)
+            recorder.record_mavlink({"message_type": "collector_landing_complete", **land_result,
+                                     "sim_time_s": landing_stamp_ns / 1e9 if landing_stamp_ns is not None else None})
             if video_writer is not None:
                 recorder.meta["video"] = video_writer.close()
             if video_writer is not None and camera_mount is not None and camera_mount.kind == "gimbal":

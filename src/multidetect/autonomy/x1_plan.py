@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any
 from .serialization import require_real
 
 if TYPE_CHECKING:
-    from .mission_package import MissionPackage
-    from .mission_plan import MissionPlan
+    from .mission_package import CorridorBounds, MissionPackage
+    from .mission_plan import MissionPlan, MissionStep
 
 X1_CAPABILITY = "airframe:x1"
 X1_PROFILE_IDS = frozenset({"delta_tailsitter_gimbal", "delta_tailsitter_gimbal_cam"})
@@ -122,7 +122,13 @@ def _number(value: Any) -> float:
     return require_real(value, "X1 context value")
 
 
-def validate_x1_context(raw: Any, area: Mapping) -> dict:
+# SITL-only ceiling for the explicitly assumed Iowa long-range case. It is only
+# reachable when the ASSUMED_SIM runner supplies a validated bounds template;
+# the onboard pilot envelope above is never changed.
+ASSUMED_SIM_MAX_DISTANCE_M = 4000.0
+
+
+def validate_x1_context(raw: Any, area: Mapping, *, assumed_sim_max_distance_m: float | None = None) -> dict:
     """Accept only host-owned, explicitly bounded geometry in a mission package."""
     if not isinstance(raw, Mapping) or set(raw) != {
         "world", "max_distance_from_home_m", "corridor", "terrain_rel_home_m",
@@ -132,7 +138,13 @@ def validate_x1_context(raw: Any, area: Mapping) -> dict:
         raise ValueError("X1 requires an rw_* simulation world")
     config, _ = _limits()
     max_distance = _number(raw["max_distance_from_home_m"])
-    if not 0 < max_distance <= config["max_distance_from_home_m"]:
+    limit = config["max_distance_from_home_m"]
+    if assumed_sim_max_distance_m is not None:
+        widened = _number(assumed_sim_max_distance_m)
+        if not limit < widened <= ASSUMED_SIM_MAX_DISTANCE_M:
+            raise ValueError("X1 assumed SIM envelope exceeds the SITL-only ceiling")
+        limit = widened
+    if not 0 < max_distance <= limit:
         raise ValueError("X1 maximum home distance exceeds the pilot envelope")
     rect = raw["corridor"]
     if not isinstance(rect, Mapping) or set(rect) != set(_CORRIDOR_KEYS):
@@ -167,8 +179,8 @@ def _segment_distance(a: Point, b: Point, p: Point) -> float:
     return math.dist(p, (a[0] + t * dn, a[1] + t * de))
 
 
-def x1_static_violations(plan: MissionPlan, package: MissionPackage, capabilities: frozenset[str],
-                         *, no_fly_margin_m: float = 0.0) -> list[dict]:
+def _x1_static_violations_base(plan: MissionPlan, package: MissionPackage, capabilities: frozenset[str],
+                               *, no_fly_margin_m: float = 0.0) -> list[dict]:
     """Conservative nominal admission; verified terrain and tracking still required at execution."""
     findings: list[dict] = []
 
@@ -187,7 +199,8 @@ def x1_static_violations(plan: MissionPlan, package: MissionPackage, capabilitie
     doc = package.document
     area = doc["operating_area"]
     try:
-        context = validate_x1_context(doc.get("x1_planning"), area)
+        context = validate_x1_context(doc.get("x1_planning"), area,
+                                      assumed_sim_max_distance_m=package.assumed_sim_max_distance_m)
     except ValueError as exc:
         add("X1_CONTEXT", None, str(exc))
         return findings
@@ -320,6 +333,239 @@ def x1_static_violations(plan: MissionPlan, package: MissionPackage, capabilitie
                         endurance["battery_wh"] * (1 - endurance["reserve_fraction"])):
             add("X1_ENERGY", None, "estimated sortie exceeds usable package/airframe energy")
     return findings
+
+
+def x1_static_violations(plan: MissionPlan, package: MissionPackage, capabilities: frozenset[str],
+                         *, no_fly_margin_m: float = 0.0) -> list[dict]:
+    """Static admission with an optional SITL-only corridor branch.
+
+    ``assumed_sim_corridor is None`` keeps the single-waypoint path byte-for-byte
+    identical. In corridor mode the existing planning-layer findings are kept and
+    stricter corridor checks are appended (DESIGN-corridor.md section 7 step 3).
+    """
+    corridor = package.assumed_sim_corridor
+    if corridor is None:
+        return _x1_static_violations_base(
+            plan, package, capabilities, no_fly_margin_m=no_fly_margin_m)
+    findings = _x1_static_violations_base(
+        plan, package, capabilities, no_fly_margin_m=no_fly_margin_m)
+    findings.extend(_x1_corridor_violations(
+        plan, package, corridor, base_findings=findings,
+        no_fly_margin_m=no_fly_margin_m))
+    return findings
+
+
+_FATAL_BASE_CODES = frozenset({
+    "X1_CAPABILITY", "X1_AIRBORNE_ONLY", "X1_CONTEXT", "X1_PLAN_SCHEMA", "X1_SEQUENCE",
+    "X1_TARGET", "X1_REGION",
+})
+
+
+def _success_path(plan: MissionPlan) -> list[MissionStep]:
+    by_id = {step.id: step for step in plan.steps}
+    path = []
+    step = plan.steps[0] if plan.steps else None
+    while step is not None and step.id not in {item.id for item in path}:
+        path.append(step)
+        step = by_id.get(step.on_success)
+    return path
+
+
+def _turn_angle_deg(a: Point, b: Point, c: Point) -> float:
+    """Heading change at vertex ``b`` between ``a->b`` and ``b->c`` (0 = straight)."""
+    v1 = (b[0] - a[0], b[1] - a[1])
+    v2 = (c[0] - b[0], c[1] - b[1])
+    cross = v1[0] * v2[1] - v1[1] * v2[0]
+    dot = v1[0] * v2[0] + v1[1] * v2[1]
+    return math.degrees(math.atan2(abs(cross), dot))
+
+
+def _rect_clear(point: Point, rect: Mapping[str, float], margin: float) -> bool:
+    return (rect["north_min_m"] + margin <= point[0] <= rect["north_max_m"] - margin
+            and rect["east_min_m"] + margin <= point[1] <= rect["east_max_m"] - margin)
+
+
+def _x1_corridor_violations(plan: MissionPlan, package: MissionPackage,
+                            corridor: CorridorBounds,
+                            *, base_findings: list[dict], no_fly_margin_m: float = 0.0) -> list[dict]:
+    """Corridor-only static checks; every rule here is stricter than the base path."""
+    findings: list[dict] = []
+    if any(item["code"] in _FATAL_BASE_CODES for item in base_findings):
+        return findings
+
+    def add(code: str, step_id: str | None, message: str) -> None:
+        findings.append({"code": code, "step_id": step_id,
+                         "message_zh": f"X1 静态准入失败：{message}", "message_en": message})
+
+    doc = package.document
+    area = doc["operating_area"]
+    try:
+        context = validate_x1_context(
+            doc.get("x1_planning"), area,
+            assumed_sim_max_distance_m=package.assumed_sim_max_distance_m)
+    except ValueError:
+        return []  # The base path already reports X1_CONTEXT.
+
+    config, profile = _limits()
+    cruise = profile["cruise_airspeed_mps"]
+    min_leg = max(config["fw_min_leg_floor_m"], cruise * config["fw_min_leg_time_s"])
+    rect = context["corridor"]
+    home = tuple(doc["home"])
+    _, ground_high = context["terrain_rel_home_m"]
+
+    path = _success_path(plan)
+
+    work_steps = path[2:-2]
+    if not work_steps:
+        return findings  # The base path reports the malformed sequence.
+    fw_count = sum(step.skill == "fw_goto_waypoint" for step in work_steps)
+    if fw_count > corridor.max_fw_legs:
+        add("X1_CORRIDOR_LEGS", None,
+            f"corridor plan has {fw_count} FW legs; maximum is {corridor.max_fw_legs}")
+
+    vertices: list[Point] = [home]
+    radii = [0.0]
+    for step in work_steps:
+        if step.skill == "find_object_then_return":
+            n, e, _ = package.refs[step.params["region"]]
+        else:
+            ref = step.params["target_ref"]
+            n, e = home if ref == "home" else package.refs[ref]
+        vertices.append((n, e))
+        radii.append(step.params.get("radius_m", 0.0))
+
+    from .x1_mission import FW_PASS_CROSS_M
+    r_min = math.ceil(
+        profile["max_airspeed_mps"] ** 2
+        / (9.80665 * math.tan(math.radians(profile["max_bank_deg"]))))
+    wind_drift = profile["endurance"]["wind_margin_mps"] * math.pi * r_min / cruise
+    turn_pad = 2.0 * r_min + FW_PASS_CROSS_M + corridor.fw_tracking_m + wind_drift
+    pads = [0.0] * len(vertices)
+    for index in range(1, len(vertices) - 1):
+        vertex = vertices[index]
+        before = next((p for p in reversed(vertices[:index]) if p != vertex), vertex)
+        after = next((p for p in vertices[index + 1:] if p != vertex), vertex)
+        if _turn_angle_deg(before, vertex, after) > 1e-6:
+            pads[index] = turn_pad
+
+    no_fly_zones = package.no_fly_zones
+
+    def check_sweep(a: Point, b: Point, margin: float, step_id: str, leg_no: int) -> None:
+        if any(not _rect_clear(point, rect, margin) for point in (a, b)):
+            add("X1_CORRIDOR", step_id, f"leg {leg_no} leaves the corridor")
+        if max(math.dist(home, a), math.dist(home, b)) + margin > context["max_distance_from_home_m"]:
+            add("X1_DISTANCE", step_id, f"leg {leg_no} exceeds maximum distance from home")
+        if any(_segment_distance(a, b, point) <= radius + margin + no_fly_margin_m
+               for point, radius in no_fly_zones):
+            add("X1_NO_FLY", step_id, f"leg {leg_no} intersects a no-fly zone")
+
+    for index, step in enumerate(work_steps):
+        a, b = vertices[index], vertices[index + 1]
+        leg_no = index + 1
+        pad = max(pads[index], pads[index + 1])
+        for vertex, vertex_pad in ((a, pads[index]), (b, pads[index + 1])):
+            if vertex_pad and not _rect_clear(vertex, rect, vertex_pad):
+                add("X1_CORRIDOR_TURN", step.id,
+                    f"turn pad at leg {leg_no} leaves the corridor")
+                break
+        margin = max(corridor.fw_tracking_m + pad, radii[index] + config["tracking_margin_m"])
+        check_sweep(a, b, margin, step.id, leg_no)
+
+    last_step = work_steps[-1]
+    last_is_home = (last_step.skill == "fw_goto_waypoint"
+                    and last_step.params["target_ref"] == "home")
+    standoff = corridor.standoff_m if last_is_home and corridor.standoff_gate_enabled else None
+    if standoff is not None and math.dist(vertices[-2], home) < standoff + min_leg + radii[-2]:
+        add("X1_RETURN_TOO_SHORT", last_step.id,
+            "FW return leg is shorter than the standoff gate plus minimum leg and entry uncertainty")
+
+    # Include the full named FW path (even if a future lowerer ends it at the gate).
+    total_fw_m = sum(math.dist(a, b) for a, b in zip(vertices[:-1], vertices[1:], strict=True))
+    total_fw_m += sum(radii[:-1])
+
+    observation_s = sum(
+        float(step.params.get("duration_s", 0.0)) for step in path if step.skill in X1_OBSERVATION)
+    height = max((step.params.get("altitude_agl_m", 0.0) for step in path), default=0.0)
+    height += ground_high
+
+    from dataclasses import replace
+
+    from .x1_corridor_energy import (
+        default_constants,
+        proof_layer_available_wh,
+        proof_layer_requirement_wh,
+        proof_layer_reserve_wh,
+    )
+
+    nominal = default_constants()
+    constants = replace(
+        nominal,
+        ground_fw_plan_mps=min(nominal.ground_fw_plan_mps, corridor.min_ground_speed_mps),
+        mc_peak_power_w=max(nominal.mc_peak_power_w, corridor.mc_peak_power_w),
+    )
+    mc_m = math.dist(vertices[-1], home) + radii[-1] + (
+        constants.runout_m if standoff is None else max(standoff, constants.runout_m - standoff))
+    fw_peak = max(corridor.fw_leg_peak_power_w, constants.cruise_power_w, constants.loiter_power_w)
+    requirement = proof_layer_requirement_wh(
+        0.0, agl_m=height - ground_high, ground_high_m=ground_high,
+        fw_outbound_remaining_m=total_fw_m, mc_return_m=mc_m,
+        fw_peak_power_w=fw_peak, constants=constants)
+    requirement += observation_s * fw_peak / 3600.0
+
+    budget = doc["budget"]
+    battery = min(constants.battery_wh, float(budget["energy_wh"]))
+    available = proof_layer_available_wh(
+        agl_m=height - ground_high, ground_high_m=ground_high,
+        battery_wh=battery, constants=constants)
+    reserve = proof_layer_reserve_wh(
+        package_reserve_wh=budget["reserve_energy_wh"],
+        constants=constants)
+    if requirement > available - reserve:
+        add("X1_ENERGY_PROOF", None,
+            "corridor proof-layer energy after reserve exceeds available energy")
+
+    fw_s = total_fw_m / constants.ground_fw_plan_mps
+    mc_s = mc_m / constants.ground_mc_plan_mps
+    seconds = (
+        height / constants.max_climb_rate_mps + height / constants.max_descent_rate_mps
+        + 2 * constants.transition_timeout_s + fw_s + mc_s + observation_s)
+    if seconds > budget["time_s"] - budget["reserve_time_s"]:
+        add("X1_TIME_PROOF", None, "corridor proof-layer time after reserve exceeds package time")
+    return findings
+
+
+def corridor_primitives_input(plan: MissionPlan, package: MissionPackage,
+                              capabilities: frozenset[str], *, terrain=None, profile=None,
+                              mission_radius_m: float | None = None, bounds=None):
+    """Dispatch to the single-waypoint adapter or the corridor lowering.
+
+    The single-waypoint five-step graph keeps using
+    ``one_waypoint_primitives_input`` unchanged. A multi-waypoint plan is only
+    lowered when the package carries ``assumed_sim_corridor`` *and* the caller
+    supplies the execution inputs (DEM terrain, airframe profile, home radius).
+    Without those inputs the entry point stays fail-closed with
+    ``CORRIDOR_NOT_ENABLED`` instead of half-lowering a route.
+    """
+    from .mission_package import check_plan_against_package
+
+    if len(plan.steps) == 5 and any(
+        step.skill == "fw_goto_waypoint" and step.params.get("target_ref", "home") != "home"
+        for step in plan.steps
+    ):
+        return one_waypoint_primitives_input(plan, package, capabilities)
+    if findings := check_plan_against_package(plan, package, capabilities=capabilities):
+        raise ValueError(f"{findings[0]['code']}: {findings[0]['message_en']}")
+    if package.assumed_sim_corridor is None:
+        raise ValueError(
+            "CORRIDOR_NOT_ENABLED: multi-waypoint X1 plans require the assumed SIM corridor")
+    if terrain is None or profile is None or mission_radius_m is None:
+        raise ValueError(
+            "CORRIDOR_NOT_ENABLED: corridor lowering requires terrain, profile and mission_radius_m")
+    from .x1_corridor import build_x1_corridor_steps
+
+    return build_x1_corridor_steps(
+        package, plan=plan, terrain=terrain, profile=profile,
+        mission_radius_m=mission_radius_m, bounds=bounds)
 
 
 def one_waypoint_primitives_input(plan: MissionPlan, package: MissionPackage,

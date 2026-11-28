@@ -205,6 +205,24 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 
 `configs/simulation/x1-native-handoff-faults-v1.json` 在 MC 回家段放一个 50–58 s 的 `link_loss` 窗口，范围摘要以 `link_loss:mc_return` 登记，用于原生 `return` 的验收。`configs/simulation/x1-mc-battery-faults-v1.json` 另登记同一航线的 50–62 s 电池窗口；此绑定不提供低电量放行。17% 的 `battery_drop` 仍不是固定翼返航特例：未建立证明仍拒绝；即使有证明，17% × 72 Wh 也低于 14.8 Wh 的返航储备。接管后仍不能 `continue`/`retask`。
 
+### 多段固定翼走廊
+
+`configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json` 是宿主校验的 `ASSUMED_SIM`、`SITL-only` 模板。它只在显式允许 `ASSUMED_SIM` 的 SIM 入口与无签名任务包绑定，同时校验任务图、运动作用域和场地证据。模型侧沿用现有计划和动作格式。`continue` 的 MotionProof 从当前遥测位置逐腿重建扫掠，覆盖当前剩余腿、后续 FW 腿（含计划内飞回 home）、后过渡跑出区、MC 返航和着陆。静态准入保留原有规划检查，并以 `X1_ENERGY_PROOF` 提前拒绝证明层预算不足的走廊。
+
+当前 OP-A 采用 500 W 的 FW 腿证明功率和 59.2 Wh 的名义可用能量（74 Wh 扣除 14.8 Wh 储备）。首个 FW tick 的可用量还要扣除爬升、前过渡，以及任务包额外要求的储备。500 W 是模板中的仿真假设，依据推力与转速反推。下表沿用 `REPORT-power500.md` 的证明层估算，standoff 门关闭，MC 返航距离项取 505 m，FW 按 12 m/s 对称去回。
+
+| H = AGL + 地形起伏 | 最大可证明单程 FW 距离（约） |
+| ---: | ---: |
+| 50 m（40 + 10 m） | 755 m |
+| 85 m（60 + 25 m） | 493 m |
+| 110 m（85 + 25 m） | 305 m |
+
+表中距离按 `max_one_way_m(layer="proof", ...)` 的对称航程折算。折线应按各腿实际路程累计，并以 `x1_static_violations` 检查整条航线。3 km 单程／10 分钟目标超出 OP-A 的范围。OP-B 是设计中的另行评审选项。
+
+静态预算按配平空速 15 m/s 减去机型声明的 3 m/s 风裕度，对去程和回程都取 12 m/s。实时证明按各腿航向投影新鲜风估计（至多 1.5 s），逆风取机型风裕度与该腿逆风分量加模板 2 m/s 不确定度的较大者，再把预算地速封顶在 12 m/s。去程顺风在反向腿上计为逆风，顺风不抵扣预算。缺少新鲜估计时回退至静态风裕度，地速低于 6 m/s 时以 `WIND_EXCEEDS_RETURN` 拒绝该证明。使用 `wind_step` 的试验仍须遵守绑定场景的风界和故障作用域。
+
+计划内 FW 飞回 home 属于 `continue` 路线。走廊原生 `return` 和 FW Hold（`loiter`）要求经审阅的 v2 FW RTL 清单及场地、镜像、参数和测量证据。FW Hold 还要证明驻留后的完整返航连接。目前走廊审阅清单为空，这两类动作关闭。`back_transition` 后的 MC 终端仍可按绑定证据申请 `land-now` 或已登记的 MC Hold（`loiter`），分别检查着陆区或驻留范围，并保留现有准入与复核条件。PX4 保留原生保底。
+
 ### 固定翼 Hold 后的原生 RTL（仅限经审阅的 SITL 候选）
 
 Altair 请求 `return {}`，执行器只接受或拒绝。准入后仍发送同一个原生 `MAV_CMD_NAV_RETURN_TO_LAUNCH`；没有额外航点、补发动作或自动降级方案。须存在未到期的 FW Hold、已确认的 `DO_ORBIT` 目标、同一飞控的新鲜 `AUTO.LOITER` 和 `HOME_POSITION`，并通过既有遥测与动力学门槛。`DO_ORBIT` 的速度参数不是飞控速度证明。FW `land-now` 仍被 MC 互锁拒绝；FW Hold 上的再次 `loiter`（包括续驻同一站点）没有证明转接及新驻留，故拒绝。未准入且 Hold 到期仍报 `hold_residence_expired`，PX4 保持原生保底。

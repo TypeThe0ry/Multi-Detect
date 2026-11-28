@@ -58,6 +58,30 @@ class Case:
     nominal_mc: bool = False
     max_quiet_actions: int = 0
     gate_checks: tuple[str, ...] = ()
+    assumed_bounds: str | None = None
+    mission_package: str | None = None
+    min_airborne_s: int = 0
+    opt_in: bool = False
+
+    def __post_init__(self):
+        if self.assumed_bounds and not self.assumed:
+            raise ValueError("custom ASSUMED_SIM bounds require an assumed SITL case")
+
+
+LONG_RANGE_PACKAGE = "configs/simulation/x1-longrange-mission.json"
+LONG_RANGE_BOUNDS = "configs/simulation/x1-assumed-sim-bounds-iowa-longrange.json"
+LONG_RANGE_WIND = "configs/simulation/x1-longrange-wind-faults-v1.json"
+LONG_RANGE_SENTENCE = (
+    "Fly over the far north-east marker at 85 m AGL, then return home and land."
+)
+
+CORRIDOR_BOUNDS = "configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json"
+CORRIDOR_DOGLEG_PACKAGE = "configs/simulation/x1-corridor-dogleg-mission.json"
+CORRIDOR_DOGLEG_SENTENCE = (
+    "Fly west to the west beacon, then east to the east beacon, then fly a fixed-wing waypoint "
+    "directly over home, all at 47 m AGL. After the home waypoint, transition to multicopter "
+    "and land vertically at home."
+)
 
 
 CASES = (
@@ -82,14 +106,28 @@ CASES = (
          gate_checks=("retask_structure", "retask_timing")),
     Case("quiet-cadence", "steady", ("continue",), 4, 0, 300, 900,
          gate_checks=("unnecessary_actions",)),
+    # Legacy single-waypoint experiments, kept for explicit replay.
+    Case("long-range-transect", "fw", ("continue",), 10, 0, 840, 1800,
+         sentence=LONG_RANGE_SENTENCE, assumed=True, assumed_bounds=LONG_RANGE_BOUNDS,
+         mission_package=LONG_RANGE_PACKAGE, min_airborne_s=600, opt_in=True, gate_checks=("unnecessary_actions",)),
+    Case("long-range-wind", "fw", ("continue",), 10, 0, 840, 1800, "wind_step",
+         LONG_RANGE_WIND, sentence=LONG_RANGE_SENTENCE, assumed=True,
+         assumed_bounds=LONG_RANGE_BOUNDS, mission_package=LONG_RANGE_PACKAGE,
+         min_airborne_s=600, opt_in=True, gate_checks=("unnecessary_actions",)),
+    Case("corridor-dogleg", "fw", ("continue",), 10, 0, 360, 900,
+         sentence=CORRIDOR_DOGLEG_SENTENCE, assumed=True, assumed_bounds=CORRIDOR_BOUNDS,
+         mission_package=CORRIDOR_DOGLEG_PACKAGE, opt_in=True,
+         gate_checks=("unnecessary_actions",)),
 )
 
 
-def select_cases(names):
+def select_cases(names, *, include_opt_in=False):
     known = {case.id for case in CASES}
     if names and (set(names) - known or len(names) != len(set(names))):
         raise ValueError("case names must be known and unique")
-    return [case for case in CASES if not names or case.id in names]
+    if names:
+        return [case for case in CASES if case.id in names]
+    return [case for case in CASES if include_opt_in or not case.opt_in]
 
 
 def write_json(path, obj):
@@ -196,12 +234,19 @@ def run_worker(spec):
 
     case, args = spec["case"], spec["args"]
     output = Path(spec["attempt_dir"])
+    mission_package = ROOT / case["mission_package"] if case.get("mission_package") else args["mission_package"]
     common = ["--world", SITE, "--scenario", SCENARIO, "--sentence", case["sentence"],
-              "--mission-package", args["mission_package"], "--checkpoint", args["checkpoint"],
+              "--mission-package", str(mission_package), "--checkpoint", args["checkpoint"],
               "--llama-server", args["llama_server"], "--planner-port", str(args["port"]),
               "--decision-port", str(args["port"]), "--slot", str(spec["slot"]),
               "--decision-cadence-s", str(case["cadence_s"]), "--perception-tools",
               "--decision-tool-budget", str(case["tool_budget"]), "--generate-live-evidence"]
+    if case.get("assumed_bounds") and not case["assumed"]:
+        raise ValueError("custom ASSUMED_SIM bounds require an assumed SITL case")
+    if case["assumed"]:
+        from scripts.run_x1_autonomy_demo import ASSUMED_SIM_FLAG
+
+        common += [ASSUMED_SIM_FLAG, str(ROOT / (case.get("assumed_bounds") or ASSUMED))]
     if case["nominal_mc"]:
         common += ["--nominal-mc"]
     if case["fault"] == "target_found" and case["trigger"] == "cadence":
@@ -213,16 +258,23 @@ def run_worker(spec):
             common += ["--wind-airspeed-plugin", args["wind_plugin"]]
     post = shared_planner(args["port"], args["planner_timeout_s"])
     rc = demo.main([*common, "--plan-only", "--output", str(output / "preflight")], shared_post=post)
-    if rc or args["plan_only"]:
+    if rc:
         return rc
+    if args["plan_only"] and case.get("assumed_bounds") != CORRIDOR_BOUNDS:
+        return 0
     preflight = read_json(output / "preflight/result.json")
+    if case.get("assumed_bounds") == CORRIDOR_BOUNDS:
+        scenario = preflight["contingency_scenario"]
+        if not demo.matches_assumed_corridor_plan(
+            fault=case["fault"], scope=scenario["motion_scope_sha256"],
+            base_digest=scenario["live_evidence"]["base_mission_sha256"],
+        ):
+            raise ValueError(f"{demo.CORRIDOR_BINDING_ERROR} and pinned dogleg plan")
+    if args["plan_only"]:
+        return 0
     bounds = output / "iowa.site-bounds.json"
     x1_site_evidence.write_bounds(bounds, preflight, read_json(Path(args["site_inventory"])))
     common += ["--live-evidence-bounds", str(bounds)]
-    if case["assumed"]:
-        from scripts.run_x1_autonomy_demo import ASSUMED_SIM_FLAG
-
-        common += [ASSUMED_SIM_FLAG, str(ROOT / ASSUMED)]
     return demo.main([*common, "--decision-audit", str(output / "decisions.jsonl"),
                       "--output", str(output / "flight")], shared_post=post)
 
@@ -310,6 +362,22 @@ def check_flight(case, result, trace):
                               or flight.get("return_home") is True),
               "expected_receipt": expected_receipt, "executor_effect": effect,
               "quiet_action_limit": unnecessary <= case.max_quiet_actions}
+    if case.min_airborne_s:
+        duration = flight.get("takeoff_complete_to_landing_sim_s")
+        checks["min_airborne_time"] = (type(duration) in (int, float) and math.isfinite(duration)
+                                        and duration >= case.min_airborne_s)
+        checks["waypoint_reached"] = bool(flight.get("waypoints_reached"))
+        cadence_receipts = [key for key in quiet if key in receipts and model_actions.get(key) == "continue"]
+        checks["repeated_cadence"] = len(cadence_receipts) >= 2
+    if case.id == "corridor-dogleg":
+        # Vetoes are safe outcomes, but do not demonstrate multi-leg admission.
+        cruise_steps = [requests[receipt["request_id"]].get("mission_progress", {}) for receipt in admitted]
+        fw_legs = {"w", "w_2", "w_3"}
+        cruise_legs = [step.get("step_id") for step in cruise_steps
+                       if step.get("phase") == "cruise" and step.get("primitive") == "fw_goto_waypoint"
+                       and step.get("step_id") in fw_legs]
+        checks["repeated_fw_continue_admitted"] = len(cruise_legs) >= 2 and bool({"w", "w_2"} & set(cruise_legs))
+        checks["all_fw_legs_reached"] = fw_legs <= set(flight.get("waypoints_reached", []))
     if case.nominal_mc:
         checks["mc_only_route"] = flight.get("mc_only_confirmed") is True and bool(flight.get("waypoints_reached"))
     if case.fault:
@@ -336,7 +404,7 @@ def work_command(spec_path):
     return [sys.executable, str(Path(__file__).resolve()), "--worker", str(spec_path)]
 
 
-def retask_validator(attempt, result, *, assumed):
+def retask_validator(attempt, result, *, assumed, max_distance_m=None):
     from multidetect.autonomy.serialization import canonical_sha256
     from scripts.run_x1_autonomy_demo import load_sim_package
 
@@ -345,7 +413,7 @@ def retask_validator(attempt, result, *, assumed):
         document = read_json(path)
         if canonical_sha256(document) != result.get("mission_package_sha256"):
             raise ValueError("generated retask validation package does not match flight digest")
-        package = load_sim_package(document, assumed=assumed)
+        package = load_sim_package(document, assumed=assumed, max_distance_m=max_distance_m)
     else:
         package = None
 
@@ -364,9 +432,15 @@ def retask_validator(attempt, result, *, assumed):
 
 
 def run_case(case, args, root, env, *, command_factory=work_command, server_alive=lambda: True):
+    from scripts import run_x1_autonomy_demo as demo
     from scripts.x1_closed_loop_harvest import harvest
     from scripts.realworld.x1_lock import FLIGHT_LOCK_FD_ENV
 
+    max_distance_m = None
+    if case.assumed_bounds == CORRIDOR_BOUNDS:
+        max_distance_m, _ = demo.verified_assumed_corridor(ROOT / case.assumed_bounds)
+    elif case.assumed_bounds:
+        max_distance_m = demo.verified_assumed_radius(ROOT / case.assumed_bounds)
     lock_fd = env.get(FLIGHT_LOCK_FD_ENV)
     pass_fds = () if lock_fd is None else (int(lock_fd),)
 
@@ -417,7 +491,8 @@ def run_case(case, args, root, env, *, command_factory=work_command, server_aliv
             event_tool_first="event_tool_first" in case.gate_checks,
             check_retask_timing=True,
             check_battery_structure="battery_structure" in case.gate_checks,
-            validate_retask=retask_validator(attempt, result, assumed=case.assumed) if trace else None,
+            validate_retask=(retask_validator(attempt, result, assumed=case.assumed,
+                                              max_distance_m=max_distance_m) if trace else None),
         )
         all_failures.extend(failures)
         checks, scores = check_flight(case, result, trace)
@@ -425,7 +500,9 @@ def run_case(case, args, root, env, *, command_factory=work_command, server_aliv
                                     ("missing_receipts", "orphan_results", "invalid_trace_rows", "duplicate_trace_rows")))
         if timed_out:
             status = "budget_exceeded"
-        elif "ASSUMED_SIM requires the exact Iowa route" in result.get("validator", {}).get("reason", ""):
+        elif (artifacts.get("worker-error.json", {}).get("detail", "").startswith(demo.CORRIDOR_BINDING_ERROR)
+              or result.get("validator", {}).get("reason", "").startswith((
+                  "ASSUMED_SIM requires the exact Iowa route", demo.CORRIDOR_BINDING_ERROR))):
             status = "blocked_evidence_scope"
         elif rc == 0 and args.plan_only:
             status = "plan_only"
@@ -522,7 +599,7 @@ def parse_args(argv=None):
     parser.add_argument("--plan-only", action="store_true", help="run the real planner and plan-only validation")
     args = parser.parse_args(argv)
     try:
-        selected = select_cases(args.case)
+        selected = select_cases(args.case, include_opt_in=args.list_cases)
     except ValueError as exc:
         parser.error(str(exc))
     args.slots = tuple(args.slot or (7, 6, 5))
@@ -538,6 +615,8 @@ def parse_args(argv=None):
     if args.output is None or not args.output.is_relative_to(ROOT / ".tmp") or args.output == ROOT / ".tmp":
         parser.error("--output must be a fresh directory inside the repository .tmp/")
     required = [args.checkpoint, args.llama_server, args.mission_package, args.world_root / f"{WORLD}.sdf"]
+    required += [ROOT / case.mission_package for case in selected if case.mission_package]
+    required += [ROOT / case.assumed_bounds for case in selected if case.assumed_bounds]
     if not args.plan_only:
         required.append(args.site_inventory)
     if any(case.fault == "wind_step" for case in selected):

@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from .airframe_profile import AirframeProfile
-from .mission_package import MissionPackage, check_plan_against_package
+from .mission_package import CorridorBounds, MissionPackage, check_plan_against_package
 from .mission_plan import MissionPlan, validate_mission_plan
 from .x1_mission import X1PlanError
 from .serialization import canonical_sha256, require_sha256, strict_json_loads
@@ -20,6 +20,8 @@ MAX_DECISION_AGE_MS = 3000
 # Cadence replies keep the v1 positive event_id field without inventing a state event.
 CADENCE_EVENT_ID_BASE = 2**52
 MAX_FRAME_AGE_MS = 500
+# Numeric agreement of the corridor standoff gate, not a tracking allowance.
+_RETASK_HOME_TOL_M = 0.01
 _FIELDS = {
     "continue": set(), "retask": {"plan"}, "loiter": {"hold_ref"},
     "return": set(), "land-now": set(), "abort-transition": set(),
@@ -229,6 +231,10 @@ class X1Envelope:
             try:
                 package.validate_plan(d.plan)
                 if check_airborne_plan is not None:
+                    if package.assumed_sim_corridor is not None and frame.vtol_state == "fw":
+                        reason = X1AirbornePlanAdapter._corridor_fw_return_reason(d.plan, frame, package)
+                        if reason is not None:
+                            return reason
                     reason = check_airborne_plan(d.plan, frame)
                     if reason is not None:
                         return reason
@@ -305,7 +311,41 @@ class X1AirbornePlanAdapter:
         self.replace_remaining = replace_remaining
 
     @staticmethod
-    def check_airborne_plan(plan: MissionPlan, frame: RuntimeFrame) -> str | None:
+    def _corridor_fw_return_reason(plan: MissionPlan, frame: RuntimeFrame,
+                                   package: MissionPackage) -> str | None:
+        """Bind the position at back-transition, including a suffix with no work."""
+        corridor: CorridorBounds | None = package.assumed_sim_corridor
+        if corridor is None:
+            return None
+        work = plan.steps[:-2]
+        home = tuple(package.document["home"])
+        error = 0.0
+        if not work:
+            endpoint = frame.position_ne_amsl[:2] if frame.position_ne_amsl is not None else None
+        else:
+            last = work[-1]
+            if last.skill == "x1_search_leg":
+                route = package.refs.get(last.params.get("route_ref"))
+                endpoint = route[-1] if route else None
+            else:
+                ref = last.params.get("target_ref")
+                if last.skill == "fw_goto_waypoint" and ref == "home":
+                    return None
+                if ref == "finding:1":
+                    endpoint = frame.retask_finding_ne
+                    error = frame.retask_finding_error_m
+                else:
+                    endpoint = home if ref == "home" else package.refs.get(ref)
+        if (isinstance(endpoint, (tuple, list)) and len(endpoint) == 2
+                and all(type(value) in (int, float) and math.isfinite(value) for value in endpoint)
+                and _number(error, 0) and math.isfinite(error)
+                and math.dist(endpoint, home) + error <= corridor.standoff_m + _RETASK_HOME_TOL_M):
+            return None
+        return "invalid_fw_retask_suffix"
+
+    @staticmethod
+    def check_airborne_plan(plan: MissionPlan, frame: RuntimeFrame, *,
+                            package: MissionPackage | None = None) -> str | None:
         steps = plan.steps
         skills = [step.skill for step in steps]
         # No ground lifecycle primitive may re-arm or take off in flight.
@@ -314,6 +354,10 @@ class X1AirbornePlanAdapter:
             if not (2 <= len(steps) <= 6 and skills[-2:] == ["back_transition", "return_home"]
                     and set(skills[:-2]) <= work):
                 return "invalid_fw_retask_suffix"
+            if package is not None:
+                reason = X1AirbornePlanAdapter._corridor_fw_return_reason(plan, frame, package)
+                if reason is not None:
+                    return reason
         elif frame.vtol_state == "mc":
             if not (1 <= len(skills) <= 6 and skills[-1] == "return_home"
                     and set(skills[:-1]) <= {"x1_mc_reposition"}):

@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+from collections.abc import Mapping
 from pathlib import Path
 
 from multidetect.sim_teacher.x1_fw_native_rtl import suffix_power_w
@@ -34,6 +36,83 @@ SCOPES = {
 def scopes_for(kind):
     """Every admitted scenario scope for one selected SITL fault kind."""
     return {scope for key, scope in SCOPES.items() if key.split(":", 1)[0] == kind}
+
+# The single-waypoint long-range case is a larger SITL-only envelope than the
+# Iowa yard route. It still uses the same world, image, airframe and battery
+# model; only the assumed mission radius changes and the route is pinned.
+LONG_RANGE_MAX_DISTANCE_M = 4000.0
+LONG_RANGE_BASE_SHA = "84c739c114f6c7307392e578d47e94eccad3e585db0e6a6f18add1a2b39d1a11"
+LONG_RANGE_SCOPES = {
+    "nominal": "5fd735eee2c7c2d30e789c955e029ee45979f691cbe70e42e5db011f1d89fb2a",
+    "wind_step": "36cb0448c1555ce35ef149280bdc7f84db53884752ccad96a130d60e466f449f",
+}
+ENVELOPE_KEYS = {"basis", "scope", "max_distance_from_home_m"}
+
+# Canonical plan and lowered motion scope of the nominal Iowa corridor-dogleg.
+# The old long-range route never authorizes this corridor template.
+CORRIDOR_BASE_SHA = "a16d3ddc1646ef3105814880b7a02ba033cc0348d9e82aa2810bbfa46f788191"
+CORRIDOR_SCOPES = {
+    "nominal": "48f994e28a8227b6cb73b615ffd77ed73796a63569017d58b702e1110615c494",
+}
+CORRIDOR_SCHEMA = "x1.corridor.v1"
+CORRIDOR_FW_LEG_PEAK_POWER_W = 500.0
+CORRIDOR_FW_LEG_POWER_JUSTIFICATION = (
+    "ASSUMED_SIM，非实测：依据 power_est（70 次 FW RTL 探测飞行，由 ULog 推力/转速反推）"
+    "η=0.75 的 FW 巡航电功率 P95≈497 W 取整 500 W；原 344 W（2×172 W loiter）≈ P50（334 W），"
+    "低于 P95。仅 SITL，收紧方向；无 V×A 实测，最敏感假设为 η 与推力常数。")
+CORRIDOR_STANDOFF_M = 252.5
+# D2 (standoff gate) is pending measured statistics, so OP-A keeps it disabled.
+CORRIDOR_STANDOFF_GATE_ENABLED = False
+CORRIDOR_TURN_PAD_RULE = "2*R_min + fly_through + fw_tracking"
+CORRIDOR_ENVELOPE_KEYS = frozenset({
+    "basis", "scope", "schema", "max_fw_legs", "slice_m", "standoff_m",
+    "standoff_gate_enabled", "turn_pad_rule", "fw_tracking_m",
+    "fw_leg_peak_power_w", "mc_peak_power_w", "min_ground_speed_mps",
+    "wind_sigma_mps", "max_sweep_legs",
+})
+
+
+def corridor_scopes_for(kind):
+    """The nominal or wind scope admitted for the corridor route."""
+    key = "nominal" if kind is None else kind
+    return {CORRIDOR_SCOPES[key]} if key in CORRIDOR_SCOPES else set()
+
+
+def corridor_bounds(raw):
+    """Return the SITL-only corridor bounds declared by an assumed bounds file, if any."""
+    from multidetect.autonomy.mission_package import CorridorBounds
+
+    if not isinstance(raw, Mapping):
+        raise ValueError("assumed bounds must be an object")
+    corridor = raw.get("assumed_sim_corridor")
+    if corridor is None:
+        return None
+    if not isinstance(corridor, Mapping) or set(corridor) != CORRIDOR_ENVELOPE_KEYS:
+        raise ValueError("assumed SIM corridor has unexpected fields")
+    return CorridorBounds.parse(corridor)
+
+
+def long_range_scopes_for(kind):
+    """The nominal or wind scope admitted for the long-range route."""
+    key = "nominal" if kind is None else kind
+    return {LONG_RANGE_SCOPES[key]} if key in LONG_RANGE_SCOPES else set()
+
+
+def envelope_max_distance(raw):
+    """Return the SITL-only mission radius declared by an assumed bounds file, if any."""
+    if not isinstance(raw, Mapping):
+        raise ValueError("assumed bounds must be an object")
+    envelope = raw.get("assumed_sim_envelope")
+    if envelope is None:
+        return None
+    if not isinstance(envelope, Mapping) or set(envelope) != ENVELOPE_KEYS:
+        raise ValueError("assumed SIM envelope has unexpected fields")
+    if envelope["basis"] != BASIS or envelope["scope"] != "SITL-only":
+        raise ValueError("assumed SIM envelope must be SITL-only")
+    value = envelope["max_distance_from_home_m"]
+    if type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= LONG_RANGE_MAX_DISTANCE_M:
+        raise ValueError("assumed SIM envelope exceeds the SITL-only ceiling")
+    return float(value)
 
 
 def assumed(value, justification):
@@ -136,6 +215,68 @@ def generate(*, mode, world, image, profile_path):
             },
         },
     }
+
+
+def generate_long_range(*, mode, world, image, profile_path):
+    """Generate the single-waypoint long-range SITL envelope template."""
+    document = generate(mode=mode, world=world, image=image, profile_path=profile_path)
+    document["scope"]["base_mission_sha256"] = LONG_RANGE_BASE_SHA
+    document["scope"]["scenarios"] = LONG_RANGE_SCOPES
+    document["assumed_sim_envelope"] = {
+        "basis": BASIS, "scope": "SITL-only", "max_distance_from_home_m": LONG_RANGE_MAX_DISTANCE_M,
+    }
+    home_z, cruise_z = 318.23, 390.78
+    outbound = [2450.0, 2450.0, cruise_z]
+    transition_end = [2566.68, 2566.68, cruise_z]
+    document["suffixes"] = {"1": assumed({
+        "entry": [20, 2500, 20, 2500, cruise_z - 10, cruise_z + 10],
+        "max_entry_speed_mps": 27.0,
+        "legs": [
+            {"phase": "fw", "end": outbound, "padding_ne_m": 19, "padding_alt_m": 10,
+             "duration_s": 260, "peak_power_w": 344.0},
+            {"phase": "transition", "end": transition_end, "padding_ne_m": 30, "padding_alt_m": 12,
+             "duration_s": 20.0, "peak_power_w": 750.0},
+            {"phase": "mc", "end": [45.0, 0.0, cruise_z], "padding_ne_m": 30, "padding_alt_m": 12,
+             "duration_s": 470, "peak_power_w": 750.0},
+            {"phase": "mc", "end": [0.0, 0.0, cruise_z], "padding_ne_m": 8, "padding_alt_m": 10,
+             "duration_s": 18, "peak_power_w": 750.0},
+            {"phase": "landing", "end": [0.0, 0.0, home_z], "padding_ne_m": 5, "padding_alt_m": 8,
+             "duration_s": 85, "peak_power_w": 750.0},
+        ],
+        "dynamics": {"max_bank_deg": 35.0, "max_climb_mps": 3.0, "max_descent_mps": 2.0,
+                     "max_acceleration_mps2": 2.0, "max_angular_rate_dps": 60.0},
+        "airspeed": [12.0, 18.0],
+        "failure_revalidation_enforced": True,
+    }, "单航点东北远标约 3.5 km 航线，从 FW 段到返航落地按 3.5 km 航段、过渡延伸与保守 MC 返航时间计；仅 SITL assumed，未获准用于真机。")}
+    return document
+
+
+def generate_corridor(*, mode, world, image, profile_path):
+    """Generate the SITL-only template pinned to the nominal Iowa dogleg."""
+    document = generate_long_range(mode=mode, world=world, image=image, profile_path=profile_path)
+    document["scope"]["base_mission_sha256"] = CORRIDOR_BASE_SHA
+    document["scope"]["scenarios"] = CORRIDOR_SCOPES
+    document["assumed_sim_corridor"] = {
+        "basis": BASIS,
+        "scope": "SITL-only",
+        "schema": CORRIDOR_SCHEMA,
+        "max_fw_legs": 4,
+        "slice_m": 100.0,
+        "standoff_m": CORRIDOR_STANDOFF_M,
+        # D2: design value only; measured standoff statistics are pending, default off.
+        "standoff_gate_enabled": CORRIDOR_STANDOFF_GATE_ENABLED,
+        "turn_pad_rule": CORRIDOR_TURN_PAD_RULE,
+        "fw_tracking_m": 19.0,
+        "fw_leg_peak_power_w": CORRIDOR_FW_LEG_PEAK_POWER_W,
+        "mc_peak_power_w": 750.0,
+        "min_ground_speed_mps": 12.0,
+        "wind_sigma_mps": 2.0,
+        "max_sweep_legs": 384,
+    }
+    document["assumed_sim_corridor_justification"] = {
+        "fw_leg_peak_power_w": CORRIDOR_FW_LEG_POWER_JUSTIFICATION,
+    }
+    return document
 
 
 def main():
