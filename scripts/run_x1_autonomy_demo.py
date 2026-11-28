@@ -33,7 +33,7 @@ from multidetect.autonomy.x1_perception_tools import (  # noqa: E402
     TOOL_SCHEMA, GimbalReading, PerceptionSources, RouteReading, ToolRunner,
 )
 from multidetect.autonomy.x1_plan import (  # noqa: E402
-    X1_CAPABILITY, one_waypoint_primitives_input, x1_planner_context,
+    X1_CAPABILITY, corridor_primitives_input, one_waypoint_primitives_input, x1_planner_context,
 )
 from multidetect.terrain_dem import LocalDemGrid, load_local_dem_grid  # noqa: E402
 from multidetect.sim_teacher.x1_live_clearance import (  # noqa: E402
@@ -243,9 +243,15 @@ def compiled_mission_digest(package, plan):
 
 def prepare(package, plan, capabilities, site, *, output, slot, nominal_mc=False):
     """Bind the validated mission to the site's DEM and the collector's SIM inputs."""
+    corridor = package.assumed_sim_corridor is not None and len(plan.steps) > 5
     if nominal_mc:
         from scripts.x1_closed_loop_mc import build_mc_steps
 
+        context = package.document["x1_planning"]
+        radius = context["max_distance_from_home_m"]
+        view = replace(package, document={**package.document, "operating_area": {
+            **package.document["operating_area"], **context["corridor"]}})
+    elif corridor:
         context = package.document["x1_planning"]
         radius = context["max_distance_from_home_m"]
         view = replace(package, document={**package.document, "operating_area": {
@@ -271,6 +277,10 @@ def prepare(package, plan, capabilities, site, *, output, slot, nominal_mc=False
         raise X1PlanError("SITE_FENCE", "package radius exceeds the site geofence")
     if nominal_mc:
         steps = build_mc_steps(view, plan, site.terrain, profile, radius)
+    elif corridor:
+        lowering = corridor_primitives_input(plan, view, capabilities, terrain=site.terrain,
+                                             profile=profile, mission_radius_m=radius)
+        steps = lowering.steps
     else:
         steps = build_x1_mission_steps(view, plan=adapted, terrain=site.terrain, profile=profile, mission_radius_m=radius)
     height = steps[0].takeoff_height_m
@@ -304,6 +314,8 @@ def prepare(package, plan, capabilities, site, *, output, slot, nominal_mc=False
                "geometry": SimpleNamespace(home=site.home, takeoff_altitude_m=height),
                "terrain": site.terrain, "x1_cruise_guard": observe_cruise, "observed_margins": observed_margins,
                "nominal_mc": nominal_mc}
+    if corridor:
+        mission["corridor_lowering"] = lowering
     with long_range._preview_slot(slot):
         (output / "flight").mkdir(parents=True, exist_ok=True)
         collector_plan = long_range.collection_plan(site.scenario, output / "flight", slot, mission)
@@ -589,9 +601,10 @@ def make_scenario(args, mission, steps, record):
         profile = load_airframe_profile(PROFILE)
         package = mission["scenario_package"]
         if not mission.get("nominal_mc"):
+            corridor_options = {"corridor": mission["corridor_lowering"]} if "corridor_lowering" in mission else {}
             motion_evidence = LiveContinueEvidence(package, profile, mission["terrain"], steps,
                                                    scope=record["contingency_scenario"]["motion_scope_sha256"],
-                                                   assumed_sim=mission.get("assumed_sim"))
+                                                   assumed_sim=mission.get("assumed_sim"), **corridor_options)
 
         extra = {"decision_cadence_s": cadence_s, "audit": audit_sink,
                  "target_cadence_only": getattr(args, "target_cadence_only", False)}
@@ -868,8 +881,13 @@ def run(args, *, post, launch=fly):
         ):
             raise ValueError("FW RTL host manifest requires a scoped ASSUMED_SIM wind_step or target_found scenario")
         envelope_max_distance = None
+        corridor_options = {}
         if assumed_path is not None:
-            envelope_max_distance = verified_assumed_radius(assumed_path)
+            if "assumed_sim_corridor" in read_object(assumed_path):
+                envelope_max_distance, bounds = verified_assumed_corridor(assumed_path)
+                corridor_options = {"assumed_sim_corridor": bounds}
+            else:
+                envelope_max_distance = verified_assumed_radius(assumed_path)
         if assumed_path is not None and not args.plan_only and (
                 not generate_evidence or not getattr(args, "live_evidence_bounds", None)):
             raise ValueError("ASSUMED_SIM requires generation and verified site bounds")
@@ -884,7 +902,7 @@ def run(args, *, post, launch=fly):
             raise ValueError("--generate-live-evidence requires a decision scenario and a package without x1_live_evidence")
         package = load_mission_package({**document, "task_text": args.sentence}, mode="sim",
                                        allow_assumed_sim=assumed_path is not None,
-                                       assumed_sim_max_distance_m=envelope_max_distance)
+                                       assumed_sim_max_distance_m=envelope_max_distance, **corridor_options)
         record["mission_package_sha256"] = canonical_sha256(package.document)
         nominal_mc = getattr(args, "nominal_mc", False)
         prepare_options = {}
@@ -985,7 +1003,7 @@ def run(args, *, post, launch=fly):
             evidence.update(provenance)
             package = load_mission_package({**package.document, "x1_live_evidence": evidence}, mode="sim",
                                            allow_assumed_sim=assumed_path is not None,
-                                           assumed_sim_max_distance_m=envelope_max_distance)
+                                           assumed_sim_max_distance_m=envelope_max_distance, **corridor_options)
             generated_path = args.output / "mission-package.json"
             write_result(generated_path, package.document)
             record["mission_package_sha256"] = canonical_sha256(package.document)
