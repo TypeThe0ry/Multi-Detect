@@ -389,29 +389,66 @@ def verified_assumed_radius(path):
     return radius
 
 
+def verified_assumed_corridor(path):
+    """Require the generated corridor template and return its envelope and bounds."""
+    raw = read_object(path)
+    radius = assumptions.envelope_max_distance(raw)
+    bounds = assumptions.corridor_bounds(raw)
+    if radius is None or bounds is None:
+        raise ValueError("ASSUMED_SIM requires the exact Iowa corridor bounds template")
+    expected = assumptions.generate_corridor(mode="sim", world=assumptions.WORLD, image=IMAGE,
+                                             profile_path=PROFILE)
+    if canonical_sha256(raw) != canonical_sha256(expected):
+        raise ValueError("ASSUMED_SIM requires the exact Iowa corridor bounds template")
+    return radius, bounds
+
+
 def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds, scope, base_digest):
     """Authorize the generated template only against a verified SITL run and its site inventory."""
     data = path.read_bytes()
     raw = strict_json_loads(data.decode("utf-8"), name=str(path))
-    long_range = "assumed_sim_envelope" in raw
-    generate = assumptions.generate_long_range if long_range else assumptions.generate
+    corridor = "assumed_sim_corridor" in raw
+    long_range = not corridor and "assumed_sim_envelope" in raw
+    if corridor:
+        generate = assumptions.generate_corridor
+    elif long_range:
+        generate = assumptions.generate_long_range
+    else:
+        generate = assumptions.generate
     expected = generate(mode=package.mode, world=site.scenario_id,
                         image=collector_plan.image, profile_path=PROFILE)
     fault = faults[0].kind if len(faults) == 1 else None
-    valid_scopes = (assumptions.long_range_scopes_for(fault) if long_range
-                    else assumptions.scopes_for(fault))
-    expected_base = assumptions.LONG_RANGE_BASE_SHA if long_range else assumptions.BASE_SHA
+    if corridor:
+        valid_scopes = assumptions.corridor_scopes_for(fault)
+        expected_base = assumptions.CORRIDOR_BASE_SHA
+        bounds = assumptions.corridor_bounds(raw)
+    elif long_range:
+        valid_scopes = assumptions.long_range_scopes_for(fault)
+        expected_base = assumptions.LONG_RANGE_BASE_SHA
+        bounds = None
+    else:
+        valid_scopes = assumptions.scopes_for(fault)
+        expected_base = assumptions.BASE_SHA
+        bounds = None
     envelope = None
-    if long_range:
+    if corridor:
+        envelope = assumptions.envelope_max_distance(raw)
+        if envelope is None:
+            raise ValueError("the assumed SIM corridor requires the assumed SIM envelope")
+    elif long_range:
         envelope = raw["assumed_sim_envelope"]["max_distance_from_home_m"]
-        if package.document["x1_planning"]["max_distance_from_home_m"] != envelope:
-            raise ValueError("ASSUMED_SIM long-range mission does not match its SITL envelope")
+    if (envelope is not None
+            and package.document["x1_planning"]["max_distance_from_home_m"] != envelope):
+        raise ValueError("ASSUMED_SIM long-range mission does not match its SITL envelope")
+    template_error = (
+        "ASSUMED_SIM requires the exact Iowa corridor bounds template" if corridor
+        else "ASSUMED_SIM requires the exact Iowa route, fault schedule and verified site bounds")
     if (canonical_sha256(raw) != canonical_sha256(expected) or site.world_sha256 != assumptions.WORLD_SHA
             or site.terrain.source_sha256 != assumptions.DEM_SHA
             or base_digest != expected_base or scope not in valid_scopes
             or set(site_bounds or ()) != {"scope_sha256", "dem_sha256", "base_mission_sha256",
                                           "obstacle_coverage", "obstacles"}):
-        raise ValueError("ASSUMED_SIM requires the exact Iowa route, fault schedule and verified site bounds")
+        raise ValueError(template_error)
     battery = raw["battery"]["value"]
     if battery["max_sample_age_ms"] != MOTION_SAMPLE_MAX_AGE_MS:
         raise ValueError("ASSUMED_SIM battery sample delay differs from the runtime gate")
@@ -435,8 +472,9 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
                       "suffixes": {key: entry["value"] for key, entry in raw["suffixes"].items()},
                       "native": {section: {key: entry["value"] for key, entry in entries.items()}
                                  for section, entries in raw["native"].items()}}
-    return load_mission_package(document, mode="sim", allow_assumed_sim=long_range,
-                                assumed_sim_max_distance_m=envelope), assumed_bounds, state
+    return load_mission_package(document, mode="sim", allow_assumed_sim=long_range or corridor,
+                                assumed_sim_max_distance_m=envelope,
+                                assumed_sim_corridor=bounds), assumed_bounds, state
 
 
 def demo_perception(package, profile, dem, steps, *, max_calls=3):
