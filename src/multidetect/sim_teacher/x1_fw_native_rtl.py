@@ -67,14 +67,48 @@ class FwRtlBounds:
     max_angular_rate_dps: float
     home_only_verified: bool
     configuration_locked: bool
+    # Corridor manifests (version 2) must publish the ground-speed floor used
+    # for the distance-scaled connector and the manifest revision. Version 1
+    # objects are the reviewed single-waypoint scope only; the default keeps
+    # those in-code hypotheses constructible while ``from_host_manifest``
+    # rejects any old JSON document. A missing/zero floor never enables a
+    # corridor return.
+    connector_ground_speed_min_mps: float | None = None
+    manifest_version: int = 1
+
+    def __post_init__(self):
+        if self.connector_ground_speed_min_mps is None:
+            trim = self.params.get("FW_AIRSPD_TRIM") if isinstance(self.params, Mapping) else None
+            if _number(trim, 0.001):
+                # The reviewed single-waypoint manifest used a 3 m/s wind margin.
+                object.__setattr__(self, "connector_ground_speed_min_mps", float(trim) - 3.0)
 
     @classmethod
     def from_host_manifest(cls, raw):
         if (not isinstance(raw, dict) or set(raw) != {f.name for f in fields(cls)}
                 or not isinstance(raw["params"], dict) or not isinstance(raw["phase_time_s"], list)):
             raise ValueError("invalid FW RTL host manifest")
+        if raw.get("manifest_version") != 2:
+            raise ValueError("FW RTL host manifest without the corridor v2 fields")
+        if not _number(raw.get("connector_ground_speed_min_mps"), 0.001):
+            raise ValueError("FW RTL host manifest is missing the connector ground-speed floor")
         return cls(**{**raw, "params": MappingProxyType(dict(raw["params"])),
                       "phase_time_s": tuple(raw["phase_time_s"])})
+
+    def connector_time_s(self, chord_m):
+        """Distance-scaled FW connector ceiling: chord / min ground speed + capture."""
+        floor = self.connector_ground_speed_min_mps
+        if not _number(chord_m, 0.0) or not _number(floor, 0.001):
+            return None
+        return chord_m / floor + self.phase_time_s[1]
+
+    def corridor_ready(self, *, min_cruise_rel_home_m):
+        """True only for a v2 manifest that cannot climb above the corridor."""
+        return (self.manifest_version == 2
+                and _number(self.connector_ground_speed_min_mps, 0.001)
+                and _number(min_cruise_rel_home_m, 0.0)
+                and _number(self.params.get("RTL_RETURN_ALT"), 0.0)
+                and self.params["RTL_RETURN_ALT"] <= min_cruise_rel_home_m + 1e-9)
 
     def matches_validation(self, assessment):
         """Bind a reviewed sidecar to this manifest's scope and verified speed pins."""
@@ -110,6 +144,10 @@ class FwRtlBounds:
                 self.mc_tracking_m, self.mc_vertical_m, self.landing_tracking_m, self.landing_vertical_m,
                 self.fw_peak_power_w, self.hover_peak_power_w,
             ))
+            and self.manifest_version in (1, 2)
+            and _number(self.connector_ground_speed_min_mps, 0.001, profile.cruise_airspeed_mps + 1e-9)
+            and abs(self.connector_ground_speed_min_mps
+                    - (p["FW_AIRSPD_TRIM"] - profile.endurance.wind_margin_mps)) <= 0.01
             and _number(self.max_ground_speed_mps, profile.max_airspeed_mps, 100)
             and _number(self.max_bank_deg, p["FW_R_LIM"], profile.max_bank_deg)
             and all(_number(v, 0.001, limit) for v, limit in (
@@ -176,6 +214,80 @@ class FwRtlBounds:
              leg("mc", home_low, home_low, transition_width + self.mc_tracking_m,
                  transition_z + self.mc_vertical_m, "mc"),
              leg("landing", home_low, home, landing_width, home_alt_error + self.landing_vertical_m, "landing")),
+            self.max_bank_deg, self.max_climb_mps, self.max_descent_mps,
+            self.max_acceleration_mps2, self.max_angular_rate_dps,
+            min_airspeed_mps=profile.min_airspeed_mps, max_airspeed_mps=profile.max_airspeed_mps,
+            landing_pad=pad,
+        )
+
+    def corridor_sweep(self, decision, frame, *, start, orbit, observed_home, pad: LandingPad, profile):
+        """Native RTL from a corridor position using the distance-scaled connector.
+
+        This is deliberately separate from :meth:`sweep`: the single-waypoint
+        path keeps its reviewed fixed connector ceiling byte-for-byte. The
+        corridor form covers the live fix (or Hold centre) to the home descent
+        with ``chord / connector_ground_speed_min_mps + capture`` and never
+        assumes a climb above the corridor.
+        """
+        if not _number(self.connector_ground_speed_min_mps, 0.001):
+            return None
+        if (not isinstance(start, tuple) or len(start) != 3
+                or not isinstance(orbit, tuple) or len(orbit) != 3
+                or not all(_number(value) for value in (*start, *orbit))):
+            return None
+        p = self.params
+        home = pad.point
+        home_offset = math.dist(home[:2], observed_home[:2])
+        home_alt_error = abs(home[2] - observed_home[2])
+        landing_width = home_offset + p["NAV_ACC_RAD"] + self.landing_tracking_m
+        if math.sqrt(2) * landing_width > pad.radius_m or home_alt_error > pad.elevation_error_m:
+            return None
+        turn = profile.max_airspeed_mps**2 / (9.80665 * math.tan(math.radians(p["FW_R_LIM"])))
+        hold_r, rtl_r = p["NAV_LOITER_RAD"], p["RTL_LOITER_RAD"]
+        if min(hold_r, rtl_r) < turn:
+            return None
+
+        return_z = max(start[2], observed_home[2] + p["RTL_RETURN_ALT"])
+        descend_z = min(return_z, observed_home[2] + p["RTL_DESCEND_ALT"])
+        orbit_top = (*orbit[:2], return_z)
+        home_top, home_low = (*home[:2], return_z), (*home[:2], descend_z)
+        fw_z = self.fw_vertical_m
+        # The live/centre vertical band is part of the departure uncertainty.
+        hold_z = max(abs(start[2] - orbit[2]), fw_z)
+        hold_width = max(hold_r, rtl_r) + turn + self.fw_tracking_m
+        home_width = home_offset + rtl_r + turn + self.fw_tracking_m
+        transition_time = self.phase_time_s[4]
+        brake_entry = max(self.fw_acceptance_m, self.max_ground_speed_mps**2 / (2 * p["VT_B_DEC_MSS"]))
+        transition_width = home_width + brake_entry + self.max_ground_speed_mps * transition_time
+        move_z = fw_z + self.move_to_land_vertical_m
+        transition_z = move_z + self.transition_vertical_m
+        times = dict(zip(_PHASES, self.phase_time_s, strict=True))
+        chord = math.dist(orbit[:2], home[:2])
+        connector_time = self.connector_time_s(chord)
+        if connector_time is None:
+            return None
+
+        def leg(phase, a, b, width, vertical, time_s):
+            power = self.fw_peak_power_w if phase == "fw" else self.hover_peak_power_w
+            return SweptLeg(phase, a, b, width, vertical, time_s, power)
+
+        legs = []
+        # PX4 retains the established Hold or acquires its fallback orbit. This
+        # acquisition is only present when the live fix is not already the centre.
+        if math.dist(start[:2], orbit[:2]) > 1e-6 or abs(start[2] - orbit[2]) > 1e-6:
+            legs.append(leg("fw", start, orbit_top, hold_width, hold_z, times["fw_climb"]))
+        legs.extend((
+            leg("fw", orbit_top, home_top, max(hold_width, home_width), hold_z, connector_time),
+            leg("fw", home_top, home_low, home_width, fw_z, times["fw_descent"]),
+            leg("fw", home_low, home_low, home_width + brake_entry, move_z, times["fw_to_land"]),
+            leg("transition", home_low, home_low, transition_width, transition_z, times["transition"]),
+            leg("mc", home_low, home_low, transition_width + self.mc_tracking_m,
+                transition_z + self.mc_vertical_m, times["mc"]),
+            leg("landing", home_low, home, landing_width, home_alt_error + self.landing_vertical_m,
+                times["landing"]),
+        ))
+        return ExecutionSweep(
+            frame.frame_id, decision.digest, tuple(legs),
             self.max_bank_deg, self.max_climb_mps, self.max_descent_mps,
             self.max_acceleration_mps2, self.max_angular_rate_dps,
             min_airspeed_mps=profile.min_airspeed_mps, max_airspeed_mps=profile.max_airspeed_mps,
