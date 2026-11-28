@@ -48,10 +48,12 @@ LONG_RANGE_SCOPES = {
 }
 ENVELOPE_KEYS = {"basis", "scope", "max_distance_from_home_m"}
 
-# The corridor template reuses the long-range SITL mission until the corridor
-# route is introduced in a later step; only the corridor constants are new.
-CORRIDOR_BASE_SHA = LONG_RANGE_BASE_SHA
-CORRIDOR_SCOPES = dict(LONG_RANGE_SCOPES)
+# Canonical plan and lowered motion scope of the nominal Iowa corridor-dogleg.
+# The old long-range route never authorizes this corridor template.
+CORRIDOR_BASE_SHA = "a16d3ddc1646ef3105814880b7a02ba033cc0348d9e82aa2810bbfa46f788191"
+CORRIDOR_SCOPES = {
+    "nominal": "48f994e28a8227b6cb73b615ffd77ed73796a63569017d58b702e1110615c494",
+}
 CORRIDOR_SCHEMA = "x1.corridor.v1"
 CORRIDOR_FW_LEG_PEAK_POWER_W = 500.0
 CORRIDOR_FW_LEG_POWER_JUSTIFICATION = (
@@ -250,7 +252,7 @@ def generate_long_range(*, mode, world, image, profile_path):
 
 
 def generate_corridor(*, mode, world, image, profile_path):
-    """Generate the SITL-only corridor template bound to the same exact mission."""
+    """Generate the SITL-only template pinned to the nominal Iowa dogleg."""
     document = generate_long_range(mode=mode, world=world, image=image, profile_path=profile_path)
     document["scope"]["base_mission_sha256"] = CORRIDOR_BASE_SHA
     document["scope"]["scenarios"] = CORRIDOR_SCOPES

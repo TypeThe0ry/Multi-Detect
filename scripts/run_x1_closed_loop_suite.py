@@ -75,6 +75,14 @@ LONG_RANGE_SENTENCE = (
     "Fly over the far north-east marker at 85 m AGL, then return home and land."
 )
 
+CORRIDOR_BOUNDS = "configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json"
+CORRIDOR_DOGLEG_PACKAGE = "configs/simulation/x1-corridor-dogleg-mission.json"
+CORRIDOR_DOGLEG_SENTENCE = (
+    "Fly west to the west beacon, then east to the east beacon, then fly a fixed-wing waypoint "
+    "directly over home, all at 47 m AGL. After the home waypoint, transition to multicopter "
+    "and land vertically at home."
+)
+
 
 CASES = (
     Case("mc-hover-waypoint-return", "mc", ("continue",), 2, 0, 360, 900,
@@ -98,6 +106,7 @@ CASES = (
          gate_checks=("retask_structure", "retask_timing")),
     Case("quiet-cadence", "steady", ("continue",), 4, 0, 300, 900,
          gate_checks=("unnecessary_actions",)),
+    # Legacy single-waypoint experiments, kept for explicit replay.
     Case("long-range-transect", "fw", ("continue",), 10, 0, 840, 1800,
          sentence=LONG_RANGE_SENTENCE, assumed=True, assumed_bounds=LONG_RANGE_BOUNDS,
          mission_package=LONG_RANGE_PACKAGE, min_airborne_s=600, opt_in=True, gate_checks=("unnecessary_actions",)),
@@ -105,6 +114,10 @@ CASES = (
          LONG_RANGE_WIND, sentence=LONG_RANGE_SENTENCE, assumed=True,
          assumed_bounds=LONG_RANGE_BOUNDS, mission_package=LONG_RANGE_PACKAGE,
          min_airborne_s=600, opt_in=True, gate_checks=("unnecessary_actions",)),
+    Case("corridor-dogleg", "fw", ("continue",), 10, 0, 360, 900,
+         sentence=CORRIDOR_DOGLEG_SENTENCE, assumed=True, assumed_bounds=CORRIDOR_BOUNDS,
+         mission_package=CORRIDOR_DOGLEG_PACKAGE, opt_in=True,
+         gate_checks=("unnecessary_actions",)),
 )
 
 
@@ -245,9 +258,20 @@ def run_worker(spec):
             common += ["--wind-airspeed-plugin", args["wind_plugin"]]
     post = shared_planner(args["port"], args["planner_timeout_s"])
     rc = demo.main([*common, "--plan-only", "--output", str(output / "preflight")], shared_post=post)
-    if rc or args["plan_only"]:
+    if rc:
         return rc
+    if args["plan_only"] and case.get("assumed_bounds") != CORRIDOR_BOUNDS:
+        return 0
     preflight = read_json(output / "preflight/result.json")
+    if case.get("assumed_bounds") == CORRIDOR_BOUNDS:
+        scenario = preflight["contingency_scenario"]
+        if not demo.matches_assumed_corridor_plan(
+            fault=case["fault"], scope=scenario["motion_scope_sha256"],
+            base_digest=scenario["live_evidence"]["base_mission_sha256"],
+        ):
+            raise ValueError(f"{demo.CORRIDOR_BINDING_ERROR} and pinned dogleg plan")
+    if args["plan_only"]:
+        return 0
     bounds = output / "iowa.site-bounds.json"
     x1_site_evidence.write_bounds(bounds, preflight, read_json(Path(args["site_inventory"])))
     common += ["--live-evidence-bounds", str(bounds)]
@@ -345,6 +369,15 @@ def check_flight(case, result, trace):
         checks["waypoint_reached"] = bool(flight.get("waypoints_reached"))
         cadence_receipts = [key for key in quiet if key in receipts and model_actions.get(key) == "continue"]
         checks["repeated_cadence"] = len(cadence_receipts) >= 2
+    if case.id == "corridor-dogleg":
+        # Vetoes are safe outcomes, but do not demonstrate multi-leg admission.
+        cruise_steps = [requests[receipt["request_id"]].get("mission_progress", {}) for receipt in admitted]
+        fw_legs = {"w", "w_2", "w_3"}
+        cruise_legs = [step.get("step_id") for step in cruise_steps
+                       if step.get("phase") == "cruise" and step.get("primitive") == "fw_goto_waypoint"
+                       and step.get("step_id") in fw_legs]
+        checks["repeated_fw_continue_admitted"] = len(cruise_legs) >= 2 and bool({"w", "w_2"} & set(cruise_legs))
+        checks["all_fw_legs_reached"] = fw_legs <= set(flight.get("waypoints_reached", []))
     if case.nominal_mc:
         checks["mc_only_route"] = flight.get("mc_only_confirmed") is True and bool(flight.get("waypoints_reached"))
     if case.fault:
@@ -403,7 +436,11 @@ def run_case(case, args, root, env, *, command_factory=work_command, server_aliv
     from scripts.x1_closed_loop_harvest import harvest
     from scripts.realworld.x1_lock import FLIGHT_LOCK_FD_ENV
 
-    max_distance_m = demo.verified_assumed_radius(ROOT / case.assumed_bounds) if case.assumed_bounds else None
+    max_distance_m = None
+    if case.assumed_bounds == CORRIDOR_BOUNDS:
+        max_distance_m, _ = demo.verified_assumed_corridor(ROOT / case.assumed_bounds)
+    elif case.assumed_bounds:
+        max_distance_m = demo.verified_assumed_radius(ROOT / case.assumed_bounds)
     lock_fd = env.get(FLIGHT_LOCK_FD_ENV)
     pass_fds = () if lock_fd is None else (int(lock_fd),)
 
@@ -463,7 +500,9 @@ def run_case(case, args, root, env, *, command_factory=work_command, server_aliv
                                     ("missing_receipts", "orphan_results", "invalid_trace_rows", "duplicate_trace_rows")))
         if timed_out:
             status = "budget_exceeded"
-        elif "ASSUMED_SIM requires the exact Iowa route" in result.get("validator", {}).get("reason", ""):
+        elif (artifacts.get("worker-error.json", {}).get("detail", "").startswith(demo.CORRIDOR_BINDING_ERROR)
+              or result.get("validator", {}).get("reason", "").startswith((
+                  "ASSUMED_SIM requires the exact Iowa route", demo.CORRIDOR_BINDING_ERROR))):
             status = "blocked_evidence_scope"
         elif rc == 0 and args.plan_only:
             status = "plan_only"

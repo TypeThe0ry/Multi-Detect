@@ -33,7 +33,9 @@ def decision_trace(*, action="continue", receipt="continued", fault=None, mode="
              "status": receipt, "reason": "no_new_command" if receipt == "continued" else "unverified_clearance"}]
 
 
-def test_case_table():
+def test_case_table(monkeypatch):
+    # Keep the legacy catalog assertions as a regression for the original cases.
+    monkeypatch.setattr(suite, "CASES", tuple(case for case in suite.CASES if case.id != "corridor-dogleg"))
     args, rows = suite.parse_args(["--list-cases", "--case", "quiet-cadence", "--case", "ramped-wind"])
     assert args.slots == (7, 6, 5)
     assert [r.id for r in rows] == ["ramped-wind", "quiet-cadence"]
@@ -414,3 +416,114 @@ def test_mc_plan_uses_model_graph_and_iowa_dem():
     plan_wire["steps"][1]["params"]["altitude_agl_m"] = 90
     with pytest.raises(ValueError, match="85 m AGL"):
         mc.compile_mc_plan(package, lambda _prompt, _schema: json.dumps(plan_wire), {})
+
+
+def test_corridor_dogleg_is_opt_in_and_statically_provable():
+    import math
+
+    from multidetect.autonomy.mission_plan import MissionPlan, MissionStep
+    from multidetect.autonomy.x1_corridor_energy import default_constants, max_one_way_m
+    from multidetect.autonomy.x1_plan import x1_static_violations
+    from scripts import run_x1_autonomy_demo as demo
+
+    case, = suite.select_cases(["corridor-dogleg"])
+    assert case not in suite.select_cases([])
+    assert case in suite.parse_args(["--list-cases"])[1]
+    assert suite.parse_args(["--list-cases", "--case", case.id])[1] == [case]
+    assert case.opt_in and case.assumed and case.fault is None
+    assert case.phase == "fw" and case.expected == ("continue",) and case.cadence_s > 0
+    assert 300 <= case.expected_s <= 420 and case.budget_s > case.expected_s
+    assert case.assumed_bounds == suite.CORRIDOR_BOUNDS
+    assert case.mission_package == suite.CORRIDOR_DOGLEG_PACKAGE
+    generator = demo.assumptions
+    generated = generator.generate_corridor(
+        mode="sim", world=generator.WORLD, image=generator.IMAGE, profile_path=demo.PROFILE)
+    assert (suite.ROOT / case.assumed_bounds).read_bytes() == (
+        json.dumps(generated, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    document = suite.read_json(suite.ROOT / case.mission_package)
+    radius, bounds = demo.verified_assumed_corridor(suite.ROOT / case.assumed_bounds)
+    assert not bounds.standoff_gate_enabled and bounds.fw_leg_peak_power_w == 500.0
+    package = demo.load_mission_package({**document, "task_text": case.sentence}, mode="sim",
+                                        allow_assumed_sim=True, assumed_sim_max_distance_m=radius,
+                                        assumed_sim_corridor=bounds)
+    west, east = document["places"]["poi:west-beacon"], document["places"]["poi:east-beacon"]
+    vertices = (document["home"], west, east, document["home"])
+    distance = sum(math.dist(a, b) for a, b in zip(vertices, vertices[1:]))
+    assert 1200 <= distance <= 1400
+    agl = 47.0
+    limit = max_one_way_m("proof", agl_m=agl,
+                          ground_high_m=document["x1_planning"]["terrain_rel_home_m"][1],
+                          fw_peak_power_w=bounds.fw_leg_peak_power_w,
+                          battery_wh=document["budget"]["energy_wh"],
+                          package_reserve_wh=document["budget"]["reserve_energy_wh"],
+                          constants=default_constants())
+    assert 1 - distance / (2 * limit) >= 0.10
+    plan = MissionPlan(1, "X1 mission", (
+        MissionStep("takeoff", "vtol_takeoff", {"altitude_agl_m": agl}, "fw", "home"),
+        MissionStep("fw", "fw_transition", {}, "w", "home"),
+        MissionStep("w", "fw_goto_waypoint", {"target_ref": "poi:west-beacon", "altitude_agl_m": agl},
+                    "w_2", "home"),
+        MissionStep("w_2", "fw_goto_waypoint", {"target_ref": "poi:east-beacon", "altitude_agl_m": agl},
+                    "w_3", "home"),
+        MissionStep("w_3", "fw_goto_waypoint", {"target_ref": "home", "altitude_agl_m": agl}, "back", "home"),
+        MissionStep("back", "back_transition", {}, "home", "home"),
+        MissionStep("home", "return_home", {}, None, None),
+    ), ("status",))
+    assert x1_static_violations(plan, package, frozenset(document["capabilities"])) == []
+    assert demo.compiled_mission_digest(package, plan) == demo.assumptions.CORRIDOR_BASE_SHA
+
+
+@pytest.mark.parametrize("drift", [None, "base_mission_sha256", "motion_scope_sha256"])
+def test_corridor_plan_only_worker_checks_exact_evidence_binding(tmp_path, monkeypatch, drift):
+    from dataclasses import asdict
+
+    from scripts import run_x1_autonomy_demo as demo
+
+    case, = suite.select_cases(["corridor-dogleg"])
+    spec = {"case": asdict(case), "slot": 7, "attempt_dir": str(tmp_path), "args": {
+        "port": 9998, "planner_timeout_s": 3, "checkpoint": "fake.gguf", "llama_server": "fake-llama",
+        "mission_package": "unused.json", "plan_only": True}}
+    calls = []
+
+    def fake_demo(argv, shared_post):
+        calls.append(argv)
+        assert shared_post("plan this", {}) == "model-wire"
+        assert argv.count(demo.ASSUMED_SIM_FLAG) == 1 and "--plan-only" in argv
+        assert Path(argv[argv.index(demo.ASSUMED_SIM_FLAG) + 1]) == suite.ROOT / case.assumed_bounds
+        assert Path(argv[argv.index("--mission-package") + 1]) == suite.ROOT / case.mission_package
+        output = Path(argv[argv.index("--output") + 1])
+        output.mkdir()
+        suite.write_json(output / "result.json", {"contingency_scenario": {
+            "live_evidence": {"base_mission_sha256": "0" * 64 if drift == "base_mission_sha256"
+                              else demo.assumptions.CORRIDOR_BASE_SHA},
+            "motion_scope_sha256": "0" * 64 if drift == "motion_scope_sha256"
+            else demo.assumptions.CORRIDOR_SCOPES["nominal"],
+        }})
+        return 0
+
+    monkeypatch.setattr(suite, "local_json", lambda *args, **kw: {"choices": [{"message": {"content": "model-wire"}}]})
+    monkeypatch.setattr(demo, "main", fake_demo)
+    if drift:
+        with pytest.raises(ValueError, match="pinned dogleg plan"):
+            suite.run_worker(spec)
+    else:
+        assert suite.run_worker(spec) == 0
+    assert len(calls) == 1
+
+
+def test_corridor_pass_requires_proved_cruise_continues_and_every_fw_passage():
+    case, = suite.select_cases(["corridor-dogleg"])
+    result = fixture_flight()
+    result["flight"]["waypoints_reached"] = ["w", "w_2", "w_3"]
+    first = decision_trace()
+    second = json.loads(json.dumps(first).replace("case:1", "case:2"))
+    for rows, step_id in ((first, "w_2"), (second, "w_3")):
+        for row in rows[:2]:
+            row["request"]["mission_progress"].update(step_id=step_id, primitive="fw_goto_waypoint")
+    trace = first + second
+    assert all(suite.check_flight(case, result, trace)[0].values())
+    second[-1].update(status="rejected", reason="unverified_clearance")
+    checks, _ = suite.check_flight(case, result, trace)
+    assert checks["expected_receipt"] and not checks["repeated_fw_continue_admitted"]
+    result["flight"]["waypoints_reached"].remove("w_2")
+    assert not suite.check_flight(case, result, trace)[0]["all_fw_legs_reached"]
