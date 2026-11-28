@@ -930,8 +930,15 @@ class CollectorScenario:
             return
         if admission.action == "loiter" and proof is not None and type(proof.required_time_s) in (int, float):
             # The executor decoded and admitted this exact wire; it names the hold.
-            self.hold = {"hold_ref": json.loads(wire)["params"]["hold_ref"],
-                         "deadline_ms": admitted_ms + int(proof.required_time_s * 1000),
+            hold_ref = json.loads(wire)["params"]["hold_ref"]
+            residence = proof.required_time_s
+            if getattr(self.motion_evidence, "corridor", None) is not None:
+                residence = self.motion_evidence.hold_residence_s(hold_ref)
+                if residence is None:
+                    self.native_failure = "hold_residence_unverified"
+                    return
+            self.hold = {"hold_ref": hold_ref,
+                         "deadline_ms": admitted_ms + int(residence * 1000),
                          "revalidation_requested": False}
         elif admission.action in {"return", "land-now"}:
             self.hold = None

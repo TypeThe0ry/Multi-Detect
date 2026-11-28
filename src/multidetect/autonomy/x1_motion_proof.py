@@ -305,106 +305,96 @@ class X1MotionProofBuilder:
             return False
         if not _number(self.terrain_error_m, 0.0):
             return False
-        low, high = _terrain_bounds(self.terrain, box[:4])
+        try:
+            low, high = _terrain_bounds(self.terrain, box[:4])
+        except (ValueError, OSError, RuntimeError):
+            return False
         error = self.terrain_error_m
         agl = box[4] - high - error
         if agl < AGL_MIN_M or AGL_MAX_M - (box[5] - low + error) < 0:
             return False
-        if self.obstacle_clearance is not None:
+        if self.obstacle_clearance is None:
+            return False
+        try:
             margin = self.obstacle_clearance(box)
-            if not _number(margin) or margin < 0:
-                return False
-        return True
+        except (ValueError, OSError, RuntimeError):
+            return False
+        return _number(margin, 0.0)
 
-    def _disk_clear(self, centre, radius, altitude):
-        """Survey a whole orbit disk against the fence, terrain and obstacles."""
-        if not (_number(radius, 0.001) and _point((*centre[:2], altitude))):
+    def _disk_clear(self, centre, radius, low, high):
+        """Check the whole disk, including its interior and vertical band."""
+        if not (_number(radius, 0.001) and _point((*centre[:2], low)) and _number(high, low)):
             return False
-        if not _number(self.terrain_error_m, 0.0) or self.obstacle_clearance is None:
-            return False
-        north, east = centre[:2]
-        for step in range(16):
-            angle = math.tau * step / 16
-            n = north + radius * math.cos(angle)
-            e = east + radius * math.sin(angle)
-            if not all(area["north_min_m"] <= n <= area["north_max_m"]
-                       and area["east_min_m"] <= e <= area["east_max_m"]
-                       for area in (self.area, self.corridor)):
-                return False
-            if math.dist((n, e), self.home_ne) > self.radius:
-                return False
-            if any(math.dist((n, e), zone) <= effective_no_fly_radius(zone_radius)
-                   for zone, zone_radius in self.zones):
-                return False
-        box = (north - radius, north + radius, east - radius, east + radius, altitude, altitude)
-        low, high = _terrain_bounds(self.terrain, box[:4])
-        error = self.terrain_error_m
-        agl = box[4] - high - error
-        if agl < AGL_MIN_M or AGL_MAX_M - (box[5] - low + error) < 0:
-            return False
-        margin = self.obstacle_clearance(box)
-        return _number(margin) and margin >= 0
+        leg = SweptLeg("fw", (*centre[:2], low), (*centre[:2], high), radius, 0.0, 0.0, 0.0)
+        return self._chord_leg_clear(leg, leg.box())
 
     def _precompute_corridor_rtl_clear(self):
-        """Precompute the direct-to-home chord verdict for every FW slice start."""
+        """Cover every admitted fix in each slice's box with a widened chord."""
         if not _number(self.terrain_error_m, 0.0) or self.obstacle_clearance is None:
             return {}
-        bounds = self.package.assumed_sim_corridor
-        corridor = self._corridor
-        pad_ne = min(bounds.fw_tracking_m, CORRIDOR_TUBE_HALF_WIDTH_M / math.sqrt(2.0))
-        home = (*self.home_ne, corridor.cruise_msl)
-        result = {}
-        for index, group in enumerate(corridor.leg_slices, start=1):
-            verdicts = []
-            for item in group:
-                chord = math.dist(item.start[:2], home[:2])
-                duration = max(0.001, chord / bounds.min_ground_speed_mps)
-                try:
-                    slices = slice_leg(item.start, home, pad_ne, 0.0, duration,
-                                       bounds.fw_leg_peak_power_w, bounds.slice_m,
-                                       max_slices=corridor.max_sweep_legs)
-                except X1PlanError:
-                    verdicts.append((item.box(), False))
-                    continue
-                ok = all(self._chord_leg_clear(
-                    SweptLeg("fw", piece.start, piece.end, piece.padding_ne_m, piece.padding_alt_m,
-                             piece.duration_s, piece.peak_power_w), piece.box())
-                    for piece in slices)
-                verdicts.append((item.box(), ok))
-            if verdicts:
-                result[index] = tuple(verdicts)
-        return result
+        tracking = self.package.assumed_sim_corridor.fw_tracking_m
+        return {index: tuple((item.box(), self._corridor_chord_clear(item.start, item.box(), tracking))
+                             for item in group)
+                for index, group in enumerate(self._corridor.leg_slices, start=1)}
 
-    def corridor_rtl_clear(self, index, point):
-        """True only when the position's own precomputed chord is fully clear."""
+    def _corridor_chord_clear(self, start, entry, tracking):
+        bounds, corridor = self.package.assumed_sim_corridor, self._corridor
+        home = (*self.home_ne, corridor.cruise_msl)
+        # For a common home endpoint the displacement of any admissible chord
+        # from the nominal chord decreases towards home.
+        north, east, alt = start
+        horizontal = tracking + max(
+            abs(entry[0] - north), abs(entry[1] - north), abs(entry[2] - east), abs(entry[3] - east))
+        vertical = max(abs(entry[4] - alt), abs(entry[5] - alt))
+        try:
+            pieces = slice_leg(start, home, 0.0, 0.0, 1.0, bounds.fw_leg_peak_power_w,
+                               bounds.slice_m, max_slices=corridor.max_sweep_legs)
+        except X1PlanError:
+            return False
+        chord = (SweptLeg("fw", piece.start, piece.end, horizontal, vertical, 0.0, 0.0)
+                 for piece in pieces)
+        return all(self._chord_leg_clear(leg, leg.box()) for leg in chord)
+
+    def corridor_rtl_clear(self, index, point, *, hold_exit=None):
+        """Check this leg's slice verdicts or its separately proved Hold entry."""
         if self._corridor is None or type(index) is not int or not _point(point):
             return False
-        for box, ok in self._rtl_clearance.get(index, ()):
-            if self._in_box(box, point):
-                return ok
-        return False
+        matches = [ok for box, ok in self._rtl_clearance.get(index, ()) if self._in_box(box, point)]
+        if matches:
+            return all(matches)
+        return hold_exit is not None and self._in_box(hold_exit, point)
 
-    def corridor_hold_clear(self, bound):
-        """A host-registered FW Hold disk must fit the surveyed corridor."""
-        site = getattr(bound, "site", None)
-        centre = getattr(bound, "centre", None)
-        if site is None or centre is None or site.mode != "fw":
-            return False
-        return self._disk_clear(centre, site.radius_m, centre[2])
+    def corridor_hold_exit(self, bound, index, *, min_return_alt_m, tracking_m):
+        """Prove a per-leg entry box for all departures from a tracked Hold orbit."""
+        radius = bound.site.radius_m + tracking_m
+        north, east, alt = bound.centre
+        low, high = alt - bound.padding_alt_m, alt + bound.padding_alt_m
+        if low < min_return_alt_m or not self._disk_clear((north, east), radius, low, high):
+            return None
+        if not self.corridor_rtl_clear(index, bound.centre):
+            return None
+        orbit = (north - radius, north + radius, east - radius, east + radius, low, high)
+        if not (self._in_box(bound.entry, orbit[::2]) and self._in_box(bound.entry, orbit[1::2])):
+            return None
+        if any(not ok and all(lo <= hi2 and lo2 <= hi for lo, hi, lo2, hi2 in
+                              zip(box[::2], box[1::2], orbit[::2], orbit[1::2], strict=True))
+               for box, ok in self._rtl_clearance.get(index, ())):
+            return None
+        return orbit if self._corridor_chord_clear(bound.centre, orbit, tracking_m) else None
 
     @property
     def corridor_min_cruise_rel_home_m(self):
         return None if self._corridor is None else self._corridor.cruise_msl - self.home_z
 
-    def corridor_rtl_ready(self, *, return_alt_m, loiter_radius_m):
-        """No-climb RTL return altitude and a surveyed home loiter disk."""
-        if self._corridor is None:
-            return False
+    def corridor_rtl_ready(self, *, return_alt_m, descend_alt_m, loiter_radius_m, pad):
+        """Require a surveyed home orbit and a return that needs no initial climb."""
         min_cruise = self.corridor_min_cruise_rel_home_m
-        if not _number(return_alt_m, 0.0) or return_alt_m > min_cruise + 1e-9:
+        if (min_cruise is None or not _number(return_alt_m, 0.0, min_cruise)
+                or pad is None or not _number(loiter_radius_m, 0.001, pad.radius_m)):
             return False
-        altitude = max(self._corridor.cruise_msl, self.home_z + return_alt_m)
-        return self._disk_clear(self.home_ne, loiter_radius_m, altitude)
+        top = self._corridor.cruise_msl
+        low = min(top, self.home_z + descend_alt_m)
+        return self._disk_clear(self.home_ne, loiter_radius_m, low, top)
 
     def _in_corridor_union(self, boxes):
         """Every box corner must lie in the union of leg tubes and vertex turn pads."""
@@ -429,9 +419,21 @@ class X1MotionProofBuilder:
         n = len(corridor.legs)
         groups = _phase_groups(sweep.legs)
         phases = tuple(group[0].phase for group in groups)
-        last = sweep.legs[-1].end
+        first, last = sweep.legs[0].start, sweep.legs[-1].end
+        if type(frame.active_motion_index) is not int:
+            return False
+        mc_terminal = (frame.active_motion_index, frame.vtol_state) == (n + 2, "mc")
+        if d.action == "land-now":
+            return (mc_terminal and phases == ("landing",)
+                    and all(_same(first[:2], leg.end[:2]) for leg in sweep.legs))
+        if d.action == "loiter" and mc_terminal:
+            return self._hold_matches(d, frame, sweep, phases, boxes[-1])
         if not _same(last, (*self.home_ne, self.home_z)):
             return False
+        if d.action == "return" and mc_terminal:
+            return (phases == ("mc", "landing") and self._in_corridor_union(boxes)
+                    and all(_same(leg.start[:2], self.home_ne) and _same(leg.end[:2], self.home_ne)
+                            for leg in groups[-1]))
         if native_fw_rtl:
             return self._corridor_native_rtl_matches(d, frame, sweep, groups, phases)
         if d.action == "loiter":
@@ -547,6 +549,7 @@ class X1MotionProofBuilder:
         """Direct native RTL only: fence-checked chord, then home descent/landing."""
         if (d.action != "return" or frame.vtol_state != "fw"
                 or frame.native_hold_active is not True
+                or not 1 <= frame.active_motion_index <= len(self._corridor.legs)
                 or phases != ("fw", "transition", "mc", "landing")):
             return False
         fw = groups[0]
@@ -559,7 +562,8 @@ class X1MotionProofBuilder:
         """First legs are the Hold disk, then the native return through landing."""
         hold = frame.hold_sites.get(d.params.get("hold_ref"))
         if (not hold or hold.mode != "fw" or frame.vtol_state != "fw"
-                or sweep.hold_revalidation_enforced is not True
+                or not 1 <= frame.active_motion_index <= len(self._corridor.legs)
+                or len(groups[0]) < 2 or sweep.hold_revalidation_enforced is not True
                 or phases != ("fw", "transition", "mc", "landing")):
             return False
         if not _number(hold.radius_m, 0.001) or not all(
@@ -716,7 +720,10 @@ class X1MotionProofBuilder:
             terrain, transition, landed = None, None, False
             if _number(self.terrain_error_m, 0.0) and frame.terrain_conflict is not True:
                 terrain, transition, landed = self._terrain_clearance(
-                    hazard_legs, hazard_boxes, sweep.landing_pad, all_airborne=retask_anchors is not None or native_fw_rtl)
+                    hazard_legs, hazard_boxes, sweep.landing_pad,
+                    all_airborne=(retask_anchors is not None or native_fw_rtl
+                                  or (self._corridor is not None and decision.action == "loiter"
+                                      and frame.vtol_state == "fw")))
             obstacle = None
             if self.obstacle_clearance is not None:
                 margins = tuple(self.obstacle_clearance(box) for box in hazard_boxes)

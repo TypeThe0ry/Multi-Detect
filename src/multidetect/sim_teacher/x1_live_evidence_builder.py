@@ -12,7 +12,7 @@ _FIELDS = ("dem_error_m", "obstacle_coverage", "obstacles", "landing_pad", "batt
 _OPTIONAL = ("native",)
 
 
-def build_live_evidence(package, *, terrain, scope_sha256, base_mission_sha256, surveyed_bounds=None):
+def build_live_evidence(package, *, terrain, scope_sha256, base_mission_sha256, surveyed_bounds=None, corridor=None):
     """Bind independently verified bounds to the compiled scenario and package.
 
     ``surveyed_bounds`` is an optional local host input. Hashes check its
@@ -65,7 +65,8 @@ def build_live_evidence(package, *, terrain, scope_sha256, base_mission_sha256, 
             evidence["suffixes"] = deepcopy(suffixes)
 
     if "native" in bounds and "landing_pad" in evidence:
-        parse_native(bounds["native"], terrain)
+        options = {"corridor_fw_legs": len(corridor.legs)} if corridor is not None else {}
+        parse_native(bounds["native"], terrain, **options)
         evidence["native"] = deepcopy(bounds["native"])
 
     missing = [key for key in _FIELDS if key not in evidence]
