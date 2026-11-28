@@ -435,6 +435,11 @@ def test_corridor_dogleg_is_opt_in_and_statically_provable():
     assert 300 <= case.expected_s <= 420 and case.budget_s > case.expected_s
     assert case.assumed_bounds == suite.CORRIDOR_BOUNDS
     assert case.mission_package == suite.CORRIDOR_DOGLEG_PACKAGE
+    generator = demo.assumptions
+    generated = generator.generate_corridor(
+        mode="sim", world=generator.WORLD, image=generator.IMAGE, profile_path=demo.PROFILE)
+    assert (suite.ROOT / case.assumed_bounds).read_bytes() == (
+        json.dumps(generated, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     document = suite.read_json(suite.ROOT / case.mission_package)
     radius, bounds = demo.verified_assumed_corridor(suite.ROOT / case.assumed_bounds)
     assert not bounds.standoff_gate_enabled and bounds.fw_leg_peak_power_w == 500.0
@@ -463,7 +468,7 @@ def test_corridor_dogleg_is_opt_in_and_statically_provable():
         MissionStep("w_3", "fw_goto_waypoint", {"target_ref": "home", "altitude_agl_m": agl}, "back", "home"),
         MissionStep("back", "back_transition", {}, "home", "home"),
         MissionStep("home", "return_home", {}, None, None),
-    ), ())
+    ), ("status",))
     assert x1_static_violations(plan, package, frozenset(document["capabilities"])) == []
     assert demo.compiled_mission_digest(package, plan) == demo.assumptions.CORRIDOR_BASE_SHA
 

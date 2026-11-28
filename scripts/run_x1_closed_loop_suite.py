@@ -78,8 +78,9 @@ LONG_RANGE_SENTENCE = (
 CORRIDOR_BOUNDS = "configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json"
 CORRIDOR_DOGLEG_PACKAGE = "configs/simulation/x1-corridor-dogleg-mission.json"
 CORRIDOR_DOGLEG_SENTENCE = (
-    "Fly over the west beacon and then the east beacon at 47 m AGL. "
-    "Fly back over home in fixed-wing mode at the same height, then transition and land vertically."
+    "Fly west to the west beacon, then east to the east beacon, then fly a fixed-wing waypoint "
+    "directly over home, all at 47 m AGL. After the home waypoint, transition to multicopter "
+    "and land vertically at home."
 )
 
 

@@ -50,7 +50,7 @@ ENVELOPE_KEYS = {"basis", "scope", "max_distance_from_home_m"}
 
 # Canonical plan and lowered motion scope of the nominal Iowa corridor-dogleg.
 # The old long-range route never authorizes this corridor template.
-CORRIDOR_BASE_SHA = "b21283301259e7c247792cc1f37e461ae7eb81de1f6a8cabe9652506c3cd9c3c"
+CORRIDOR_BASE_SHA = "a16d3ddc1646ef3105814880b7a02ba033cc0348d9e82aa2810bbfa46f788191"
 CORRIDOR_SCOPES = {
     "nominal": "48f994e28a8227b6cb73b615ffd77ed73796a63569017d58b702e1110615c494",
 }
