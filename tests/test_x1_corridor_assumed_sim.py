@@ -59,7 +59,7 @@ def test_corridor_template_reproduces_and_has_exact_fields():
     assert set(corridor) == generator.CORRIDOR_ENVELOPE_KEYS
     assert corridor["standoff_m"] == 252.5
     assert corridor["standoff_gate_enabled"] is False
-    assert corridor["fw_leg_peak_power_w"] == 344.0
+    assert corridor["fw_leg_peak_power_w"] == 500.0
     assert corridor["mc_peak_power_w"] == 750.0
     assert corridor["max_fw_legs"] == 4 and corridor["max_sweep_legs"] == 384
     assert generator.corridor_bounds(generated) == CorridorBounds.parse(corridor)
