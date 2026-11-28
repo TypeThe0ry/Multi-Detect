@@ -342,11 +342,13 @@ def test_corridor_dogleg_offboard_tangents_chain_from_previous_target(monkeypatc
 
     calls = []
 
+    home_ned = (50.0, -20.0, 3.0)
+
     class FakeExecutor:
         vehicle = object()
         telemetry_reader = SimpleNamespace(state={})
         _clock = staticmethod(lambda: 1)
-        _geo_reference = staticmethod(lambda: (None, (0, 0, 0)))
+        _geo_reference = staticmethod(lambda: (None, home_ned))
         _position = staticmethod(lambda: (0, 0, 0))
 
         def execute(self, command):
@@ -370,9 +372,11 @@ def test_corridor_dogleg_offboard_tangents_chain_from_previous_target(monkeypatc
             assert executor.execute(command).status == "success"
 
     paths = [call for call in calls if call[0] != "start"]
-    assert paths[0] == ((300, 0, -47), (1.0, 0.0))
+    # The first corridor leg still starts at home; later legs chain from the
+    # previous commanded target instead of rebuilding every tangent from home.
+    assert paths[0] == ((350, -20, -44), (1.0, 0.0))
     first = math.hypot(255, 190)
-    assert paths[1][1] == pytest.approx((255 / first, 190 / first))
+    assert paths[1] == ((605, 170, -44), pytest.approx((255 / first, 190 / first)))
     home = math.hypot(555, 190)
-    assert paths[2][0] == (0, 0, -47)
+    assert paths[2][0] == (50, -20, -44)
     assert paths[2][1] == pytest.approx((-555 / home, -190 / home))
