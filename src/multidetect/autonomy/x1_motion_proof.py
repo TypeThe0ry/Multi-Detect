@@ -308,7 +308,7 @@ class X1MotionProofBuilder:
         return _segment_distance(leg.start_ne, leg.end_ne, point[:2]) <= leg.tube_half_width_m + 1e-9
 
     def _route_matches_corridor(self, d, frame, sweep, boxes):
-        """Continue-only general corridor route; retask/hold/native RTL are later steps."""
+        """Match a continue sweep against the original corridor lowering."""
         corridor = self._corridor
         n = len(corridor.legs)
         if d.action != "continue" or type(frame.active_motion_index) is not int:
@@ -509,8 +509,7 @@ class X1MotionProofBuilder:
                     128 if self._corridor is None else self._corridor.max_sweep_legs)):
             return closed
         legs = sweep.legs
-        if self._corridor is not None and (installed_continue or retask_anchors is not None or native_fw_rtl):
-            # Installed continue, live retask and native RTL are later steps.
+        if self._corridor is not None and native_fw_rtl:
             return closed
         if (not all(isinstance(x, SweptLeg) and isinstance(x.phase, str) and x.phase in _PHASES
                     and _point(x.start) and _point(x.end)
@@ -544,14 +543,27 @@ class X1MotionProofBuilder:
                 or legs[-1].start[:2] != self.home_ne
             ):
                 return closed
-            fence = all(self._fence_clear(leg, box) for leg, box in zip(legs, boxes, strict=True))
+            if self._corridor is not None and retask_anchors is None:
+                turn_pad = self._corridor_turn_pad_m()
+                fw_padding_alt = max((leg.padding_alt_m for leg in legs if leg.phase == "fw"), default=0.0)
+                turns = tuple(SweptLeg("fw", leg.start_amsl, leg.start_amsl, turn_pad,
+                                       fw_padding_alt, 0.0, 0.0)
+                              for leg in self._corridor.legs[frame.active_motion_index - 1:]
+                              if leg.vertex_turn_deg > 1e-6)
+                # The circumscribed boxes bound the full turn disks for hazard
+                # checks. They do not alter circular corridor membership or ETA.
+                hazard_legs = turns + legs
+                hazard_boxes = tuple(turn.box() for turn in turns) + boxes
+            else:
+                hazard_legs, hazard_boxes = legs, boxes
+            fence = all(self._fence_clear(leg, box) for leg, box in zip(hazard_legs, hazard_boxes, strict=True))
             terrain, transition, landed = None, None, False
             if _number(self.terrain_error_m, 0.0) and frame.terrain_conflict is not True:
                 terrain, transition, landed = self._terrain_clearance(
-                    legs, boxes, sweep.landing_pad, all_airborne=retask_anchors is not None or native_fw_rtl)
+                    hazard_legs, hazard_boxes, sweep.landing_pad, all_airborne=retask_anchors is not None or native_fw_rtl)
             obstacle = None
             if self.obstacle_clearance is not None:
-                margins = tuple(self.obstacle_clearance(box) for box in boxes)
+                margins = tuple(self.obstacle_clearance(box) for box in hazard_boxes)
                 if all(_number(margin) for margin in margins):
                     obstacle = min(margins)
         except (ValueError, OSError, RuntimeError):

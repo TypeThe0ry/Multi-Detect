@@ -9,14 +9,22 @@ from dataclasses import asdict, dataclass, replace
 from multidetect.autonomy.mission_package import number
 from multidetect.autonomy.serialization import canonical_sha256
 from multidetect.autonomy.x1_contingency_executor import HoldSite, X1AirbornePlanAdapter
-from multidetect.autonomy.x1_mission import X1PlanError, lower_airborne_suffix
+from multidetect.autonomy.x1_corridor import (
+    CORRIDOR_TUBE_HALF_WIDTH_M,
+    X1CorridorLowering,
+    slice_leg,
+)
+from multidetect.autonomy.x1_mission import MC_RETURN_SPEED_MPS, X1PlanError, lower_airborne_suffix
 from multidetect.autonomy.x1_motion_proof import ExecutionSweep, LandingPad, SweptLeg, X1MotionProofBuilder
 from multidetect.autonomy.x1_contingency_state import require_token
+from multidetect.autonomy.x1_wind_estimate import WindReading
 from multidetect.target_geolocation import wgs84_forward_from_ned
 
 from .x1_fw_native_rtl import FwRtlBounds
 
 MOTION_SAMPLE_MAX_AGE_MS = 500
+_CORRIDOR_WIND_MAX_AGE_MS = 1500
+_CORRIDOR_FW_GROUND_SPEED_FLOOR_MPS = 6.0
 _SUFFIXES = {1: ("fw", ("fw", "transition", "mc", "landing")),
              2: ("fw", ("transition", "mc", "landing")),
              3: ("mc", ("mc", "landing"))}
@@ -53,6 +61,15 @@ def _contains(box, point):
 
 def _contains_box(outer, inner):
     return _contains(outer, inner[::2]) and _contains(outer, inner[1::2])
+
+
+def _segment_distance(start, end, point):
+    """Distance from a 2-D point to a closed segment (same as x1_plan's helper)."""
+    dn, de = end[0] - start[0], end[1] - start[1]
+    length2 = dn * dn + de * de
+    t = 0.0 if not length2 else min(1.0, max(
+        0.0, ((point[0] - start[0]) * dn + (point[1] - start[1]) * de) / length2))
+    return math.dist(point, (start[0] + t * dn, start[1] + t * de))
 
 
 def _clearance(box, coverage, obstacles):
@@ -233,8 +250,12 @@ class LiveContinueEvidence:
     the current entry and budgets. It cannot certify future aircraft dynamics.
     """
 
-    def __init__(self, package, profile, terrain, steps, *, scope, assumed_sim=None):
+    def __init__(self, package, profile, terrain, steps, *, scope, assumed_sim=None,
+                 corridor: X1CorridorLowering | None = None):
         self.assumed_sim = assumed_sim
+        self.corridor = corridor
+        if corridor is not None:
+            self._corridor_wind = None
         self.retask_bounds = (assumed_sim or {}).get("airborne_retask")
         self.stage_retask = None
         self.installed_at = None
@@ -297,6 +318,7 @@ class LiveContinueEvidence:
             package, profile, terrain, steps,
             mission_radius_m=package.document["x1_planning"]["max_distance_from_home_m"],
             terrain_error_m=terrain_error, obstacle_clearance=obstacle_clearance,
+            corridor=corridor,
         )
         fw_rtl = (assumed_sim or {}).get("fw_rtl")
         if (self.pad is not None and package.mode == "sim" and self.basis == "ASSUMED_SIM"
@@ -356,6 +378,58 @@ class LiveContinueEvidence:
             entries.append((("retask", index), self.suffixes[index]))
         return entries
 
+    def _corridor_airframe_bound(self):
+        """Return the scoped FW phase bounds used with freshly rebuilt geometry."""
+        if self.corridor is None:
+            return None
+        return self.suffixes.get(1)
+
+    def _corridor_retask_bound(self, index):
+        if self.retask_bounds is not None and type(index) is int:
+            phase_index = index - len(self.corridor.legs)
+            if phase_index in (1, 2):
+                return self.suffixes.get(phase_index + 1)
+        return None
+
+    def _corridor_admits(self, index, point, speed):
+        """Entry gate for a corridor continue tick from this live position."""
+        if self.corridor is None or type(index) is not int or point is None:
+            return False
+        home = self.builder.home_ne
+        legs = self.corridor.legs
+        n = len(legs)
+        bound = self.suffixes.get(3) if index == n + 2 else self._corridor_airframe_bound()
+        if bound is None or speed > bound.max_entry_speed_mps:
+            return False
+        if 1 <= index <= n:
+            leg = legs[index - 1]
+            return _segment_distance(leg.start_ne, leg.end_ne, point[:2]) <= leg.tube_half_width_m + 1e-9
+        if index == n + 1:
+            return math.dist(point[:2], legs[-1].end_ne) <= (
+                self.corridor.runout_m + CORRIDOR_TUBE_HALF_WIDTH_M + 1e-9)
+        if index == n + 2:
+            return math.dist(point[:2], home) <= (
+                self.corridor.runout_m + CORRIDOR_TUBE_HALF_WIDTH_M + 1e-9)
+        return False
+
+    def _corridor_runout_end(self):
+        """Final back-transition/overshoot endpoint used by the corridor union."""
+        corridor = self.corridor
+        last = corridor.legs[-1]
+        home = self.builder.home_ne
+        if corridor.gate_ne is not None:
+            anchor = corridor.gate_ne
+            distance = math.dist(anchor, home)
+            ux = (home[0] - anchor[0]) / distance if distance else 0.0
+            uy = (home[1] - anchor[1]) / distance if distance else 0.0
+            length = max(distance, corridor.runout_m)
+            return (anchor[0] + ux * length, anchor[1] + uy * length, corridor.cruise_msl)
+        length = math.dist(last.start_ne, last.end_ne)
+        ux = (last.end_ne[0] - last.start_ne[0]) / length if length else 0.0
+        uy = (last.end_ne[1] - last.start_ne[1]) / length if length else 0.0
+        return (last.end_ne[0] + ux * corridor.runout_m,
+                last.end_ne[1] + uy * corridor.runout_m, last.cruise_msl)
+
     def _installed_key(self, index):
         route = self.installed_at(index) if self.installed_at is not None else None
         return ("installed-continue", route.revision, route.plan_sha256, index) if route is not None else None
@@ -364,10 +438,13 @@ class LiveContinueEvidence:
     def _hold_key(ref, installed_key):
         return ("installed-hold", installed_key, ref) if installed_key is not None else ("hold", ref)
 
-    def check_entry(self, index, point, local, *, installed_key=None, confirmed_hold_ref=None, observed_home=None):
+    def check_entry(self, index, point, local, *, installed_key=None, confirmed_hold_ref=None, observed_home=None,
+                    corridor_wind=None):
         """Return the point if any applicable bound admits it; remember which ones do."""
         self._entry = None
         self._fw_rtl_entry = None
+        if self.corridor is not None:
+            self._corridor_wind = corridor_wind
         if point is None:
             return None
         try:
@@ -382,18 +459,27 @@ class LiveContinueEvidence:
                     or installed_key != self._installed_key(index)):
                 return None
             admitted = {installed_key}
-            if fw_ready:
+            if fw_ready and self.corridor is None:
                 admitted.update(self._hold_key(ref, installed_key) for ref, bound in self.holds.items()
                                 if bound.site.mode == "fw" and _contains(bound.entry, point)
                                 and speed <= bound.max_entry_speed_mps)
+        elif self.corridor is not None:
+            admitted = set()
+            if self._corridor_admits(index, point, speed):
+                admitted.add(("continue", index))
+                bound = self._corridor_retask_bound(index)
+                if (bound is not None and _contains(bound.entry, point)
+                        and speed <= min(bound.max_entry_speed_mps, self.retask_bounds["max_ground_speed_mps"])):
+                    admitted.add(("retask", index))
         else:
             admitted = {key for key, bound in self._entries(index)
                         if _contains(bound.entry, point) and speed <= bound.max_entry_speed_mps}
             land = self.native_landings.get(index)
             if land is not None and speed <= land.max_entry_speed_mps and self._land_pad(point, land) is not None:
                 admitted.add(("land-now", index))
-        hold = self.holds.get(confirmed_hold_ref)
-        if (fw_ready and hold is not None and hold.site.mode == "fw" and observed_home is not None
+        hold = self.holds.get(confirmed_hold_ref) if self.corridor is None else None
+        if (self.corridor is None and fw_ready and hold is not None and hold.site.mode == "fw"
+                and observed_home is not None
                 and (installed_key is not None or index in hold.steps)
                 and speed <= min(hold.max_entry_speed_mps, self.fw_rtl.max_ground_speed_mps)):
             # Once the orbit is confirmed, the RTL sweep starts at the live
@@ -409,6 +495,8 @@ class LiveContinueEvidence:
 
     def hold_sites(self, index, vtol_state, *, installed_key=None, point=None):
         """Host-defined hold options for this step and steady mode (offered to Altair by reference)."""
+        if self.corridor is not None:
+            return {}
         if installed_key is not None:
             return {ref: bound.site for ref, bound in sorted(self.holds.items())
                     if vtol_state == bound.site.mode == "fw"
@@ -441,6 +529,8 @@ class LiveContinueEvidence:
         index, start = frame.active_motion_index, frame.position_ne_amsl
         action = decision.action
         steady = _SUFFIXES[index][0] if index in _SUFFIXES else None
+        if self.corridor is not None:
+            return self._corridor_proof(decision, frame)
         if action == "retask" and self.retask_bounds is not None:
             return self._retask_proof(decision, frame)
         installed = frame.installed_plan_sha256 is not None or (frame.revision > 1 and self.stage_retask is not None)
@@ -497,6 +587,114 @@ class LiveContinueEvidence:
                                     hold_revalidation_enforced=True)
         return replace(self.builder.build(decision, frame, sweep), basis=self.basis)
 
+    def _corridor_proof(self, decision, frame):
+        """Build command-bound evidence while native recovery and hold stay closed."""
+        if decision.action == "retask" and self.retask_bounds is not None:
+            return self._retask_proof(decision, frame)
+        closed = replace(self.builder.build(decision, frame, None), basis=self.basis)
+        if decision.action != "continue" or self.basis != "ASSUMED_SIM":
+            return closed
+        installed = (frame.installed_plan_sha256 is not None
+                     or (frame.revision > 1 and self.stage_retask is not None))
+        if installed:
+            return self._installed_continue_proof(decision, frame)
+        index, start = frame.active_motion_index, frame.position_ne_amsl
+        if start is None or not self._entered(("continue", index), start):
+            return closed
+        sweep = self._corridor_continue_sweep(decision, frame, index, start)
+        if sweep is None:
+            return closed
+        return replace(self.builder.build(decision, frame, sweep), basis=self.basis)
+
+    def _corridor_continue_sweep(self, decision, frame, index, start):
+        """Rebuild the remaining corridor from this live fix using slice_leg."""
+        corridor = self.corridor
+        bounds = self.builder.package.assumed_sim_corridor
+        if (corridor is None or bounds is None or type(index) is not int
+                or not isinstance(start, tuple) or len(start) != 3):
+            return None
+        legs = corridor.legs
+        n = len(legs)
+        if frame.vtol_state == "fw":
+            if not 1 <= index <= n + 1:
+                return None
+        elif frame.vtol_state != "mc" or index != n + 2:
+            return None
+        bound = self._corridor_airframe_bound()
+        if bound is None or (frame.vtol_state == "fw" and not self._airspeed_ok(frame, *bound.airspeed)):
+            return None
+        profile = self.builder.profile
+        power = profile.endurance
+        high_power = max(power.hover_power_w, power.climb_power_w, power.descent_power_w)
+        phase_bounds = {leg.phase: leg for leg in reversed(bound.legs)}
+        if frame.vtol_state == "mc":
+            bound = self.suffixes.get(3)
+            if bound is None:
+                return None
+            phase_bounds.update({leg.phase: leg for leg in reversed(bound.legs)})
+        landing = phase_bounds["landing"]
+        point = start
+        sweep_legs = []
+
+        def append_slices(phase, end, pad_ne, pad_alt, seconds, watts):
+            nonlocal point
+            slices = slice_leg(point, end, pad_ne, pad_alt, seconds, watts, bounds.slice_m,
+                               max_slices=corridor.max_sweep_legs)
+            sweep_legs.extend(SweptLeg(phase, item.start, item.end, item.padding_ne_m,
+                                       item.padding_alt_m, item.duration_s, item.peak_power_w,
+                                       item.command_end) for item in slices)
+            point = end
+
+        try:
+            if 1 <= index <= n:
+                fw = phase_bounds["fw"]
+                for leg in legs[index - 1:]:
+                    duration = self._corridor_fw_duration(frame, point, leg.end_amsl)
+                    append_slices("fw", leg.end_amsl, max(bounds.fw_tracking_m, fw.padding_ne_m),
+                                  fw.padding_alt_m, max(leg.duration_bound_s, duration),
+                                  max(bounds.fw_leg_peak_power_w, leg.peak_power_w, fw.peak_power_w))
+            if index <= n + 1:
+                transition = phase_bounds["transition"]
+                append_slices("transition", self._corridor_runout_end(),
+                              max(bounds.fw_tracking_m, transition.padding_ne_m), transition.padding_alt_m,
+                              max(profile.transition.timeout_s, transition.duration_s),
+                              max(high_power, transition.peak_power_w))
+            mc = phase_bounds["mc"]
+            mc_end = (*self.builder.home_ne, corridor.cruise_msl)
+            mc_distance = math.dist(point[:2], mc_end[:2])
+            mc_seconds = max((self.retask_bounds or {}).get("mc_s", 0.0),
+                             18.0 + mc_distance / (MC_RETURN_SPEED_MPS - profile.endurance.wind_margin_mps))
+            append_slices("mc", mc_end, max(bounds.fw_tracking_m, mc.padding_ne_m),
+                          mc.padding_alt_m, mc_seconds, max(high_power, bounds.mc_peak_power_w, mc.peak_power_w))
+        except X1PlanError:
+            return None
+        if self.pad is None:
+            return None
+        landing_s = max(landing.duration_s, max(0.0, corridor.cruise_msl - self.pad.point[2])
+                        / profile.max_descent_rate_mps)
+        sweep_legs.append(SweptLeg("landing", point, self.pad.point, landing.padding_ne_m,
+                                   landing.padding_alt_m, landing_s, max(high_power, landing.peak_power_w)))
+        low, high = bound.airspeed
+        return self._sweep(decision, frame, tuple(sweep_legs), bound, low=low, high=high,
+                           pad=self.pad, failure_revalidation_enforced=bound.failure_revalidation_enforced)
+
+    def _corridor_fw_duration(self, frame, start, end):
+        """Charge each heading its own headwind, never crediting a tailwind."""
+        profile = self.builder.profile
+        bounds = self.builder.package.assumed_sim_corridor
+        headwind = profile.endurance.wind_margin_mps
+        distance = math.dist(start[:2], end[:2])
+        wind = self._corridor_wind
+        if (distance > 0 and isinstance(wind, WindReading)
+                and 0 <= wind.age_ms(frame.t_ms) <= _CORRIDOR_WIND_MAX_AGE_MS):
+            projected = sum(w * (a - b) / distance for w, a, b in
+                            zip(wind.ned_mps[:2], start[:2], end[:2], strict=True))
+            headwind = max(headwind, projected + bounds.wind_sigma_mps)
+        speed = min(bounds.min_ground_speed_mps, profile.cruise_airspeed_mps - headwind)
+        if speed < _CORRIDOR_FW_GROUND_SPEED_FLOOR_MPS:
+            raise X1PlanError("WIND_EXCEEDS_RETURN", "FW corridor ground speed below proof bound")
+        return distance / speed
+
     def _installed_continue_proof(self, decision, frame):
         closed = replace(self.builder.build(decision, frame, None), basis=self.basis)
         index, start = frame.active_motion_index, frame.position_ne_amsl
@@ -508,7 +706,9 @@ class LiveContinueEvidence:
                 or not self._entered(("installed-continue", frame.revision, sha, index), start)):
             return closed
         steps = route.steps[index - route.boundary:]
-        if frame.vtol_state == "mc":
+        if self.corridor is not None:
+            bound = self.suffixes.get(3 if frame.vtol_state == "mc" else 1)
+        elif frame.vtol_state == "mc":
             bound = self.suffixes.get(3)
         elif frame.vtol_state in {"fw", "back_transition"}:
             bound = self.suffixes.get(2)
@@ -518,7 +718,7 @@ class LiveContinueEvidence:
             return closed
         try:
             legs, anchors = self._airborne_legs(start, steps, route.finding_step_ids, route.finding_error_m,
-                                               active=True)
+                                               active=True, **({"frame": frame} if self.corridor is not None else {}))
         except X1PlanError:
             return closed
         low, high = bound.airspeed
@@ -531,15 +731,25 @@ class LiveContinueEvidence:
         closed = replace(self.builder.build(decision, frame, None), basis=self.basis)
         index, start = frame.active_motion_index, frame.position_ne_amsl
         if (self.basis != "ASSUMED_SIM" or frame.retask_boundary is not True or frame.revision != 1
-                or not self._entered(("retask", index), start) or self.stage_retask is None
-                or X1AirbornePlanAdapter.check_airborne_plan(decision.plan, frame) is not None):
+                or not self._entered(("retask", index), start) or self.stage_retask is None):
             return closed
-        bound = self.suffixes[index]
         profile = self.builder.profile
-        if frame.vtol_state == "fw" and (index != 2 or not self._airspeed_ok(frame, *bound.airspeed)):
-            return closed
-        if frame.vtol_state == "mc" and index != 3:
-            return closed
+        if self.corridor is not None:
+            n = len(self.corridor.legs)
+            bound = self._corridor_retask_bound(index)
+            if (bound is None or (frame.vtol_state, index) not in {("fw", n + 1), ("mc", n + 2)}
+                    or X1AirbornePlanAdapter.check_airborne_plan(
+                        decision.plan, frame, package=self.builder.package) is not None
+                    or (frame.vtol_state == "fw" and not self._airspeed_ok(frame, *bound.airspeed))):
+                return closed
+        else:
+            if X1AirbornePlanAdapter.check_airborne_plan(decision.plan, frame) is not None:
+                return closed
+            bound = self.suffixes[index]
+            if frame.vtol_state == "fw" and (index != 2 or not self._airspeed_ok(frame, *bound.airspeed)):
+                return closed
+            if frame.vtol_state == "mc" and index != 3:
+                return closed
         self.builder.package.validate_plan(decision.plan)
         finding = frame.retask_finding_ne
         error = frame.retask_finding_error_m
@@ -561,7 +771,8 @@ class LiveContinueEvidence:
             if any(step.gimbal_target_ned is not None for step in steps) and not frame.retask_gimbal_ready:
                 raise X1PlanError("retask_gimbal_unavailable", "runner cannot track a point")
         finding_ids = {s.id for s in decision.plan.steps if s.params.get("target_ref") == "finding:1"}
-        legs, anchors = self._airborne_legs(start, steps, finding_ids, error if finding is not None else None)
+        legs, anchors = self._airborne_legs(start, steps, finding_ids, error if finding is not None else None,
+                                            **({"frame": frame} if self.corridor is not None else {}))
         low, high = bound.airspeed
         sweep = self._sweep(decision, frame, legs, bound, low=low, high=high, pad=self.pad,
                             failure_revalidation_enforced=True)
@@ -572,7 +783,7 @@ class LiveContinueEvidence:
                               finding_error_m=error if finding is not None else None)
         return replace(proof, basis=self.basis)
 
-    def _airborne_legs(self, start, steps, finding_ids, error, *, active=False):
+    def _airborne_legs(self, start, steps, finding_ids, error, *, active=False, frame=None):
         profile = self.builder.profile
         p = profile.endurance
         high_power = max(p.hover_power_w, p.climb_power_w, p.descent_power_w)
@@ -588,6 +799,23 @@ class LiveContinueEvidence:
             nonlocal point
             legs.append(SweptLeg(phase, point, end, width, vertical, seconds, watts))
             anchors.append((phase, end))
+            point = end
+
+        def append_fw_sliced(end, width, vertical, seconds, watts):
+            # Keep the conservative lateral width, but split the along-track box
+            # so a multi-kilometre FW command does not claim unrelated terrain.
+            nonlocal point
+            bounds = self.builder.package.assumed_sim_corridor
+            # The original-corridor tube does not constrain an installed retask.
+            # Use the slicing length bound and preserve the full installed padding.
+            seconds = max(seconds, self._corridor_fw_duration(frame, point, end))
+            watts = max(watts, bounds.fw_leg_peak_power_w)
+            slices = slice_leg(point, end, 0.0, vertical, seconds, watts, bounds.slice_m,
+                               max_slices=self.corridor.max_sweep_legs)
+            for item in slices:
+                legs.append(SweptLeg(item.phase, item.start, item.end, width, vertical,
+                                     item.duration_s, item.peak_power_w, item.command_end))
+            anchors.append(("fw", end))
             point = end
 
         for i, step in enumerate(steps):
@@ -611,13 +839,20 @@ class LiveContinueEvidence:
                     if not (active and i == 0) and length < max(50.0, profile.cruise_airspeed_mps * 3):
                         raise X1PlanError("retask_fw_leg_too_short", "insufficient entry-to-waypoint distance")
                     fw_tracking = self.retask_bounds["fw_tracking_m"] + uncertainty
-                    append("fw", end, max(incoming, fw_tracking), z_margin, seconds, 2 * p.loiter_power_w)
+                    width = max(incoming, fw_tracking)
+                    if self.corridor is not None:
+                        append_fw_sliced(end, width, z_margin, seconds, 2 * p.loiter_power_w)
+                    else:
+                        append("fw", end, width, z_margin, seconds, 2 * p.loiter_power_w)
                     incoming = fw_tracking
                 elif cmd.kind == "orbit":
                     # The padded connector covers the whole orbit disk at its centre,
                     # not just the chord from the current point to the centre.
                     incoming = max(incoming, cmd.radius_m + orbit_tracking + uncertainty)
-                    append("fw", end, incoming, z_margin, seconds, 2 * p.loiter_power_w)
+                    if self.corridor is not None:
+                        append_fw_sliced(end, incoming, z_margin, seconds, 2 * p.loiter_power_w)
+                    else:
+                        append("fw", end, incoming, z_margin, seconds, 2 * p.loiter_power_w)
                 elif cmd.kind == "mc_reposition":
                     # First half of the straight return tube conservatively retains
                     # entry uncertainty. Narrow the final segment to the held home fix.
