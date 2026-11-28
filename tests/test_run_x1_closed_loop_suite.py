@@ -473,6 +473,13 @@ def test_corridor_dogleg_is_opt_in_and_statically_provable():
     ), ("status",))
     assert x1_static_violations(plan, package, frozenset(document["capabilities"])) == []
     assert demo.compiled_mission_digest(package, plan) == demo.assumptions.CORRIDOR_BASE_SHA
+    from multidetect.autonomy.mission_plan import validate_mission_plan
+    recorded = suite.read_json(suite.ROOT / "tests/fixtures/x1_corridor_dogleg_plan.json")
+    assert recorded["goal"] == case.sentence
+    assert demo.compiled_mission_digest(
+        package, demo.canonical_mission_plan(
+            validate_mission_plan(recorded, capabilities=frozenset(document["capabilities"]))),
+    ) == demo.assumptions.CORRIDOR_BASE_SHA
 
 
 @pytest.mark.parametrize("drift", [None, "base_mission_sha256", "motion_scope_sha256"])
