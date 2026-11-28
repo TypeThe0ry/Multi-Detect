@@ -535,11 +535,15 @@ def _x1_corridor_violations(plan: MissionPlan, package: MissionPackage,
 
 
 def corridor_primitives_input(plan: MissionPlan, package: MissionPackage,
-                              capabilities: frozenset[str]) -> tuple[MissionPackage, MissionPlan, float]:
-    """Dispatch to the single-waypoint adapter or the (step 4) corridor lowering.
+                              capabilities: frozenset[str], *, terrain=None, profile=None,
+                              mission_radius_m: float | None = None, bounds=None):
+    """Dispatch to the single-waypoint adapter or the corridor lowering.
 
-    Step 3 only owns static admission and this dispatch skeleton. Multi-waypoint
-    lowering is not implemented yet, so the corridor call site is fail-closed with
+    The single-waypoint five-step graph keeps using
+    ``one_waypoint_primitives_input`` unchanged. A multi-waypoint plan is only
+    lowered when the package carries ``assumed_sim_corridor`` *and* the caller
+    supplies the execution inputs (DEM terrain, airframe profile, home radius).
+    Without those inputs the entry point stays fail-closed with
     ``CORRIDOR_NOT_ENABLED`` instead of half-lowering a route.
     """
     from .mission_package import check_plan_against_package
@@ -554,8 +558,14 @@ def corridor_primitives_input(plan: MissionPlan, package: MissionPackage,
     if package.assumed_sim_corridor is None:
         raise ValueError(
             "CORRIDOR_NOT_ENABLED: multi-waypoint X1 plans require the assumed SIM corridor")
-    raise ValueError(
-        "CORRIDOR_NOT_ENABLED: X1 corridor lowering is implemented in a later step")
+    if terrain is None or profile is None or mission_radius_m is None:
+        raise ValueError(
+            "CORRIDOR_NOT_ENABLED: corridor lowering requires terrain, profile and mission_radius_m")
+    from .x1_corridor import build_x1_corridor_steps
+
+    return build_x1_corridor_steps(
+        package, plan=plan, terrain=terrain, profile=profile,
+        mission_radius_m=mission_radius_m, bounds=bounds)
 
 
 def one_waypoint_primitives_input(plan: MissionPlan, package: MissionPackage,
