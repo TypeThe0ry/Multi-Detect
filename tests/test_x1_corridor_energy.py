@@ -227,10 +227,18 @@ def test_proof_model_matches_motion_proof_builder(terrain, profile):  # noqa: F8
     home_z = terrain.sample_local(0.0, 0.0).elevation_m
     c = default_constants()
     for one_way_m, agl_m, ground_high, fw_power, standoff in [
-        (716.0, 40.0, 10.0, 344.0, None),
+        # DESIGN-corridor.md 3.3: all eleven points, H = AGL + relief.
+        (1097.0, 40.0, 10.0, 344.0, None),
         (1758.0, 40.0, 10.0, 344.0, 252.5),
+        (2195.0, 40.0, 10.0, 172.0, None),
+        (3516.0, 40.0, 10.0, 172.0, 252.5),
+        (716.0, 60.0, 25.0, 344.0, None),
+        (1377.0, 60.0, 25.0, 344.0, 252.5),
         (1432.0, 60.0, 25.0, 172.0, None),
         (2753.0, 60.0, 25.0, 172.0, 252.5),
+        (443.0, 85.0, 25.0, 344.0, None),
+        (1104.0, 85.0, 25.0, 344.0, 252.5),
+        (2208.0, 85.0, 25.0, 172.0, 252.5),
     ]:
         mc_return_m = max(standoff, c.runout_m - standoff) if standoff is not None else c.runout_m
         model = proof_layer_requirement_wh(
