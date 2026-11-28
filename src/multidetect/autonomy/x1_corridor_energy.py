@@ -10,8 +10,8 @@ Two budgets are intentionally separate (DESIGN-corridor.md section 3.1):
 
 The functions here reproduce those two calculations without performing I/O.
 All airframe numbers are loaded from ``configs/airframes/delta_tailsitter_gimbal.json``
-and ``configs/onboard/x1-planner.json`` by :func:`load_x1_energy_constants`; the
-regression tests pin the derived values to the real admission and proof code.
+and ``configs/onboard/x1-planner.json`` by :func:`default_constants`.
+Load once at the call site and pass the result explicitly to the calculations.
 
 Nothing in this module changes an existing admission, proof or executor decision.
 """
@@ -133,12 +133,8 @@ class X1EnergyConstants:
 
 @lru_cache(maxsize=1)
 def default_constants() -> X1EnergyConstants:
-    """Load the pinned config once. The four model functions never read files."""
+    """Load the pinned configuration once for callers that need it."""
     return X1EnergyConstants.from_configs()
-
-
-def _resolve_constants(constants: X1EnergyConstants | None) -> X1EnergyConstants:
-    return default_constants() if constants is None else constants
 
 
 def _mc_return_distance(
@@ -168,7 +164,7 @@ def plan_layer_energy_wh(
     mc_return_m: float | None = None,
     standoff_m: float | None = None,
     observation_s: float = 0.0,
-    constants: X1EnergyConstants | None = None,
+    constants: X1EnergyConstants,
 ) -> float:
     """Planning-layer sortie energy estimate in Wh (``x1_static_violations``).
 
@@ -178,7 +174,7 @@ def plan_layer_energy_wh(
     FW leg is outbound only and the MC return from ``one_way_m`` home includes
     the transition runout. Both mirror the real static admission formula.
     """
-    c = _resolve_constants(constants)
+    c = constants
     one_way = _validate_one_way(one_way_m)
     if return_mode not in {"fw", "mc"}:
         raise ValueError("return_mode must be 'fw' or 'mc'")
@@ -208,10 +204,10 @@ def proof_layer_available_wh(
     agl_m: float,
     ground_high_m: float = 0.0,
     battery_wh: float | None = None,
-    constants: X1EnergyConstants | None = None,
+    constants: X1EnergyConstants,
 ) -> float:
     """Energy left at the first FW cruise tick after climb and transition."""
-    c = _resolve_constants(constants)
+    c = constants
     battery = c.battery_wh if battery_wh is None else float(battery_wh)
     height = float(agl_m) + float(ground_high_m)
     climb_wh = height / c.max_climb_rate_mps * c.mc_peak_power_w / 3600.0
@@ -222,10 +218,10 @@ def proof_layer_reserve_wh(
     *,
     battery_wh: float | None = None,
     package_reserve_wh: float | None = None,
-    constants: X1EnergyConstants | None = None,
+    constants: X1EnergyConstants,
 ) -> float:
     """Executor reserve: ``max(package reserve, 0.2 * battery)``."""
-    c = _resolve_constants(constants)
+    c = constants
     battery = c.battery_wh if battery_wh is None else float(battery_wh)
     floor = c.reserve_fraction * battery
     return max(0.0 if package_reserve_wh is None else float(package_reserve_wh), floor)
@@ -240,28 +236,39 @@ def proof_layer_requirement_wh(
     mc_return_m: float | None = None,
     standoff_m: float | None = None,
     fw_peak_power_w: float | None = None,
-    constants: X1EnergyConstants | None = None,
+    fw_return_ground_speed_mps: float | None = None,
+    fw_outbound_remaining_m: float | None = None,
+    constants: X1EnergyConstants,
 ) -> float:
-    """Remaining energy a first FW cruise tick must prove.
+    """Remaining energy for an FW corridor continue or immediate return.
 
     FW legs use ``fw_peak_power_w`` (344 W by default), transitions use
     ``max(6 Wh, mc_peak * duration)``, MC/landing use ``mc_peak_power_w``. The
-    ground-speed bounds are the same 12 m/s and 5 m/s planning bounds.
+    default ground-speed bounds are the planning bounds. For FW return,
+    ``one_way_m`` is the remaining return distance and also defaults the
+    remaining outbound distance. Pass zero outbound distance for an immediate
+    return, or pass a directional ground-speed bound from the wind model.
     """
-    c = _resolve_constants(constants)
+    c = constants
     one_way = _validate_one_way(one_way_m)
     if return_mode not in {"fw", "mc"}:
         raise ValueError("return_mode must be 'fw' or 'mc'")
     height = float(agl_m) + float(ground_high_m)
     fw_power = c.fw_peak_power_w if fw_peak_power_w is None else float(fw_peak_power_w)
+    fw_s = one_way / c.ground_fw_plan_mps
+    mc_distance_m = _mc_return_distance(
+        mc_return_m=mc_return_m, standoff_m=standoff_m, constants=c)
     if return_mode == "fw":
-        fw_distance_m, mc_distance_m = 2.0 * one_way, _mc_return_distance(
-            mc_return_m=mc_return_m, standoff_m=standoff_m, constants=c)
+        outbound = one_way if fw_outbound_remaining_m is None else _validate_one_way(
+            fw_outbound_remaining_m)
+        return_speed = (c.ground_fw_plan_mps if fw_return_ground_speed_mps is None
+                        else float(fw_return_ground_speed_mps))
+        if not math.isfinite(return_speed) or return_speed <= 0:
+            raise ValueError("fw_return_ground_speed_mps must be finite and positive")
+        fw_s = outbound / c.ground_fw_plan_mps + one_way / return_speed
     else:
-        mc_distance_m = one_way + _mc_return_distance(
-            mc_return_m=mc_return_m, standoff_m=standoff_m, constants=c)
-        fw_distance_m = one_way
-    fw_wh = fw_power * (fw_distance_m / c.ground_fw_plan_mps) / 3600.0
+        mc_distance_m += one_way
+    fw_wh = fw_power * fw_s / 3600.0
     transition_wh = max(c.transition_energy_wh, c.mc_peak_power_w * c.transition_timeout_s / 3600.0)
     mc_wh = c.mc_peak_power_w * (mc_distance_m / c.ground_mc_plan_mps) / 3600.0
     landing_wh = c.mc_peak_power_w * (height / c.max_descent_rate_mps) / 3600.0
@@ -289,7 +296,8 @@ def max_one_way_m(
     mc_return_m: float | None = None,
     standoff_m: float | None = None,
     fw_peak_power_w: float | None = None,
-    constants: X1EnergyConstants | None = None,
+    fw_return_ground_speed_mps: float | None = None,
+    constants: X1EnergyConstants,
 ) -> float:
     """Largest one-way distance admitted by a layer.
 
@@ -298,7 +306,7 @@ def max_one_way_m(
     the first-tick requirement to the energy left after climb and transition
     minus the executor reserve.
     """
-    c = _resolve_constants(constants)
+    c = constants
     battery = c.battery_wh if battery_wh is None else float(battery_wh)
     if layer == "plan":
         budget = c.usable_energy_wh if usable_wh is None else float(usable_wh)
@@ -320,7 +328,8 @@ def max_one_way_m(
             return proof_layer_requirement_wh(
                 distance, agl_m=agl_m, ground_high_m=ground_high_m, return_mode=return_mode,
                 mc_return_m=mc_return_m, standoff_m=standoff_m,
-                fw_peak_power_w=fw_peak_power_w, constants=c)
+                fw_peak_power_w=fw_peak_power_w,
+                fw_return_ground_speed_mps=fw_return_ground_speed_mps, constants=c)
 
         return _linear_max_one_way(requirement, budget)
     raise ValueError("layer must be 'plan' or 'proof'")
@@ -329,23 +338,26 @@ def max_one_way_m(
 def reverse_wind_ground_speed(
     airspeed_mps: float | None = None,
     *,
-    outbound_tailwind_mps: float = 0.0,
+    outbound_tailwind_mps: float | None = None,
     wind_margin_mps: float | None = None,
     wind_sigma_mps: float = DEFAULT_WIND_SIGMA_MPS,
     min_ground_speed_mps: float | None = DEFAULT_MIN_RETURN_GROUND_SPEED_MPS,
-    constants: X1EnergyConstants | None = None,
+    constants: X1EnergyConstants,
 ) -> float:
     """Return-leg ground speed under the reverse-wind bound (DESIGN 3.6).
 
     ``outbound_tailwind_mps`` is positive when the outbound leg is downwind.
     The return headwind is therefore ``max(wind_margin, tailwind + sigma)`` so
-    an outbound gain is never booked as a return credit. A return ground speed
+    an outbound gain is never booked as a return credit. Pass ``None`` when
+    the wind estimate is missing or stale to use the static margin. A return ground speed
     below ``min_ground_speed_mps`` raises ``ValueError("WIND_EXCEEDS_RETURN")``.
     """
-    c = _resolve_constants(constants)
+    c = constants
     airspeed = c.cruise_airspeed_mps if airspeed_mps is None else float(airspeed_mps)
     margin = c.wind_margin_mps if wind_margin_mps is None else float(wind_margin_mps)
-    headwind = max(margin, float(outbound_tailwind_mps) + float(wind_sigma_mps))
+    headwind = margin
+    if outbound_tailwind_mps is not None:
+        headwind = max(margin, float(outbound_tailwind_mps) + float(wind_sigma_mps))
     ground_speed = airspeed - headwind
     if min_ground_speed_mps is not None and ground_speed < float(min_ground_speed_mps):
         raise ValueError(

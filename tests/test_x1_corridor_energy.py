@@ -114,12 +114,13 @@ def _max_passing(agl_m: float, *, fw_back: bool) -> float:
     ],
 )
 def test_plan_layer_matches_static_violations(agl_m, fw_back, expected_m):
+    c = default_constants()
     real = _max_passing(agl_m, fw_back=fw_back)
     assert abs(real - expected_m) <= 1.0, (agl_m, fw_back, real)
     model = max_one_way_m(
         "plan", agl_m=agl_m, ground_high_m=25.0,
-        return_mode="fw" if fw_back else "mc")
-    assert abs(model - expected_m) <= 1.0, (agl_m, fw_back, model)
+        return_mode="fw" if fw_back else "mc", constants=c)
+    assert model == pytest.approx(real, abs=0.01)
 
 
 def test_plan_formula_is_static_admission_energy():
@@ -131,7 +132,7 @@ def test_plan_formula_is_static_admission_energy():
         distance = 900.0
         energy = plan_layer_energy_wh(
             distance, agl_m=agl_m, ground_high_m=25.0,
-            return_mode="fw" if fw_back else "mc")
+            return_mode="fw" if fw_back else "mc", constants=c)
         height = agl_m + 25.0
         fw_s = (2 * distance if fw_back else distance) / c.ground_fw_plan_mps
         mc_distance = c.runout_m if fw_back else distance + c.runout_m
@@ -169,14 +170,14 @@ def test_proof_layer_budget_table():
             agl_m, ground_high = (40.0, 10.0) if height == 50.0 else (60.0, 25.0)
         model = max_one_way_m(
             "proof", agl_m=agl_m, ground_high_m=ground_high,
-            fw_peak_power_w=fw_power, standoff_m=standoff)
+            fw_peak_power_w=fw_power, standoff_m=standoff, constants=c)
         assert abs(model - expected) <= 2.0, (height, fw_power, standoff, model)
         budget = (
-            proof_layer_available_wh(agl_m=agl_m, ground_high_m=ground_high)
-            - proof_layer_reserve_wh())
+            proof_layer_available_wh(agl_m=agl_m, ground_high_m=ground_high, constants=c)
+            - proof_layer_reserve_wh(constants=c))
         requirement = proof_layer_requirement_wh(
             model, agl_m=agl_m, ground_high_m=ground_high,
-            fw_peak_power_w=fw_power, standoff_m=standoff)
+            fw_peak_power_w=fw_power, standoff_m=standoff, constants=c)
         assert requirement == pytest.approx(budget, abs=0.01)
 
 
@@ -243,7 +244,7 @@ def test_proof_model_matches_motion_proof_builder(terrain, profile):  # noqa: F8
         mc_return_m = max(standoff, c.runout_m - standoff) if standoff is not None else c.runout_m
         model = proof_layer_requirement_wh(
             one_way_m, agl_m=agl_m, ground_high_m=ground_high,
-            fw_peak_power_w=fw_power, mc_return_m=mc_return_m)
+            fw_peak_power_w=fw_power, mc_return_m=mc_return_m, constants=c)
         real = _proof_required_wh(
             one_way_m=one_way_m, agl_m=agl_m, ground_high_m=ground_high,
             fw_peak=fw_power, mc_return_m=mc_return_m, builder=builder, home_z=home_z)
@@ -251,23 +252,22 @@ def test_proof_model_matches_motion_proof_builder(terrain, profile):  # noqa: F8
 
 
 def test_proof_precheck_rejects_before_takeoff():
-    """OP-A parameters: 2.0 km passes the plan layer but not the proof layer."""
+    """OP-A at the standoff gate: 2 km passes planning but exceeds the proof budget."""
     c = default_constants()
     one_way_m = 2000.0
-    plan_energy = plan_layer_energy_wh(one_way_m, agl_m=60.0, ground_high_m=25.0)
-    assert plan_energy <= c.usable_energy_wh
-    assert "X1_ENERGY" not in {
-        finding["code"] for finding in _violations(one_way_m, agl_m=60.0, fw_back=True)}
-    proof_dmax = max_one_way_m("proof", agl_m=60.0, ground_high_m=25.0)
-    assert proof_dmax < one_way_m
-    budget = proof_layer_available_wh(agl_m=60.0, ground_high_m=25.0) - proof_layer_reserve_wh()
-    assert proof_layer_requirement_wh(one_way_m, agl_m=60.0, ground_high_m=25.0) > budget
+    conditions = dict(agl_m=60.0, ground_high_m=25.0, constants=c)
+    route = dict(standoff_m=c.runout_m / 2.0, **conditions)
+    assert plan_layer_energy_wh(one_way_m, **route) <= c.usable_energy_wh
+    assert not _violations(one_way_m, agl_m=60.0, fw_back=True)
+    budget = proof_layer_available_wh(**conditions) - proof_layer_reserve_wh(constants=c)
+    assert proof_layer_requirement_wh(one_way_m, **route) > budget
 
 
 @pytest.mark.parametrize(("agl_m", "fw_back"), [(60.0, True), (85.0, True), (120.0, False)])
 def test_energy_one_metre_over_limit_is_rejected(agl_m, fw_back):
+    c = default_constants()
     mode = "fw" if fw_back else "mc"
-    dmax = max_one_way_m("plan", agl_m=agl_m, ground_high_m=25.0, return_mode=mode)
+    dmax = max_one_way_m("plan", agl_m=agl_m, ground_high_m=25.0, return_mode=mode, constants=c)
     assert not _violations(dmax - 1.0, agl_m=agl_m, fw_back=fw_back)
     codes = {finding["code"] for finding in _violations(dmax + 1.0, agl_m=agl_m, fw_back=fw_back)}
     assert codes == {"X1_ENERGY"}
@@ -275,56 +275,78 @@ def test_energy_one_metre_over_limit_is_rejected(agl_m, fw_back):
 
 def test_proof_energy_one_metre_over_limit():
     c = default_constants()
-    dmax = max_one_way_m("proof", agl_m=60.0, ground_high_m=25.0)
-    budget = proof_layer_available_wh(agl_m=60.0, ground_high_m=25.0) - proof_layer_reserve_wh()
-    assert proof_layer_requirement_wh(dmax - 1.0, agl_m=60.0, ground_high_m=25.0) <= budget
-    assert proof_layer_requirement_wh(dmax + 1.0, agl_m=60.0, ground_high_m=25.0) > budget
+    conditions = dict(agl_m=60.0, ground_high_m=25.0, constants=c)
+    route = dict(standoff_m=c.runout_m / 2.0, **conditions)
+    dmax = max_one_way_m("proof", **route)
+    budget = proof_layer_available_wh(**conditions) - proof_layer_reserve_wh(constants=c)
+    assert proof_layer_requirement_wh(dmax - 1.0, **route) <= budget
+    assert proof_layer_requirement_wh(dmax + 1.0, **route) > budget
 
 
 def test_reverse_wind_ground_speed_and_time_penalty():
     c = default_constants()
-    calm = reverse_wind_ground_speed()
-    tailwind = reverse_wind_ground_speed(outbound_tailwind_mps=5.0)
+    calm = reverse_wind_ground_speed(constants=c)
+    tailwind = reverse_wind_ground_speed(outbound_tailwind_mps=5.0, constants=c)
     assert calm == pytest.approx(c.cruise_airspeed_mps - c.wind_margin_mps)
     assert tailwind == pytest.approx(8.0)
     distance = 3000.0
-    assert distance / tailwind >= 1.5 * (distance / calm)
+    assert distance / tailwind == pytest.approx(1.5 * (distance / calm))
     assert distance / tailwind == pytest.approx(375.0)
+    assert reverse_wind_ground_speed(outbound_tailwind_mps=7.0, constants=c) == 6.0
     with pytest.raises(ValueError, match="WIND_EXCEEDS_RETURN"):
-        reverse_wind_ground_speed(outbound_tailwind_mps=8.0)
-    # No fresh estimate: the static wind margin is the conservative bound.
-    assert reverse_wind_ground_speed(outbound_tailwind_mps=0.0) == pytest.approx(calm)
+        reverse_wind_ground_speed(outbound_tailwind_mps=8.0, constants=c)
+    # A missing estimate is not a zero reading with uncertainty attached.
+    assert reverse_wind_ground_speed(wind_sigma_mps=5.0, constants=c) == pytest.approx(calm)
 
 
 def test_invariant_first_continue_implies_later_return():
-    """DESIGN 3.6: if the first FW continue passes, any later return passes."""
+    """Hold the wind bound fixed, with flown legs within their time/power bounds."""
     rng = random.Random(20261128)
     c = default_constants()
     for _ in range(500):
-        agl_m = rng.uniform(40.0, 120.0)
+        agl_m = rng.uniform(40.0, 90.0)
         ground_high = rng.uniform(0.0, 25.0)
-        standoff = rng.choice([None, rng.uniform(100.0, 400.0)])
+        standoff = rng.uniform(100.0, 400.0)
         fw_peak = rng.choice([c.fw_peak_power_w, c.loiter_power_w])
-        reverse_ground = rng.uniform(8.0, 15.0) - rng.uniform(0.0, 3.0)
-        available = proof_layer_available_wh(agl_m=agl_m, ground_high_m=ground_high)
-        reserve = proof_layer_reserve_wh()
-        start = rng.uniform(100.0, max_one_way_m(
-            "proof", agl_m=agl_m, ground_high_m=ground_high,
-            fw_peak_power_w=fw_peak, standoff_m=standoff))
-        if proof_layer_requirement_wh(
-            start, agl_m=agl_m, ground_high_m=ground_high,
-            fw_peak_power_w=fw_peak, standoff_m=standoff,
-        ) > available - reserve:
-            # Only the start points that pass the first continue tick matter.
-            continue
-        flying_s = rng.uniform(0.0, start / max(reverse_ground, 1e-6))
-        later = max(0.0, start - reverse_ground * flying_s)
-        # Worst-case consumption on the outbound leg is the same FW peak power.
-        later_available = available - fw_peak * flying_s / 3600.0
-        assert proof_layer_requirement_wh(
-            later, agl_m=agl_m, ground_high_m=ground_high,
-            fw_peak_power_w=fw_peak, standoff_m=standoff,
-        ) <= later_available - reserve
+        reverse_ground = reverse_wind_ground_speed(
+            outbound_tailwind_mps=rng.uniform(-5.0, 7.0), constants=c)
+        proof_inputs = dict(
+            agl_m=agl_m, ground_high_m=ground_high, standoff_m=standoff,
+            fw_peak_power_w=fw_peak, fw_return_ground_speed_mps=reverse_ground, constants=c)
+        available = proof_layer_available_wh(
+            agl_m=agl_m, ground_high_m=ground_high, constants=c)
+        reserve = proof_layer_reserve_wh(constants=c)
+        limit = max_one_way_m("proof", **proof_inputs)
+        assert limit > 0.0
+        destination = rng.uniform(0.5, 0.999999) * limit
+        assert proof_layer_requirement_wh(destination, **proof_inputs) <= available - reserve
+
+        # Use prefix distance along the corridor, including outbound points where
+        # the distance to home grows. Include the turn with no remaining outbound
+        # energy to absorb a return-budget regression.
+        for outbound_m, inbound_m in (
+            (destination * rng.random(), 0.0),
+            (destination, 0.0),
+            (destination, destination * rng.random()),
+        ):
+            used_wh = fw_peak * (
+                outbound_m / c.ground_fw_plan_mps + inbound_m / reverse_ground) / 3600.0
+            return_wh = proof_layer_requirement_wh(
+                outbound_m - inbound_m, fw_outbound_remaining_m=0.0, **proof_inputs)
+            assert used_wh + return_wh <= available - reserve
+
+
+def test_energy_calculations_do_not_read_configs(monkeypatch):
+    c = default_constants()
+
+    def fail_read(*args, **kwargs):
+        pytest.fail("energy calculations must not read files")
+
+    monkeypatch.setattr(Path, "read_text", fail_read)
+    assert plan_layer_energy_wh(100.0, agl_m=60.0, constants=c) > 0
+    assert proof_layer_requirement_wh(100.0, agl_m=60.0, constants=c) > 0
+    assert max_one_way_m("proof", agl_m=60.0, constants=c) > 0
+    assert reverse_wind_ground_speed(constants=c) > 0
 
 
 def test_constants_match_pinned_sources():
