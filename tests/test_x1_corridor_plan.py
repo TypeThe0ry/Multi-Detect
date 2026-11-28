@@ -1,9 +1,7 @@
 """Static-admission corridor branch for X1 (DESIGN-corridor.md section 7 step 3).
 
 The single-waypoint path is covered by the unchanged tests in
-``test_x1_planner.py``; this file exercises only ``assumed_sim_corridor``
-packages and keeps ``standoff_gate_enabled`` at its default ``False`` except
-for the explicit dispatch test.
+``test_x1_planner.py``. This file also covers dispatch and explicit standoff opt-in.
 """
 
 from __future__ import annotations
@@ -17,7 +15,11 @@ import pytest
 from multidetect.autonomy.mission_package import load_mission_package
 from multidetect.autonomy.mission_plan import MissionPlan, MissionStep
 from multidetect.autonomy.x1_corridor_energy import default_constants, max_one_way_m
-from multidetect.autonomy.x1_plan import corridor_primitives_input, x1_static_violations
+from multidetect.autonomy.x1_plan import (
+    corridor_primitives_input,
+    one_waypoint_primitives_input,
+    x1_static_violations,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CORRIDOR_PATH = ROOT / "configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json"
@@ -97,6 +99,7 @@ def test_corridor_template_defaults_to_gate_off():
     assert CORRIDOR["standoff_gate_enabled"] is False
     assert CORRIDOR["fw_leg_peak_power_w"] == 344.0
     assert CORRIDOR["standoff_m"] == 252.5
+    assert CORRIDOR["max_sweep_legs"] == 384
 
 
 def test_default_standoff_gate_does_not_relax_the_mc_return_item():
@@ -119,21 +122,72 @@ def test_default_standoff_gate_does_not_relax_the_mc_return_item():
         assumed_sim_corridor=replace(package.assumed_sim_corridor, standoff_gate_enabled=True))
     assert "X1_ENERGY_PROOF" not in _codes(gated, ["poi:far", "home"])
 
+    # A plan beyond the planning-layer bound still reports both independent codes.
+    plan_limit = max_one_way_m("plan", agl_m=60.0, ground_high_m=10.0, constants=constants)
+    near = _package({"poi:far": [plan_limit + 1.0, 0.0]}, rect=(-3500.0, 3500.0))
+    varied = replace(near, assumed_sim_corridor=replace(near.assumed_sim_corridor, standoff_m=1.0))
+    expected = _findings(near, ["poi:far", "home"])
+    assert {f["code"] for f in expected} == {"X1_ENERGY", "X1_ENERGY_PROOF"}
+    assert _findings(varied, ["poi:far", "home"]) == expected
+
+
+def test_gate_does_not_shorten_a_return_that_has_no_fw_home_leg():
+    package = _package({"poi:far": [550.0, 0.0]})
+    gated = replace(
+        package,
+        assumed_sim_corridor=replace(package.assumed_sim_corridor, standoff_gate_enabled=True))
+    refs = ["poi:far"]
+    assert _codes(package, refs) == {"X1_ENERGY_PROOF"}
+    assert _findings(gated, refs) == _findings(package, refs)
+
 
 def test_proof_energy_one_metre_over_limit():
     constants = default_constants()
     limit = max_one_way_m("proof", agl_m=60.0, ground_high_m=10.0, constants=constants)
     under = _package({"poi:far": [limit - 1.0, 0.0]})
     over = _package({"poi:far": [limit + 1.0, 0.0]})
-    assert "X1_ENERGY_PROOF" not in _codes(under, ["poi:far", "home"])
-    assert "X1_ENERGY_PROOF" in _codes(over, ["poi:far", "home"])
+    assert _codes(under, ["poi:far", "home"]) == set()
+    assert _codes(over, ["poi:far", "home"]) == {"X1_ENERGY_PROOF"}
 
 
 def test_dogleg_energy_uses_path_length_not_displacement():
     straight = _package({"poi:a": [700.0, 0.0]})
-    dogleg = _package({"poi:a": [0.0, 700.0], "poi:b": [700.0, 700.0]})
-    assert "X1_ENERGY_PROOF" not in _codes(straight, ["poi:a", "home"])
-    assert "X1_ENERGY_PROOF" in _codes(dogleg, ["poi:a", "poi:b", "home"])
+    dogleg = _package({"poi:a": [0.0, 700.0], "poi:b": [700.0, 0.0]})
+    assert _codes(straight, ["poi:a", "home"]) == set()
+    assert _codes(dogleg, ["poi:a", "poi:b", "home"]) == {"X1_ENERGY_PROOF"}
+
+
+def test_observation_diversion_counts_in_proof_energy():
+    package = _package({"poi:a": [700.0, 0.0], "poi:b": [0.0, 700.0]})
+    direct = _plan(["poi:a", "home"])
+    observation = MissionStep(
+        "orbit", "loiter_observe", {"target_ref": "poi:b", "altitude_agl_m": 60.0,
+                                   "radius_m": 60.0, "duration_s": 10.0}, "w0", "home")
+    diverted = replace(direct, steps=(direct.steps[0], replace(direct.steps[1], on_success="orbit"),
+                                      observation, *direct.steps[2:]))
+    capabilities = frozenset(package.document["capabilities"])
+    assert x1_static_violations(direct, package, capabilities) == []
+    assert {f["code"] for f in x1_static_violations(diverted, package, capabilities)} == {
+        "X1_ENERGY_PROOF",
+    }
+
+
+def test_time_proof_uses_corridor_speed_bound():
+    package = _package({"poi:a": [400.0, 0.0]}, budget={
+        "time_s": 320.0, "reserve_time_s": 45.0, "energy_wh": 74.0, "reserve_energy_wh": 14.8,
+    })
+    refs = ["poi:a", "home"]
+    assert _codes(package, refs) == set()
+    slower = replace(package, assumed_sim_corridor=replace(package.assumed_sim_corridor,
+                                                            min_ground_speed_mps=9.0))
+    assert _codes(slower, refs) == {"X1_TIME_PROOF"}
+
+
+def test_energy_proof_keeps_airframe_reserve_when_package_budget_is_smaller():
+    package = _package({"poi:a": [250.0, 0.0]}, budget={
+        "time_s": 600.0, "reserve_time_s": 60.0, "energy_wh": 63.0, "reserve_energy_wh": 5.0,
+    })
+    assert _codes(package, ["poi:a", "home"]) == {"X1_ENERGY_PROOF"}
 
 
 def test_leg_count_over_max_is_rejected():
@@ -148,6 +202,11 @@ def test_leg_count_over_max_is_rejected():
 def test_short_leg_is_rejected():
     package = _package({"poi:a": [500.0, 0.0], "poi:b": [510.0, 0.0]})
     assert "X1_MIN_LEG" in _codes(package, ["poi:a", "poi:b", "home"])
+
+
+def test_nine_step_plan_still_fails_sequence():
+    places = {f"poi:{i}": [200.0 * i, 0.0] for i in range(1, 5)}
+    assert _codes(_package(places), [*places, "home"]) == {"X1_SEQUENCE"}
 
 
 def test_middle_segment_outside_corridor_reports_its_leg():
@@ -175,7 +234,8 @@ def test_middle_segment_through_no_fly_zone_is_rejected():
 
 def test_agl_out_of_band_on_one_leg_is_rejected():
     package = _package({"poi:a": [400.0, 0.0], "poi:b": [800.0, 0.0]}, terrain=(0.0, 30.0))
-    assert "X1_TERRAIN" in _codes(package, ["poi:a", "poi:b", "home"], agls=[60.0, 120.0, 60.0])
+    findings = _findings(package, ["poi:a", "poi:b", "home"], agls=[60.0, 60.0, 120.0])
+    assert [f["step_id"] for f in findings if f["code"] == "X1_TERRAIN"] == ["w2"]
 
 
 def test_return_too_short_only_when_gate_is_enabled():
@@ -216,3 +276,8 @@ def test_corridor_primitives_input_dispatch():
         _single_waypoint_plan(), single, frozenset(single.document["capabilities"]))
     assert view.plan == adapted and len(adapted.steps) == 2
     assert radius == single.document["x1_planning"]["max_distance_from_home_m"]
+
+    legacy = replace(single, assumed_sim_corridor=None)
+    caps = frozenset(legacy.document["capabilities"])
+    assert corridor_primitives_input(_single_waypoint_plan(), legacy, caps) == (
+        one_waypoint_primitives_input(_single_waypoint_plan(), legacy, caps))
