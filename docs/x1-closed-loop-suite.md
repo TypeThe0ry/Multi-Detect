@@ -70,6 +70,7 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" \
 | `quiet-cadence` | 4 / 0 | 只有周期请求，零额外动作、返航落地 | 5 / 15 分钟 |
 | `long-range-transect` | 10 / 0 | 单航点约 3.5 km 去程、巡航 cadence 持续决策、零额外动作、返航落地 | 14 / 30 分钟 |
 | `long-range-wind` | 10 / 0 | 同一单航点航线，巡航 cadence 持续决策，中途注入 `wind_step` 并观测、恢复、返航落地 | 14 / 30 分钟 |
+| `corridor-dogleg` | 10 / 0 | 两个 POI、计划内 FW 返航、多腿 `continue` 获准、MC 落地。需显式选中 | 6 / 15 分钟 |
 
 `continue` 用例允许执行器因当前 MotionProof 不足而安全拒绝。验收要求真实 `continue`、相应回执、无额外执行动作及落地。无故障用例的每个适用 cadence tick 都需要满足决定与回执条件。证据范围拒绝记录保留原始回执。`return`、`land-now`、`retask` 需要执行器接纳及对应的 PX4 或航线安装证据。
 
@@ -79,9 +80,28 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" \
 
 `long-range-transect` 与 `long-range-wind` 使用独立任务包 `configs/simulation/x1-longrange-mission.json`，只有一个东北向航点 `poi:far-marker`（home 约 3.5 km，仍位于 6 km 世界的方形边界内），模型给出 `vtol_takeoff → fw_transition → fw_goto_waypoint → back_transition → return_home`。二者都带 `assumed=True`，读取独立的 `configs/simulation/x1-assumed-sim-bounds-iowa-longrange.json`；该文件只在 `ASSUMED_SIM` 入口被校验，声明 `SITL-only` 且把 `max_distance_from_home_m` 放宽到 4000 m，`configs/onboard/x1-planner.json` 的 1500 m 真机包线保持不变。不带该标志加载同一任务包仍会被 1500 m 上限拒绝。`long-range-wind` 的 `wind_step` 窗口在 `configs/simulation/x1-longrange-wind-faults-v1.json`。巡航 `continue` 仍必须通过既有 MotionProof 与能量/时间预算；本用例不新增多段走廊证明。
 
-两个长航程用例需要用 `--case` 显式选中。验收要求航点通过、返航落地、两轮以上巡航 cadence 决策，以及 PX4 仿真时钟从起飞完成到落地至少 600 秒。当前 3,465 m 航线按现有机型预算约需 146.8 Wh，可用能量为 59.2 Wh，预检会以 `X1_ENERGY` 拒绝。航点位于东北方向，正北 3.5 km 会越出当前 Iowa 方形场地。
+两个长航程用例保留为单航点回归，默认套件略过，需用 `--case` 显式选中。验收要求航点通过、返航落地、两轮以上巡航 cadence 决策，以及 PX4 仿真时钟从起飞完成到落地至少 600 秒。当前 3,465 m 航线按现有机型预算约需 146.8 Wh，可用能量为 59.2 Wh，预检会以 `X1_ENERGY` 拒绝。航点位于东北方向，正北 3.5 km 会越出当前 Iowa 方形场地。
 
 `mc-battery-drop` 的 17% 注入只获准进入这个 SITL 试验，**不**代表原生动作会获准。观测门限至多 19%，现有故障 SOC 下界再扣 54 个百分点，因此该样本的能量下界为 0 Wh。执行器不能为了验收改发或放行动作；没有满足原生动作和落地证据时，该用例仍报失败。这次范围修订不改变现有通过条件。
+
+### 多段固定翼走廊 `corridor-dogleg`
+
+`corridor-dogleg` 是步骤 8 的 `ASSUMED_SIM`、仅 SITL 用例，须用 `--case` 显式选中。它用 `configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json` 绑定 `configs/simulation/x1-corridor-dogleg-mission.json`。任务以自然语言要求模型在 47 m AGL 飞经两个 POI。预期航迹为两段 FW 折线去程、FW 飞回 home 附近、`back_transition`、MC 返航落地。去程和回程的 FW 路程合计目标约 1.2–1.4 km，仿真飞行目标约 5–7 分钟。
+
+本用例采用 OP-A。FW 腿证明功率使用模板的 500 W，74 Wh 名义电池扣除 20% 储备后为 59.2 Wh，standoff 门关闭。3 km 单程／10 分钟目标在此口径下不可达。选线时用 `x1_corridor_energy.max_one_way_m` 做能量量级校核，再用 `x1_static_violations` 校验实际计划的逐腿几何和预算，包括 `X1_ENERGY_PROOF`。在同一首个 FW tick 的证明层口径下，静态距离余量目标为至少 10%，按 `1 − (FW 总路程 / 2) / 证明层最大单程距离` 计算。单程距离表、风界及原生动作准入见[走廊 MotionProof 接口](x1-contingency-interface.md#多段固定翼走廊)。
+
+先在工作树 `.tmp/` 的新目录跑 `--plan-only`。预检通过后，SITL 使用同一模型和用例、另一个新的输出目录。
+
+```bash
+scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" --cuda-device 0 --case corridor-dogleg \
+  --plan-only --output "$PWD/.tmp/x1-corridor-dogleg-plan" &&
+scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" --cuda-device 0 --case corridor-dogleg \
+  --output "$PWD/.tmp/x1-corridor-dogleg-live"
+```
+
+闭环验收核对 lowering、静态准入、至少两轮由多腿 MotionProof 接纳的 FW 巡航 `continue`、完成去回程及 MC 落地，以及无额外动作。报告记录巡航决策轮数、最大离家距离、PX4 仿真时钟从起飞完成至落地的耗时，以及失败时的模型、证明或基础设施原因。该用例用于验证无故障注入时的计划内返航。
+
+当前 47 m 航线通过静态预检。离线复放的三轮 FW `continue` 均因后过渡扫掠的地形净空被拒绝，SITL 验收待完成。standoff 关闭时，后过渡扫掠包含 home。只计 40 m AGL 下限、12 m 垂直 padding 和 12 m DEM 误差，巡航高度也至少要高于 home 64 m。按 500 W／59.2 Wh 口径，这个高度留足 10% 距离余量后允许的总 FW 路程最多约 1,170 m，低于本用例的 1.2 km 目标。
 
 ## 结果
 

@@ -415,6 +415,13 @@ def verified_assumed_corridor(path):
     return radius, bounds
 
 
+CORRIDOR_BINDING_ERROR = "ASSUMED_SIM requires the exact Iowa corridor bounds template"
+
+
+def matches_assumed_corridor_plan(*, fault, scope, base_digest):
+    return base_digest == assumptions.CORRIDOR_BASE_SHA and scope in assumptions.corridor_scopes_for(fault)
+
+
 def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds, scope, base_digest):
     """Authorize the generated template only against a verified SITL run and its site inventory."""
     data = path.read_bytes()
@@ -431,16 +438,13 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
                         image=collector_plan.image, profile_path=PROFILE)
     fault = faults[0].kind if len(faults) == 1 else None
     if corridor:
-        valid_scopes = assumptions.corridor_scopes_for(fault)
-        expected_base = assumptions.CORRIDOR_BASE_SHA
+        binding_matches = matches_assumed_corridor_plan(fault=fault, scope=scope, base_digest=base_digest)
         bounds = assumptions.corridor_bounds(raw)
     elif long_range:
-        valid_scopes = assumptions.long_range_scopes_for(fault)
-        expected_base = assumptions.LONG_RANGE_BASE_SHA
+        binding_matches = scope in assumptions.long_range_scopes_for(fault) and base_digest == assumptions.LONG_RANGE_BASE_SHA
         bounds = None
     else:
-        valid_scopes = assumptions.scopes_for(fault)
-        expected_base = assumptions.BASE_SHA
+        binding_matches = scope in assumptions.scopes_for(fault) and base_digest == assumptions.BASE_SHA
         bounds = None
     envelope = None
     if corridor:
@@ -453,11 +457,11 @@ def load_assumed_sim(path, *, package, site, collector_plan, faults, site_bounds
             and package.document["x1_planning"]["max_distance_from_home_m"] != envelope):
         raise ValueError("ASSUMED_SIM long-range mission does not match its SITL envelope")
     template_error = (
-        "ASSUMED_SIM requires the exact Iowa corridor bounds template" if corridor
+        CORRIDOR_BINDING_ERROR if corridor
         else "ASSUMED_SIM requires the exact Iowa route, fault schedule and verified site bounds")
     if (canonical_sha256(raw) != canonical_sha256(expected) or site.world_sha256 != assumptions.WORLD_SHA
             or site.terrain.source_sha256 != assumptions.DEM_SHA
-            or base_digest != expected_base or scope not in valid_scopes
+            or not binding_matches
             or set(site_bounds or ()) != {"scope_sha256", "dem_sha256", "base_mission_sha256",
                                           "obstacle_coverage", "obstacles"}):
         raise ValueError(template_error)
@@ -713,24 +717,30 @@ def finish_flight(episode, steps, record):
     markers = [row for row in mavlink if row.get("message_type") in {
         "fixed_wing_takeoff_complete", "collector_landing_complete"}]
     observed = {}
+    corridor_route = sum(step.primitive == "fw_goto_waypoint" for step in names) > 1
+    corridor_waypoints = []
     for step, row in zip(names, prefix_rows):
         motion = row.get("labels", {}).get("motion")
         waited = row.get("ack", {}).get("motion_wait", {})
         expected = {"reposition": "arrived", "transition": "transitioned", "mc_reposition": "settled",
                     "mc_hold": "settled"}
-        observed[step.primitive] = (row.get("outcome", {}).get("status") == "success"
-                                    and motion == step.command.to_dict()
-                                    and waited.get("waited") == expected[step.command.kind]
-                                    and (step.primitive != "fw_goto_waypoint" or bool(waited.get("x1_passage"))))
+        confirmed = (row.get("outcome", {}).get("status") == "success"
+                     and motion == step.command.to_dict()
+                     and waited.get("waited") == expected[step.command.kind]
+                     and (step.primitive != "fw_goto_waypoint" or bool(waited.get("x1_passage"))))
         if nominal_mc:
             after = row.get("obs_after", {})
             altitude = (after.get("pose") or {}).get("alt_m")
             state = after.get("flight_state") or {}
-            observed[step.primitive] &= (state.get("vtol_state") == 3 and state.get("landed_state") == 2
-                                          and type(altitude) in (float, int) and math.isfinite(altitude)
-                                          and abs(altitude + step.command.target_ned[2]) <= 5)
+            confirmed &= (state.get("vtol_state") == 3 and state.get("landed_state") == 2
+                          and type(altitude) in (float, int) and math.isfinite(altitude)
+                          and abs(altitude + step.command.target_ned[2]) <= 5)
+        if corridor_route and step.primitive == "fw_goto_waypoint" and confirmed:
+            corridor_waypoints.append(step.source_step_id)
+        # A later passage must not overwrite an earlier failed passage.
+        observed[step.primitive] = confirmed and (not corridor_route or observed.get(step.primitive, True))
         record["markers"].append({"primitive": step.primitive, "plan_step_id": step.source_step_id,
-                                  "motion_wait": waited, "confirmed": observed[step.primitive]})
+                                  "motion_wait": waited, "confirmed": confirmed})
     takeoff = any(r["message_type"] == "fixed_wing_takeoff_complete"
                   and (not nominal_mc or r.get("flight_state", {}).get("vtol_state") == 3) for r in markers)
     mc_only_confirmed = not nominal_mc or (metadata.get("vtol_hover_mission") is True and not any(
@@ -786,8 +796,9 @@ def finish_flight(episode, steps, record):
     native = _native_outcome(mavlink, markers, positions,
                              names[len(prefix_rows):] if not replacements else (), record)
     return_home = bool(observed.get("mc_return_to_home")) or bool(native and native["return_home"])
-    waypoints = [step.source_step_id for step in names
-                 if step.primitive in {"fw_goto_waypoint", "mc_goto_waypoint"} and observed.get(step.primitive)]
+    waypoints = corridor_waypoints if corridor_route else [
+        step.source_step_id for step in names
+        if step.primitive in {"fw_goto_waypoint", "mc_goto_waypoint"} and observed.get(step.primitive)]
     record["flight"].update(episode=str(episode), takeoff=takeoff, waypoints_reached=waypoints,
                             return_home=return_home, landing=landed, steps=observed,
                             episode_status=metadata.get("status"), episode_failure=metadata.get("failure"))
