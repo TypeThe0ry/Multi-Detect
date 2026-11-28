@@ -370,3 +370,27 @@ def test_constants_match_pinned_sources():
     assert c.ground_fw_plan_mps == pytest.approx(12.0)
     assert c.ground_mc_plan_mps == pytest.approx(5.0)
     assert math.isclose(c.fw_peak_power_w, 2 * endurance["loiter_power_w"])
+
+def test_max_one_way_with_corridor_template_fw_power():
+    """344 W (2 x loiter) vs the corridor template's 500 W (power_est eta=0.75 P95)."""
+    template = json.loads((ROOT / "configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json")
+                          .read_text(encoding="utf-8"))["assumed_sim_corridor"]
+    template_power = template["fw_leg_peak_power_w"]
+    assert template_power == 500.0
+    c = default_constants()
+    # (H, AGL, relief, standoff, max one-way at 344 W, at template power), +/-2 m.
+    for height, agl_m, ground_high, standoff, at_344, at_template in [
+        (50.0, 40.0, 10.0, None, 1097.0, 755.0),
+        (50.0, 40.0, 10.0, 252.5, 1758.0, 1209.5),
+        (85.0, 60.0, 25.0, None, 716.0, 492.5),
+        (85.0, 60.0, 25.0, 252.5, 1377.0, 947.0),
+        (110.0, 85.0, 25.0, None, 443.0, 305.0),
+        (110.0, 85.0, 25.0, 252.5, 1104.0, 759.5),
+    ]:
+        for power, expected in ((344.0, at_344), (template_power, at_template)):
+            got = max_one_way_m(
+                "proof", agl_m=agl_m, ground_high_m=ground_high,
+                fw_peak_power_w=power, standoff_m=standoff, constants=c)
+            assert abs(got - expected) <= 2.0, (height, standoff, power, got)
+        # A higher FW leg power can only shrink the provable distance.
+        assert at_template < at_344

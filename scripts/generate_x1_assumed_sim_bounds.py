@@ -53,6 +53,11 @@ ENVELOPE_KEYS = {"basis", "scope", "max_distance_from_home_m"}
 CORRIDOR_BASE_SHA = LONG_RANGE_BASE_SHA
 CORRIDOR_SCOPES = dict(LONG_RANGE_SCOPES)
 CORRIDOR_SCHEMA = "x1.corridor.v1"
+CORRIDOR_FW_LEG_PEAK_POWER_W = 500.0
+CORRIDOR_FW_LEG_POWER_JUSTIFICATION = (
+    "ASSUMED_SIM，非实测：依据 power_est（70 次 FW RTL 探测飞行，由 ULog 推力/转速反推）"
+    "η=0.75 的 FW 巡航电功率 P95≈497 W 取整 500 W；原 344 W（2×172 W loiter）≈ P50（334 W），"
+    "低于 P95。仅 SITL，收紧方向；无 V×A 实测，最敏感假设为 η 与推力常数。")
 CORRIDOR_STANDOFF_M = 252.5
 # D2 (standoff gate) is pending measured statistics, so OP-A keeps it disabled.
 CORRIDOR_STANDOFF_GATE_ENABLED = False
@@ -260,11 +265,14 @@ def generate_corridor(*, mode, world, image, profile_path):
         "standoff_gate_enabled": CORRIDOR_STANDOFF_GATE_ENABLED,
         "turn_pad_rule": CORRIDOR_TURN_PAD_RULE,
         "fw_tracking_m": 19.0,
-        "fw_leg_peak_power_w": 344.0,
+        "fw_leg_peak_power_w": CORRIDOR_FW_LEG_PEAK_POWER_W,
         "mc_peak_power_w": 750.0,
         "min_ground_speed_mps": 12.0,
         "wind_sigma_mps": 2.0,
         "max_sweep_legs": 384,
+    }
+    document["assumed_sim_corridor_justification"] = {
+        "fw_leg_peak_power_w": CORRIDOR_FW_LEG_POWER_JUSTIFICATION,
     }
     return document
 

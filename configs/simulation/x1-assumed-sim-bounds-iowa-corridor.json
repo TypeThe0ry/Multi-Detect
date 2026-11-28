@@ -345,10 +345,13 @@
     "standoff_gate_enabled": false,
     "turn_pad_rule": "2*R_min + fly_through + fw_tracking",
     "fw_tracking_m": 19.0,
-    "fw_leg_peak_power_w": 344.0,
+    "fw_leg_peak_power_w": 500.0,
     "mc_peak_power_w": 750.0,
     "min_ground_speed_mps": 12.0,
     "wind_sigma_mps": 2.0,
     "max_sweep_legs": 384
+  },
+  "assumed_sim_corridor_justification": {
+    "fw_leg_peak_power_w": "ASSUMED_SIM，非实测：依据 power_est（70 次 FW RTL 探测飞行，由 ULog 推力/转速反推）η=0.75 的 FW 巡航电功率 P95≈497 W 取整 500 W；原 344 W（2×172 W loiter）≈ P50（334 W），低于 P95。仅 SITL，收紧方向；无 V×A 实测，最敏感假设为 η 与推力常数。"
   }
 }
