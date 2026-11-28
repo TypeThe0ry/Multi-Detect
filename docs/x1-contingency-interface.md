@@ -207,7 +207,13 @@ SIM 采用 12 m DEM 假设、16 m 着陆半径和 13 m 着陆高程误差。72 W
 
 ### 多段固定翼走廊
 
-`configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json` 是宿主校验的 `ASSUMED_SIM`、`SITL-only` 模板。它只在显式允许 `ASSUMED_SIM` 的 SIM 入口与无签名任务包绑定，同时校验任务图、运动作用域和场地证据。模型侧沿用现有计划和动作格式。`continue` 的 MotionProof 从当前遥测位置逐腿重建扫掠，覆盖当前剩余腿、后续 FW 腿（含计划内飞回 home）、后过渡跑出区、MC 返航和着陆。静态准入保留原有规划检查，并以 `X1_ENERGY_PROOF` 提前拒绝证明层预算不足的走廊。
+`configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json` 是宿主校验的 `ASSUMED_SIM`、`SITL-only` 模板。它只在显式允许 `ASSUMED_SIM` 的 SIM 入口与无签名任务包绑定，同时校验任务图、运动作用域和场地证据。模型侧沿用现有计划和动作格式。当前绑定的任务是 K 短折线：75 m AGL，`home (0,0)`、`poi:first-beacon (60,0)`、`poi:second-beacon (30,52)`，三条 FW 腿合计 180.07 m；home、走廊矩形和预算不变。`continue` 的 MotionProof 从当前遥测位置逐腿重建扫掠，覆盖当前剩余腿、后续 FW 腿（含计划内飞回 home）、后过渡跑出区、MC 返航和着陆。静态准入保留原有规划检查，并以 `X1_ENERGY_PROOF` 提前拒绝证明层预算不足的走廊。
+
+K 的净空结果为：最坏 DEM 余量 +8.024 m（后过渡末片），最低预测过渡 AGL 48.024 m，围栏最小余量 +48.384 m，FW 巡航最小障碍余量 +59.844 m，T2/T3 最小 DEM 余量 +10.754 m；旧 47 m 几何在同一后过渡扫掠上为 −23.95 m，继续作为拒绝对照。
+
+**覆盖边界与验收口径**：正式验收只要求 FW 巡航阶段的 `continue` 被接纳。起飞/MC、前过渡/MC、`back_transition`、MC 返航/approach 没有进入 `_corridor_continue_sweep` 的证明入口，如实记为“走廊证明器未覆盖”；这些阶段被拒绝不表示 K 几何越界，也不作为通过条件。为它们增加走廊 `continue` 证明的设计选项 B 不做。宿主仍按原样拒绝这些请求，不改动模式门、判定或余量常数。
+
+**能量警示**：K 在请求 #12 的模型能量余量只有 0.085 Wh（已扣 14.8 Wh 储备）。它只用于机制与净空验证，不能作为可泛化航程、其他风况或真实机体的余量依据。所有数值均为 SITL/`ASSUMED_SIM` 假设。
 
 当前 OP-A 采用 500 W 的 FW 腿证明功率和 59.2 Wh 的名义可用能量（74 Wh 扣除 14.8 Wh 储备）。首个 FW tick 的可用量还要扣除爬升、前过渡，以及任务包额外要求的储备。500 W 是模板中的仿真假设，依据推力与转速反推。下表沿用 `REPORT-power500.md` 的证明层估算，standoff 门关闭，MC 返航距离项取 505 m，FW 按 12 m/s 对称去回。
 

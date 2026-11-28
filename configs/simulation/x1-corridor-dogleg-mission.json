@@ -9,20 +9,20 @@
     0.0
   ],
   "places": {
-    "poi:west-beacon": [
-      300,
+    "poi:first-beacon": [
+      60,
       0
     ],
-    "poi:east-beacon": [
-      555,
-      190
+    "poi:second-beacon": [
+      30,
+      52
     ]
   },
   "zones": {},
   "routes": {},
   "ref_labels": {
-    "poi:west-beacon": "west beacon",
-    "poi:east-beacon": "east beacon"
+    "poi:first-beacon": "first beacon",
+    "poi:second-beacon": "second beacon"
   },
   "capabilities": [
     "airframe:x1",

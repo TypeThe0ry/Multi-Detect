@@ -446,11 +446,13 @@ def test_corridor_dogleg_is_opt_in_and_statically_provable():
     package = demo.load_mission_package({**document, "task_text": case.sentence}, mode="sim",
                                         allow_assumed_sim=True, assumed_sim_max_distance_m=radius,
                                         assumed_sim_corridor=bounds)
-    west, east = document["places"]["poi:west-beacon"], document["places"]["poi:east-beacon"]
-    vertices = (document["home"], west, east, document["home"])
+    first, second = document["places"]["poi:first-beacon"], document["places"]["poi:second-beacon"]
+    vertices = (document["home"], first, second, document["home"])
     distance = sum(math.dist(a, b) for a, b in zip(vertices, vertices[1:]))
-    assert 1200 <= distance <= 1400
-    agl = 47.0
+    # K is deliberately short (about 180 m) to prove the corridor-continue
+    # mechanism and clearance. It is not a generalizable range case.
+    assert 175 <= distance <= 185
+    agl = 75.0
     limit = max_one_way_m("proof", agl_m=agl,
                           ground_high_m=document["x1_planning"]["terrain_rel_home_m"][1],
                           fw_peak_power_w=bounds.fw_leg_peak_power_w,
@@ -461,9 +463,9 @@ def test_corridor_dogleg_is_opt_in_and_statically_provable():
     plan = MissionPlan(1, "X1 mission", (
         MissionStep("takeoff", "vtol_takeoff", {"altitude_agl_m": agl}, "fw", "home"),
         MissionStep("fw", "fw_transition", {}, "w", "home"),
-        MissionStep("w", "fw_goto_waypoint", {"target_ref": "poi:west-beacon", "altitude_agl_m": agl},
+        MissionStep("w", "fw_goto_waypoint", {"target_ref": "poi:first-beacon", "altitude_agl_m": agl},
                     "w_2", "home"),
-        MissionStep("w_2", "fw_goto_waypoint", {"target_ref": "poi:east-beacon", "altitude_agl_m": agl},
+        MissionStep("w_2", "fw_goto_waypoint", {"target_ref": "poi:second-beacon", "altitude_agl_m": agl},
                     "w_3", "home"),
         MissionStep("w_3", "fw_goto_waypoint", {"target_ref": "home", "altitude_agl_m": agl}, "back", "home"),
         MissionStep("back", "back_transition", {}, "home", "home"),
@@ -471,6 +473,13 @@ def test_corridor_dogleg_is_opt_in_and_statically_provable():
     ), ("status",))
     assert x1_static_violations(plan, package, frozenset(document["capabilities"])) == []
     assert demo.compiled_mission_digest(package, plan) == demo.assumptions.CORRIDOR_BASE_SHA
+    from multidetect.autonomy.mission_plan import validate_mission_plan
+    recorded = suite.read_json(suite.ROOT / "tests/fixtures/x1_corridor_dogleg_plan.json")
+    assert recorded["goal"] == case.sentence
+    assert demo.compiled_mission_digest(
+        package, demo.canonical_mission_plan(
+            validate_mission_plan(recorded, capabilities=frozenset(document["capabilities"]))),
+    ) == demo.assumptions.CORRIDOR_BASE_SHA
 
 
 @pytest.mark.parametrize("drift", [None, "base_mission_sha256", "motion_scope_sha256"])
@@ -527,3 +536,27 @@ def test_corridor_pass_requires_proved_cruise_continues_and_every_fw_passage():
     assert checks["expected_receipt"] and not checks["repeated_fw_continue_admitted"]
     result["flight"]["waypoints_reached"].remove("w_2")
     assert not suite.check_flight(case, result, trace)[0]["all_fw_legs_reached"]
+
+
+def test_corridor_uncovered_phases_do_not_block_cruise_acceptance():
+    case, = suite.select_cases(["corridor-dogleg"])
+    result = fixture_flight()
+    result["flight"]["waypoints_reached"] = ["w", "w_2", "w_3"]
+    first = decision_trace()
+    second = json.loads(json.dumps(first).replace("case:1", "case:2"))
+    for rows, step_id in ((first, "w_2"), (second, "w_3")):
+        for row in rows[:2]:
+            row["request"]["mission_progress"].update(step_id=step_id, primitive="fw_goto_waypoint")
+    # A rejected back_transition/approach continue has no corridor sweep. It is
+    # reported as uncovered, not as a failure of the FW-cruise acceptance.
+    uncovered = json.loads(json.dumps(first).replace("case:1", "case:3"))
+    for row in uncovered:
+        if "request" in row:
+            row["request"]["mission_progress"].update(
+                step_id="back", primitive="fw_transition", phase="transition")
+        if row.get("kind") == "receipt":
+            row.update(action=None, status="rejected", reason="cadence_mode_changed")
+    checks, scores = suite.check_flight(case, result, first + second + uncovered)
+    assert all(checks.values())
+    assert scores["uncovered_phase_receipts"]["case:3"]["reason"] == "cadence_mode_changed"
+    assert {row["request_id"] for row in scores["admitted"]} == {"case:1", "case:2"}

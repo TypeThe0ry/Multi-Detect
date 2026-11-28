@@ -70,9 +70,9 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" \
 | `quiet-cadence` | 4 / 0 | 只有周期请求，零额外动作、返航落地 | 5 / 15 分钟 |
 | `long-range-transect` | 10 / 0 | 单航点约 3.5 km 去程、巡航 cadence 持续决策、零额外动作、返航落地 | 14 / 30 分钟 |
 | `long-range-wind` | 10 / 0 | 同一单航点航线，巡航 cadence 持续决策，中途注入 `wind_step` 并观测、恢复、返航落地 | 14 / 30 分钟 |
-| `corridor-dogleg` | 10 / 0 | 两个 POI、计划内 FW 返航、多腿 `continue` 获准、MC 落地。需显式选中 | 6 / 15 分钟 |
+| `corridor-dogleg` | 10 / 0 | K 短折线两个 POI、计划内 FW 返航、FW 巡航 `continue` 获准、MC 落地。需显式选中 | 5 / 15 分钟 |
 
-`continue` 用例允许执行器因当前 MotionProof 不足而安全拒绝。验收要求真实 `continue`、相应回执、无额外执行动作及落地。无故障用例的每个适用 cadence tick 都需要满足决定与回执条件。证据范围拒绝记录保留原始回执。`return`、`land-now`、`retask` 需要执行器接纳及对应的 PX4 或航线安装证据。
+`continue` 用例允许执行器因当前 MotionProof 不足而安全拒绝。验收要求真实 `continue`、相应回执、无额外执行动作及落地。无故障用例的每个适用 cadence tick 都需要满足决定与回执条件。证据范围拒绝记录保留原始回执。`return`、`land-now`、`retask` 需要执行器接纳及对应的 PX4 或航线安装证据。`corridor-dogleg` 是例外：它的正式验收只要求 FW 巡航 `continue` 被接纳，其余阶段按“走廊证明器未覆盖”记录，不作为通过条件。
 
 `mc-hover-waypoint-return` 是唯一全程 MC 的用例，使用独立的 nominal-MC 编译器；实跑规划给出 `vtol_takeoff → x1_mc_reposition → return_home`。它不在 `ASSUMED_SIM` 范围内。`mc-link-loss` 与 `mc-battery-drop` 的 `mc` 指故障和决策所在的返航阶段。两者与两个 evidence-follow 用例都向模型提交 `Fly over the yard at 85 m AGL, then return home and land.`；模型给出垂直起飞、切 FW、飞越 `poi:yard`、切回 MC、返航落地的五步计划。失链和电池窗口分别是路由时钟 50–58 s 和 50–62 s，均单独绑定在同一 Iowa 航线上；实飞阶段仍按遥测判定，不以窗口推定模式。
 
@@ -84,11 +84,17 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" \
 
 `mc-battery-drop` 的 17% 注入只获准进入这个 SITL 试验，**不**代表原生动作会获准。观测门限至多 19%，现有故障 SOC 下界再扣 54 个百分点，因此该样本的能量下界为 0 Wh。执行器不能为了验收改发或放行动作；没有满足原生动作和落地证据时，该用例仍报失败。这次范围修订不改变现有通过条件。
 
-### 多段固定翼走廊 `corridor-dogleg`
+### 多段固定翼走廊 `corridor-dogleg`（K 短折线）
 
-`corridor-dogleg` 是步骤 8 的 `ASSUMED_SIM`、仅 SITL 用例，须用 `--case` 显式选中。它用 `configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json` 绑定 `configs/simulation/x1-corridor-dogleg-mission.json`。任务以自然语言要求模型在 47 m AGL 飞经两个 POI。预期航迹为两段 FW 折线去程、FW 飞回 home 附近、`back_transition`、MC 返航落地。去程和回程的 FW 路程合计目标约 1.2–1.4 km，仿真飞行目标约 5–7 分钟。
+`corridor-dogleg` 是 `ASSUMED_SIM`、仅 SITL 用例，须用 `--case` 显式选中。它用 `configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json` 绑定 `configs/simulation/x1-corridor-dogleg-mission.json`。任务是先向北飞往 `poi:first-beacon`，再向东北飞往 `poi:second-beacon`，然后以固定翼直接飞越 home，最后 `back_transition` 并 MC 落地，全程 75 m AGL。名称与方位一致，不再沿用“west/east 却指向北/东北”的旧标签。几何为 home `(0,0)`、`first-beacon (60,0)`、`second-beacon (30,52)`，三条 FW 腿合计 180.07 m；home、走廊矩形、预算与储备均保持不变。
 
-本用例采用 OP-A。FW 腿证明功率使用模板的 500 W，74 Wh 名义电池扣除 20% 储备后为 59.2 Wh，standoff 门关闭。3 km 单程／10 分钟目标在此口径下不可达。选线时用 `x1_corridor_energy.max_one_way_m` 做能量量级校核，再用 `x1_static_violations` 校验实际计划的逐腿几何和预算，包括 `X1_ENERGY_PROOF`。在同一首个 FW tick 的证明层口径下，静态距离余量目标为至少 10%，按 `1 − (FW 总路程 / 2) / 证明层最大单程距离` 计算。单程距离表、风界及原生动作准入见[走廊 MotionProof 接口](x1-contingency-interface.md#多段固定翼走廊)。
+本用例采用净空诊断选出的 K 候选。将巡航抬到 75 m AGL 并缩短末腿后，后过渡 505 m 跑出区仍落在原围栏与障碍库存内、不靠外移边界：最坏 DEM 余量 **+8.024 m**（后过渡末片 C4.16），最低预测过渡 AGL **48.024 m**，围栏最小余量 **+48.384 m**，FW 巡航最小障碍余量 **+59.844 m**，T2/T3 最小 DEM 余量 **+10.754 m**。旧 47 m 几何仍在后过渡扫掠上缺少地形余量（CPU 回放为 −23.95 m），保持拒绝侧对照。
+
+**验收口径（协调方决定）**：正式验收只看 **FW 巡航阶段的 `continue` 被接纳**。起飞/MC、前过渡/MC、`back_transition`、MC 返航/approach 的 `continue` 不在走廊证明器覆盖范围内，如实记录为“走廊证明器未覆盖”；它们被拒绝不构成本用例通过，也不据此放宽任何判定。为这些阶段补走廊 `continue` 证明的设计选项 B 明确不做。CPU 复放中，K 在 7 个合规 FW 巡航样本全部被接纳，19.55 m/s 超速样本照常被 `current_fw_airspeed_limit` 拒绝，后过渡发令前仍为 FW 的补充入口也被接纳。
+
+**能量警示**：K 在请求 #12 只剩 **0.085 Wh** 的模型余量（扣 14.8 Wh 储备后）。这个数字用于证明走廊 `continue` 的机制与净空，**不是可泛化的航程余量**，不能外推到更长航线、其他风或真实机体。K 的静态距离与能量余量只是本用例的准入条件；所有数值均为 SITL/`ASSUMED_SIM` 假设。
+
+本用例采用 OP-A。FW 腿证明功率使用模板的 500 W，74 Wh 名义电池扣除 20% 储备后为 59.2 Wh，standoff 门关闭。选线时用 `x1_corridor_energy.max_one_way_m` 做能量量级校核，再用 `x1_static_violations` 校验实际计划的逐腿几何和预算，包括 `X1_ENERGY_PROOF`。在同一首个 FW tick 的证明层口径下，静态距离余量目标为至少 10%，按 `1 − (FW 总路程 / 2) / 证明层最大单程距离` 计算。单程距离表、风界及原生动作准入见[走廊 MotionProof 接口](x1-contingency-interface.md#多段固定翼走廊)，净空诊断见[走廊净空](x1-corridor-clearance.md)。
 
 先在工作树 `.tmp/` 的新目录跑 `--plan-only`。预检通过后，SITL 使用同一模型和用例、另一个新的输出目录。
 
@@ -99,17 +105,9 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" --cuda-device 0 --case 
   --output "$PWD/.tmp/x1-corridor-dogleg-live"
 ```
 
-闭环验收核对 lowering、静态准入、至少两轮由多腿 MotionProof 接纳的 FW 巡航 `continue`、完成去回程及 MC 落地，以及无额外动作。报告记录巡航决策轮数、最大离家距离、PX4 仿真时钟从起飞完成至落地的耗时，以及失败时的模型、证明或基础设施原因。该用例用于验证无故障注入时的计划内返航。
+闭环验收核对 lowering、静态准入、FW 巡航 `continue` 至少两轮被多腿 MotionProof 接纳、完成去回程及 MC 落地，以及无额外动作。报告记录 FW 巡航接纳次数/总数、其余阶段的拒绝码分布并标注“未覆盖”、最大离家距离、PX4 仿真时钟从起飞完成至落地的耗时，以及失败时的模型、证明或基础设施原因。
 
-47 m AGL 的规范计划使用三条 FW 腿，长 300.0、318.0、586.6 m，合计 1,204.6 m。按任务包地形上界取 H = 52 m 时，静态证明层最大等效单程 740.0 m，相比本航线的等效单程 602.3 m 留出 18.6% 距离余量；扣除起飞消耗和储备后，静态证明能量余量为 3.19 Wh。这些是预检结果，不是飞行中的净空或能量证明。
-
-离线复放中，规范计划通过静态预检；归档里的模型计划漏掉 FW over-home 航点，被 `X1_CORRIDOR` 和 `X1_ENERGY_PROOF` 拒绝。规范计划另做了 9 个 FW 采样点的合成遥测复放，`continue` 均因后过渡扫掠净空不足被拒绝。standoff 关闭时，后过渡扫掠包含 home。只计 40 m AGL 下限、12 m 垂直 padding 和 12 m DEM 误差，巡航高度也至少要高于 home 64 m。按 500 W／59.2 Wh 口径，这个高度留足 10% 距离余量后允许的总 FW 路程最多约 1,170 m，低于本用例的 1.2 km 目标。真实模型的 `--plan-only` 与 SITL 验收均未通过。
-
-`--recorded-output` 可用于该走廊的静态预检；带实时决策服务的独立 demo 不允许用它飞行，会在启动仿真前退出（`recorded output requires --plan-only or --dry-run`）。这是 CLI 限制，而不是 `ASSUMED_SIM` 模板准入失败。
-
-先前留档的 SITL 通过套件的 `shared_post` 注入记录计划（**不是模型规划，用于验证走廊机制**；Altair 只做飞行决策）。飞行器起飞并到达 west、east 两个航点。8 轮均提议 `continue`，实际回执为 7 次 `unverified_clearance`、1 次 `cadence_step_changed`，没有一次被证明接纳。当时 `scripts/realworld/long_range_flight.py` 只要设置了走廊起飞航向，就把每条 FW 腿的起点取为 home 参考：第一腿 home→west 正确；第二腿本应是 west→east 折线，却变成 home→east；第三腿目标就是 home，起点仍取 home，水平位移为零，触发 `long-range Offboard path requires a nonzero horizontal leg`，runner 随即中止。未发生 `back_transition` 或 MC 落地。起飞完成至中止为 60.88 仿真秒，MAVLink 采样最大水平离家距离为 612.47 m。闭环验收未通过。修复后，走廊路线从上一腿的已命令目标链接下一腿的切线（单航点与非走廊路径的起点逻辑不变），并有 CPU 回归测试覆盖三腿折线与回 home 的零长度问题。
-
-修复后的 plan-injected SITL 再次飞行：三条 FW 腿全部完成（west、east、home 上空均记录 `long_range_waypoint_pass`），随后 `back_transition`、MC 返航和落地均成功，`flight.status=pass`。起飞完成至落地 180.06 仿真秒，MAVLink 采样最大水平离家 668.08 m。共 19 轮决策，Altair 的 16 次 `continue` 提议仍全部被证明层拒绝（15 次 `unverified_clearance`、1 次 `current_fw_airspeed_limit`），另有 3 次 `cadence_mode_changed` 无动作回执，0 次接纳。也就是说，多腿执行机制已走通，但“FW 巡航 `continue` 被多腿 MotionProof 接纳”的闭环验收仍未通过；拒绝码与 47 m AGL 下后过渡扫掠净空不足的既有离线结论一致，未放宽任何判定。
+`--recorded-output` 可用于该走廊的静态预检；带实时决策服务的独立 demo 不允许用它飞行，会在启动仿真前退出（`recorded output requires --plan-only or --dry-run`）。本次机制验证沿用套件已验证的做法：通过 `shared_post` 注入记录计划（**不是模型规划**）跑 plan-injected SITL，Altair 只做飞行决策。历史 47 m plan-injected 飞行已走通三腿执行机制与落地，但 16 次 `continue` 提议 0 次被证明层接纳；K 被采纳正是为了让 FW 巡航入口在净空和能量上可被证明。真实模型 `--plan-only` 是否给出同一计划不在本用例的验收范围内。
 
 ## 结果
 

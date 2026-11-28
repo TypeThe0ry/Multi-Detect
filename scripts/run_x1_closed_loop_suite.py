@@ -78,9 +78,9 @@ LONG_RANGE_SENTENCE = (
 CORRIDOR_BOUNDS = "configs/simulation/x1-assumed-sim-bounds-iowa-corridor.json"
 CORRIDOR_DOGLEG_PACKAGE = "configs/simulation/x1-corridor-dogleg-mission.json"
 CORRIDOR_DOGLEG_SENTENCE = (
-    "Fly west to the west beacon, then east to the east beacon, then fly a fixed-wing waypoint "
-    "directly over home, all at 47 m AGL. After the home waypoint, transition to multicopter "
-    "and land vertically at home."
+    "Fly north to the first beacon, then northeast to the second beacon, then fly a fixed-wing "
+    "waypoint directly over home, all at 75 m AGL. After the home waypoint, transition to "
+    "multicopter and land vertically at home."
 )
 
 
@@ -316,6 +316,24 @@ def check_flight(case, result, trace):
     markers = contingency.get("markers", [])
     receipts = {row["request_id"]: row for row in trace if row.get("kind") == "receipt"}
     requests, relevant = case_requests(case, trace)
+    uncovered_receipts = {}
+    if case.id == "corridor-dogleg":
+        # Coordinator acceptance: only FW cruise continues are required. Takeoff/
+        # MC, front transition, back_transition and MC return/approach have no
+        # corridor-continue sweep, so their receipts are recorded as uncovered
+        # instead of blocking the case.
+        for key in list(relevant):
+            progress = requests[key].get("mission_progress", {})
+            if not (progress.get("phase") == "cruise"
+                    and progress.get("primitive") == "fw_goto_waypoint"):
+                uncovered_receipts[key] = {
+                    "phase": progress.get("phase"), "primitive": progress.get("primitive"),
+                    "step_id": progress.get("step_id"),
+                    "action": (receipts.get(key) or {}).get("action"),
+                    "status": (receipts.get(key) or {}).get("status"),
+                    "reason": (receipts.get(key) or {}).get("reason"),
+                }
+                del relevant[key]
     model_actions = {}
     for row in trace:
         if row.get("kind") != "turn_result" or not isinstance(row.get("model_output"), str):
@@ -391,7 +409,8 @@ def check_flight(case, result, trace):
             checks["fault_restored"] = any(m.get("message_type") == "scenario_restored" and m.get("fault") == case.fault
                                            and m.get("reason") == "window_end" for m in markers)
     return checks, {"quiet_ticks": len(quiet), "unnecessary_actions": unnecessary, "admitted": admitted,
-                    "no_action_safety_vetoes": continued_or_vetoed}
+                    "no_action_safety_vetoes": continued_or_vetoed,
+                    "uncovered_phase_receipts": uncovered_receipts}
 
 
 def retryable(result, log):
