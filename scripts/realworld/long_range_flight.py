@@ -1253,11 +1253,19 @@ def collector_overrides(collector, mission, *, x1_heading_deg=None):
             if collector._flight_state_snapshot(reader.state)["vtol_state"] != 4:
                 raise RuntimeError("long-range Offboard path requires confirmed VTOL fixed-wing mode")
             started = self._clock()
+            corridor_route = mission.get("corridor_lowering") is not None
             if "x1_retask_timeout_s" in action.metadata:
                 start = self._position()
+            elif corridor_route and self.previous_fw_target is not None:
+                # A corridor dogleg's next leg starts at the previous commanded
+                # waypoint, not home. Using home would rebuild every tangent
+                # from the departure reference and collapse the final leg to
+                # home into a zero-length path.
+                start = self.previous_fw_target
+            elif x1_heading_deg is not None:
+                start = self._geo_reference()[1]
             else:
-                start = (self._geo_reference()[1] if x1_heading_deg is not None
-                         else self.previous_fw_target or self._position())
+                start = self.previous_fw_target or self._position()
             target = action.target_ned
             dn, de = target[0] - start[0], target[1] - start[1]
             length = math.hypot(dn, de)

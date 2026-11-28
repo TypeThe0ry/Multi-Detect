@@ -105,6 +105,10 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" --cuda-device 0 --case 
 
 离线复放中，规范计划通过静态预检；归档里的模型计划漏掉 FW over-home 航点，被 `X1_CORRIDOR` 和 `X1_ENERGY_PROOF` 拒绝。规范计划另做了 9 个 FW 采样点的合成遥测复放，`continue` 均因后过渡扫掠净空不足被拒绝。standoff 关闭时，后过渡扫掠包含 home。只计 40 m AGL 下限、12 m 垂直 padding 和 12 m DEM 误差，巡航高度也至少要高于 home 64 m。按 500 W／59.2 Wh 口径，这个高度留足 10% 距离余量后允许的总 FW 路程最多约 1,170 m，低于本用例的 1.2 km 目标。真实模型的 `--plan-only` 与 SITL 验收均未通过。
 
+`--recorded-output` 可用于该走廊的静态预检；带实时决策服务的独立 demo 不允许用它飞行，会在启动仿真前退出（`recorded output requires --plan-only or --dry-run`）。这是 CLI 限制，而不是 `ASSUMED_SIM` 模板准入失败。
+
+先前留档的 SITL 通过套件的 `shared_post` 注入记录计划（**不是模型规划，用于验证走廊机制**；Altair 只做飞行决策）。飞行器起飞并到达 west、east 两个航点。8 轮均提议 `continue`，实际回执为 7 次 `unverified_clearance`、1 次 `cadence_step_changed`，没有一次被证明接纳。第三条 FW 腿启动时，`scripts/realworld/long_range_flight.py` 在已有走廊航向时仍使用 home 参考作为腿起点，与 home 目标形成零水平位移，runner 随即中止；未发生 `back_transition` 或 MC 落地。起飞完成至中止为 60.88 仿真秒，MAVLink 采样最大水平离家距离为 612.47 m。闭环验收未通过。
+
 ## 结果
 
 - `CASE/result.json` 含逐次尝试、检查项、动作回执和原始 runner 结果。每个尝试保留 `worker.json`、`runner.log`、`preflight/result.json`，以及已进入飞行流程时的 `flight/result.json` 和 `decisions.jsonl`。

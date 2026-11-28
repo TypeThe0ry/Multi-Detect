@@ -333,3 +333,46 @@ def test_retask_orbit_stops_offboard_only_after_fresh_auto_loiter(monkeypatch, c
                 executor.execute(orbit)
         assert calls[2:] == [("execute", "orbit"), ("mode", flight.AUTO_LOITER_MODE, 5, 123)] + (
             [("stop",)] if confirmed else [])
+
+
+def test_corridor_dogleg_offboard_tangents_chain_from_previous_target(monkeypatch):
+    from types import SimpleNamespace
+
+    from multidetect.sim_teacher.executor import ExecutionResult
+
+    calls = []
+
+    class FakeExecutor:
+        vehicle = object()
+        telemetry_reader = SimpleNamespace(state={})
+        _clock = staticmethod(lambda: 1)
+        _geo_reference = staticmethod(lambda: (None, (0, 0, 0)))
+        _position = staticmethod(lambda: (0, 0, 0))
+
+        def execute(self, command):
+            return ExecutionResult("success", 0, ack={})
+
+    streamer = SimpleNamespace(
+        set_path_target=lambda target, tangent: calls.append((target, tangent)),
+        start=lambda: calls.append(("start",)), stop=lambda: None)
+
+    fake = SimpleNamespace(_SmokeFlightPolicy=None, _wait_motion_command=None, FixedWingVtolExecutor=FakeExecutor,
+                           SetpointStreamer=lambda _vehicle: streamer, _wait_for_offboard=lambda *a, **kw: None,
+                           _flight_state_snapshot=lambda _: {"vtol_state": 4})
+    monkeypatch.setattr(flight, "_check_offboard_mode", lambda *_: None)
+    monkeypatch.setattr(flight.time, "monotonic_ns", lambda: 123)
+    mission = {"geometry": None, "targets": [], "corridor_lowering": object()}
+    with flight.collector_overrides(fake, mission, x1_heading_deg=0):
+        executor = fake.FixedWingVtolExecutor()
+        for target in ((300, 0, -47), (555, 190, -47), (0, 0, -47)):
+            command = flight.MotionCommand("reposition", mode="FW", target_ned=target,
+                                           fly_through_radius_m=25, metadata={})
+            assert executor.execute(command).status == "success"
+
+    paths = [call for call in calls if call[0] != "start"]
+    assert paths[0] == ((300, 0, -47), (1.0, 0.0))
+    first = math.hypot(255, 190)
+    assert paths[1][1] == pytest.approx((255 / first, 190 / first))
+    home = math.hypot(555, 190)
+    assert paths[2][0] == (0, 0, -47)
+    assert paths[2][1] == pytest.approx((-555 / home, -190 / home))
