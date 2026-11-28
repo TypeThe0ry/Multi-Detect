@@ -329,3 +329,12 @@ def lower_airborne_suffix(package, plan, frame, *, terrain, profile, limits, fin
         "land", mode="MC", metadata={"x1_retask_timeout_s": limits["landing_s"]},
     ))
     return tuple(steps)
+
+
+def __getattr__(name: str):
+    # The corridor module reuses this module's step type and DEM helpers.
+    if name in {"X1CorridorLowering", "CorridorLeg", "build_x1_corridor_steps", "slice_leg"}:
+        from . import x1_corridor
+
+        return getattr(x1_corridor, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

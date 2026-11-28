@@ -209,36 +209,44 @@ def _check_segment(package, terrain, *, a: Point, b: Point, cruise_msl: float,
     if len(zones) > MAX_NO_FLY_ZONES:
         raise X1PlanError("NO_FLY_ZONE_LIMIT", "package has too many no-fly zones")
     ux, uy = _unit(a, b)
-    check_start = (a[0] - ux * start_extension, a[1] - uy * start_extension)
+    length = math.dist(a, b)
     for centre, radius in zones:
-        if _point_segment_distance(check_start, b, centre) <= width + effective_no_fly_radius(radius):
+        dn, de = centre[0] - a[0], centre[1] - a[1]
+        along, cross = dn * ux + de * uy, -dn * uy + de * ux
+        if math.hypot(max(-start_extension - along, 0, along - length),
+                      max(abs(cross) - width, 0)) <= effective_no_fly_radius(radius):
             raise X1PlanError(
                 "NO_FLY_ZONE", f"{label} including FW runout overlaps no-fly circle at {centre}")
 
-    length = math.dist(a, b)
-    start_m = -POSITION_MARGIN_M
+    start_m = -start_extension
     segment_count = math.ceil((length - start_m) / 50.0)
     for index in range(segment_count):
         start = start_m + 50.0 * index
         end = min(start + 50.0, length)
-        px, py = -uy, ux
-        points = tuple(
-            (a[0] + along * ux + cross * px, a[1] + along * uy + cross * py)
+        north, east = zip(*(
+            (a[0] + along * ux - cross * uy, a[1] + along * uy + cross * ux)
             for along in (start, end) for cross in (-width, width)
+        ), strict=True)
+        _check_agl(
+            terrain, (min(north), max(north), min(east), max(east)), cruise_msl,
+            f"{label} at {start:.0f} m along-track",
         )
-        north, east = zip(*points, strict=True)
-        low, high = _terrain_bounds(
-            terrain, (min(north), max(north), min(east), max(east)))
-        min_agl, max_agl = cruise_msl - high, cruise_msl - low
-        if min_agl < AGL_MIN_M or max_agl > AGL_MAX_M:
-            raise X1PlanError(
-                "CORRIDOR_AGL",
-                f"{label} at {start:.0f} m along-track spans {min_agl:.1f}–{max_agl:.1f} m "
-                "AGL; expected 40–120 m")
+
+
+def _check_agl(terrain, box, cruise_msl: float, label: str) -> None:
+    try:
+        low, high = _terrain_bounds(terrain, box)
+    except X1PlanError as exc:
+        raise X1PlanError("DEM_COVERAGE", f"{label}: DEM does not cover the checked envelope") from exc
+    min_agl, max_agl = cruise_msl - high, cruise_msl - low
+    if min_agl < AGL_MIN_M or max_agl > AGL_MAX_M:
+        raise X1PlanError(
+            "CORRIDOR_AGL",
+            f"{label} spans {min_agl:.1f}-{max_agl:.1f} m AGL; expected 40-120 m")
 
 
 def _check_corridor_polyline(package, terrain, *, legs, home: Point, cruise_msl: float,
-                             mission_radius_m: float, runout_m: float,
+                             mission_radius_m: float, runout_m: float, turn_pad_m: float,
                              gate_ne: Point | None = None) -> None:
     """Check every leg plus the final back-transition overshoot.
 
@@ -255,6 +263,21 @@ def _check_corridor_polyline(package, terrain, *, legs, home: Point, cruise_msl:
             package, terrain, a=leg.start_ne, b=leg.end_ne, cruise_msl=cruise_msl,
             mission_radius_m=mission_radius_m, area=area, zones=zones,
             label=f"leg {leg.index}")
+    for leg in legs[1:]:
+        if leg.vertex_turn_deg <= 1e-6:
+            continue
+        n, e = leg.start_ne
+        n0, n1, e0, e1 = n - turn_pad_m, n + turn_pad_m, e - turn_pad_m, e + turn_pad_m
+        label = f"turn pad entering leg {leg.index}"
+        if (not (area["north_min_m"] <= n0 <= n1 <= area["north_max_m"]
+                 and area["east_min_m"] <= e0 <= e1 <= area["east_max_m"])
+                or max(math.dist(home, corner) for corner in
+                       ((n0, e0), (n0, e1), (n1, e0), (n1, e1))) > mission_radius_m):
+            raise X1PlanError("X1_CORRIDOR_TURN", f"{label} leaves the package fence or mission radius")
+        for (zn, ze), radius in zones:
+            if math.hypot(max(n0 - zn, 0, zn - n1), max(e0 - ze, 0, ze - e1)) <= effective_no_fly_radius(radius):
+                raise X1PlanError("NO_FLY_ZONE", f"{label} overlaps no-fly circle at {(zn, ze)}")
+        _check_agl(terrain, (n0, n1, e0, e1), cruise_msl, label)
     last = legs[-1]
     if gate_ne is not None:
         # The gate ends the FW leg; the post-transition drift continues toward home.
@@ -269,7 +292,7 @@ def _check_corridor_polyline(package, terrain, *, legs, home: Point, cruise_msl:
     _check_segment(
         package, terrain, a=last.end_ne, b=end, cruise_msl=cruise_msl,
         mission_radius_m=mission_radius_m, area=area, zones=zones,
-        label="final FW runout")
+        label=f"leg {last.index} final FW runout")
 
 
 def _check_budget_corridor(package, profile, *, height_m: float, fw_path_m: float,
@@ -293,27 +316,19 @@ def _check_budget_corridor(package, profile, *, height_m: float, fw_path_m: floa
         raise X1PlanError("ENERGY_BUDGET", "X1 corridor estimate exceeds energy budget after reserve")
 
 
-def _max_slice_length(dx: float, dy: float, pad: float, max_len: float) -> float:
+def _max_slice_length(ux: float, uy: float, pad: float, max_len: float) -> float:
     """Longest slice whose padded AABB corners stay inside the corridor tube."""
-    if math.hypot(dx, dy) <= 1e-12:
-        return max_len
-
     def distance(length: float) -> float:
-        ux, uy = dx / math.hypot(dx, dy), dy / math.hypot(dx, dy)
         sx, sy = ux * length, uy * length
         n0, n1 = min(0.0, sx) - pad, max(0.0, sx) + pad
         e0, e1 = min(0.0, sy) - pad, max(0.0, sy) + pad
         corners = ((n0, e0), (n0, e1), (n1, e0), (n1, e1))
-        return max(_point_segment_distance((0.0, 0.0), (dx, dy), corner)
+        return max(_point_segment_distance((0.0, 0.0), (sx, sy), corner)
                    for corner in corners)
 
     if distance(max_len) <= CORRIDOR_TUBE_HALF_WIDTH_M + 1e-9:
         return max_len
-    if pad * math.sqrt(2.0) > CORRIDOR_TUBE_HALF_WIDTH_M + 1e-9:
-        raise X1PlanError(
-            "CORRIDOR_SLICE_CAP",
-            "slice padding cannot fit inside the corridor tube at any length")
-    low, high = 1e-6, max_len
+    low, high = 0.0, max_len
     for _ in range(64):
         middle = (low + high) / 2.0
         if distance(middle) <= CORRIDOR_TUBE_HALF_WIDTH_M + 1e-9:
@@ -331,7 +346,7 @@ def slice_leg(start: Point3, end: Point3, pad_ne: float, pad_alt: float,
     Slice durations are distributed proportionally so their sum is exactly
     ``duration_bound``; only the last slice has ``command_end=True``. A slice
     may be shorter than ``max_len`` when a diagonal AABB would reach outside the
-    tube, or when the cap would otherwise be exceeded.
+    tube. If the resulting number of slices exceeds the cap, lowering fails.
     """
     try:
         pad_ne = require_real(pad_ne, "pad_ne", minimum=0.0)
@@ -343,19 +358,27 @@ def slice_leg(start: Point3, end: Point3, pad_ne: float, pad_alt: float,
         raise X1PlanError("INVALID_SLICE", str(exc)) from exc
     if (not isinstance(start, tuple) or not isinstance(end, tuple)
             or len(start) != 3 or len(end) != 3
-            or not all(type(value) in (int, float) for value in (*start, *end))):
+            or not all(type(value) in (int, float) and math.isfinite(value)
+                       for value in (*start, *end))):
         raise X1PlanError("INVALID_SLICE", "slice endpoints must be 3-tuples of numbers")
     if max_slices is not None and (type(max_slices) is not int or max_slices <= 0):
         raise X1PlanError("INVALID_SLICE", "max_slices must be a positive integer")
 
     dx, dy = end[0] - start[0], end[1] - start[1]
     length = math.hypot(dx, dy)
-    if length <= 1e-12:
+    if not math.isfinite(length) or not math.isfinite(end[2] - start[2]):
+        raise X1PlanError("INVALID_SLICE", "slice span must be finite")
+    if pad_ne * math.sqrt(2.0) > CORRIDOR_TUBE_HALF_WIDTH_M:
+        raise X1PlanError(
+            "CORRIDOR_SLICE_CAP", "slice padding cannot fit inside the corridor tube")
+    if length == 0.0:
         return (CorridorSlice("fw", start, end, pad_ne, pad_alt, duration_bound,
                               power, command_end=True),)
 
-    chunk = _max_slice_length(dx, dy, pad_ne, max_len)
-    count = max(1, math.ceil(length / chunk))
+    chunk = _max_slice_length(dx / length, dy / length, pad_ne, min(max_len, length))
+    if chunk <= 0.0 or not math.isfinite(length / chunk):
+        raise X1PlanError("CORRIDOR_SLICE_CAP", "no feasible FW slice length")
+    count = math.ceil(length / chunk)
     if max_slices is not None and count > max_slices:
         raise X1PlanError(
             "CORRIDOR_SLICE_CAP",
@@ -363,22 +386,18 @@ def slice_leg(start: Point3, end: Point3, pad_ne: float, pad_alt: float,
 
     slices: list[CorridorSlice] = []
     used_duration = 0.0
-    for index in range(count):
-        along_start = length * index / count
-        along_end = length * (index + 1) / count
-        fraction = (along_end - along_start) / length
-        if index == count - 1:
-            slice_duration = duration_bound - used_duration
-        else:
-            slice_duration = duration_bound * fraction
+    previous = start
+    for index in range(1, count + 1):
+        t = index / count
+        command_end = index == count
+        slice_duration = duration_bound * t - used_duration
         used_duration += slice_duration
-        t0, t1 = along_start / length, along_end / length
+        current = end if command_end else (
+            start[0] + dx * t, start[1] + dy * t, start[2] + (end[2] - start[2]) * t)
         slices.append(CorridorSlice(
-            "fw",
-            (start[0] + dx * t0, start[1] + dy * t0, start[2] + (end[2] - start[2]) * t0),
-            (start[0] + dx * t1, start[1] + dy * t1, start[2] + (end[2] - start[2]) * t1),
-            pad_ne, pad_alt, slice_duration, power, command_end=index == count - 1,
+            "fw", previous, current, pad_ne, pad_alt, slice_duration, power, command_end,
         ))
+        previous = current
     return tuple(slices)
 
 
@@ -405,10 +424,12 @@ def build_x1_corridor_steps(package, *, plan=None, terrain, profile,
     standoff gate, that last leg is replaced by the synthesized gate G on the
     ``P_{n-1} -> home`` line and MC return uses ``max(s, runout - s)``.
     """
-    corridor = bounds if bounds is not None else package.assumed_sim_corridor
-    if package.assumed_sim_corridor is None or corridor is None:
+    corridor = package.assumed_sim_corridor
+    if package.mode != "sim" or package.assumed_sim_max_distance_m is None or corridor is None:
         raise X1PlanError(
             "CORRIDOR_NOT_ENABLED", "multi-waypoint X1 lowering requires the assumed SIM corridor")
+    if bounds is not None and bounds != corridor:
+        raise X1PlanError("CORRIDOR_NOT_ENABLED", "bounds must match the package's assumed SIM corridor")
     _profile_ok(profile)
     plan = package.plan if plan is None else plan
     if plan is None:
@@ -478,14 +499,17 @@ def build_x1_corridor_steps(package, *, plan=None, terrain, profile,
     except ValueError as exc:
         raise X1PlanError("INVALID_FW_MIN_LEG", str(exc)) from exc
 
-    last_is_home = work_steps[-1].params.get("target_ref") == "home"
+    if work_steps[-1].params.get("target_ref") != "home":
+        code = "CORRIDOR_RETURN_TOO_SHORT" if corridor.standoff_gate_enabled else "UNSUPPORTED_PLAN"
+        raise X1PlanError(code, "corridor lowering requires an explicit FW return leg to home")
+    if any(step.params.get("target_ref") == "home" for step in work_steps[:-1]):
+        raise X1PlanError("UNSUPPORTED_PLAN", "only the final FW leg may target home")
+
     gate_ne = None
     if corridor.standoff_gate_enabled:
-        if not last_is_home:
-            raise X1PlanError(
-                "CORRIDOR_RETURN_TOO_SHORT",
-                "standoff gate requires an explicit FW return leg to home")
         standoff = float(corridor.standoff_m)
+        if not 0.0 < standoff <= runout:
+            raise X1PlanError("CORRIDOR_RETURN_TOO_SHORT", "standoff must be within FW runout")
         distance = math.dist(vertices[-2], home)
         if distance < standoff + minimum:
             raise X1PlanError(
@@ -505,14 +529,15 @@ def build_x1_corridor_steps(package, *, plan=None, terrain, profile,
                 f"corridor leg {index} is {length:.1f} m, below fw_min_leg_m={minimum:g} m")
         before = next((point for point in reversed(vertices[:index - 1]) if point != start), start)
         turn = 0.0 if index == 1 else _turn_angle_deg(before, start, end)
-        if index == len(work_steps) and (last_is_home or gate_ne is not None):
+        if index == len(work_steps):
             kind = "return"
         elif index == 1:
             kind = "out"
         else:
             kind = "dogleg"
         heading = math.degrees(math.atan2(end[1] - start[1], end[0] - start[0])) % 360.0
-        duration = length / (profile.cruise_airspeed_mps - profile.endurance.wind_margin_mps)
+        duration = length / min(corridor.min_ground_speed_mps,
+                                profile.cruise_airspeed_mps - profile.endurance.wind_margin_mps)
         legs.append(CorridorLeg(
             index=index, source_step_id=step.id, start_ne=start, end_ne=end,
             cruise_msl=cruise_msl, heading_deg=heading, vertex_turn_deg=turn, kind=kind,
@@ -520,15 +545,20 @@ def build_x1_corridor_steps(package, *, plan=None, terrain, profile,
             peak_power_w=float(corridor.fw_leg_peak_power_w),
         ))
 
+    r_min = math.ceil(profile.max_airspeed_mps ** 2
+                      / (9.80665 * math.tan(math.radians(profile.max_bank_deg))))
+    wind_drift = profile.endurance.wind_margin_mps * math.pi * r_min / profile.cruise_airspeed_mps
+    turn_pad_m = 2.0 * r_min + FW_PASS_CROSS_M + corridor.fw_tracking_m + wind_drift
     _check_corridor_polyline(
         package, terrain, legs=legs, home=home, cruise_msl=cruise_msl,
-        mission_radius_m=radius, runout_m=runout, gate_ne=gate_ne)
+        mission_radius_m=min(radius, package.assumed_sim_max_distance_m),
+        runout_m=runout, turn_pad_m=turn_pad_m, gate_ne=gate_ne)
 
     if gate_ne is not None:
         mc_distance = max(float(corridor.standoff_m),
                           runout - float(corridor.standoff_m))
     else:
-        mc_distance = math.dist(vertices[-1], home) + runout
+        mc_distance = runout
     _check_budget_corridor(
         package, profile, height_m=height_m,
         fw_path_m=sum(leg.length_m for leg in legs), mc_distance_m=mc_distance)
@@ -556,7 +586,7 @@ def build_x1_corridor_steps(package, *, plan=None, terrain, profile,
     ]
     for leg, step in zip(legs, work_steps, strict=True):
         metadata = {"long_range_home_relative": True}
-        if gate_ne is not None and leg.end_ne == gate_ne:
+        if gate_ne is not None and leg.kind == "return":
             metadata["corridor_gate"] = True
         steps.append(X1MissionStep(
             "fw_goto_waypoint", step.id,

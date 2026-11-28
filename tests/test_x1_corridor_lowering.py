@@ -180,8 +180,29 @@ def test_gate_return_too_short(terrain, profile):
         _build(gated, ["poi:a", "poi:b"], terrain, profile)
 
 
+def test_fw_home_leg_required_even_with_gate_off(terrain, profile):
+    places = {"poi:a": [400.0, 0.0], "poi:b": [400.0, 400.0]}
+    with pytest.raises(X1PlanError, match="^UNSUPPORTED_PLAN:.*FW return leg to home"):
+        _build(_package(places), ["poi:a", "poi:b"], terrain, profile)
+
+
+def test_180_degree_turn_pad_must_fit_inside_corridor(terrain, profile):
+    package = _package({"poi:a": [900.0, 0.0]}, rect=(-1000.0, 1000.0))
+    with pytest.raises(X1PlanError, match="^X1_CORRIDOR_TURN:.*leg 2"):
+        _build(package, ["poi:a", "home"], terrain, profile)
+
+
+def test_bounds_cannot_override_package_gate(terrain, profile):
+    package = _package({"poi:a": [400.0, 0.0]})
+    with pytest.raises(X1PlanError, match="^CORRIDOR_NOT_ENABLED:.*match"):
+        build_x1_corridor_steps(
+            package, plan=_plan(["poi:a", "home"]), terrain=terrain, profile=profile,
+            mission_radius_m=4000.0, bounds=replace(CORRIDOR, standoff_gate_enabled=True))
+
+
 def test_only_one_middle_leg_outside_the_fence_reports_that_leg(terrain, profile):
-    places = {"poi:a": [400.0, 0.0], "poi:b": [1100.0, 800.0]}
+    # Only leg 2 points east along the fence: its north edge is at 1001 m.
+    places = {"poi:a": [946.0, 0.0], "poi:b": [946.0, 400.0]}
     package = _package(places, rect=(-1000.0, 1000.0))
     with pytest.raises(X1PlanError, match="^RUNOUT_OUTSIDE_FENCE:") as error:
         _build(package, ["poi:a", "poi:b", "home"], terrain, profile)
@@ -189,20 +210,27 @@ def test_only_one_middle_leg_outside_the_fence_reports_that_leg(terrain, profile
 
 
 def test_only_one_middle_leg_through_a_no_fly_zone(terrain, profile):
-    places = {"poi:a": [400.0, 0.0], "poi:b": [800.0, 0.0]}
-    zones = {"zone:restricted": {"centre_ne": [600.0, 0.0], "radius_m": 20.0,
+    places = {"poi:a": [400.0, 0.0], "poi:b": [800.0, 400.0]}
+    zones = {"zone:restricted": {"centre_ne": [600.0, 200.0], "radius_m": 8.0,
                                  "risk_tag": "no_fly"}}
     with pytest.raises(X1PlanError, match="^NO_FLY_ZONE:") as error:
         _build(_package(places, zones=zones), ["poi:a", "poi:b", "home"], terrain, profile)
     assert "leg 2" in str(error.value)
 
 
-def test_only_one_leg_has_agl_out_of_band(terrain, profile):
+@pytest.mark.parametrize("elevation", [150.0, 30.0])
+def test_only_one_leg_has_agl_out_of_band(terrain, profile, elevation):
     places = {"poi:a": [600.0, 0.0], "poi:b": [600.0, 600.0], "poi:c": [0.0, 600.0]}
-    terrain = _raise_vertex(terrain, 300.0, 600.0, 150.0)
+    terrain = _raise_vertex(terrain, 300.0, 600.0, elevation)
     with pytest.raises(X1PlanError, match="^CORRIDOR_AGL:") as error:
         _build(_package(places), ["poi:a", "poi:b", "poi:c", "home"], terrain, profile)
     assert "leg 3" in str(error.value)
+
+
+def test_default_home_runout_extends_past_home_for_fence_check(terrain, profile):
+    package = _package({"poi:a": [400.0, 0.0]}, rect=(-500.0, 1000.0))
+    with pytest.raises(X1PlanError, match="^RUNOUT_OUTSIDE_FENCE:.*leg 2 final FW runout"):
+        _build(package, ["poi:a", "home"], terrain, profile)
 
 
 def test_leg_count_over_corridor_max(terrain, profile):
@@ -224,14 +252,18 @@ def test_nine_step_plan_is_rejected(terrain, profile):
         _build(_package(places), [*places, "home"], terrain, profile)
 
 
-def test_dogleg_budget_uses_path_length_not_displacement(terrain, profile):
-    budget = {"time_s": 400.0, "reserve_time_s": 10.0,
-              "energy_wh": 200.0, "reserve_energy_wh": 14.8}
+@pytest.mark.parametrize(("budget_overrides", "code"), [
+    ({"time_s": 400.0}, "TIME_BUDGET"),
+    ({"energy_wh": 57.8}, "ENERGY_BUDGET"),
+])
+def test_dogleg_budget_uses_path_length_not_displacement(terrain, profile, budget_overrides, code):
+    budget = {"time_s": 1000.0, "reserve_time_s": 10.0,
+              "energy_wh": 200.0, "reserve_energy_wh": 14.8} | budget_overrides
     straight = _package({"poi:a": [800.0, 800.0]}, budget=budget)
     _build(straight, ["poi:a", "home"], terrain, profile)
 
     dogleg = _package({"poi:a": [800.0, 0.0], "poi:b": [800.0, 800.0]}, budget=budget)
-    with pytest.raises(X1PlanError, match="^TIME_BUDGET:"):
+    with pytest.raises(X1PlanError, match=rf"^{code}:"):
         _build(dogleg, ["poi:a", "poi:b", "home"], terrain, profile)
 
 
@@ -326,6 +358,24 @@ def test_slice_cap_is_enforced():
     with pytest.raises(X1PlanError, match="^CORRIDOR_SLICE_CAP:"):
         slice_leg((0.0, 0.0, 160.0), (1000.0, 0.0, 160.0), 19.0, 0.0,
                   1000.0 / 12.0, 500.0, 10.0, max_slices=5)
+
+
+def test_slice_degenerate_leg_still_requires_padding_to_fit():
+    point = (0.0, 0.0, 160.0)
+    with pytest.raises(X1PlanError, match="^CORRIDOR_SLICE_CAP:"):
+        slice_leg(point, point, 40.0, 0.0, 0.0, 500.0, 100.0)
+
+
+def test_slice_nonfinite_endpoint_fails_closed():
+    with pytest.raises(X1PlanError, match="^INVALID_SLICE:"):
+        slice_leg((0.0, 0.0, 160.0), (100.0, 0.0, math.inf), 19.0, 0.0,
+                  10.0, 500.0, 100.0)
+
+
+def test_mission_module_exports_corridor_api():
+    from multidetect.autonomy.x1_mission import build_x1_corridor_steps as exported
+
+    assert exported is build_x1_corridor_steps
 
 
 def test_corridor_primitives_input_lowers_with_execution_inputs(terrain, profile):
