@@ -109,6 +109,8 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" --cuda-device 0 --case 
 
 先前留档的 SITL 通过套件的 `shared_post` 注入记录计划（**不是模型规划，用于验证走廊机制**；Altair 只做飞行决策）。飞行器起飞并到达 west、east 两个航点。8 轮均提议 `continue`，实际回执为 7 次 `unverified_clearance`、1 次 `cadence_step_changed`，没有一次被证明接纳。当时 `scripts/realworld/long_range_flight.py` 只要设置了走廊起飞航向，就把每条 FW 腿的起点取为 home 参考：第一腿 home→west 正确；第二腿本应是 west→east 折线，却变成 home→east；第三腿目标就是 home，起点仍取 home，水平位移为零，触发 `long-range Offboard path requires a nonzero horizontal leg`，runner 随即中止。未发生 `back_transition` 或 MC 落地。起飞完成至中止为 60.88 仿真秒，MAVLink 采样最大水平离家距离为 612.47 m。闭环验收未通过。修复后，走廊路线从上一腿的已命令目标链接下一腿的切线（单航点与非走廊路径的起点逻辑不变），并有 CPU 回归测试覆盖三腿折线与回 home 的零长度问题。
 
+修复后的 plan-injected SITL 再次飞行：三条 FW 腿全部完成（west、east、home 上空均记录 `long_range_waypoint_pass`），随后 `back_transition`、MC 返航和落地均成功，`flight.status=pass`。起飞完成至落地 180.06 仿真秒，MAVLink 采样最大水平离家 668.08 m。共 19 轮决策，Altair 的 16 次 `continue` 提议仍全部被证明层拒绝（15 次 `unverified_clearance`、1 次 `current_fw_airspeed_limit`），另有 3 次 `cadence_mode_changed` 无动作回执，0 次接纳。也就是说，多腿执行机制已走通，但“FW 巡航 `continue` 被多腿 MotionProof 接纳”的闭环验收仍未通过；拒绝码与 47 m AGL 下后过渡扫掠净空不足的既有离线结论一致，未放宽任何判定。
+
 ## 结果
 
 - `CASE/result.json` 含逐次尝试、检查项、动作回执和原始 runner 结果。每个尝试保留 `worker.json`、`runner.log`、`preflight/result.json`，以及已进入飞行流程时的 `flight/result.json` 和 `decisions.jsonl`。
