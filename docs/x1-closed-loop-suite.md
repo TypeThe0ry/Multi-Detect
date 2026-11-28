@@ -107,7 +107,7 @@ scripts/run_x1_closed_loop_suite.sh --checkpoint "$GGUF" --cuda-device 0 --case 
 
 `--recorded-output` 可用于该走廊的静态预检；带实时决策服务的独立 demo 不允许用它飞行，会在启动仿真前退出（`recorded output requires --plan-only or --dry-run`）。这是 CLI 限制，而不是 `ASSUMED_SIM` 模板准入失败。
 
-先前留档的 SITL 通过套件的 `shared_post` 注入记录计划（**不是模型规划，用于验证走廊机制**；Altair 只做飞行决策）。飞行器起飞并到达 west、east 两个航点。8 轮均提议 `continue`，实际回执为 7 次 `unverified_clearance`、1 次 `cadence_step_changed`，没有一次被证明接纳。第三条 FW 腿启动时，`scripts/realworld/long_range_flight.py` 在已有走廊航向时仍使用 home 参考作为腿起点，与 home 目标形成零水平位移，runner 随即中止；未发生 `back_transition` 或 MC 落地。起飞完成至中止为 60.88 仿真秒，MAVLink 采样最大水平离家距离为 612.47 m。闭环验收未通过。
+先前留档的 SITL 通过套件的 `shared_post` 注入记录计划（**不是模型规划，用于验证走廊机制**；Altair 只做飞行决策）。飞行器起飞并到达 west、east 两个航点。8 轮均提议 `continue`，实际回执为 7 次 `unverified_clearance`、1 次 `cadence_step_changed`，没有一次被证明接纳。当时 `scripts/realworld/long_range_flight.py` 只要设置了走廊起飞航向，就把每条 FW 腿的起点取为 home 参考：第一腿 home→west 正确；第二腿本应是 west→east 折线，却变成 home→east；第三腿目标就是 home，起点仍取 home，水平位移为零，触发 `long-range Offboard path requires a nonzero horizontal leg`，runner 随即中止。未发生 `back_transition` 或 MC 落地。起飞完成至中止为 60.88 仿真秒，MAVLink 采样最大水平离家距离为 612.47 m。闭环验收未通过。修复后，走廊路线从上一腿的已命令目标链接下一腿的切线（单航点与非走廊路径的起点逻辑不变），并有 CPU 回归测试覆盖三腿折线与回 home 的零长度问题。
 
 ## 结果
 
