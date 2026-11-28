@@ -68,6 +68,71 @@ def parse_policy(value: Any) -> tuple[str, float]:
     return action, timeout
 
 
+CORRIDOR_SCHEMA = "x1.corridor.v1"
+CORRIDOR_FIELDS = frozenset({
+    "basis",
+    "scope",
+    "schema",
+    "max_fw_legs",
+    "slice_m",
+    "standoff_m",
+    "standoff_gate_enabled",
+    "turn_pad_rule",
+    "fw_tracking_m",
+    "fw_leg_peak_power_w",
+    "mc_peak_power_w",
+    "min_ground_speed_mps",
+    "wind_sigma_mps",
+    "max_sweep_legs",
+})
+
+
+@dataclass(frozen=True)
+class CorridorBounds:
+    """SITL-only corridor constants bound by an exact ASSUMED_SIM template."""
+
+    max_fw_legs: int
+    slice_m: float
+    standoff_m: float
+    standoff_gate_enabled: bool
+    turn_pad_rule: str
+    fw_tracking_m: float
+    fw_leg_peak_power_w: float
+    mc_peak_power_w: float
+    min_ground_speed_mps: float
+    wind_sigma_mps: float
+    max_sweep_legs: int
+    schema: str = CORRIDOR_SCHEMA
+
+    @classmethod
+    def parse(cls, value: Any) -> CorridorBounds:
+        if not isinstance(value, Mapping) or set(value) != CORRIDOR_FIELDS:
+            raise ValueError("assumed SIM corridor has unexpected fields")
+        if value["basis"] != "ASSUMED_SIM" or value["scope"] != "SITL-only":
+            raise ValueError("assumed SIM corridor must be SITL-only")
+        if value["schema"] != CORRIDOR_SCHEMA:
+            raise ValueError("assumed SIM corridor schema mismatch")
+        if type(value["standoff_gate_enabled"]) is not bool:
+            raise ValueError("standoff_gate_enabled must be boolean")
+        if not isinstance(value["turn_pad_rule"], str) or not value["turn_pad_rule"].strip():
+            raise ValueError("turn_pad_rule must be nonempty text")
+        counts = {}
+        for key in ("max_fw_legs", "max_sweep_legs"):
+            count = value[key]
+            if type(count) is not int or count <= 0:
+                raise ValueError(f"invalid {key}")
+            counts[key] = count
+        measures = {
+            key: number(value[key], key)
+            for key in ("slice_m", "standoff_m", "fw_tracking_m", "fw_leg_peak_power_w",
+                        "mc_peak_power_w", "min_ground_speed_mps", "wind_sigma_mps")
+        }
+        if measures["slice_m"] <= 0 or measures["min_ground_speed_mps"] <= 0:
+            raise ValueError("invalid assumed SIM corridor limits")
+        return cls(**counts, **measures, standoff_gate_enabled=value["standoff_gate_enabled"],
+                   turn_pad_rule=value["turn_pad_rule"])
+
+
 @dataclass(frozen=True)
 class MissionPackage:
     document: dict[str, Any]
@@ -76,6 +141,8 @@ class MissionPackage:
     mode: str | None = None
     # SITL-only wide envelope authorized by an exact ASSUMED_SIM bounds template.
     assumed_sim_max_distance_m: float | None = None
+    # SITL-only corridor constants from the matching exact ASSUMED_SIM template.
+    assumed_sim_corridor: CorridorBounds | None = None
 
     @property
     def mission_id(self) -> str:
@@ -772,6 +839,7 @@ def load_mission_package(
     flight_mode: bool | None = None,
     allow_assumed_sim: bool = False,
     assumed_sim_max_distance_m: float | None = None,
+    assumed_sim_corridor: CorridorBounds | Mapping[str, Any] | None = None,
 ) -> MissionPackage:
     if isinstance(raw, Path):
         raw = strict_json_loads(raw.read_text(encoding="utf-8"), name="mission package")
@@ -787,6 +855,17 @@ def load_mission_package(
         mode != "sim" or allow_assumed_sim is not True or flight_mode or require_signature or key or key_path
     ):
         raise ValueError("the assumed SIM envelope requires the authorized SITL scenario runner")
+    if assumed_sim_corridor is not None:
+        if assumed_sim_max_distance_m is None:
+            raise ValueError("the assumed SIM corridor requires the assumed SIM envelope")
+        if (
+            mode != "sim" or allow_assumed_sim is not True or flight_mode
+            or require_signature or key or key_path
+        ):
+            raise ValueError(
+                "the assumed SIM corridor requires the authorized SITL scenario runner")
+        if not isinstance(assumed_sim_corridor, CorridorBounds):
+            assumed_sim_corridor = CorridorBounds.parse(assumed_sim_corridor)
     if flight_mode is not None and not isinstance(flight_mode, bool):
         raise ValueError("flight_mode must be boolean")
     # Any explicit flight/real mode is fail-closed.  A configured key also
@@ -998,7 +1077,8 @@ def load_mission_package(
     if plan is None and not task:
         raise ValueError("mission package needs task_text or plan")
     package = MissionPackage(obj, refs, plan, mode=mode,
-                             assumed_sim_max_distance_m=assumed_sim_max_distance_m)
+                             assumed_sim_max_distance_m=assumed_sim_max_distance_m,
+                             assumed_sim_corridor=assumed_sim_corridor)
     if plan is not None:
         package.validate_plan(plan)
         if "x1_planning" in obj:
@@ -1009,6 +1089,7 @@ def load_mission_package(
 
 
 __all__ = [
+    "CorridorBounds",
     "MissionPackage",
     "check_plan_against_package",
     "estimate_plan_energy",

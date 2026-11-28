@@ -48,6 +48,42 @@ LONG_RANGE_SCOPES = {
 }
 ENVELOPE_KEYS = {"basis", "scope", "max_distance_from_home_m"}
 
+# The corridor template reuses the long-range SITL mission until the corridor
+# route is introduced in a later step; only the corridor constants are new.
+CORRIDOR_BASE_SHA = LONG_RANGE_BASE_SHA
+CORRIDOR_SCOPES = dict(LONG_RANGE_SCOPES)
+CORRIDOR_SCHEMA = "x1.corridor.v1"
+CORRIDOR_STANDOFF_M = 252.5
+# D2 (standoff gate) is pending measured statistics, so OP-A keeps it disabled.
+CORRIDOR_STANDOFF_GATE_ENABLED = False
+CORRIDOR_TURN_PAD_RULE = "2*R_min + fly_through + fw_tracking"
+CORRIDOR_ENVELOPE_KEYS = frozenset({
+    "basis", "scope", "schema", "max_fw_legs", "slice_m", "standoff_m",
+    "standoff_gate_enabled", "turn_pad_rule", "fw_tracking_m",
+    "fw_leg_peak_power_w", "mc_peak_power_w", "min_ground_speed_mps",
+    "wind_sigma_mps", "max_sweep_legs",
+})
+
+
+def corridor_scopes_for(kind):
+    """The nominal or wind scope admitted for the corridor route."""
+    key = "nominal" if kind is None else kind
+    return {CORRIDOR_SCOPES[key]} if key in CORRIDOR_SCOPES else set()
+
+
+def corridor_bounds(raw):
+    """Return the SITL-only corridor bounds declared by an assumed bounds file, if any."""
+    from multidetect.autonomy.mission_package import CorridorBounds
+
+    if not isinstance(raw, Mapping):
+        raise ValueError("assumed bounds must be an object")
+    corridor = raw.get("assumed_sim_corridor")
+    if corridor is None:
+        return None
+    if not isinstance(corridor, Mapping) or set(corridor) != CORRIDOR_ENVELOPE_KEYS:
+        raise ValueError("assumed SIM corridor has unexpected fields")
+    return CorridorBounds.parse(corridor)
+
 
 def long_range_scopes_for(kind):
     """The nominal or wind scope admitted for the long-range route."""
@@ -205,6 +241,31 @@ def generate_long_range(*, mode, world, image, profile_path):
         "airspeed": [12.0, 18.0],
         "failure_revalidation_enforced": True,
     }, "单航点东北远标约 3.5 km 航线，从 FW 段到返航落地按 3.5 km 航段、过渡延伸与保守 MC 返航时间计；仅 SITL assumed，未获准用于真机。")}
+    return document
+
+
+def generate_corridor(*, mode, world, image, profile_path):
+    """Generate the SITL-only corridor template bound to the same exact mission."""
+    document = generate_long_range(mode=mode, world=world, image=image, profile_path=profile_path)
+    document["scope"]["base_mission_sha256"] = CORRIDOR_BASE_SHA
+    document["scope"]["scenarios"] = CORRIDOR_SCOPES
+    document["assumed_sim_corridor"] = {
+        "basis": BASIS,
+        "scope": "SITL-only",
+        "schema": CORRIDOR_SCHEMA,
+        "max_fw_legs": 4,
+        "slice_m": 100.0,
+        "standoff_m": CORRIDOR_STANDOFF_M,
+        # D2: design value only; measured standoff statistics are pending, default off.
+        "standoff_gate_enabled": CORRIDOR_STANDOFF_GATE_ENABLED,
+        "turn_pad_rule": CORRIDOR_TURN_PAD_RULE,
+        "fw_tracking_m": 19.0,
+        "fw_leg_peak_power_w": 344.0,
+        "mc_peak_power_w": 750.0,
+        "min_ground_speed_mps": 12.0,
+        "wind_sigma_mps": 2.0,
+        "max_sweep_legs": 384,
+    }
     return document
 
 
