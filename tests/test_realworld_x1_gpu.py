@@ -27,6 +27,7 @@ def host(tmp_path, monkeypatch):
     monkeypatch.setattr(x1_gpu, "CGROUP_ROOT", tmp_path / "cgroups")
     monkeypatch.setattr(x1_gpu, "GPU_LOCK_ROOT", tmp_path / "gpu-locks")
     monkeypatch.delenv("RTF_MATRIX_GPU_LOCK_ROOT", raising=False)
+    monkeypatch.delenv(x1_gpu.ALLOW_GPUS_ENV, raising=False)
     monkeypatch.setattr(x1_gpu, "SUNSHINE_COMPUTE_MARKER", tmp_path / "allow-sunshine")
 
     def read(args, *, timeout):
@@ -64,6 +65,36 @@ def host(tmp_path, monkeypatch):
     monkeypatch.setattr(x1_gpu, "run_read", read)
     return SimpleNamespace(live=live, training=training, compute=compute,
                            status=tmp_path / "GPU-STATUS.json")
+
+
+def test_allow_list_restricts_selection(host, monkeypatch):
+    monkeypatch.setenv(x1_gpu.ALLOW_GPUS_ENV, " 1, 03 ")
+    selection = x1_gpu.select(host.status)
+    assert selection == {"gpu_index": 1, "gpu_uuid": gpu_uuid(1), "gpu_reason": "primary_gpu_idle",
+                         "gpu_shared_processes": []}
+    report = json.loads(host.status.read_text())
+    assert report["allowed_gpus"] == [1, 3]
+    assert report["blocked_gpus"] == {
+        "0": [f"gpu_not_allowed:{x1_gpu.ALLOW_GPUS_ENV}"],
+        "2": [f"gpu_not_allowed:{x1_gpu.ALLOW_GPUS_ENV}"],
+    }
+
+
+def test_allow_list_only_falls_back_inside_the_list(host, monkeypatch):
+    monkeypatch.setenv(x1_gpu.ALLOW_GPUS_ENV, "3")
+    assert x1_gpu.select(host.status)["gpu_index"] == 3
+    host.live[3]["processes"] = [(999, "C", "/usr/bin/python", 64)]
+    with pytest.raises(x1_gpu.GPUUnavailable):
+        x1_gpu.select(host.status)
+    assert set(json.loads(host.status.read_text())["blocked_gpus"]) == {"0", "1", "2", "3"}
+
+
+def test_allow_list_honours_explicit_indices(host, monkeypatch):
+    monkeypatch.setenv(x1_gpu.ALLOW_GPUS_ENV, "2")
+    with pytest.raises(x1_gpu.GPUUnavailable):
+        x1_gpu.select(host.status, indices=(0, 1))
+    selection = x1_gpu.select(host.status, indices=(2,))
+    assert selection["gpu_index"] == 2 and selection["gpu_reason"] == "fallback_gpu_idle"
 
 
 def test_prefers_gpu0_when_idle(host):
