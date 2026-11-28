@@ -186,7 +186,7 @@ def _land_now(raw):
                          number(power, "power", minimum=0.001), _dynamics(dynamics))
 
 
-def _hold(raw, terrain):
+def _hold(raw, terrain, *, max_step=3):
     mode = raw.get("mode") if isinstance(raw, Mapping) else None
     keys = ["mode", "steps", "entry", "max_entry_speed_mps", "padding_ne_m", "padding_alt_m", "duration_s",
             "peak_power_w", "dynamics"]
@@ -196,7 +196,8 @@ def _hold(raw, terrain):
         raise ValueError("hold mode must be mc or fw")
     values = dict(zip(keys, _fields(raw, *keys), strict=True))
     steps = values["steps"]
-    if not isinstance(steps, list) or not steps or not set(steps) <= {1, 2, 3} or len(set(steps)) != len(steps):
+    if (not isinstance(steps, list) or not steps or type(max_step) is not int or max_step < 1
+            or not set(steps) <= set(range(1, max_step + 1)) or len(set(steps)) != len(steps)):
         raise ValueError("invalid hold step indices")
     common = dict(steps=frozenset(steps), entry=_box(values["entry"]),
                   max_entry_speed_mps=number(values["max_entry_speed_mps"], "entry speed", minimum=0.001),
@@ -226,7 +227,7 @@ def _hold(raw, terrain):
                       airspeed=airspeed, **common)
 
 
-def parse_native(raw, terrain):
+def parse_native(raw, terrain, *, max_step=3):
     """Validate host bounds for native return, land-now and hold sites."""
     if not isinstance(raw, Mapping) or not set(raw) <= {"return", "land-now", "holds"} or not raw:
         raise ValueError("invalid native bound sections")
@@ -239,7 +240,7 @@ def parse_native(raw, terrain):
         raise ValueError("expected at most 8 hold sites")
     return ({int(k): _suffix(v, int(k)) for k, v in returns.items()},
             {int(k): _land_now(v) for k, v in landings.items()},
-            {require_token(ref): _hold(v, terrain) for ref, v in holds.items()})
+            {require_token(ref): _hold(v, terrain, max_step=max_step) for ref, v in holds.items()})
 
 
 class LiveContinueEvidence:
@@ -254,6 +255,7 @@ class LiveContinueEvidence:
                  corridor: X1CorridorLowering | None = None):
         self.assumed_sim = assumed_sim
         self.corridor = corridor
+        self._corridor_rtl = None
         if corridor is not None:
             self._corridor_wind = None
         self.retask_bounds = (assumed_sim or {}).get("airborne_retask")
@@ -307,7 +309,9 @@ class LiveContinueEvidence:
                     raise ValueError("invalid suffix indices")
                 self.suffixes = {int(index): _suffix(raw, int(index)) for index, raw in suffixes.items()}
                 if native is not None:
-                    self.native_returns, self.native_landings, self.holds = parse_native(native, terrain)
+                    max_step = len(corridor.legs) if corridor is not None else 3
+                    self.native_returns, self.native_landings, self.holds = parse_native(
+                        native, terrain, max_step=max_step)
                 self.pad, self.battery_bounds = landing_pad, battery_bounds
             except ValueError:
                 if self.assumed_sim is not None:
@@ -325,6 +329,16 @@ class LiveContinueEvidence:
                 and isinstance(fw_rtl, FwRtlBounds) and fw_rtl.image_id != assumed_sim.get("image_id")
                 and fw_rtl.valid_for(scope, profile)):
             self.fw_rtl = fw_rtl
+        if self.corridor is not None and self.fw_rtl is not None:
+            params = self.fw_rtl.params
+            if self.fw_rtl.corridor_ready(
+                    min_cruise_rel_home_m=self.builder.corridor_min_cruise_rel_home_m) \
+                    and self.builder.corridor_rtl_ready(
+                        return_alt_m=params["RTL_RETURN_ALT"], loiter_radius_m=params["RTL_LOITER_RAD"]):
+                self._corridor_rtl = self.fw_rtl
+
+    def _corridor_rtl_available(self):
+        return self._corridor_rtl is not None and self.fw_rtl_ready is True
 
     def remaining_energy_wh(self, row):
         capacity = self.budget.get("battery_capacity_wh")
@@ -471,13 +485,20 @@ class LiveContinueEvidence:
                 if (bound is not None and _contains(bound.entry, point)
                         and speed <= min(bound.max_entry_speed_mps, self.retask_bounds["max_ground_speed_mps"])):
                     admitted.add(("retask", index))
+            if self._corridor_rtl_available() and type(index) is int:
+                admitted.update(
+                    ("hold", ref) for ref, bound in self.holds.items()
+                    if bound.site.mode == "fw" and index in bound.steps
+                    and _contains(bound.entry, point)
+                    and speed <= bound.max_entry_speed_mps
+                    and self.builder.corridor_hold_clear(bound))
         else:
             admitted = {key for key, bound in self._entries(index)
                         if _contains(bound.entry, point) and speed <= bound.max_entry_speed_mps}
             land = self.native_landings.get(index)
             if land is not None and speed <= land.max_entry_speed_mps and self._land_pad(point, land) is not None:
                 admitted.add(("land-now", index))
-        hold = self.holds.get(confirmed_hold_ref) if self.corridor is None else None
+        hold = self.holds.get(confirmed_hold_ref)
         if (self.corridor is None and fw_ready and hold is not None and hold.site.mode == "fw"
                 and observed_home is not None
                 and (installed_key is not None or index in hold.steps)
@@ -485,6 +506,16 @@ class LiveContinueEvidence:
             # Once the orbit is confirmed, the RTL sweep starts at the live
             # fix, which need not still be inside the original Hold entry box.
             self._fw_rtl_entry = point, index, installed_key, hold, observed_home
+        elif (self.corridor is not None and installed_key is None and self._corridor_rtl_available()
+                and hold is not None and hold.site.mode == "fw" and observed_home is not None
+                and type(index) is int and 1 <= index <= len(self.corridor.legs)
+                and index in hold.steps and self._corridor_admits(index, point, speed)
+                and speed <= min(hold.max_entry_speed_mps, self.fw_rtl.max_ground_speed_mps)
+                and self.builder.corridor_rtl_clear(index, point)):
+            # The precomputed chord from this slice start (not just the leg
+            # tube) must be fence/terrain/obstacle clear before offering return.
+            self._fw_rtl_entry = point, index, installed_key, hold, observed_home
+            admitted.add(("return", index))
         if not admitted and self._fw_rtl_entry is None:
             return None
         self._entry = point, frozenset(admitted)
@@ -496,7 +527,14 @@ class LiveContinueEvidence:
     def hold_sites(self, index, vtol_state, *, installed_key=None, point=None):
         """Host-defined hold options for this step and steady mode (offered to Altair by reference)."""
         if self.corridor is not None:
-            return {}
+            # Corridor Holds are only offered once a reviewed v2 corridor RTL
+            # manifest is installed and read back; each disk must fit the fence.
+            if (installed_key is not None or not self._corridor_rtl_available()
+                    or type(index) is not int):
+                return {}
+            return {ref: bound.site for ref, bound in sorted(self.holds.items())
+                    if vtol_state == bound.site.mode == "fw" and index in bound.steps
+                    and self.builder.corridor_hold_clear(bound)}
         if installed_key is not None:
             return {ref: bound.site for ref, bound in sorted(self.holds.items())
                     if vtol_state == bound.site.mode == "fw"
@@ -588,11 +626,17 @@ class LiveContinueEvidence:
         return replace(self.builder.build(decision, frame, sweep), basis=self.basis)
 
     def _corridor_proof(self, decision, frame):
-        """Build command-bound evidence while native recovery and hold stay closed."""
+        """Build command-bound evidence; recovery stays closed without a v2 manifest."""
         if decision.action == "retask" and self.retask_bounds is not None:
             return self._retask_proof(decision, frame)
         closed = replace(self.builder.build(decision, frame, None), basis=self.basis)
-        if decision.action != "continue" or self.basis != "ASSUMED_SIM":
+        if self.basis != "ASSUMED_SIM":
+            return closed
+        if decision.action == "loiter":
+            return self._corridor_hold_proof(decision, frame)
+        if decision.action == "return" and frame.vtol_state == "fw":
+            return self._corridor_return_proof(decision, frame)
+        if decision.action != "continue":
             return closed
         installed = (frame.installed_plan_sha256 is not None
                      or (frame.revision > 1 and self.stage_retask is not None))
@@ -605,6 +649,90 @@ class LiveContinueEvidence:
         if sweep is None:
             return closed
         return replace(self.builder.build(decision, frame, sweep), basis=self.basis)
+
+    @staticmethod
+    def _stricter_sweep(first, second, legs, *, hold_revalidation_enforced):
+        """Merge two certified dynamic envelopes without widening either one."""
+        def low(a, b):
+            return None if a is None or b is None else max(a, b)
+
+        def high(a, b):
+            return None if a is None or b is None else min(a, b)
+
+        def cap(a, b):
+            return min(a, b) if a is not None and b is not None else (a if b is None else b)
+
+        return ExecutionSweep(
+            first.frame_id, first.decision_digest, tuple(legs),
+            max_bank_deg=cap(first.max_bank_deg, second.max_bank_deg),
+            max_climb_mps=cap(first.max_climb_mps, second.max_climb_mps),
+            max_descent_mps=cap(first.max_descent_mps, second.max_descent_mps),
+            max_acceleration_mps2=cap(first.max_acceleration_mps2, second.max_acceleration_mps2),
+            max_angular_rate_dps=cap(first.max_angular_rate_dps, second.max_angular_rate_dps),
+            min_airspeed_mps=low(first.min_airspeed_mps, second.min_airspeed_mps),
+            max_airspeed_mps=high(first.max_airspeed_mps, second.max_airspeed_mps),
+            landing_pad=second.landing_pad,
+            hold_revalidation_enforced=hold_revalidation_enforced,
+            failure_revalidation_enforced=False,
+        )
+
+    def _corridor_native_sweep(self, decision, frame, *, start, orbit, observed_home):
+        """One reviewed v2 native RTL sweep from a live fix or Hold centre."""
+        if self._corridor_rtl is None or self.pad is None:
+            return None
+        if frame.vtol_state != "fw" or not self._airspeed_ok(
+                frame, self.builder.profile.min_airspeed_mps, self.builder.profile.max_airspeed_mps):
+            return None
+        return self._corridor_rtl.corridor_sweep(
+            decision, frame, start=start, orbit=orbit, observed_home=observed_home,
+            pad=self.pad, profile=self.builder.profile)
+
+    def _corridor_hold_proof(self, decision, frame):
+        closed = replace(self.builder.build(decision, frame, None), basis=self.basis)
+        index, start = frame.active_motion_index, frame.position_ne_amsl
+        if (not self._corridor_rtl_available() or start is None or frame.vtol_state != "fw"
+                or frame.native_hold_active):
+            return closed
+        ref = decision.params.get("hold_ref")
+        bound = self.holds.get(ref)
+        if (bound is None or bound.site.mode != "fw" or bound.centre is None
+                or frame.hold_sites.get(ref) != bound.site
+                or not _contains(bound.entry, start)
+                or not self._entered(self._hold_key(ref, None), start)
+                or not self._airspeed_ok(frame, *bound.airspeed)
+                or not self.builder.corridor_hold_clear(bound)):
+            return closed
+        hold_leg = SweptLeg("fw", start, bound.centre, bound.padding_ne_m, bound.padding_alt_m,
+                            bound.duration_s, bound.peak_power_w)
+        native = self._corridor_native_sweep(
+            decision, frame, start=bound.centre, orbit=bound.centre, observed_home=self.pad.point)
+        if native is None:
+            return closed
+        hold_sweep = self._sweep(decision, frame, (hold_leg,), bound, low=bound.airspeed[0],
+                                 high=bound.airspeed[1], pad=self.pad, hold_revalidation_enforced=True)
+        combined = self._stricter_sweep(
+            hold_sweep, native, (*hold_sweep.legs, *native.legs),
+            hold_revalidation_enforced=True)
+        return replace(self.builder.build(decision, frame, combined), basis=self.basis)
+
+    def _corridor_return_proof(self, decision, frame):
+        closed = replace(self.builder.build(decision, frame, None), basis=self.basis)
+        index, start = frame.active_motion_index, frame.position_ne_amsl
+        entry = self._fw_rtl_entry
+        if (not self._corridor_rtl_available() or entry is None or start is None
+                or frame.native_hold_active is not True):
+            return closed
+        entry_point, entry_index, entry_key, hold, observed_home = entry
+        if (entry_point != start or entry_index != index or entry_key is not None
+                or hold.site.mode != "fw" or hold.centre is None
+                or not self._airspeed_ok(frame, *hold.airspeed)
+                or not self.builder.corridor_rtl_clear(index, start)):
+            return closed
+        sweep = self._corridor_native_sweep(
+            decision, frame, start=start, orbit=hold.centre, observed_home=observed_home)
+        if sweep is None:
+            return closed
+        return replace(self.builder.build(decision, frame, sweep, native_fw_rtl=True), basis=self.basis)
 
     def _corridor_continue_sweep(self, decision, frame, index, start):
         """Rebuild the remaining corridor from this live fix using slice_leg."""
