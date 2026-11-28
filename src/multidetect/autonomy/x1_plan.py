@@ -416,6 +416,8 @@ def _x1_corridor_violations(plan: MissionPlan, package: MissionPackage,
     path = _success_path(plan)
 
     work_steps = path[2:-2]
+    if not work_steps:
+        return findings  # The base path reports the malformed sequence.
     fw_count = sum(step.skill == "fw_goto_waypoint" for step in work_steps)
     if fw_count > corridor.max_fw_legs:
         add("X1_CORRIDOR_LEGS", None,

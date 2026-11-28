@@ -95,16 +95,21 @@ def _single_waypoint_plan():
     ), ())
 
 
+def _template_constants():
+    """Energy constants with the template's FW leg proof power (the check reads the template)."""
+    return replace(default_constants(), fw_peak_power_w=CORRIDOR["fw_leg_peak_power_w"])
+
+
 def test_corridor_template_defaults_to_gate_off():
     assert CORRIDOR["standoff_gate_enabled"] is False
-    assert CORRIDOR["fw_leg_peak_power_w"] == 344.0
+    assert CORRIDOR["fw_leg_peak_power_w"] == 500.0
     assert CORRIDOR["standoff_m"] == 252.5
     assert CORRIDOR["max_sweep_legs"] == 384
 
 
 def test_default_standoff_gate_does_not_relax_the_mc_return_item():
     """The proof precheck keeps the runout MC item unless the gate is enabled."""
-    constants = default_constants()
+    constants = _template_constants()
     runout_limit = max_one_way_m("proof", agl_m=60.0, ground_high_m=10.0, constants=constants)
     gate_limit = max_one_way_m(
         "proof", agl_m=60.0, ground_high_m=10.0, standoff_m=252.5, constants=constants)
@@ -142,7 +147,7 @@ def test_gate_does_not_shorten_a_return_that_has_no_fw_home_leg():
 
 
 def test_proof_energy_one_metre_over_limit():
-    constants = default_constants()
+    constants = _template_constants()
     limit = max_one_way_m("proof", agl_m=60.0, ground_high_m=10.0, constants=constants)
     under = _package({"poi:far": [limit - 1.0, 0.0]})
     over = _package({"poi:far": [limit + 1.0, 0.0]})
@@ -151,14 +156,17 @@ def test_proof_energy_one_metre_over_limit():
 
 
 def test_dogleg_energy_uses_path_length_not_displacement():
-    straight = _package({"poi:a": [700.0, 0.0]})
-    dogleg = _package({"poi:a": [0.0, 700.0], "poi:b": [700.0, 0.0]})
+    limit = max_one_way_m("proof", agl_m=60.0, ground_high_m=10.0, constants=_template_constants())
+    distance = 0.8 * limit
+    straight = _package({"poi:a": [distance, 0.0]})
+    dogleg = _package({"poi:a": [0.0, distance], "poi:b": [distance, 0.0]})
     assert _codes(straight, ["poi:a", "home"]) == set()
     assert _codes(dogleg, ["poi:a", "poi:b", "home"]) == {"X1_ENERGY_PROOF"}
 
 
 def test_observation_diversion_counts_in_proof_energy():
-    package = _package({"poi:a": [700.0, 0.0], "poi:b": [0.0, 700.0]})
+    limit = max_one_way_m("proof", agl_m=60.0, ground_high_m=10.0, constants=_template_constants())
+    package = _package({"poi:a": [0.6 * limit, 0.0], "poi:b": [0.0, 0.6 * limit]})
     direct = _plan(["poi:a", "home"])
     observation = MissionStep(
         "orbit", "loiter_observe", {"target_ref": "poi:b", "altitude_agl_m": 60.0,
