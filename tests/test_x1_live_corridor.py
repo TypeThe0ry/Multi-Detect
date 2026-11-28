@@ -26,8 +26,8 @@ LIMITS = dict(vertical_tracking_m=10, orbit_tracking_m=40, fw_tracking_m=55,
               transition_s=12, mc_s=90, landing_s=85)
 
 
-def _live(terrain, profile, *, corridor=CORRIDOR, failure=True, obstacles=()):
-    places = {"poi:out": [500, 0], "poi:dogleg": [500, 500]}
+def _live(terrain, profile, *, corridor=CORRIDOR, failure=True, obstacles=(), places=None):
+    places = {"poi:out": [500, 0], "poi:dogleg": [500, 500]} if places is None else places
     seed = _package(places, corridor=corridor)
     bounds = _document(terrain)["x1_live_evidence"]
     bounds.update(basis="ASSUMED_SIM", assumed_bounds_sha256=SHA,
@@ -136,6 +136,27 @@ def test_live_continue_reverse_wind_and_later_ticks(terrain, profile):
         previous = later
     too_strong = replace(wind, ned_mps=(8 / math.sqrt(2), 8 / math.sqrt(2), None))
     assert _tick(evidence, package, start, 1, "fw", wind=too_strong)[0].required_time_s is None
+
+
+@pytest.mark.parametrize("gate", [False, True])
+def test_live_continue_remaining_demand_is_monotone_by_leg(terrain, profile, gate):
+    # A6: a passing first continue tick implies every later continue tick fits
+    # the same energy/time budget as the route gets shorter.
+    places = {"poi:out": [300, 0], "poi:dogleg": [300, 300]}
+    evidence, lowering, package = _live(terrain, profile, places=places,
+                                        corridor=replace(CORRIDOR, standoff_gate_enabled=gate))
+    previous = None
+    ticks = [(leg.start_amsl, leg.index, "fw") for leg in lowering.legs]
+    ticks.append((lowering.legs[-1].end_amsl, len(lowering.legs) + 1, "fw"))
+    ticks.append((evidence._corridor_runout_end(), len(lowering.legs) + 2, "mc"))
+    for point, index, mode in ticks:
+        proof, frame, decision = _tick(evidence, package, point, index, mode)
+        _assert_open(proof)
+        assert X1Envelope(profile).veto(decision, frame, proof, package) is None
+        if previous is not None:
+            assert proof.required_time_s <= previous.required_time_s + 1e-9
+            assert proof.required_energy_wh <= previous.required_energy_wh + 1e-9
+        previous = proof
 
 
 def test_installed_continue_compares_only_command_ends(terrain, profile, monkeypatch):
